@@ -1,0 +1,46 @@
+{
+  "enabled": false,
+  "exchange": "bitget",
+  "marketType": "swap",
+  "symbol": "BTC/USDT:USDT",
+  "marginMode": "isolated",
+  "leverage": 2,
+  "positionMode": "hedge",
+  "mode": "auto",
+
+  "maxTradesPerDay": 60,
+  "minIntervalMinutes": 3,
+
+  "order": {
+    "type": "market",
+    "notionalUSDT": 8
+  },
+
+  "risk": {
+    "mode": "atr",
+
+    "atr": { "tf": "1h", "period": 14 },
+    "stopAtrMult": 1.8,
+    "takeProfitAtrMult": 6.0,
+
+    "maxHoldMinutes": 14400,
+    "timeoutMinPnlUSDT": 0.02,
+    "maxDailyLossUSDT": 2,
+
+    "trailing": {
+      "enabled": true,
+      "activateAtAtr": 1.2,
+      "trailAtrMult": 2.2,
+      "timeoutTrailPct": 0.0025
+    },
+
+    "reverseSignal": { "confirmations": 999 },
+
+    "fallback": {
+      "stopLossPct": 0.02,
+      "takeProfitPct": 0.2,
+      "activationProfitPct": 0.01,
+      "trailPct": 0.008
+    }
+  }
+}

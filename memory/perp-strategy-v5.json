@@ -1,0 +1,59 @@
+{
+  "$schema": "perp-strategy.v5",
+  "enabled": true,
+  "symbol": "BTC/USDT:USDT",
+  "name": "V5: High-frequency swing (trend filter 4H + entry 1H breakout/pullback + ATR exits)",
+
+  "timeframes": {
+    "bias": "4h",
+    "trade": "1h"
+  },
+
+  "bias": {
+    "ema": { "fast": 20, "slow": 50 },
+    "adx": { "tf": "4h", "period": 14, "min": 18 },
+    "allowSides": ["long", "short"],
+    "notes": "目标更高频：用4H EMA20/50 + ADX过滤震荡区。"
+  },
+
+  "entry": {
+    "mode": "donchian_breakout_close",
+    "donchian": { "lookback": 20 },
+    "cooldownBars": 2,
+    "notes": "1H Donchian 20 收盘突破；cooldown 防止连续追单。"
+  },
+
+  "exit": {
+    "mode": "atr_trailing_primary",
+    "donchianOpposite": { "enabled": false, "lookback": 20 },
+    "timeoutBars": 24,
+    "notes": "主要用ATR trailing + timeout；可选加反向Donchian作为兜底。"
+  },
+
+  "risk": {
+    "atr": { "tf": "1h", "period": 14 },
+    "initialStop": { "mult": 1.8 },
+    "trailing": { "enabled": true, "mult": 1.8, "activateAtAtr": 0.8 }
+  },
+
+  "sizing": {
+    "mode": "risk",
+    "startEquityUSDT": 20,
+    "riskPct": 0.015,
+    "maxLeverage": 10,
+    "minNotionalUSDT": 5,
+    "maxNotionalUSDT": 80,
+    "lossStreakThrottle": { "enabled": true, "after": 3, "riskPct": 0.008 }
+  },
+
+  "costs": {
+    "feePct": 0.0004,
+    "slippagePct": 0.0003
+  },
+
+  "targets": {
+    "tradeCount180d": { "min": 200, "max": 500 }
+  },
+
+  "notes": "V5 用更低周期提升交易频率（B档：180d 200~500笔）。回测将包含成本+滚仓，并输出trades、PnL、DD。"
+}

@@ -1,0 +1,35 @@
+# deps
+node_modules/
+
+# runtime scratch
+tmp/
+.tmp/
+*.log
+
+# local memory/state/logs (DO NOT COMMIT)
+memory/*.json
+memory/*.jsonl
+memory/*.txt
+memory/*.stdin
+memory/*.stdout
+memory/.tmp-*
+memory/_*
+memory/tmp-*
+memory/last-*
+memory/*.tmp
+memory/*.md
+!memory/PERP-ARCHITECTURE.md
+!memory/perp-tradeplan.v1.md
+!memory/perp-strategy-v5.json
+
+# workspace scratch files
+.last_*.json
+.last_*.txt
+.tmp-*.json
+.tmp-*.txt
+.tmp-perp-*.json
+.tmp-perp-*.txt
+tmp-*.json
+tmp-*.txt
+perp-cycle.stdout.json
+MEMORY.md
