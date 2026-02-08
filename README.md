@@ -29,6 +29,7 @@ This repo contains the **core architecture** for a Bitget **USDT-margined perpet
 
 - `scripts/perp-engine.js`
   - Convenience wrapper: `run-perp-cycle.js` → feed JSON to `bitget-perp-autotrade.js`
+  - Appends each run to `memory/bitget-perp-cycle-decisions.jsonl` for decision visualization
 
 ### Strategy / signal scripts (swappable)
 - `scripts/market-perp-signal-v2.js`
@@ -140,6 +141,19 @@ PERP_SIGNAL=v5 DRY_RUN=1 node scripts/perp-engine.js
 ```bash
 node scripts/bitget-perp-position-guard.js
 ```
+
+### 5.5 决策可视化（K 线 + 决策点）
+
+每次运行 `perp-engine.js` 会往 `memory/bitget-perp-cycle-decisions.jsonl` 追加一条决策记录。数据与展示分离：数据写入 `memory/report/decisions.json` 与 `memory/report/ohlcv.json`，展示页通过 fetch 加载，需本地服务打开。
+
+```bash
+node scripts/perp-report.js                    # 更新数据 + 生成展示页 + 启动服务，浏览器打开 http://localhost:8765
+node scripts/perp-report.js data [maxDecisions] # 仅更新数据
+node scripts/perp-report.js viewer              # 仅生成 report/index.html
+node scripts/perp-report.js serve [port]        # 仅启动服务
+```
+
+页面可切换 K 线周期，悬停决策点显示详情，点击放大该段。
 
 ---
 

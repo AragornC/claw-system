@@ -17,6 +17,7 @@ memory/_*
 memory/tmp-*
 memory/last-*
 memory/*.tmp
+memory/*.html
 memory/*.md
 !memory/PERP-ARCHITECTURE.md
 !memory/perp-tradeplan.v1.md

@@ -152,12 +152,12 @@ async function main() {
   const eS = emaS4[i4];
   const adx = adx4[i4];
   if (!(Number.isFinite(eF) && Number.isFinite(eS) && Number.isFinite(adx)) || adx < ADX_MIN) {
-    process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'bias_filtered', bias: { eF, eS, adx } }, null, 2));
+    process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'bias_filtered', bias: { eF, eS, adx }, meta: { calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx } } }, null, 2));
     return;
   }
   const bias = eF > eS ? 'long' : (eF < eS ? 'short' : 'none');
   if (bias === 'none') {
-    process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'bias_none' }, null, 2));
+    process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'bias_none', meta: { calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx } } }, null, 2));
     return;
   }
 
@@ -199,7 +199,10 @@ async function main() {
         process.stdout.write(JSON.stringify({
           ok: true,
           alerts: [{ key: 'BTC', symbol: 'BTCUSDT', side: 'long', level: 'strong', reason: `v5 retest: bias=long; breakout@${new Date(Number(o1h[breakout.atI][0])).toISOString()}; level=${breakout.level.toFixed(2)}; tol=${tol.toFixed(2)}` }],
-          meta: { bias, adx, breakout }
+          meta: {
+            bias, adx, breakout,
+            calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx, '1H_ATR': atr, '突破位': breakout.level, '容差': tol, '收盘': close, '高': high, '低': low },
+          }
         }, null, 2));
         return;
       }
@@ -210,7 +213,10 @@ async function main() {
         process.stdout.write(JSON.stringify({
           ok: true,
           alerts: [{ key: 'BTC', symbol: 'BTCUSDT', side: 'short', level: 'strong', reason: `v5 retest: bias=short; breakout@${new Date(Number(o1h[breakout.atI][0])).toISOString()}; level=${breakout.level.toFixed(2)}; tol=${tol.toFixed(2)}` }],
-          meta: { bias, adx, breakout }
+          meta: {
+            bias, adx, breakout,
+            calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx, '1H_ATR': atr, '突破位': breakout.level, '容差': tol, '收盘': close, '高': high, '低': low },
+          }
         }, null, 2));
         return;
       }
@@ -229,7 +235,7 @@ async function main() {
           process.stdout.write(JSON.stringify({
             ok: true,
             alerts: [{ key: 'BTC', symbol: 'BTCUSDT', side: 'long', level: 'strong', reason: `v5 reentry: bias=long; ema${REENTRY_EMA}=${e.toFixed(2)}; tol=${tol.toFixed(2)}` }],
-            meta: { bias, adx }
+            meta: { bias, adx, calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx, ['1H_EMA' + REENTRY_EMA]: e, '1H_ATR': atr, '容差': tol, '收盘': close, '高': high, '低': low } }
           }, null, 2));
           return;
         }
@@ -240,7 +246,7 @@ async function main() {
           process.stdout.write(JSON.stringify({
             ok: true,
             alerts: [{ key: 'BTC', symbol: 'BTCUSDT', side: 'short', level: 'strong', reason: `v5 reentry: bias=short; ema${REENTRY_EMA}=${e.toFixed(2)}; tol=${tol.toFixed(2)}` }],
-            meta: { bias, adx }
+            meta: { bias, adx, calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx, ['1H_EMA' + REENTRY_EMA]: e, '1H_ATR': atr, '容差': tol, '收盘': close, '高': high, '低': low } }
           }, null, 2));
           return;
         }
@@ -248,7 +254,7 @@ async function main() {
     }
   }
 
-  process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'no_setup', meta: { bias, adx, ts } }, null, 2));
+  process.stdout.write(JSON.stringify({ ok: true, alerts: [], note: 'no_setup', meta: { bias, adx, ts, calc: { '4H_EMA快': eF, '4H_EMA慢': eS, '4H_ADX': adx, '1H_ATR': atr, '收盘': close, '高': high, '低': low } } }, null, 2));
 }
 
 main().catch((e) => {

@@ -81,6 +81,7 @@ async function main() {
         blockReasons: newsJson.blockReasons,
         windowHours: newsJson.windowHours,
         recencyMinutes: newsJson.recencyMinutes,
+        items: Array.isArray(newsJson.items) ? newsJson.items.slice(0, 50) : [],
       }
     : { ok: false, error: newsJson?.error || 'news_unavailable' };
 
@@ -126,6 +127,7 @@ async function main() {
     // Keep raw context for debug/audit. Execution layer can choose to ignore.
     news,
     alerts,
+    signalMeta: sigJson ? { note: sigJson.note, bias: sigJson.bias, meta: sigJson.meta } : null,
   };
 
   process.stdout.write(JSON.stringify(tradePlan, null, 2));
