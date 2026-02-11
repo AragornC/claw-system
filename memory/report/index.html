@@ -167,6 +167,10 @@
 
     function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol) {
       const isTouchDevice = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+      const RECORDS_WITH_TS = RECORDS
+        .filter(r => r && r.ts && !r.stage)
+        .map(r => ({ r, tsSec: Math.floor(new Date(r.ts).getTime() / 1000) }))
+        .filter(x => Number.isFinite(x.tsSec));
       document.getElementById('meta-symbol').textContent = symbol + (isTouchDevice
         ? ' · 手机端：点击决策点或下方记录看详情，双指缩放 K 线'
         : ' · 鼠标悬停决策点显示详情，点击可放大该段');
@@ -205,7 +209,7 @@
         currentTf = tf;
         currentOhlcv = OHLCV_BY_TF[tf] || [];
         candleSeries.setData(currentOhlcv);
-        candleSeries.setMarkers((MARKERS_BY_TF[tf] || []).map(m => ({ ...m, time: m.time })));
+        candleSeries.setMarkers((MARKERS_BY_TF[tf] || []).map(m => ({ ...m, time: m.time, size: isTouchDevice ? 1.2 : 0.75 })));
         chart.timeScale().fitContent();
         if (typeof clearDecisionPriceLines === 'function') clearDecisionPriceLines();
       }
@@ -469,14 +473,27 @@
         popoverPinned = true;
       }
       function hidePopover() { popoverPinned = false; clearDecisionPriceLines(); popover.classList.remove('visible'); if (typeof hideCalcTooltip === 'function') hideCalcTooltip(); }
-      function getRecordAtCoord(x) {
+      function getRecordAtCoord(x, fuzzyBars) {
+        const fuzz = Number.isFinite(Number(fuzzyBars)) ? Math.max(0, Number(fuzzyBars)) : 0;
         const time = chart.timeScale().coordinateToTime(x);
         if (time === null || time === undefined) return null;
         const t = typeof time === 'number' ? time : (time && time.year ? new Date(time.year, (time.month || 1) - 1, time.day || 1).getTime() / 1000 : 0);
+        if (!(Number.isFinite(t) && t > 0)) return null;
         const tfSec = TF_SECONDS[currentTf] || 3600;
         const barStart = Math.floor(t / tfSec) * tfSec, barEnd = barStart + tfSec;
-        const matched = RECORDS.filter(r => { if (!r.ts || r.stage) return false; const ts = new Date(r.ts).getTime() / 1000; return ts >= barStart && ts < barEnd; });
-        return matched.length ? matched[matched.length - 1] : null;
+        const inWindow = (ts, bStart, bEnd) => ts >= bStart && ts < bEnd;
+        let matched = RECORDS_WITH_TS.filter(x => inWindow(x.tsSec, barStart, barEnd));
+        if (!matched.length && fuzz > 0) {
+          for (let d = 1; d <= fuzz; d++) {
+            const leftStart = barStart - d * tfSec;
+            const leftEnd = barEnd - d * tfSec;
+            const rightStart = barStart + d * tfSec;
+            const rightEnd = barEnd + d * tfSec;
+            matched = RECORDS_WITH_TS.filter(x => inWindow(x.tsSec, leftStart, leftEnd) || inWindow(x.tsSec, rightStart, rightEnd));
+            if (matched.length) break;
+          }
+        }
+        return matched.length ? matched[matched.length - 1].r : null;
       }
       let hidePopoverTimer = null;
       chart.subscribeCrosshairMove(function(param) {
@@ -484,14 +501,14 @@
         const rect = chartWrap.getBoundingClientRect();
         if (!param.point) { if (hidePopoverTimer) clearTimeout(hidePopoverTimer); hidePopoverTimer = setTimeout(hidePopover, 80); return; }
         if (hidePopoverTimer) { clearTimeout(hidePopoverTimer); hidePopoverTimer = null; }
-        const record = getRecordAtCoord(param.point.x);
+        const record = getRecordAtCoord(param.point.x, 0);
         if (!record) { hidePopover(); return; }
         showPopoverAt(record, rect.left + param.point.x, rect.top + param.point.y);
       });
       popover.addEventListener('mouseenter', function() { if (hidePopoverTimer) { clearTimeout(hidePopoverTimer); hidePopoverTimer = null; } });
       chart.subscribeClick(function(param) {
         if (!param.point) return;
-        const record = getRecordAtCoord(param.point.x);
+        const record = getRecordAtCoord(param.point.x, isTouchDevice ? 2 : 1);
         if (record) { showPopoverPinned(record); }
         const time = chart.timeScale().coordinateToTime(param.point.x);
         if (time == null) return;

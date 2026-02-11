@@ -25,8 +25,8 @@ const MAX_DECISIONS = Math.min(1000, Math.max(50, parseInt(process.argv[2], 10) 
 const SYMBOL = process.env.PERP_CHART_SYMBOL || 'BTC/USDT:USDT';
 
 const TF_CONFIG = [
-  { key: '1m', limit: 120 },
-  { key: '5m', limit: 200 },
+  { key: '1m', limit: 480 },
+  { key: '5m', limit: 320 },
   { key: '15m', limit: 200 },
   { key: '1h', limit: 300 },
   { key: '4h', limit: 150 },
