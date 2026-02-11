@@ -8,12 +8,12 @@
   <style>
     :root { --bg: #0f1419; --card: #1a2332; --border: #2d3a4f; --text: #e6edf3; --muted: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
     * { box-sizing: border-box; }
-    body { font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; line-height: 1.5; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
     h1 { font-size: 1.25rem; margin: 0 0 4px; }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
     .chart-header select { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 0.875rem; cursor: pointer; }
-    #chart-wrap { height: 420px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; }
+    #chart-wrap { height: clamp(300px, 52vh, 460px); margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; touch-action: manipulation; }
     #detail-popover { display: none; position: absolute; z-index: 100; min-width: 320px; max-width: 420px; max-height: min(75vh, 380px); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 0.8125rem; }
     #detail-popover.visible { display: block; }
     #detail-popover .popover-close { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 4px; }
@@ -76,13 +76,38 @@
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
     .load-error pre { font-size: 0.75rem; margin-top: 8px; }
+    @media (max-width: 768px) {
+      body { padding: 10px; }
+      h1 { font-size: 1.05rem; margin-bottom: 6px; }
+      .chart-header { gap: 8px; margin-bottom: 6px; }
+      .chart-header .meta { font-size: 0.75rem; line-height: 1.35; }
+      .chart-header select { font-size: 16px; padding: 8px 10px; }
+      #chart-wrap { height: min(56vh, 420px); min-height: 280px; border-radius: 10px; }
+      #detail-popover { position: fixed; left: 8px !important; right: 8px !important; bottom: 8px !important; top: auto !important; width: auto !important; max-width: none; max-height: 68vh; border-radius: 12px; z-index: 300; }
+      #detail-popover .popover-close { font-size: 1.25rem; padding: 8px; top: 4px; right: 4px; }
+      #indicator-hover-tooltip { display: none !important; }
+      .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+      .filters label { font-size: 0.8rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); white-space: nowrap; }
+      .filters input { width: 16px; height: 16px; }
+      #table-wrap { display: block !important; }
+      #table-wrap thead { display: none; }
+      #table-wrap tbody,
+      #table-wrap tr,
+      #table-wrap td { display: block; width: 100%; }
+      #table-wrap tr { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 6px 8px; }
+      #table-wrap td { border-bottom: 0; padding: 6px 4px; display: flex; gap: 8px; align-items: flex-start; }
+      #table-wrap td::before { content: attr(data-label); color: var(--muted); min-width: 44px; flex: 0 0 44px; }
+      #table-wrap td.reason { max-width: none; }
+      #table-wrap .ts { white-space: normal; }
+      #table-wrap .detail { margin-top: 0; }
+    }
   </style>
 </head>
 <body>
   <h1>Perp K 线 + 决策点</h1>
   <div class="chart-header">
     <select id="tf-select"><option value="1m" selected>分时(1分钟)</option><option value="5m">5分钟</option><option value="15m">15分钟</option><option value="1h">1小时</option><option value="4h">4小时</option><option value="1d">日线</option></select>
-    <span class="meta" id="meta-symbol">· 鼠标悬停决策点显示详情，点击可放大该段</span>
+    <span class="meta" id="meta-symbol">· 电脑可悬停，手机可点击决策点/记录看详情</span>
   </div>
   <div id="chart-wrap"><p class="load-error">加载中…</p></div>
   <div id="indicator-hover-tooltip"></div>
@@ -141,7 +166,10 @@
     }
 
     function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol) {
-      document.getElementById('meta-symbol').textContent = symbol + ' · 鼠标悬停决策点显示详情，点击可放大该段';
+      const isTouchDevice = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+      document.getElementById('meta-symbol').textContent = symbol + (isTouchDevice
+        ? ' · 手机端：点击决策点或下方记录看详情，双指缩放 K 线'
+        : ' · 鼠标悬停决策点显示详情，点击可放大该段');
       document.getElementById('chart-wrap').innerHTML = '<div id="detail-popover"></div>';
       document.getElementById('filters').style.display = 'flex';
       document.getElementById('table-wrap').style.display = 'table';
@@ -161,6 +189,17 @@
         timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false },
       });
       const candleSeries = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false });
+      function resizeChart() {
+        const w = Math.floor(chartEl.clientWidth || chartWrap.clientWidth || 0);
+        const h = Math.floor(chartEl.clientHeight || chartWrap.clientHeight || 0);
+        if (w > 0 && h > 0) chart.applyOptions({ width: w, height: h });
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(resizeChart);
+        ro.observe(chartEl);
+      }
+      window.addEventListener('resize', resizeChart, { passive: true });
+      resizeChart();
 
       function setTf(tf) {
         currentTf = tf;
@@ -399,6 +438,9 @@
         popover.innerHTML = renderDetailCard(record);
         popover.classList.add('visible');
         applyDecisionPriceLines(record);
+        popover.style.right = '';
+        popover.style.bottom = '';
+        popover.style.width = '';
         var left = clientX - rect.left + 12, top = clientY - rect.top - 8;
         if (left + 320 > rect.width) left = rect.width - 330;
         if (top < 8) top = 8;
@@ -411,7 +453,19 @@
         popover.innerHTML = renderDetailCard(record);
         popover.classList.add('visible');
         applyDecisionPriceLines(record);
-        popover.style.left = (rect.width - 340) + 'px'; popover.style.top = '8px';
+        if (isTouchDevice) {
+          popover.style.left = '8px';
+          popover.style.right = '8px';
+          popover.style.bottom = '8px';
+          popover.style.top = 'auto';
+          popover.style.width = 'auto';
+        } else {
+          popover.style.right = '';
+          popover.style.bottom = '';
+          popover.style.width = '';
+          popover.style.left = Math.max(8, rect.width - 340) + 'px';
+          popover.style.top = '8px';
+        }
         popoverPinned = true;
       }
       function hidePopover() { popoverPinned = false; clearDecisionPriceLines(); popover.classList.remove('visible'); if (typeof hideCalcTooltip === 'function') hideCalcTooltip(); }
@@ -426,7 +480,7 @@
       }
       let hidePopoverTimer = null;
       chart.subscribeCrosshairMove(function(param) {
-        if (popoverPinned) return;
+        if (isTouchDevice || popoverPinned) return;
         const rect = chartWrap.getBoundingClientRect();
         if (!param.point) { if (hidePopoverTimer) clearTimeout(hidePopoverTimer); hidePopoverTimer = setTimeout(hidePopover, 80); return; }
         if (hidePopoverTimer) { clearTimeout(hidePopoverTimer); hidePopoverTimer = null; }
@@ -468,7 +522,7 @@
         let news = r.decision ? (r.decision.blockedByNews ? '<span class="badge no">拦截</span>' + (r.decision.newsReason?.length ? '<div class="detail">' + escapeHtml(r.decision.newsReason.slice(0, 2).join('; ')) + '</div>' : '') : '<span class="badge yes">放行</span>') : '-';
         let exec = '-', reason = '-';
         if (r.executor) { const e = r.executor; if (e.executed) exec = '<span class="badge yes">已下单</span>'; else if (e.dryRun && (e.wouldOpenPosition || e.reason === 'dry_run_open')) exec = '<span class="badge dry">Dry-run 会开仓</span>'; else if (e.skipped) exec = '<span class="badge no">未下单</span>'; reason = e.reason ? escapeHtml(e.reason) : '-'; if (e.dailyRealizedPnlUSDT != null) reason += ' <span class="detail">日盈亏 ' + Number(e.dailyRealizedPnlUSDT).toFixed(2) + ' USDT</span>'; } else if (r.error) reason = escapeHtml(r.error);
-        return '<tr class="' + cls + '" data-index="' + index + '"' + tsAttr + '><td class="ts">' + ts + '</td><td>' + signal + '</td><td>' + plan + '</td><td>' + news + '</td><td>' + exec + '</td><td class="reason">' + reason + '</td></tr>';
+        return '<tr class="' + cls + '" data-index="' + index + '"' + tsAttr + '><td class="ts" data-label="时间">' + ts + '</td><td data-label="信号">' + signal + '</td><td data-label="计划">' + plan + '</td><td data-label="新闻">' + news + '</td><td data-label="执行">' + exec + '</td><td class="reason" data-label="原因">' + reason + '</td></tr>';
       }
       function render() {
         let list = RECORDS.slice().reverse();
@@ -479,7 +533,7 @@
         if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="6" class="empty">无记录或过滤后为空</td></tr>'; return; }
         tbody.innerHTML = list.map((r, i) => row(r, i)).join('');
         function barIndexForTime(tsStr) { const t = Math.floor(new Date(tsStr).getTime() / 1000); for (let i = currentOhlcv.length - 1; i >= 0; i--) if (currentOhlcv[i].time <= t) return i; return 0; }
-        tbody.querySelectorAll('tr[data-ts]').forEach(tr => { tr.addEventListener('click', () => { tbody.querySelectorAll('tr').forEach(t => t.classList.remove('highlight')); tr.classList.add('highlight'); const ts = tr.getAttribute('data-ts'); if (!ts) return; const idx = barIndexForTime(ts); chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, idx - 25), to: Math.min(currentOhlcv.length, idx + 8) }); }); });
+        tbody.querySelectorAll('tr[data-ts]').forEach(tr => { tr.addEventListener('click', () => { tbody.querySelectorAll('tr').forEach(t => t.classList.remove('highlight')); tr.classList.add('highlight'); const ts = tr.getAttribute('data-ts'); if (!ts) return; const idx = barIndexForTime(ts); chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, idx - 25), to: Math.min(currentOhlcv.length, idx + 8) }); const record = RECORDS.find(r => r && r.ts === ts && !r.stage); if (record) showPopoverPinned(record); }); });
       }
       [filterExecuted, filterSkipped, filterSignal, filterErrors].filter(Boolean).forEach(el => el.addEventListener('change', render));
       render();
