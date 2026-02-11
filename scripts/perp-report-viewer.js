@@ -86,6 +86,40 @@ const HTML = `<!DOCTYPE html>
     #indicator-hover-tooltip .calc-tt-close { display: none; margin-top: 6px; padding: 4px 10px; font-size: 0.7rem; background: var(--border); border: none; border-radius: 4px; color: var(--text); cursor: pointer; }
     #indicator-hover-tooltip.pinned .calc-tt-close { display: inline-block; }
     #detail-popover .logic-result-block { margin-top: 6px; padding: 8px; background: rgba(63,185,80,0.08); border-radius: 4px; border-left: 3px solid var(--green); font-size: 0.75rem; line-height: 1.5; }
+    #detail-popover .summary-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    #detail-popover .summary-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 0.72rem; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); }
+    #detail-popover .summary-chip.k { color: var(--muted); font-size: 0.68rem; }
+    #detail-popover .decision-tree-wrap { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    #detail-popover .decision-tree-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    #detail-popover .decision-tree-title { color: var(--text); font-weight: 600; font-size: 0.82rem; }
+    #detail-popover .decision-tree-sub { color: var(--muted); font-size: 0.7rem; }
+    #detail-popover .decision-tree { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+    #detail-popover .dt-node { min-width: 210px; flex: 0 0 210px; border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.16); padding: 8px; }
+    #detail-popover .dt-node.pass { border-color: rgba(63,185,80,0.5); background: rgba(63,185,80,0.08); }
+    #detail-popover .dt-node.fail { border-color: rgba(248,81,73,0.5); background: rgba(248,81,73,0.08); }
+    #detail-popover .dt-node.warn { border-color: rgba(210,153,34,0.5); background: rgba(210,153,34,0.08); }
+    #detail-popover .dt-node.neutral { border-color: rgba(139,148,158,0.45); background: rgba(139,148,158,0.06); }
+    #detail-popover .dt-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    #detail-popover .dt-step { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.66rem; color: var(--text); border: 1px solid var(--border); background: rgba(0,0,0,0.25); }
+    #detail-popover .dt-label { font-size: 0.75rem; font-weight: 600; flex: 1; min-width: 0; }
+    #detail-popover .dt-state { font-size: 0.65rem; border-radius: 999px; padding: 1px 6px; border: 1px solid transparent; }
+    #detail-popover .dt-node.pass .dt-state { color: var(--green); border-color: rgba(63,185,80,0.5); }
+    #detail-popover .dt-node.fail .dt-state { color: var(--red); border-color: rgba(248,81,73,0.5); }
+    #detail-popover .dt-node.warn .dt-state { color: var(--yellow); border-color: rgba(210,153,34,0.5); }
+    #detail-popover .dt-node.neutral .dt-state { color: var(--muted); border-color: rgba(139,148,158,0.45); }
+    #detail-popover .dt-desc { font-size: 0.74rem; line-height: 1.35; color: var(--text); word-break: break-word; }
+    #detail-popover .dt-extra { margin-top: 4px; font-size: 0.68rem; color: var(--muted); word-break: break-word; }
+    #detail-popover .dt-arrow { align-self: center; flex: 0 0 auto; color: var(--muted); font-size: 0.95rem; }
+    #detail-popover details.fold { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.12); overflow: hidden; }
+    #detail-popover details.fold > summary { cursor: pointer; list-style: none; padding: 8px 10px; font-size: 0.76rem; color: var(--text); border-bottom: 1px solid transparent; }
+    #detail-popover details.fold > summary::-webkit-details-marker { display: none; }
+    #detail-popover details.fold > summary::after { content: '▾'; float: right; color: var(--muted); }
+    #detail-popover details.fold[open] > summary { border-bottom-color: var(--border); }
+    #detail-popover details.fold[open] > summary::after { content: '▴'; }
+    #detail-popover .fold-body { padding: 8px 10px; }
+    #detail-popover .compact-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 0.74rem; }
+    #detail-popover .compact-kv .k { color: var(--muted); }
+    #detail-popover .compact-kv .v { color: var(--text); word-break: break-word; }
     .filters { margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .filters label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
     .filters input { accent-color: var(--green); }
@@ -115,6 +149,9 @@ const HTML = `<!DOCTYPE html>
       #detail-popover { position: fixed; left: 8px !important; right: 8px !important; bottom: 8px !important; top: auto !important; width: auto !important; max-width: none; max-height: 68vh; border-radius: 12px; z-index: 300; }
       #detail-popover .popover-close { font-size: 1.25rem; padding: 8px; top: 4px; right: 4px; }
       #indicator-hover-tooltip { display: none !important; }
+      #detail-popover .decision-tree { flex-direction: column; gap: 4px; overflow-x: hidden; }
+      #detail-popover .dt-node { min-width: 0; width: 100%; }
+      #detail-popover .dt-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 10px; }
       .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
       .filters label { font-size: 0.8rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); white-space: nowrap; }
       .filters input { width: 16px; height: 16px; }
@@ -327,76 +364,170 @@ const HTML = `<!DOCTYPE html>
       }
       function renderDetailCard(r) {
         const ts = r.ts ? new Date(r.ts).toLocaleString('zh-CN', { hour12: false }) : '-';
-        let signal = r.signal?.hasAlert ? '<span class="badge yes">有信号</span>' : '<span class="badge no">无</span>';
-        let plan = '-';
-        var planReasonBlock = '';
-        if (r.signal?.plan) {
-          const p = r.signal.plan;
-          plan = '<span class="badge ' + (p.side === 'long' ? 'yes' : 'no') + '">' + escapeHtml(p.side) + '</span> ' + escapeHtml(p.level || '');
-          if (p.reason) planReasonBlock = '<div class="popover-section"><div class="popover-section-title">计划原因（决策依据）</div><div class="plan-reason-block">' + escapeHtml(planReasonToChinese(String(p.reason))) + '</div></div>';
+        const p = r?.signal?.plan || null;
+        const hasAlert = Boolean(r?.signal?.hasAlert);
+        const planSide = p?.side || '';
+        const planLevel = p?.level || '';
+        const planReasonText = p?.reason ? planReasonToChinese(String(p.reason)) : '';
+        const newsBlocked = r?.decision?.blockedByNews === true;
+        const newsReasonText = Array.isArray(r?.decision?.newsReason) && r.decision.newsReason.length
+          ? String(r.decision.newsReason.join('; '))
+          : '';
+        const e = r?.executor || null;
+        const executed = Boolean(e?.executed);
+        const dryRunOpen = Boolean(e?.dryRun && (e?.wouldOpenPosition || e?.reason === 'dry_run_open'));
+        const skipped = Boolean(e?.skipped);
+        const execReasonRaw = e?.reason ? String(e.reason) : '';
+        const execReasonText = execReasonRaw ? executorReasonToChinese(execReasonRaw) : '';
+        const signalLevelText = hasAlert
+          ? ((planSide === 'long' ? '做多' : planSide === 'short' ? '做空' : '信号') + (planLevel ? (' · ' + planLevel) : ''))
+          : '无信号';
+        const resultText = executed
+          ? '已下单'
+          : (dryRunOpen ? 'Dry-run 会开仓' : (skipped ? '未下单' : '-'));
+        function statusLabel(s) {
+          if (s === 'pass') return '通过';
+          if (s === 'fail') return '阻断';
+          if (s === 'warn') return '观察';
+          return '信息';
         }
+        function nodeHtml(step, label, status, desc, extra) {
+          return '<div class="dt-node ' + status + '">' +
+            '<div class="dt-top"><span class="dt-step">' + step + '</span><span class="dt-label">' + escapeHtml(label) + '</span><span class="dt-state">' + statusLabel(status) + '</span></div>' +
+            '<div class="dt-desc">' + escapeHtml(desc || '-') + '</div>' +
+            (extra ? '<div class="dt-extra">' + escapeHtml(extra) + '</div>' : '') +
+          '</div>';
+        }
+
+        const signalStatus = hasAlert ? 'pass' : 'fail';
+        const signalDesc = hasAlert
+          ? ('识别到 ' + (planSide === 'long' ? '做多' : planSide === 'short' ? '做空' : '交易') + (planLevel ? ('（' + planLevel + '）') : '') + ' 计划')
+          : (r?.signal?.note || '策略未产出可执行计划');
+        const signalExtra = planReasonText || (r?.signal?.note ? String(r.signal.note) : '');
+
+        const newsStatus = !hasAlert ? 'neutral' : (newsBlocked ? 'fail' : 'pass');
+        const newsDesc = !hasAlert ? '无交易计划，新闻门控未触发' : (newsBlocked ? '新闻风控判定为阻断' : '新闻风控放行');
+        const newsExtra = newsBlocked ? (newsReasonText || '检测到负面新闻因素') : '未命中新闻拦截条件';
+
+        let riskStatus = 'neutral';
+        let riskDesc = '未进入执行器风控检查';
+        let riskExtra = '';
+        if (hasAlert) {
+          if (!e) {
+            riskStatus = 'neutral';
+            riskDesc = '执行器未返回状态';
+          } else if (executed || dryRunOpen) {
+            riskStatus = 'pass';
+            riskDesc = '仓位/频率/风险阈值检查通过';
+            riskExtra = execReasonText || '满足开仓条件';
+          } else if (skipped) {
+            riskStatus = 'fail';
+            riskDesc = '执行前风控规则触发拦截';
+            riskExtra = execReasonText || execReasonRaw || '未通过执行条件';
+          } else {
+            riskStatus = 'warn';
+            riskDesc = '执行器返回未知状态';
+            riskExtra = execReasonText || execReasonRaw || '';
+          }
+        }
+
+        const resultStatus = executed ? 'pass' : (dryRunOpen ? 'warn' : (skipped ? 'fail' : 'neutral'));
+        const resultDesc = executed
+          ? '订单已提交到交易所'
+          : (dryRunOpen ? '仅模拟开仓，不会真实下单' : (skipped ? '本轮未执行下单' : '暂无执行结果'));
+        const resultExtra = execReasonText || execReasonRaw || '';
+
+        const nodes = [
+          nodeHtml(1, '信号识别', signalStatus, signalDesc, signalExtra),
+          nodeHtml(2, '新闻门控', newsStatus, newsDesc, newsExtra),
+          nodeHtml(3, '账户风控', riskStatus, riskDesc, riskExtra),
+          nodeHtml(4, '执行结果', resultStatus, resultDesc, resultExtra),
+        ];
+        const treeHtml = '<div class="decision-tree-wrap">' +
+          '<div class="decision-tree-head"><div class="decision-tree-title">决策流程图</div><div class="decision-tree-sub">Signal → News → Risk → Execute</div></div>' +
+          '<div class="decision-tree">' + nodes.map(function(n, i) { return n + (i < nodes.length - 1 ? '<div class="dt-arrow">➜</div>' : ''); }).join('') + '</div>' +
+        '</div>';
+
         var alg = r.signal && r.signal.algorithm;
         var calc = (alg && alg.meta && alg.meta.calc) ? alg.meta.calc : (alg && alg.calc) ? alg.calc : null;
-        if (!calc && (alg || r.signal?.plan?.reason)) {
+        if (!calc && (alg || p?.reason)) {
           calc = {};
           if (alg && alg.meta) {
             if (alg.meta.level != null) calc['突破位'] = Number(alg.meta.level);
             if (alg.meta.bias) calc['方向'] = alg.meta.bias;
             if (alg.meta.adx != null) calc['4H_ADX'] = Number(alg.meta.adx);
           }
-          var reasonStr = r.signal?.plan?.reason ? String(r.signal.plan.reason).trim() : '';
+          var reasonStr = p?.reason ? String(p.reason).trim() : '';
           var retestM = reasonStr.match(new RegExp('v5\\\\s+retest:\\\\s*bias=(long|short)(?:;\\\\s*breakout@([^;]+))?(?:;\\\\s*breakout)?(?:;\\\\s*level=([\\\\d.]+))?(?:;\\\\s*tol=([\\\\d.]+))?', 'i'));
           if (retestM) { if (retestM[3]) calc['突破位'] = Number(retestM[3]); if (retestM[4]) calc['容差'] = Number(retestM[4]); }
           var reentryM = reasonStr.match(new RegExp('v5\\\\s+reentry:\\\\s*bias=(long|short);\\\\s*ema(\\\\d+)=([\\\\d.]+)(?:;\\\\s*tol=([\\\\d.]+))?', 'i'));
           if (reentryM) { calc['1H_EMA' + reentryM[2]] = Number(reentryM[3]); if (reentryM[4]) calc['容差'] = Number(reentryM[4]); }
           if (Object.keys(calc).length === 0) calc = null;
         }
-        var strategyDoc = '<div class="popover-section"><div class="popover-section-title">策略与指标说明</div>' +
-          '<div class="strategy-block"><div class="strategy-name">策略一：突破回踩</div><div class="strategy-indicators">使用指标：4H EMA快/慢、4H ADX（趋势方向）、1H ATR、突破位、容差、当前 K 线收盘/高/低</div><div class="strategy-apply">如何应用：1 小时图 Donchian 突破后，价格回踩至突破位 ± 容差范围内且收盘重新站回突破方向，则触发信号。</div></div>' +
-          '<div class="strategy-block"><div class="strategy-name">策略二：趋势再入</div><div class="strategy-indicators">使用指标：1H EMA20、1H ATR、容差、当前 K 线收盘/高/低</div><div class="strategy-apply">如何应用：趋势确立后，价格回踩 1H EMA20，在 ± 容差内触及且收盘确认方向，则触发再次入场信号。</div></div></div>';
-        var algo = '';
+        var strategyDoc = '' +
+          '<div class="strategy-block"><div class="strategy-name">策略一：突破回踩</div><div class="strategy-indicators">指标：4H EMA快/慢、4H ADX、1H ATR、突破位、容差</div><div class="strategy-apply">触发：突破后回踩到突破位±容差，并收盘重新确认方向。</div></div>' +
+          '<div class="strategy-block"><div class="strategy-name">策略二：趋势再入</div><div class="strategy-indicators">指标：1H EMA20、1H ATR、容差</div><div class="strategy-apply">触发：趋势中回踩 EMA20，在容差范围内触及并收盘确认。</div></div>';
+        var algoDetails = strategyDoc;
         if (calc && typeof calc === 'object') {
           var rows = Object.keys(calc).map(function(k) {
             var v = calc[k];
             var vStr = typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : String(v);
-            return '<span class="calc-k clickable" data-calc-key="' + escapeHtml(k) + '" data-calc-value="' + escapeHtml(vStr) + '" title="悬停查看计算方式">' + escapeHtml(k) + '</span><span class="calc-v">' + escapeHtml(vStr) + '</span>';
+            return '<span class="calc-k clickable" data-calc-key="' + escapeHtml(k) + '" data-calc-value="' + escapeHtml(vStr) + '" title="点击查看计算过程">' + escapeHtml(k) + '</span><span class="calc-v">' + escapeHtml(vStr) + '</span>';
           }).join('');
-          algo = strategyDoc + '<div class="popover-section"><div class="popover-section-title">本单指标数值（点击指标名看算法，K 线已标出价位）</div><div class="calc-grid">' + rows + '</div><div class="chart-lines-hint">图中横线即突破位 / EMA / 容差上下界</div></div>';
+          algoDetails += '<div class="algo-line">本单关键指标（点击名称可查看算法说明）</div><div class="calc-grid">' + rows + '</div><div class="chart-lines-hint">图中横线为突破位 / EMA / 容差上下界</div>';
         } else if (alg) {
           var parts = [];
-          if (alg.note) parts.push(escapeHtml(alg.note));
+          if (alg.note) parts.push(String(alg.note));
           if (alg.meta) {
-            if (alg.meta.bias) parts.push('bias=' + escapeHtml(alg.meta.bias));
+            if (alg.meta.bias) parts.push('bias=' + String(alg.meta.bias));
             if (alg.meta.adx != null) parts.push('ADX=' + Number(alg.meta.adx).toFixed(1));
-            if (alg.meta.breakout) parts.push('breakout ' + escapeHtml(alg.meta.breakout.side) + ' @ ' + (alg.meta.breakout.level != null ? Number(alg.meta.breakout.level).toFixed(2) : ''));
+            if (alg.meta.breakout) parts.push('breakout ' + String(alg.meta.breakout.side || '') + ' @ ' + (alg.meta.breakout.level != null ? Number(alg.meta.breakout.level).toFixed(2) : '-'));
           }
-          if (parts.length) algo = strategyDoc + '<div class="popover-section"><div class="popover-section-title">策略原因</div><div class="algo-line">' + parts.join(' · ') + '</div></div>';
-        } else if (r.signal && r.signal.plan && r.signal.plan.reason) {
-          algo = strategyDoc + '<div class="popover-section"><div class="popover-section-title">策略原因</div><div class="algo-line">' + escapeHtml(planReasonToChinese(String(r.signal.plan.reason))) + '</div></div>';
+          if (parts.length) algoDetails += '<div class="algo-line">' + escapeHtml(parts.join(' · ')) + '</div>';
+        } else if (planReasonText) {
+          algoDetails += '<div class="algo-line">' + escapeHtml(planReasonText) + '</div>';
         }
-        var logicResultBlock = '';
-        if (r.signal?.plan?.reason || r.executor) {
-          var logicText = r.signal?.plan?.reason ? planReasonToChinese(String(r.signal.plan.reason)) : '无计划';
-          var resultText = r.executor ? (r.executor.executed ? '已下单' : (r.executor.skipped ? '未下单' : (r.executor.dryRun && r.executor.wouldOpenPosition ? 'Dry-run 会开仓' : '未下单'))) : '';
-          var reasonText = r.executor?.reason ? executorReasonToChinese(r.executor.reason) : '';
-          if (reasonText && resultText) resultText += '，原因：' + reasonText; else if (reasonText) resultText = reasonText;
-          logicResultBlock = '<div class="popover-section"><div class="popover-section-title">本单逻辑与结果</div><div class="logic-result-block"><strong>指标如何应用：</strong>' + escapeHtml(logicText) + '<br/><strong>执行结果：</strong>' + escapeHtml(resultText || '-') + '</div></div>';
-        }
-        let news = r.decision?.blockedByNews ? '<span class="badge no">拦截</span>' + (r.decision.newsReason?.length ? '<div class="reason">' + escapeHtml(r.decision.newsReason.join('; ')) + '</div>' : '') : '<span class="badge yes">放行</span>';
-        var newsLinks = '';
-        if (r.decision && r.decision.newsItems && r.decision.newsItems.length) {
-          var linkHtml = r.decision.newsItems.map(function(it) {
+
+        var newsLinkHtml = '';
+        if (r.decision && Array.isArray(r.decision.newsItems) && r.decision.newsItems.length) {
+          newsLinkHtml = r.decision.newsItems.map(function(it) {
             var u = (it && it.url) ? String(it.url) : '';
             if (!u) return '';
             var t = (it && it.title) ? escapeHtml(it.title) : '';
             var lab = (it && it.tsLocal) ? escapeHtml(it.tsLocal) + ' ' + t : t;
             return '<a class="news-link" href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + lab + '</a>';
           }).filter(Boolean).join('');
-          if (linkHtml) newsLinks = '<div class="popover-section"><div class="popover-section-title">新闻源（可点击，可滚动）</div><div class="news-list-wrap">' + linkHtml + '</div><div class="popover-pin-hint">点击图表可固定此框后再点链接</div></div>';
         }
-        let exec = '-', reason = '-';
-        if (r.executor) { const e = r.executor; if (e.executed) exec = '<span class="badge yes">已下单</span>'; else if (e.dryRun && (e.wouldOpenPosition || e.reason === 'dry_run_open')) exec = '<span class="badge dry">Dry-run 会开仓</span>'; else if (e.skipped) exec = '<span class="badge no">未下单</span>'; reason = e.reason ? escapeHtml(e.reason) : '-'; if (e.dailyRealizedPnlUSDT != null) reason += ' (日盈亏 ' + Number(e.dailyRealizedPnlUSDT).toFixed(2) + ' USDT)'; } else if (r.error) reason = escapeHtml(r.error);
-        return '<button class="popover-close" type="button" aria-label="关闭">&times;</button><div class="popover-ts">' + ts + '</div><div class="popover-row"><span class="popover-label">信号</span>' + signal + '</div><div class="popover-row"><span class="popover-label">计划</span>' + plan + '</div>' + planReasonBlock + algo + logicResultBlock + '<div class="popover-row"><span class="popover-label">新闻</span>' + news + '</div>' + newsLinks + '<div class="popover-row"><span class="popover-label">执行</span>' + exec + '</div><div class="popover-row"><span class="popover-label">原因</span><span class="reason">' + reason + '</span></div>';
+
+        var summaryRow = '<div class="summary-row">' +
+          '<span class="summary-chip"><span class="summary-chip k">信号</span><span class="badge ' + (hasAlert ? (planSide === 'short' ? 'no' : 'yes') : 'no') + '">' + escapeHtml(signalLevelText) + '</span></span>' +
+          '<span class="summary-chip"><span class="summary-chip k">新闻</span><span class="badge ' + (newsBlocked ? 'no' : 'yes') + '">' + (newsBlocked ? '拦截' : '放行') + '</span></span>' +
+          '<span class="summary-chip"><span class="summary-chip k">结果</span><span class="badge ' + (executed ? 'yes' : (dryRunOpen ? 'dry' : 'no')) + '">' + escapeHtml(resultText) + '</span></span>' +
+        '</div>';
+
+        var primaryReason = planReasonText || (hasAlert ? (r?.signal?.note || '策略给出信号，但未附可读理由。') : '本轮无交易计划。');
+        var finalReason = execReasonText || execReasonRaw || (executed ? '执行成功' : (skipped ? '未满足执行条件' : '无'));
+        var reasonPanel = '<details class="fold" open><summary>一眼看懂：核心原因</summary><div class="fold-body"><div class="logic-result-block"><strong>为什么会这样决策：</strong>' + escapeHtml(primaryReason) + '<br/><strong>为什么是这个结果：</strong>' + escapeHtml(finalReason) + '</div></div></details>';
+
+        var metricsPanel = '<details class="fold"><summary>策略与指标详情</summary><div class="fold-body">' + algoDetails + '</div></details>';
+        var newsPanel = newsLinkHtml
+          ? '<details class="fold"><summary>新闻源（可点击跳转）</summary><div class="fold-body"><div class="news-list-wrap">' + newsLinkHtml + '</div><div class="popover-pin-hint">提示：点击图表固定弹窗后再打开链接更顺手。</div></div></details>'
+          : '';
+        var rawPanel = '<details class="fold"><summary>执行字段与原始状态</summary><div class="fold-body"><div class="compact-kv">' +
+          '<div class="k">cycleId</div><div class="v">' + escapeHtml(r?.cycleId || '-') + '</div>' +
+          '<div class="k">计划</div><div class="v">' + escapeHtml(p ? ((p.side || '-') + ' / ' + (p.level || '-')) : 'none') + '</div>' +
+          '<div class="k">执行器 reason</div><div class="v">' + escapeHtml(execReasonRaw || '-') + '</div>' +
+          '<div class="k">日内PnL</div><div class="v">' + (e && e.dailyRealizedPnlUSDT != null ? escapeHtml(String(e.dailyRealizedPnlUSDT) + ' USDT') : '-') + '</div>' +
+        '</div></div></details>';
+
+        return '<button class="popover-close" type="button" aria-label="关闭">&times;</button>' +
+          '<div class="popover-ts">' + ts + '</div>' +
+          summaryRow +
+          treeHtml +
+          reasonPanel +
+          metricsPanel +
+          newsPanel +
+          rawPanel;
       }
       var currentPopoverRecord = null;
       var popoverPinned = false;
