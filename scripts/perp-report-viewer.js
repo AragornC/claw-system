@@ -15,6 +15,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
 const REPORT_DIR = path.resolve(WORKDIR, 'memory/report');
 const INDEX_PATH = path.resolve(REPORT_DIR, 'index.html');
+const MANIFEST_PATH = path.resolve(REPORT_DIR, 'manifest.webmanifest');
+const SW_PATH = path.resolve(REPORT_DIR, 'sw.js');
+const ICON_PATH = path.resolve(REPORT_DIR, 'app-icon.svg');
+const ICON_MASKABLE_PATH = path.resolve(REPORT_DIR, 'app-icon-maskable.svg');
 
 const TF_CONFIG = [
   { key: '1m', label: '分时(1分钟)', seconds: 60 },
@@ -32,6 +36,14 @@ const HTML = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1419">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Perp决策">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="app-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="app-icon.svg">
   <title>Perp K 线 + 决策</title>
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
@@ -181,6 +193,15 @@ const HTML = `<!DOCTYPE html>
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
     .load-error pre { font-size: 0.75rem; margin-top: 8px; }
+    .install-pwa { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 260; border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,50,0.97); box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
+    .install-pwa.hidden { display: none; }
+    .install-pwa .ipwa-main { flex: 1; min-width: 0; }
+    .install-pwa .ipwa-title { font-size: 0.78rem; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+    .install-pwa .ipwa-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.35; }
+    .install-pwa .ipwa-actions { display: flex; gap: 8px; align-items: center; }
+    .install-pwa button { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 0.74rem; cursor: pointer; }
+    .install-pwa button.primary { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.5); color: var(--green); }
+    .install-pwa button.ghost { color: var(--muted); }
     @media (max-width: 768px) {
       body { padding: 10px; }
       h1 { font-size: 1.05rem; margin-bottom: 6px; }
@@ -195,6 +216,10 @@ const HTML = `<!DOCTYPE html>
       #detail-popover .decision-tree { flex-direction: column; gap: 4px; overflow-x: hidden; }
       #detail-popover .dt-node { min-width: 0; width: 100%; }
       #detail-popover .dt-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 10px; }
+      .install-pwa { left: 8px; right: 8px; bottom: 8px; padding: 9px 10px; }
+      .install-pwa .ipwa-title { font-size: 0.76rem; }
+      .install-pwa .ipwa-desc { font-size: 0.7rem; }
+      .install-pwa button { font-size: 0.72rem; padding: 7px 9px; }
       .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
       .filters label { font-size: 0.8rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); white-space: nowrap; }
       .filters input { width: 16px; height: 16px; }
@@ -220,6 +245,16 @@ const HTML = `<!DOCTYPE html>
   </div>
   <div id="chart-wrap"><p class="load-error">加载中…</p></div>
   <div id="indicator-hover-tooltip"></div>
+  <div id="install-pwa" class="install-pwa hidden">
+    <div class="ipwa-main">
+      <div class="ipwa-title">安装为 App（更像原生应用）</div>
+      <div class="ipwa-desc" id="install-pwa-desc">安装后可全屏打开，使用更顺手。</div>
+    </div>
+    <div class="ipwa-actions">
+      <button id="install-pwa-btn" class="primary" type="button">安装</button>
+      <button id="install-pwa-close" class="ghost" type="button">关闭</button>
+    </div>
+  </div>
   <div class="filters" id="filters" style="display:none">
     <label><input type="checkbox" id="filter-executed" /> 仅已下单</label>
     <label><input type="checkbox" id="filter-skipped" /> 仅未下单</label>
@@ -242,6 +277,64 @@ const HTML = `<!DOCTYPE html>
   <script>
     const TF_CONFIG = ${JSON.stringify(TF_CONFIG)};
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
+
+    function setupPwaInstall() {
+      const box = document.getElementById('install-pwa');
+      const btn = document.getElementById('install-pwa-btn');
+      const closeBtn = document.getElementById('install-pwa-close');
+      const desc = document.getElementById('install-pwa-desc');
+      if (!box || !btn || !closeBtn || !desc) return;
+
+      let deferredPrompt = null;
+      const ua = navigator.userAgent || '';
+      const isIOS = /iphone|ipad|ipod/i.test(ua);
+      const inStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if (inStandalone) {
+        box.classList.add('hidden');
+        return;
+      }
+
+      function showHint(text, canInstall) {
+        desc.textContent = text;
+        btn.style.display = canInstall ? 'inline-block' : 'none';
+        box.classList.remove('hidden');
+      }
+      function hideHint() {
+        box.classList.add('hidden');
+      }
+
+      closeBtn.addEventListener('click', hideHint);
+
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        showHint('点击“安装”将当前页面加入桌面，像 App 一样全屏使用。', true);
+      });
+
+      btn.addEventListener('click', async function() {
+        if (!deferredPrompt) return;
+        try {
+          deferredPrompt.prompt();
+          await deferredPrompt.userChoice;
+        } catch (_) {}
+        deferredPrompt = null;
+        hideHint();
+      });
+
+      if (isIOS) {
+        showHint('iOS：请在 Safari 点“分享”→“添加到主屏幕”，即可作为 App 使用。', false);
+      } else {
+        // Android/desktop: wait for beforeinstallprompt first; keep hidden by default.
+        hideHint();
+      }
+    }
+
+    function registerPwaServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js').catch(function() {});
+      }, { once: true });
+    }
 
     function buildMarkersForTf(records, tfSeconds) {
       return records.filter(r => r.ts && !r.stage).map(r => {
@@ -834,15 +927,134 @@ const HTML = `<!DOCTYPE html>
       render();
     }
 
+    registerPwaServiceWorker();
+    setupPwaInstall();
     load().catch(e => showLoadError(e && e.message));
   </script>
 </body>
 </html>`;
 
+const MANIFEST = {
+  name: 'Perp 决策看板',
+  short_name: 'Perp决策',
+  description: 'Bitget 永续决策可视化（移动端可安装）',
+  start_url: './index.html',
+  scope: './',
+  display: 'standalone',
+  orientation: 'portrait',
+  background_color: '#0f1419',
+  theme_color: '#0f1419',
+  icons: [
+    { src: 'app-icon.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
+    { src: 'app-icon-maskable.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
+  ],
+};
+
+const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v1';
+const PRECACHE = [
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './app-icon.svg',
+  './app-icon-maskable.svg'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+function networkFirst(request) {
+  return fetch(request)
+    .then((response) => {
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      return response;
+    })
+    .catch(() => caches.match(request));
+}
+
+function staleWhileRevalidate(request) {
+  return caches.match(request).then((cached) => {
+    const networkFetch = fetch(request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        return response;
+      })
+      .catch(() => cached);
+    return cached || networkFetch;
+  });
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  const isRuntimeData = /\\/(decisions|ohlcv)\\.json$/.test(url.pathname);
+  if (isRuntimeData) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+  event.respondWith(staleWhileRevalidate(request));
+});`;
+
+const APP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a2332"/>
+      <stop offset="100%" stop-color="#0f1419"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3fb950"/>
+      <stop offset="100%" stop-color="#58a6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)" stroke="#2d3a4f" stroke-width="12"/>
+  <path d="M110 320 L180 250 L238 284 L312 190 L402 230" fill="none" stroke="url(#line)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="110" cy="320" r="14" fill="#3fb950"/>
+  <circle cx="180" cy="250" r="14" fill="#3fb950"/>
+  <circle cx="238" cy="284" r="14" fill="#d29922"/>
+  <circle cx="312" cy="190" r="14" fill="#58a6ff"/>
+  <circle cx="402" cy="230" r="14" fill="#3fb950"/>
+  <rect x="104" y="92" width="304" height="56" rx="28" fill="rgba(88,166,255,0.14)" stroke="rgba(88,166,255,0.5)" stroke-width="2"/>
+  <text x="256" y="127" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="26" fill="#e6edf3">Perp 决策</text>
+</svg>`;
+
+const APP_ICON_MASKABLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0f1419"/>
+  <rect x="46" y="46" width="420" height="420" rx="96" fill="#1a2332" stroke="#2d3a4f" stroke-width="10"/>
+  <path d="M128 330 L186 270 L244 298 L322 206 L384 236" fill="none" stroke="#3fb950" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="128" cy="330" r="12" fill="#3fb950"/>
+  <circle cx="186" cy="270" r="12" fill="#3fb950"/>
+  <circle cx="244" cy="298" r="12" fill="#d29922"/>
+  <circle cx="322" cy="206" r="12" fill="#58a6ff"/>
+  <circle cx="384" cy="236" r="12" fill="#3fb950"/>
+</svg>`;
+
 function main() {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
   fs.writeFileSync(INDEX_PATH, HTML, 'utf8');
+  fs.writeFileSync(MANIFEST_PATH, JSON.stringify(MANIFEST, null, 2), 'utf8');
+  fs.writeFileSync(SW_PATH, SERVICE_WORKER_JS, 'utf8');
+  fs.writeFileSync(ICON_PATH, APP_ICON_SVG, 'utf8');
+  fs.writeFileSync(ICON_MASKABLE_PATH, APP_ICON_MASKABLE_SVG, 'utf8');
   console.log('Wrote', INDEX_PATH);
+  console.log('Wrote', MANIFEST_PATH);
+  console.log('Wrote', SW_PATH);
 }
 
 main();
