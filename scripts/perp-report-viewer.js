@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
 const REPORT_DIR = path.resolve(WORKDIR, 'memory/report');
 const INDEX_PATH = path.resolve(REPORT_DIR, 'index.html');
-const MANIFEST_PATH = path.resolve(REPORT_DIR, 'manifest.webmanifest');
+const MANIFEST_PATH = path.resolve(REPORT_DIR, 'manifest.json');
 const SW_PATH = path.resolve(REPORT_DIR, 'sw.js');
 const ICON_PATH = path.resolve(REPORT_DIR, 'app-icon.svg');
 const ICON_MASKABLE_PATH = path.resolve(REPORT_DIR, 'app-icon-maskable.svg');
@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Perp决策">
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="manifest.json">
   <link rel="icon" href="app-icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="app-icon.svg">
   <title>Perp K 线 + 决策</title>
@@ -954,7 +954,7 @@ const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v1';
 const PRECACHE = [
   './',
   './index.html',
-  './manifest.webmanifest',
+  './manifest.json',
   './app-icon.svg',
   './app-icon-maskable.svg'
 ];

@@ -2,7 +2,7 @@ const CACHE_NAME = 'perp-report-pwa-v1';
 const PRECACHE = [
   './',
   './index.html',
-  './manifest.webmanifest',
+  './manifest.json',
   './app-icon.svg',
   './app-icon-maskable.svg'
 ];
