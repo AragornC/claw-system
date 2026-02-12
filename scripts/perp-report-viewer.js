@@ -287,9 +287,9 @@ const HTML = `<!DOCTYPE html>
     .install-pwa button.primary { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.5); color: var(--green); }
     .install-pwa button.ghost { color: var(--muted); }
     /* Chat-first layout (Telegram-like) */
-    body { padding: 0; height: 100vh; overflow: hidden; }
-    .app-shell { max-width: none; height: 100vh; display: flex; flex-direction: column; }
-    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); }
+    body { padding: 0; min-height: 100dvh; overflow: auto; }
+    .app-shell { max-width: none; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; }
+    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; }
     .top-status { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
     .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
     .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
@@ -303,11 +303,11 @@ const HTML = `<!DOCTYPE html>
     .top-actions .nav-btn.state-pos { border-color: rgba(63,185,80,0.55); color: var(--green); }
     .top-actions .nav-btn.state-neg { border-color: rgba(248,81,73,0.55); color: var(--red); }
     .view-panel.active { flex: 1; min-height: 0; }
-    #view-dashboard.active { display: flex; flex-direction: column; }
+    #view-dashboard.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
     #view-dashboard .ai-chat-wrap { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
-    #view-dashboard .ai-chat-box { flex: 1; min-height: 0; max-height: none; }
+    #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
     #view-kline.active, #view-history.active, #view-runtime.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
     .dashboard-grid { display: none !important; }
@@ -320,6 +320,7 @@ const HTML = `<!DOCTYPE html>
       .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
       .panel-card { padding: 9px; border-radius: 10px; }
       #view-dashboard .ai-chat-wrap { padding: 8px; }
+      #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
       .ai-input-row input { font-size: 16px; }
       #orders-table-wrap { display: block; overflow-x: auto; white-space: nowrap; }
@@ -392,7 +393,9 @@ const HTML = `<!DOCTYPE html>
           <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
           <button class="ai-quick-btn" type="button" data-view-target="kline">去看K线</button>
         </div>
-        <div id="ai-chat-box" class="ai-chat-box"></div>
+        <div id="ai-chat-box" class="ai-chat-box">
+          <div class="ai-msg bot">聊天加载中...</div>
+        </div>
         <div class="ai-input-row">
           <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
           <button id="ai-chat-send" type="button">发送</button>
