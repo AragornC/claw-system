@@ -1,4 +1,4 @@
-const CACHE_NAME = 'perp-report-pwa-v2';
+const CACHE_NAME = 'perp-report-pwa-v3';
 const PRECACHE = [
   './',
   './index.html',

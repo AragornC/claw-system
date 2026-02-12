@@ -1,7 +1,7 @@
 {
-  "name": "Perp 决策看板",
-  "short_name": "Perp决策",
-  "description": "Bitget 永续决策可视化（移动端可安装）",
+  "name": "AI 交易机器人集成看板",
+  "short_name": "AI交易看板",
+  "description": "当前订单 + K线决策 + 历史订单 + AI交互",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
