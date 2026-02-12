@@ -79,6 +79,31 @@ const HTML = `<!DOCTYPE html>
       pointer-events: none;
     }
     .top-mini-kline canvas { position: relative; z-index: 1; display: block; width: 100%; height: 86px; }
+    .mini-price-dot {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 2;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      color: #58a6ff;
+      background: currentColor;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .mini-price-dot::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 1px solid currentColor;
+      opacity: 0.55;
+      animation: miniDotPulse 1.25s ease-out infinite;
+    }
+    .mini-price-dot.positive { color: var(--green); }
+    .mini-price-dot.negative { color: var(--red); }
+    .mini-price-dot.hidden { opacity: 0; }
     .top-mini-meta { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid rgba(88,166,255,0.25); padding: 6px 10px 7px; font-size: 0.7rem; }
     .mini-main { color: #58a6ff; font-weight: 600; letter-spacing: 0.2px; }
     .mini-sub { color: var(--muted); }
@@ -91,6 +116,11 @@ const HTML = `<!DOCTYPE html>
     @keyframes heroSweep {
       0% { transform: translateX(-60%) rotate(0.001deg); }
       100% { transform: translateX(75%) rotate(0.001deg); }
+    }
+    @keyframes miniDotPulse {
+      0% { transform: scale(0.65); opacity: 0.6; }
+      70% { transform: scale(1.55); opacity: 0; }
+      100% { transform: scale(1.55); opacity: 0; }
     }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
@@ -459,6 +489,7 @@ const HTML = `<!DOCTYPE html>
         </div>
         <div class="top-mini-kline">
           <canvas id="top-mini-kline-canvas"></canvas>
+          <span id="mini-kline-dot" class="mini-price-dot hidden"></span>
           <div class="top-mini-meta">
             <span class="mini-main" id="mini-kline-main">BTC 实时缩略</span>
             <span class="mini-sub" id="mini-kline-sub">等待数据...</span>
@@ -849,6 +880,7 @@ const HTML = `<!DOCTYPE html>
       const statusTradeEl = document.getElementById('status-trade');
       const statusRuntimeEl = document.getElementById('status-runtime');
       const miniKlineCanvas = document.getElementById('top-mini-kline-canvas');
+      const miniKlineDotEl = document.getElementById('mini-kline-dot');
       const miniKlineMainEl = document.getElementById('mini-kline-main');
       const miniKlineSubEl = document.getElementById('mini-kline-sub');
       const navRuntimeBtn = document.getElementById('nav-runtime');
@@ -912,6 +944,7 @@ const HTML = `<!DOCTYPE html>
         if (!ctx) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, width, height);
+        if (miniKlineDotEl) miniKlineDotEl.classList.add('hidden');
 
         if (!list.length) {
           ctx.strokeStyle = 'rgba(139,148,158,0.28)';
@@ -923,56 +956,88 @@ const HTML = `<!DOCTYPE html>
           return;
         }
 
-        const closes = list.map(b => Number(b?.close)).filter(Number.isFinite);
-        if (!closes.length) return;
-        const min = Math.min.apply(null, closes);
-        const max = Math.max.apply(null, closes);
-        const range = Math.max(1e-6, max - min);
+        const normalized = list
+          .map(function(b) {
+            const open = Number(b?.open);
+            const high = Number(b?.high);
+            const low = Number(b?.low);
+            const close = Number(b?.close);
+            if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+            return { open, high, low, close };
+          })
+          .filter(Boolean);
+        if (!normalized.length) return;
+
         const padX = 8;
         const padY = 6;
         const innerW = Math.max(1, width - padX * 2);
         const innerH = Math.max(1, height - padY * 2);
-        const pts = closes.map((v, idx) => ({
-          x: padX + (closes.length <= 1 ? 0 : (idx / (closes.length - 1)) * innerW),
-          y: padY + (1 - ((v - min) / range)) * innerH,
-        }));
+        const maxBars = Math.max(22, Math.min(72, Math.floor(innerW / 4)));
+        const candles = normalized.slice(-maxBars);
+        const highs = candles.map(c => c.high);
+        const lows = candles.map(c => c.low);
+        const min = Math.min.apply(null, lows);
+        const max = Math.max.apply(null, highs);
+        const range = Math.max(1e-6, max - min);
+        const toY = function(v) {
+          return padY + (1 - ((v - min) / range)) * innerH;
+        };
 
-        const rise = closes[closes.length - 1] >= closes[0];
-        const lineColor = rise ? '#3fb950' : '#f85149';
-        const softColor = rise ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)';
+        const riseBg = Number(candles[candles.length - 1].close) >= Number(candles[0].open);
+        const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+        bgGrad.addColorStop(0, riseBg ? 'rgba(63,185,80,0.09)' : 'rgba(248,81,73,0.09)');
+        bgGrad.addColorStop(1, 'rgba(15,20,25,0)');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, width, height);
 
-        const area = ctx.createLinearGradient(0, 0, 0, height);
-        area.addColorStop(0, softColor);
-        area.addColorStop(1, 'rgba(15,20,25,0)');
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.lineTo(pts[pts.length - 1].x, height - 1);
-        ctx.lineTo(pts[0].x, height - 1);
-        ctx.closePath();
-        ctx.fillStyle = area;
-        ctx.fill();
+        ctx.strokeStyle = 'rgba(139,148,158,0.16)';
+        ctx.lineWidth = 1;
+        const yMid = Math.floor(padY + innerH * 0.5) + 0.5;
+        const yTop = Math.floor(padY + innerH * 0.2) + 0.5;
+        const yBottom = Math.floor(padY + innerH * 0.8) + 0.5;
+        [yTop, yMid, yBottom].forEach(function(y) {
+          ctx.beginPath();
+          ctx.moveTo(padX, y);
+          ctx.lineTo(width - padX, y);
+          ctx.stroke();
+        });
 
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        const lineGrad = ctx.createLinearGradient(0, 0, width, 0);
-        lineGrad.addColorStop(0, 'rgba(88,166,255,0.95)');
-        lineGrad.addColorStop(1, lineColor);
-        ctx.strokeStyle = lineGrad;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        const step = innerW / candles.length;
+        const wickW = Math.max(1, Math.floor(step * 0.16));
+        const bodyW = Math.max(2, Math.min(7, Math.floor(step * 0.72)));
+        let lastCx = padX;
+        let lastCy = toY(candles[candles.length - 1].close);
+        let lastRise = true;
+        candles.forEach(function(c, idx) {
+          const cx = padX + (idx + 0.5) * step;
+          const openY = toY(c.open);
+          const closeY = toY(c.close);
+          const highY = toY(c.high);
+          const lowY = toY(c.low);
+          const rise = c.close >= c.open;
+          const color = rise ? '#3fb950' : '#f85149';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = wickW;
+          ctx.beginPath();
+          ctx.moveTo(cx, highY);
+          ctx.lineTo(cx, lowY);
+          ctx.stroke();
+          const y = Math.min(openY, closeY);
+          const h = Math.max(1, Math.abs(closeY - openY));
+          ctx.fillStyle = color;
+          ctx.fillRect(Math.round(cx - bodyW / 2), Math.round(y), bodyW, Math.round(h));
+          if (idx === candles.length - 1) {
+            lastCx = cx;
+            lastCy = closeY;
+            lastRise = rise;
+          }
+        });
 
-        const tail = pts[pts.length - 1];
-        ctx.beginPath();
-        ctx.arc(tail.x, tail.y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = lineColor;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(tail.x, tail.y, 7, 0, Math.PI * 2);
-        ctx.strokeStyle = rise ? 'rgba(63,185,80,0.32)' : 'rgba(248,81,73,0.32)';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
+        if (miniKlineDotEl) {
+          miniKlineDotEl.classList.remove('hidden', 'positive', 'negative');
+          miniKlineDotEl.classList.add(lastRise ? 'positive' : 'negative');
+          miniKlineDotEl.style.transform = 'translate(' + (lastCx - 4).toFixed(1) + 'px,' + (lastCy - 4).toFixed(1) + 'px)';
+        }
       }
 
       function updateHeaderStatus() {
@@ -2484,7 +2549,7 @@ const MANIFEST = {
   ],
 };
 
-const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v3';
+const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v4';
 const PRECACHE = [
   './',
   './index.html',
