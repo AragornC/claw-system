@@ -286,16 +286,40 @@ const HTML = `<!DOCTYPE html>
     .install-pwa button { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 0.74rem; cursor: pointer; }
     .install-pwa button.primary { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.5); color: var(--green); }
     .install-pwa button.ghost { color: var(--muted); }
+    /* Chat-first layout (Telegram-like) */
+    body { padding: 0; height: 100vh; overflow: hidden; }
+    .app-shell { max-width: none; height: 100vh; display: flex; flex-direction: column; }
+    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); }
+    .top-status { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
+    .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
+    .status-chip.long, .status-chip.positive { border-color: rgba(63,185,80,0.55); color: var(--green); }
+    .status-chip.short, .status-chip.negative { border-color: rgba(248,81,73,0.55); color: var(--red); }
+    .status-chip.price { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
+    .top-actions { gap: 6px; }
+    .top-actions .nav-btn { font-size: 0.7rem; padding: 4px 10px; }
+    .top-actions .nav-btn.state-long { border-color: rgba(63,185,80,0.6); color: var(--green); }
+    .top-actions .nav-btn.state-short { border-color: rgba(248,81,73,0.6); color: var(--red); }
+    .top-actions .nav-btn.state-pos { border-color: rgba(63,185,80,0.55); color: var(--green); }
+    .top-actions .nav-btn.state-neg { border-color: rgba(248,81,73,0.55); color: var(--red); }
+    .view-panel.active { flex: 1; min-height: 0; }
+    #view-dashboard.active { display: flex; flex-direction: column; }
+    #view-dashboard .ai-chat-wrap { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #view-dashboard .card-title-row { margin-bottom: 6px; }
+    #view-dashboard .ai-quick { margin-bottom: 6px; }
+    #view-dashboard .ai-chat-box { flex: 1; min-height: 0; max-height: none; }
+    #view-kline.active, #view-history.active, #view-runtime.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
+    #view-runtime .timeline-list { max-height: none; }
+    .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
-      body { padding: 10px; }
+      body { padding: 0; }
       h1 { font-size: 1.02rem; margin-bottom: 4px; }
       .app-topbar { flex-direction: column; align-items: stretch; gap: 8px; }
       .top-actions { justify-content: flex-start; }
       .nav-btn { font-size: 0.72rem; padding: 6px 10px; }
-      .assistant-nav { margin-bottom: 6px; }
       .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
-      .dashboard-grid { grid-template-columns: 1fr; gap: 8px; }
       .panel-card { padding: 9px; border-radius: 10px; }
+      #view-dashboard .ai-chat-wrap { padding: 8px; }
       .timeline-list { max-height: 280px; }
       .ai-input-row input { font-size: 16px; }
       #orders-table-wrap { display: block; overflow-x: auto; white-space: nowrap; }
@@ -340,21 +364,27 @@ const HTML = `<!DOCTYPE html>
   <div class="app-shell">
     <div class="app-topbar">
       <div>
-        <h1>AI 交易机器人集成看板</h1>
-        <div class="app-subtitle" id="app-subtitle">围绕 AI 助理组织交易、风控与订单视图</div>
+        <h1>AI 交易机器人</h1>
+        <div class="top-status">
+          <span id="status-position" class="status-chip neutral">仓位: --</span>
+          <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
+          <span id="status-price" class="status-chip neutral">币价: --</span>
+        </div>
+        <div class="app-subtitle" id="app-subtitle">聊天优先 · 功能从右上角进入</div>
+      </div>
+      <div class="top-actions">
+        <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">聊天</button>
+        <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
+        <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线</button>
+        <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史</button>
       </div>
     </div>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
         <div class="card-title-row">
-          <h2>AI 交易助理（主页面）</h2>
-          <span class="app-subtitle">从这里切换功能与发起提问</span>
-        </div>
-        <div class="assistant-nav">
-          <button class="nav-btn active" data-view-target="dashboard" type="button">AI主页面</button>
-          <button class="nav-btn" data-view-target="kline" type="button">打开K线</button>
-          <button class="nav-btn" data-view-target="history" type="button">历史订单</button>
+          <h2>AI 交易助理</h2>
+          <span class="app-subtitle">输入问题，或用快捷操作</span>
         </div>
         <div class="ai-quick" id="ai-quick">
           <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
@@ -368,30 +398,10 @@ const HTML = `<!DOCTYPE html>
           <button id="ai-chat-send" type="button">发送</button>
         </div>
       </div>
+    </section>
 
-      <div class="dashboard-grid">
-        <div class="panel-card">
-          <div class="card-title-row">
-            <h2>当前仓位</h2>
-            <button id="go-kline-from-dashboard" class="card-action" type="button">查看K线</button>
-          </div>
-          <div id="current-position-list" class="position-grid">
-            <div class="position-item"><div class="position-meta">加载中...</div></div>
-          </div>
-        </div>
-        <div class="panel-card">
-          <div class="card-title-row">
-            <h2>运行策略</h2>
-            <button id="go-history-from-dashboard" class="card-action" type="button">历史订单</button>
-          </div>
-          <div id="strategy-summary">
-            <div class="strategy-grid">
-              <div class="metric-tile"><div class="metric-label">状态</div><div class="metric-value">加载中...</div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="panel-card">
+    <section id="view-runtime" class="view-panel">
+      <div class="panel-card" id="runtime-timeline-card">
         <div class="card-title-row">
           <h2>当前交易运行时间线</h2>
           <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
@@ -673,6 +683,7 @@ const HTML = `<!DOCTYPE html>
 
       const viewMap = {
         dashboard: document.getElementById('view-dashboard'),
+        runtime: document.getElementById('view-runtime'),
         kline: document.getElementById('view-kline'),
         history: document.getElementById('view-history'),
       };
@@ -690,7 +701,8 @@ const HTML = `<!DOCTYPE html>
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
         if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = '围绕 AI 助理组织交易、风控与订单视图';
+          if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能从右上角进入';
+          else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
           else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
           else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
         }
@@ -703,11 +715,13 @@ const HTML = `<!DOCTYPE html>
           switchView(btn.getAttribute('data-view-target'));
         });
       });
-      const goKlineBtn = document.getElementById('go-kline-from-dashboard');
-      if (goKlineBtn) goKlineBtn.addEventListener('click', function() { switchView('kline'); });
-      const goHistoryBtn = document.getElementById('go-history-from-dashboard');
-      if (goHistoryBtn) goHistoryBtn.addEventListener('click', function() { switchView('history'); });
       const currentTradeMeta = document.getElementById('current-trade-meta');
+      const statusPositionEl = document.getElementById('status-position');
+      const statusPnlEl = document.getElementById('status-pnl');
+      const statusPriceEl = document.getElementById('status-price');
+      const navRuntimeBtn = document.getElementById('nav-runtime');
+      const navHistoryBtn = document.getElementById('nav-history');
+      const navKlineBtn = document.getElementById('nav-kline');
 
       function getCurrentTradeOrder() {
         if (activeOrder) return activeOrder;
@@ -715,6 +729,64 @@ const HTML = `<!DOCTYPE html>
           .slice()
           .sort((a, b) => (Date.parse(b?.openTs || '') || 0) - (Date.parse(a?.openTs || '') || 0))[0];
         return SORTED_ORDERS[0] || null;
+      }
+
+      function latestDailyPnl() {
+        for (let i = 0; i < SORTED_RECORDS.length; i++) {
+          const v = Number(SORTED_RECORDS[i]?.executor?.dailyRealizedPnlUSDT);
+          if (Number.isFinite(v)) return v;
+        }
+        return null;
+      }
+
+      function clearBtnState(btn) {
+        if (!btn) return;
+        btn.classList.remove('state-long', 'state-short', 'state-pos', 'state-neg');
+      }
+
+      function updateHeaderStatus() {
+        const cur = getCurrentTradeOrder();
+        if (statusPositionEl) {
+          statusPositionEl.className = 'status-chip neutral';
+          if (!cur) {
+            statusPositionEl.textContent = '仓位: 空仓';
+          } else if (cur.side === 'long') {
+            statusPositionEl.className = 'status-chip long';
+            statusPositionEl.textContent = '仓位: 多单';
+          } else if (cur.side === 'short') {
+            statusPositionEl.className = 'status-chip short';
+            statusPositionEl.textContent = '仓位: 空单';
+          } else {
+            statusPositionEl.textContent = '仓位: 持仓';
+          }
+        }
+
+        const pnlVal = Number(cur?.pnlEstUSDT);
+        const fallbackPnl = latestDailyPnl();
+        const shownPnl = Number.isFinite(pnlVal) ? pnlVal : fallbackPnl;
+        if (statusPnlEl) {
+          statusPnlEl.className = 'status-chip neutral';
+          if (Number.isFinite(shownPnl)) {
+            statusPnlEl.className = 'status-chip ' + (shownPnl >= 0 ? 'positive' : 'negative');
+            statusPnlEl.textContent = '盈亏: ' + (shownPnl >= 0 ? '+' : '') + shownPnl.toFixed(2) + 'U';
+          } else {
+            statusPnlEl.textContent = '盈亏: --';
+          }
+        }
+
+        const priceSrc = (OHLCV_BY_TF?.['1m'] || currentOhlcv || []);
+        const px = Number(priceSrc.length ? priceSrc[priceSrc.length - 1]?.close : null);
+        if (statusPriceEl) {
+          statusPriceEl.className = 'status-chip price';
+          statusPriceEl.textContent = '币价: ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
+        }
+
+        clearBtnState(navRuntimeBtn);
+        clearBtnState(navHistoryBtn);
+        clearBtnState(navKlineBtn);
+        if (navRuntimeBtn && cur?.side === 'long') navRuntimeBtn.classList.add('state-long');
+        if (navRuntimeBtn && cur?.side === 'short') navRuntimeBtn.classList.add('state-short');
+        if (navHistoryBtn && Number.isFinite(shownPnl)) navHistoryBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
       }
 
       function renderCurrentPositions() {
@@ -1011,6 +1083,7 @@ const HTML = `<!DOCTYPE html>
       }
 
       function renderDashboard() {
+        updateHeaderStatus();
         renderCurrentPositions();
         renderStrategySummary();
         renderRuntimeTimeline();
@@ -1229,6 +1302,7 @@ const HTML = `<!DOCTYPE html>
           applySeriesMarkers();
           applyOrderFocusBadge();
           syncOrderHighlightRows();
+          updateHeaderStatus();
           renderRuntimeTimeline();
           renderStrategySummary();
           return;
@@ -1239,6 +1313,7 @@ const HTML = `<!DOCTYPE html>
         applySeriesMarkers();
         applyOrderFocusBadge();
         syncOrderHighlightRows();
+        updateHeaderStatus();
         renderRuntimeTimeline();
         renderStrategySummary();
         if (forceFocus) focusOrderRange(order);
@@ -1454,6 +1529,7 @@ const HTML = `<!DOCTYPE html>
           applyOrderBand();
           if (useAutoFocus) applyDefaultVisibleRange(tf);
         }
+        updateHeaderStatus();
         return true;
       }
 
@@ -1530,6 +1606,7 @@ const HTML = `<!DOCTYPE html>
         applyDefaultVisibleRange(tf);
         if (typeof clearDecisionPriceLines === 'function') clearDecisionPriceLines();
         lastDataFingerprint = barsFingerprint(currentOhlcv);
+        updateHeaderStatus();
         if (liveEnabled) refreshCurrentTfBars('switch_tf');
       }
       document.getElementById('tf-select').addEventListener('change', e => setTf(e.target.value));
