@@ -136,6 +136,20 @@ PERP_SIGNAL=v5 node scripts/perp-engine.js
 PERP_SIGNAL=v5 DRY_RUN=1 node scripts/perp-engine.js
 ```
 
+### 5.3.1 一键打通引擎 dry-run → 看板数据（真实行情/新闻）
+
+```bash
+node scripts/perp-dryrun-live-bridge.js 3 15 400
+```
+
+- 参数含义：`cycles=3`（跑 3 轮引擎）`intervalSec=15`（每轮间隔 15 秒）`maxDecisions=400`（刷新报告数据条数）
+- 脚本会自动以 `DRY_RUN=1` + `DRY_RUN_FORCE=1` 跑引擎，然后执行 `perp-report.js data/viewer`。
+- 完成后可直接：
+
+```bash
+node scripts/perp-report.js serve
+```
+
 ### 5.4 Run position guard (should be scheduled)
 
 ```bash

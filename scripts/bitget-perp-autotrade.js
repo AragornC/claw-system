@@ -56,12 +56,12 @@ async function makeExchange() {
   const apiKey = process.env.BITGET_API_KEY || '';
   const secret = process.env.BITGET_API_SECRET || '';
   const password = process.env.BITGET_API_PASSPHRASE || '';
-  if (!apiKey || !secret || !password) throw new Error('Missing BITGET env vars');
+  const allowPublicOnly = process.env.ALLOW_PUBLIC_ONLY === '1';
+  const hasPrivateCreds = Boolean(apiKey && secret && password);
+  if (!hasPrivateCreds && !allowPublicOnly) throw new Error('Missing BITGET env vars');
 
   const ex = new ccxt.bitget({
-    apiKey,
-    secret,
-    password,
+    ...(hasPrivateCreds ? { apiKey, secret, password } : {}),
     enableRateLimit: true,
     options: {
       defaultType: 'swap', // USDT perpetual
@@ -114,22 +114,6 @@ function atrWilder(ohlcv, period = 14) {
 }
 
 async function main() {
-  const cfg = readJson(CONFIG_PATH, null);
-  if (!cfg?.enabled) {
-    process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'auto_disabled' }, null, 2));
-    return;
-  }
-
-  const state = readJson(STATE_PATH, { date: null, tradesToday: 0, dailyRealizedPnlUSDT: 0, lastTradeAtMs: 0, openPosition: null, lastExecuted: null });
-  const today = todayCN();
-  if (state.date !== today) {
-    state.date = today;
-    state.tradesToday = 0;
-    state.dailyRealizedPnlUSDT = 0;
-    state.lastTradeAtMs = 0;
-    state.openPosition = null;
-  }
-
   const input = await new Promise((resolve) => {
     let s = '';
     process.stdin.setEncoding('utf8');
@@ -141,6 +125,47 @@ async function main() {
 
   // Dry-run: do everything except placing real orders.
   const dryRun = pickBool(payload?.dryRun, false) || pickBool(process.env.DRY_RUN === '1', false);
+  const forceDryRun = dryRun && process.env.DRY_RUN_FORCE === '1';
+  const cfg = readJson(CONFIG_PATH, null);
+  const runtimeCfg = cfg || (forceDryRun
+    ? {
+        enabled: true,
+        symbol: 'BTC/USDT:USDT',
+        marginMode: 'isolated',
+        leverage: 2,
+        positionMode: 'hedge',
+        maxTradesPerDay: 60,
+        minIntervalMinutes: 3,
+        order: { type: 'market', notionalUSDT: 8 },
+        risk: {
+          mode: 'atr',
+          atr: { tf: '1h', period: 14 },
+          stopAtrMult: 1.8,
+          takeProfitAtrMult: 6.0,
+          maxHoldMinutes: 14400,
+          timeoutMinPnlUSDT: 0.02,
+          maxDailyLossUSDT: 2,
+          trailing: { enabled: true, activateAtAtr: 1.2, trailAtrMult: 2.2, timeoutTrailPct: 0.0025 },
+          reverseSignal: { confirmations: 999 },
+          fallback: { stopLossPct: 0.02, takeProfitPct: 0.2, activationProfitPct: 0.01, trailPct: 0.008 },
+        },
+      }
+    : null);
+  if (!runtimeCfg?.enabled && !forceDryRun) {
+    process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'auto_disabled' }, null, 2));
+    return;
+  }
+  if (forceDryRun && runtimeCfg && runtimeCfg.enabled !== true) runtimeCfg.enabled = true;
+
+  const state = readJson(STATE_PATH, { date: null, tradesToday: 0, dailyRealizedPnlUSDT: 0, lastTradeAtMs: 0, openPosition: null, lastExecuted: null });
+  const today = todayCN();
+  if (state.date !== today) {
+    state.date = today;
+    state.tradesToday = 0;
+    state.dailyRealizedPnlUSDT = 0;
+    state.lastTradeAtMs = 0;
+    state.openPosition = null;
+  }
 
   // TradePlan v1 (preferred)
   // {
@@ -167,7 +192,7 @@ async function main() {
   const news = payload?.news && typeof payload.news === 'object' ? payload.news : null;
 
   // Gate by daily loss
-  if (Number(state.dailyRealizedPnlUSDT) <= -Math.abs(cfg.risk.maxDailyLossUSDT || 0)) {
+  if (Number(state.dailyRealizedPnlUSDT) <= -Math.abs(runtimeCfg.risk.maxDailyLossUSDT || 0)) {
     appendJsonl(CYCLES_PATH, { ts: new Date().toISOString(), date: state.date, summary: 'daily_loss_cap', dailyRealizedPnlUSDT: state.dailyRealizedPnlUSDT });
     process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'daily_loss_cap', dailyRealizedPnlUSDT: state.dailyRealizedPnlUSDT }, null, 2));
     return;
@@ -195,13 +220,13 @@ async function main() {
     return;
   }
 
-  if (state.tradesToday >= cfg.maxTradesPerDay) {
+  if (state.tradesToday >= runtimeCfg.maxTradesPerDay) {
     appendJsonl(CYCLES_PATH, { ts: new Date().toISOString(), date: state.date, summary: 'daily_cap', tradesToday: state.tradesToday });
     process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'daily_cap', tradesToday: state.tradesToday }, null, 2));
     return;
   }
 
-  const minGapMs = (cfg.minIntervalMinutes || 20) * 60 * 1000;
+  const minGapMs = (runtimeCfg.minIntervalMinutes || 20) * 60 * 1000;
   if (Date.now() - Number(state.lastTradeAtMs || 0) < minGapMs) {
     appendJsonl(CYCLES_PATH, { ts: new Date().toISOString(), date: state.date, summary: 'min_interval' });
     process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'min_interval' }, null, 2));
@@ -237,7 +262,7 @@ async function main() {
 
   // Idempotency: if the exact same plan (cycleId+side+level) already executed, skip.
   // We intentionally do NOT allow the strategy to force re-execution within the same cycle.
-  const idemKey = sha1(stableStringify({ cycleId, side: a.side, level: a.level, symbol: cfg.symbol }));
+  const idemKey = sha1(stableStringify({ cycleId, side: a.side, level: a.level, symbol: runtimeCfg.symbol }));
   if (cycleId && state.lastExecuted?.cycleId === cycleId && state.lastExecuted?.idemKey === idemKey) {
     appendJsonl(CYCLES_PATH, { ts: new Date().toISOString(), date: state.date, summary: 'idempotent_skip', cycleId, idemKey });
     process.stdout.write(JSON.stringify({ ok: true, skipped: true, reason: 'idempotent_skip', cycleId }, null, 2));
@@ -274,16 +299,17 @@ async function main() {
     return;
   }
 
-  const symbol = cfg.symbol;
+  const symbol = runtimeCfg.symbol;
 
   // In dry-run we still fetch public price to compute amount and TP/SL.
+  if (dryRun) process.env.ALLOW_PUBLIC_ONLY = '1';
   const ex = await makeExchange();
   await ex.loadMarkets();
   const m = ex.market(symbol);
 
   // If we're only dry-running, avoid any private endpoint calls.
   if (!dryRun) {
-    await ensureSettings(ex, symbol, cfg);
+    await ensureSettings(ex, symbol, runtimeCfg);
   }
 
   const ticker = await ex.fetchTicker(symbol);
@@ -291,7 +317,7 @@ async function main() {
   if (!Number.isFinite(last) || last <= 0) throw new Error('last_price_unavailable');
 
   // Compute amount in base currency (BTC) from notional.
-  let amount = (cfg.order.notionalUSDT || 5) / last;
+  let amount = (runtimeCfg.order.notionalUSDT || 5) / last;
   // Apply precision/limits
   // CCXT may expose precision.amount either as "decimal places" (e.g. 4) or as an actual step (e.g. 0.0001).
   let step = null;
@@ -306,16 +332,16 @@ async function main() {
   // Place market order and set preset TP/SL on the position (Bitget supports preset prices).
   // CCXT Bitget: params.hedged is a MODE FLAG (true=hedge mode, false=one-way), not side.
   // Risk model: percent (legacy) or atr (preferred for v5).
-  const riskMode = String(cfg?.risk?.mode || 'percent');
+  const riskMode = String(runtimeCfg?.risk?.mode || 'percent');
 
   let atrVal = null;
   let tpSlRef = null;
 
   if (riskMode === 'atr') {
-    const tf = String(cfg?.risk?.atr?.tf || '1h');
-    const period = Number(cfg?.risk?.atr?.period || 14);
-    const stopMult = Number(cfg?.risk?.stopAtrMult || 1.8);
-    const tpMult = Number(cfg?.risk?.takeProfitAtrMult || 6.0);
+    const tf = String(runtimeCfg?.risk?.atr?.tf || '1h');
+    const period = Number(runtimeCfg?.risk?.atr?.period || 14);
+    const stopMult = Number(runtimeCfg?.risk?.stopAtrMult || 1.8);
+    const tpMult = Number(runtimeCfg?.risk?.takeProfitAtrMult || 6.0);
 
     // Fetch OHLCV to compute ATR (public endpoint). Keep it lightweight.
     const ohlcv = await ex.fetchOHLCV(symbol, tf, undefined, Math.max(50, period + 5));
@@ -326,17 +352,17 @@ async function main() {
   }
 
   if (!tpSlRef) {
-    const tpPct = Number(cfg?.risk?.fallback?.takeProfitPct ?? cfg?.risk?.takeProfitPct ?? 0.012);
-    const slPct = Number(cfg?.risk?.fallback?.stopLossPct ?? cfg?.risk?.stopLossPct ?? 0.006);
+    const tpPct = Number(runtimeCfg?.risk?.fallback?.takeProfitPct ?? runtimeCfg?.risk?.takeProfitPct ?? 0.012);
+    const slPct = Number(runtimeCfg?.risk?.fallback?.stopLossPct ?? runtimeCfg?.risk?.stopLossPct ?? 0.006);
     tpSlRef = computeTpSl(last, a.side, tpPct, slPct);
   }
 
   const params = {
-    marginMode: cfg.marginMode,
+    marginMode: runtimeCfg.marginMode,
     stopLoss: { triggerPrice: tpSlRef.sl },
     takeProfit: { triggerPrice: tpSlRef.tp },
   };
-  if (cfg.positionMode === 'hedge') params.hedged = true;
+  if (runtimeCfg.positionMode === 'hedge') params.hedged = true;
 
   let order = null;
   const entryRef = last;
@@ -352,14 +378,14 @@ async function main() {
   let tp = tpRef;
   let sl = slRef;
   if (riskMode === 'atr' && Number.isFinite(atrVal) && atrVal > 0) {
-    const stopMult = Number(cfg?.risk?.stopAtrMult || 1.8);
-    const tpMult = Number(cfg?.risk?.takeProfitAtrMult || 6.0);
+    const stopMult = Number(runtimeCfg?.risk?.stopAtrMult || 1.8);
+    const tpMult = Number(runtimeCfg?.risk?.takeProfitAtrMult || 6.0);
     const tpsl = computeTpSlAtr(entry, a.side, atrVal, tpMult, stopMult);
     if (tpsl) { tp = tpsl.tp; sl = tpsl.sl; }
   }
   if (!(Number.isFinite(tp) && Number.isFinite(sl))) {
-    const tpPct = Number(cfg?.risk?.fallback?.takeProfitPct ?? cfg?.risk?.takeProfitPct ?? 0.012);
-    const slPct = Number(cfg?.risk?.fallback?.stopLossPct ?? cfg?.risk?.stopLossPct ?? 0.006);
+    const tpPct = Number(runtimeCfg?.risk?.fallback?.takeProfitPct ?? runtimeCfg?.risk?.takeProfitPct ?? 0.012);
+    const slPct = Number(runtimeCfg?.risk?.fallback?.stopLossPct ?? runtimeCfg?.risk?.stopLossPct ?? 0.006);
     const tpsl = computeTpSl(entry, a.side, tpPct, slPct);
     tp = tpsl.tp;
     sl = tpsl.sl;
@@ -377,13 +403,13 @@ async function main() {
     orderId: dryRun ? null : (order?.id || null),
     tpSlMode: 'exchange-preset',
     trailing: {
-      enabled: Boolean(cfg?.risk?.trailing?.enabled),
+      enabled: Boolean(runtimeCfg?.risk?.trailing?.enabled),
       // percent-mode params (fallback)
-      activationProfitPct: Number(cfg?.risk?.fallback?.activationProfitPct ?? cfg?.risk?.trailing?.activationProfitPct ?? 0),
-      trailPct: Number(cfg?.risk?.fallback?.trailPct ?? cfg?.risk?.trailing?.trailPct ?? 0),
+      activationProfitPct: Number(runtimeCfg?.risk?.fallback?.activationProfitPct ?? runtimeCfg?.risk?.trailing?.activationProfitPct ?? 0),
+      trailPct: Number(runtimeCfg?.risk?.fallback?.trailPct ?? runtimeCfg?.risk?.trailing?.trailPct ?? 0),
       // atr-mode params
-      activateAtAtr: Number(cfg?.risk?.trailing?.activateAtAtr ?? 0),
-      trailAtrMult: Number(cfg?.risk?.trailing?.trailAtrMult ?? 0),
+      activateAtAtr: Number(runtimeCfg?.risk?.trailing?.activateAtAtr ?? 0),
+      trailAtrMult: Number(runtimeCfg?.risk?.trailing?.trailAtrMult ?? 0),
       atrAtEntry: Number.isFinite(atrVal) ? atrVal : null,
 
       bestPrice: entry,
