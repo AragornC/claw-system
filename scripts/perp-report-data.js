@@ -25,6 +25,7 @@ const OHLCV_JSON = path.resolve(REPORT_DIR, 'ohlcv.json');
 
 const MAX_DECISIONS = Math.min(1000, Math.max(50, parseInt(process.argv[2], 10) || 200));
 const SYMBOL = process.env.PERP_CHART_SYMBOL || 'BTC/USDT:USDT';
+const INCLUDE_MOCK = process.env.PERP_REPORT_INCLUDE_MOCK === '1';
 
 const TF_CONFIG = [
   { key: '1m', limit: 480 },
@@ -46,6 +47,27 @@ function readJsonl(p, maxLines) {
   } catch {
     return [];
   }
+}
+
+function isMockDecisionRecord(r) {
+  if (!r || typeof r !== 'object') return false;
+  const note = String(r?.signal?.note || '').toLowerCase();
+  const reason = String(r?.signal?.plan?.reason || '').toLowerCase();
+  const algoNote = String(r?.signal?.algorithm?.note || '').toLowerCase();
+  const newsReason = Array.isArray(r?.decision?.newsReason) ? r.decision.newsReason.map((x) => String(x).toLowerCase()) : [];
+  const newsItems = Array.isArray(r?.decision?.newsItems) ? r.decision.newsItems : [];
+  const hasMockNews = newsItems.some((it) => {
+    const title = String(it?.title || '').toLowerCase();
+    const url = String(it?.url || '').toLowerCase();
+    return title.includes('mock news') || url.includes('/mock/');
+  });
+  return (
+    note.includes('mock') ||
+    reason.startsWith('mock_test_data_') ||
+    algoNote.includes('mock generator') ||
+    newsReason.some((x) => x.includes('mock_')) ||
+    hasMockNews
+  );
 }
 
 function parseTsMs(v) {
@@ -237,8 +259,12 @@ function loadOHLCVFromCache() {
 async function main() {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 
-  const records = readJsonl(DECISIONS_JSONL, MAX_DECISIONS);
+  const rawRecords = readJsonl(DECISIONS_JSONL, MAX_DECISIONS);
+  const records = INCLUDE_MOCK ? rawRecords : rawRecords.filter((r) => !isMockDecisionRecord(r));
   fs.writeFileSync(DECISIONS_JSON, JSON.stringify(records), 'utf8');
+  if (!INCLUDE_MOCK) {
+    console.log('Filtered mock decisions:', rawRecords.length - records.length);
+  }
   console.log('Wrote report/decisions.json:', records.length, 'records');
 
   const tradeRecords = readJsonl(TRADES_JSONL, 10000);
