@@ -1742,24 +1742,31 @@ const HTML = `<!DOCTYPE html>
         function handleLocalCmd(q) {
           const text = String(q || '').trim();
           if (!text) return null;
-          const setMatch = text.match(/^\/deepseek\s+(sk-[A-Za-z0-9_-]{16,})$/i);
-          if (setMatch) {
-            const ok = writeDeepSeekKey(setMatch[1]);
-            if (ok) {
-              setAiLinkStatus('ok', 'DeepSeek: 已绑定(' + maskKey(setMatch[1]) + ')');
-              return { reply: '已绑定 DeepSeek Key（本机存储）。在静态部署/手机访问时将自动直连 DeepSeek。', actions: [] };
-            }
-            return { reply: '绑定失败：浏览器不允许本地存储。', actions: [] };
+          const lower = text.toLowerCase();
+          if (lower === '/deepseek') {
+            const key = readDeepSeekKey();
+            if (key) return { reply: '当前已绑定 DeepSeek Key：' + maskKey(key), actions: [] };
+            return { reply: '当前未绑定 DeepSeek Key。可发送：/deepseek sk-xxxxx', actions: [] };
           }
-          if (/^\/deepseek\s+clear$/i.test(text)) {
+          if (lower === '/deepseek clear') {
             clearDeepSeekKey();
             setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
             return { reply: '已清除本地 DeepSeek Key。', actions: [] };
           }
-          if (/^\/deepseek$/i.test(text)) {
-            const key = readDeepSeekKey();
-            if (key) return { reply: '当前已绑定 DeepSeek Key：' + maskKey(key), actions: [] };
-            return { reply: '当前未绑定 DeepSeek Key。可发送：/deepseek sk-xxxxx', actions: [] };
+          if (lower.startsWith('/deepseek ')) {
+            const parts = text.split(' ').filter(Boolean);
+            const maybeKey = parts.length >= 2 ? parts[1] : '';
+            const key = String(maybeKey || '').trim();
+            const isSk = key.toLowerCase().startsWith('sk-');
+            if (!isSk || key.length < 20) {
+              return { reply: 'DeepSeek Key 格式看起来不对，请确认以 sk- 开头后重试。', actions: [] };
+            }
+            const ok = writeDeepSeekKey(key);
+            if (ok) {
+              setAiLinkStatus('ok', 'DeepSeek: 已绑定(' + maskKey(key) + ')');
+              return { reply: '已绑定 DeepSeek Key（本机存储）。在静态部署/手机访问时将自动直连 DeepSeek。', actions: [] };
+            }
+            return { reply: '绑定失败：浏览器不允许本地存储。', actions: [] };
           }
           return null;
         }
