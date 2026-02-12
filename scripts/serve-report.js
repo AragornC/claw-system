@@ -28,6 +28,15 @@ const OPENCLAW_VERBOSE = (process.env.OPENCLAW_VERBOSE || '').trim();
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
 const OPENCLAW_CHAT_TIMEOUT_MS = positiveInt(process.env.OPENCLAW_CHAT_TIMEOUT_MS, 95_000);
 const JSON_BODY_LIMIT = 64 * 1024;
+const REPORT_DECISIONS_PATH = path.resolve(REPORT_DIR, 'decisions.json');
+const REPORT_ORDERS_PATH = path.resolve(REPORT_DIR, 'orders.json');
+const REPORT_OHLCV_PATH = path.resolve(REPORT_DIR, 'ohlcv.json');
+const OPENCLAW_CONTEXT_MAX_DECISIONS = positiveInt(process.env.OPENCLAW_CONTEXT_MAX_DECISIONS, 36);
+const OPENCLAW_CONTEXT_TIMELINE_EVENTS = positiveInt(
+  process.env.OPENCLAW_CONTEXT_TIMELINE_EVENTS,
+  18,
+);
+const OPENCLAW_CONTEXT_MAX_ORDERS = positiveInt(process.env.OPENCLAW_CONTEXT_MAX_ORDERS, 12);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -48,6 +57,254 @@ function sendJson(res, status, body) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(body));
+}
+
+function safeJsonRead(filePath, fallback) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if (!String(raw || '').trim()) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function toMs(tsLike) {
+  const ms = Date.parse(String(tsLike || ''));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function toNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizedOrdersFromPayload(payload) {
+  if (Array.isArray(payload?.orders)) return payload.orders;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function latestPriceFromOhlcv(dataByTf) {
+  const tfOrder = ['1m', '5m', '15m', '1h', '4h', '1d'];
+  for (const tf of tfOrder) {
+    const bars = Array.isArray(dataByTf?.[tf]) ? dataByTf[tf] : [];
+    if (!bars.length) continue;
+    const last = bars[bars.length - 1];
+    const prev = bars.length > 1 ? bars[bars.length - 2] : null;
+    const close = toNum(last?.close);
+    const prevClose = toNum(prev?.close);
+    const changePct =
+      close != null && prevClose != null && prevClose !== 0
+        ? ((close - prevClose) / prevClose) * 100
+        : null;
+    return {
+      tf,
+      time: last?.time ?? null,
+      close,
+      open: toNum(last?.open),
+      high: toNum(last?.high),
+      low: toNum(last?.low),
+      changePct,
+    };
+  }
+  return null;
+}
+
+function normalizeSide(side) {
+  const s = String(side || '').toLowerCase();
+  if (s === 'long') return 'long';
+  if (s === 'short') return 'short';
+  return 'neutral';
+}
+
+function sideCn(side) {
+  const s = normalizeSide(side);
+  if (s === 'long') return '做多';
+  if (s === 'short') return '做空';
+  return '无信号';
+}
+
+function summarizeDecision(r) {
+  const plan = r?.signal?.plan || null;
+  const side = normalizeSide(plan?.side);
+  return {
+    ts: r?.ts || null,
+    cycleId: r?.cycleId || null,
+    side,
+    sideCn: sideCn(side),
+    hasAlert: Boolean(r?.signal?.hasAlert),
+    blockedByNews: Boolean(r?.decision?.blockedByNews),
+    executed: Boolean(r?.executor?.executed),
+    dryRun: Boolean(r?.executor?.dryRun),
+    executorReason: r?.executor?.reason || null,
+    signalReason: plan?.reason || null,
+  };
+}
+
+function summarizeOrder(o) {
+  const side = normalizeSide(o?.side);
+  return {
+    tradeId: o?.tradeId != null ? String(o.tradeId) : null,
+    cycleId: o?.cycleId != null ? String(o.cycleId) : null,
+    side,
+    sideCn: sideCn(side),
+    symbol: o?.symbol || null,
+    openTs: o?.openTs || null,
+    closeTs: o?.closeTs || null,
+    openPrice: toNum(o?.openPrice),
+    closePrice: toNum(o?.closePrice),
+    pnlEstUSDT: toNum(o?.pnlEstUSDT),
+    isSynthetic: Boolean(o?.isSynthetic),
+    state: o?.closeTs ? 'closed' : 'open',
+  };
+}
+
+function buildTimelineEvent(r) {
+  const plan = r?.signal?.plan || null;
+  const side = normalizeSide(plan?.side);
+  const blocked = Boolean(r?.decision?.blockedByNews);
+  const hasSignal = Boolean(r?.signal?.hasAlert);
+  const executed = Boolean(r?.executor?.executed);
+  const reason = String(r?.executor?.reason || '').trim();
+  let tag = 'info';
+  if (blocked) tag = 'risk';
+  else if (executed || reason.includes('open') || reason.includes('close')) tag = 'order';
+  else if (hasSignal) tag = 'signal';
+
+  let title = '无信号，继续观察';
+  if (blocked) title = '触发新闻/风控拦截';
+  else if (hasSignal && side === 'long') title = '识别做多信号';
+  else if (hasSignal && side === 'short') title = '识别做空信号';
+  else if (hasSignal) title = '识别交易信号';
+
+  const bits = [];
+  if (plan?.reason) bits.push(String(plan.reason));
+  if (reason) bits.push('执行器: ' + reason);
+  if (!bits.length && r?.decision?.newsReason?.length) {
+    bits.push('风控原因: ' + String(r.decision.newsReason[0]));
+  }
+  return {
+    ts: r?.ts || null,
+    tag,
+    title,
+    sub: bits.join(' | ') || '-',
+  };
+}
+
+function getCurrentTradeFromDecisions(sortedDecisions) {
+  const latest = sortedDecisions[0];
+  const wp = latest?.executor?.wouldOpenPosition || null;
+  if (!latest || !wp) return null;
+  const side = normalizeSide(wp?.side);
+  return {
+    tradeId: latest?.cycleId ? 'cycle:' + String(latest.cycleId) : null,
+    cycleId: latest?.cycleId || null,
+    side,
+    sideCn: sideCn(side),
+    state: 'dryrun-open',
+    openTs: latest?.ts || null,
+    openPrice: toNum(wp?.entryPrice),
+    closeTs: null,
+  };
+}
+
+function buildTradingContext(clientContext) {
+  const decisionsRaw = safeJsonRead(REPORT_DECISIONS_PATH, []);
+  const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
+  const ohlcvRaw = safeJsonRead(REPORT_OHLCV_PATH, { symbol: 'BTC/USDT:USDT', data: {} });
+
+  const decisions = Array.isArray(decisionsRaw) ? decisionsRaw : [];
+  const orders = normalizedOrdersFromPayload(ordersRaw);
+  const symbol = typeof ohlcvRaw?.symbol === 'string' ? ohlcvRaw.symbol : 'BTC/USDT:USDT';
+  const ohlcvByTf =
+    ohlcvRaw && typeof ohlcvRaw === 'object' && ohlcvRaw.data && typeof ohlcvRaw.data === 'object'
+      ? ohlcvRaw.data
+      : {};
+
+  const sortedDecisions = decisions
+    .filter((r) => r && r.ts && !r.stage)
+    .slice()
+    .sort((a, b) => (toMs(b?.ts) || 0) - (toMs(a?.ts) || 0));
+  const sortedOrders = orders
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => (toMs(b?.openTs || b?.closeTs) || 0) - (toMs(a?.openTs || a?.closeTs) || 0));
+  const openOrders = sortedOrders.filter((o) => !o?.closeTs);
+  const latestDecision = sortedDecisions[0] || null;
+  const currentOrder = openOrders[0] || sortedOrders[0] || getCurrentTradeFromDecisions(sortedDecisions);
+  const latestPrice = latestPriceFromOhlcv(ohlcvByTf);
+  const recentDecisions = sortedDecisions
+    .slice(0, Math.max(8, OPENCLAW_CONTEXT_MAX_DECISIONS))
+    .map(summarizeDecision);
+  const recentOrders = sortedOrders.slice(0, OPENCLAW_CONTEXT_MAX_ORDERS).map(summarizeOrder);
+
+  const blockedCount = sortedDecisions.filter((r) => r?.decision?.blockedByNews).length;
+  const executedCount = sortedDecisions.filter((r) => r?.executor?.executed).length;
+  const dryRunOpenCount = sortedDecisions.filter(
+    (r) => Boolean(r?.executor?.dryRun) && Boolean(r?.executor?.wouldOpenPosition),
+  ).length;
+
+  let timelineSource = sortedDecisions.slice(0, OPENCLAW_CONTEXT_TIMELINE_EVENTS);
+  const currentCycle = Number(currentOrder?.cycleId);
+  if (Number.isFinite(currentCycle)) {
+    const filtered = sortedDecisions.filter((r) => Number(r?.cycleId) >= currentCycle);
+    if (filtered.length) timelineSource = filtered.slice(0, OPENCLAW_CONTEXT_TIMELINE_EVENTS);
+  }
+  const runtimeTimeline = timelineSource.map(buildTimelineEvent).reverse();
+
+  const digest = {
+    symbol,
+    decisions: sortedDecisions.length,
+    orders: sortedOrders.length,
+    openOrders: openOrders.length,
+    latestDecisionTs: latestDecision?.ts || null,
+    latestSignal: sideCn(latestDecision?.signal?.plan?.side),
+    currentTradeId: currentOrder?.tradeId || null,
+    currentTradeSide: currentOrder?.side ? sideCn(currentOrder.side) : '无',
+    currentPrice: latestPrice?.close ?? null,
+    blockedCount,
+    executedCount,
+    dryRunOpenCount,
+  };
+
+  const context = {
+    generatedAt: new Date().toISOString(),
+    digest,
+    market: {
+      symbol,
+      latestPrice,
+    },
+    strategy: {
+      latestDecision: latestDecision ? summarizeDecision(latestDecision) : null,
+      blockedCount,
+      executedCount,
+      dryRunOpenCount,
+      recentDecisions,
+    },
+    trades: {
+      openOrders: openOrders.slice(0, 6).map(summarizeOrder),
+      recentOrders,
+      currentTrade: currentOrder ? summarizeOrder(currentOrder) : null,
+      runtimeTimeline,
+    },
+    uiActions: {
+      switchViews: ['dashboard', 'runtime', 'kline', 'backtest', 'history'],
+      backtest: {
+        strategy: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
+        tf: ['1m', '5m', '15m', '1h', '4h', '1d'],
+      },
+    },
+    clientContext:
+      clientContext && typeof clientContext === 'object'
+        ? {
+            currentView: clientContext.currentView || null,
+            activeTradeId: clientContext.activeTradeId || null,
+            userIntentHint: clientContext.userIntentHint || null,
+          }
+        : null,
+  };
+  return { context, digest };
 }
 
 function resolveOpenClawCli() {
@@ -79,6 +336,116 @@ function parseJsonLoose(text) {
     } catch {}
   }
   return null;
+}
+
+function parseStructuredAgentReply(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return { reply: '', actions: [] };
+
+  const candidates = [];
+  const direct = parseJsonLoose(raw);
+  if (direct && typeof direct === 'object') candidates.push(direct);
+
+  const blocks = raw.match(/```(?:json)?[\s\S]*?```/gi) || [];
+  for (const block of blocks) {
+    const inner = block
+      .replace(/^```(?:json)?/i, '')
+      .replace(/```$/i, '')
+      .trim();
+    const parsed = parseJsonLoose(inner);
+    if (parsed && typeof parsed === 'object') candidates.push(parsed);
+  }
+
+  for (const c of candidates) {
+    const reply = typeof c.reply === 'string' ? c.reply.trim() : '';
+    const actions = normalizeAiActions(c.actions);
+    if (reply || actions.length) {
+      return {
+        reply: reply || raw,
+        actions,
+      };
+    }
+  }
+
+  return { reply: raw, actions: [] };
+}
+
+function normalizeViewName(viewLike) {
+  const raw = String(viewLike || '').trim().toLowerCase();
+  if (!raw) return null;
+  const alias = {
+    main: 'dashboard',
+    dashboard: 'dashboard',
+    ai: 'dashboard',
+    chat: 'dashboard',
+    'ai聊天': 'dashboard',
+    runtime: 'runtime',
+    current: 'runtime',
+    position: 'runtime',
+    当前单: 'runtime',
+    kline: 'kline',
+    chart: 'kline',
+    k线: 'kline',
+    history: 'history',
+    orders: 'history',
+    历史: 'history',
+    历史单: 'history',
+    backtest: 'backtest',
+    复盘: 'backtest',
+    回验: 'backtest',
+    回测: 'backtest',
+  };
+  return alias[raw] || null;
+}
+
+function clampNum(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (Number.isFinite(min) && n < min) return min;
+  if (Number.isFinite(max) && n > max) return max;
+  return n;
+}
+
+function normalizeAiActions(actionsLike) {
+  if (!Array.isArray(actionsLike)) return [];
+  const out = [];
+  for (const item of actionsLike) {
+    if (!item || typeof item !== 'object') continue;
+    const type = String(item.type || '').trim().toLowerCase();
+    if (type === 'switch_view') {
+      const view = normalizeViewName(item.view);
+      if (view) out.push({ type: 'switch_view', view });
+      continue;
+    }
+    if (type === 'focus_trade') {
+      const tradeId = String(item.tradeId || '').trim();
+      if (tradeId) out.push({ type: 'focus_trade', tradeId });
+      continue;
+    }
+    if (type === 'run_backtest') {
+      const strategy = String(item.strategy || '').trim();
+      const tf = String(item.tf || '').trim();
+      const normalized = { type: 'run_backtest' };
+      if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(strategy)) {
+        normalized.strategy = strategy;
+      }
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) {
+        normalized.tf = tf;
+      }
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      out.push(normalized);
+    }
+  }
+  return out.slice(0, 4);
 }
 
 function payloadToText(payload) {
@@ -128,16 +495,28 @@ function extractReplyFromOutput(stdout) {
 function buildOpenClawPrompt(message, context) {
   const baseMessage = String(message || '').trim();
   if (!baseMessage) return '';
-  if (!context || typeof context !== 'object') return baseMessage;
-  let contextJson = '';
-  try {
-    contextJson = JSON.stringify(context, null, 2);
-  } catch {
-    contextJson = String(context);
+  let contextJson = '{}';
+  if (context && typeof context === 'object') {
+    try {
+      contextJson = JSON.stringify(context, null, 2);
+    } catch {
+      contextJson = '{}';
+    }
   }
   return [
-    '你是交易看板中的 AI 交易助理，请使用简洁、可执行的中文回答。',
-    '仅可基于提供的看板上下文进行分析；若信息不足，请明确指出缺失字段，不要编造事实。',
+    '你是交易系统里的 AI 交易助理（OpenClaw 驱动）。',
+    '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
+    '若信息不足，请直接说明缺失项，不得编造事实。',
+    '',
+    '输出要求（必须严格遵守）:',
+    '1) 只输出 JSON（不要代码块、不要额外解释）。',
+    '2) JSON 格式固定为：',
+    '{"reply":"给用户看的中文回复","actions":[...]}',
+    '3) actions 可选，最多 4 个。支持动作：',
+    '- {"type":"switch_view","view":"dashboard|runtime|kline|backtest|history"}',
+    '- {"type":"focus_trade","tradeId":"交易ID"}',
+    '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
+    '4) 如果不需要动作，actions 返回空数组。',
     '',
     '[交易看板上下文]',
     contextJson,
@@ -275,14 +654,21 @@ async function handleChatApi(req, res) {
     sendJson(res, 400, { ok: false, error: 'message is required' });
     return;
   }
-  const context =
-    body.value?.context && typeof body.value.context === 'object' ? body.value.context : undefined;
+  const clientContext =
+    body.value?.clientContext && typeof body.value.clientContext === 'object'
+      ? body.value.clientContext
+      : undefined;
+  const trading = buildTradingContext(clientContext);
   try {
-    const result = await runOpenClawChat(message, context);
+    const result = await runOpenClawChat(message, trading.context);
+    const structured = parseStructuredAgentReply(result.reply);
     sendJson(res, 200, {
       ok: true,
       source: 'openclaw',
-      reply: result.reply,
+      binding: 'trading-context-v2',
+      reply: structured.reply,
+      actions: structured.actions,
+      contextDigest: trading.digest,
       meta: {
         elapsedMs: result.elapsedMs,
         commandSource: result.commandSource,
@@ -293,7 +679,9 @@ async function handleChatApi(req, res) {
     sendJson(res, 502, {
       ok: false,
       source: 'openclaw',
+      binding: 'trading-context-v2',
       error: String(err?.message || err),
+      contextDigest: trading.digest,
     });
   }
 }
@@ -329,13 +717,33 @@ const server = http.createServer((req, res) => {
         return;
       }
       const cli = resolveOpenClawCli();
+      const trading = buildTradingContext();
       sendJson(res, 200, {
         ok: true,
         provider: 'openclaw',
         bridge: '/api/ai/chat',
+        binding: 'trading-context-v2',
         agentId: OPENCLAW_AGENT_ID,
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
         commandSource: cli.source,
+        contextDigest: trading.digest,
+      });
+      return;
+    }
+    if (url.pathname === '/api/ai/context') {
+      if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Allow', 'GET');
+        res.end('Method Not Allowed');
+        return;
+      }
+      const trading = buildTradingContext();
+      const full = url.searchParams.get('full') === '1';
+      sendJson(res, 200, {
+        ok: true,
+        binding: 'trading-context-v2',
+        contextDigest: trading.digest,
+        context: full ? trading.context : undefined,
       });
       return;
     }
@@ -353,5 +761,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
   console.log('Serving:', REPORT_DIR);
-  console.log('AI bridge: POST /api/ai/chat (OpenClaw agent=' + OPENCLAW_AGENT_ID + ')');
+  console.log('AI bridge: POST /api/ai/chat (OpenClaw agent=' + OPENCLAW_AGENT_ID + ', binding=trading-context-v2)');
+  console.log('AI context: GET /api/ai/context');
 });

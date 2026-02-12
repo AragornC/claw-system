@@ -951,6 +951,7 @@ const HTML = `<!DOCTYPE html>
       const inputFuncMenu = document.getElementById('input-func-menu');
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
+      let activeViewName = 'dashboard';
 
       function setInputMenuOpen(open) {
         if (!inputFuncMenu || !inputFuncToggle) return;
@@ -961,6 +962,7 @@ const HTML = `<!DOCTYPE html>
 
       function switchView(name) {
         const key = viewMap[name] ? name : 'dashboard';
+        activeViewName = key;
         Object.entries(viewMap).forEach(([k, el]) => {
           if (!el) return;
           el.classList.toggle('active', k === key);
@@ -1501,6 +1503,10 @@ const HTML = `<!DOCTYPE html>
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
+          if (/回验|backtest|复盘|回测/.test(ql)) {
+            switchView('backtest');
+            return 'OpenClaw 当前不可用，已切到「策略回验」页面。你可直接点“开始回验”。';
+          }
           if (!ql.trim()) return '可以问我：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。';
           if (/仓位|持仓|position/.test(ql)) {
             if (!OPEN_ORDERS.length) return '当前无持仓，机器人处于空仓扫描状态。';
@@ -1530,37 +1536,79 @@ const HTML = `<!DOCTYPE html>
           }
           return 'OpenClaw 暂时不可用，已切换本地助手兜底。你可以问：当前仓位、当前交易进展、策略状态、风控拦截、最近订单。';
         }
-        function buildAiContext() {
+        function buildClientContext() {
           return {
+            currentView: activeViewName || 'dashboard',
+            activeTradeId: activeOrderTradeId || null,
+            userIntentHint: 'trade_dashboard_assistant',
             snapshot: aiSnapshot(),
-            openOrders: OPEN_ORDERS.slice(0, 4).map(function(o) {
-              return {
-                tradeId: o?.tradeId || null,
-                side: o?.side || null,
-                symbol: o?.symbol || null,
-                openPrice: o?.openPrice ?? null,
-                openTs: o?.openTs || null,
-              };
-            }),
-            recentOrders: SORTED_ORDERS.slice(0, 6).map(function(o) {
-              return {
-                tradeId: o?.tradeId || null,
-                side: o?.side || null,
-                openTs: o?.openTs || null,
-                closeTs: o?.closeTs || null,
-                pnlEstUSDT: Number(o?.pnlEstUSDT),
-              };
-            }),
           };
         }
-        function handleUiCommand(q) {
-          const ql = String(q || '').toLowerCase();
-          if (/回验|backtest|复盘/.test(ql)) {
-            switchView('backtest');
-            return '已切换到「策略回验」页面。你可以选择策略版本、周期和窗口后点击“开始回验”，查看历史 K 线 PnL。';
+
+        function setControlValue(id, value) {
+          if (value == null) return false;
+          const el = document.getElementById(id);
+          if (!el) return false;
+          if (el.tagName === 'SELECT') {
+            const options = Array.from(el.options || []).map(function(o) { return o.value; });
+            if (!options.includes(String(value))) return false;
+            el.value = String(value);
+            return true;
           }
-          return null;
+          el.value = String(value);
+          return true;
         }
+
+        function applyAiActions(actions) {
+          if (!Array.isArray(actions) || !actions.length) return '';
+          const notes = [];
+          actions.slice(0, 4).forEach(function(action) {
+            if (!action || typeof action !== 'object') return;
+            const type = String(action.type || '').toLowerCase();
+            if (type === 'switch_view') {
+              const view = String(action.view || '');
+              if (view && viewMap[view]) {
+                switchView(view);
+                notes.push('已切换到「' + (
+                  view === 'dashboard' ? 'AI聊天' :
+                  view === 'runtime' ? '当前单' :
+                  view === 'kline' ? 'K线图' :
+                  view === 'backtest' ? '策略回验' : '历史单'
+                ) + '」');
+              }
+              return;
+            }
+            if (type === 'focus_trade') {
+              const tradeId = String(action.tradeId || '').trim();
+              if (!tradeId) return;
+              const order = findOrderByTradeId(tradeId);
+              if (order) {
+                setActiveOrder(order, { focus: true });
+                switchView('kline');
+                notes.push('已定位交易 ' + tradeId + ' 的开平区间');
+              } else {
+                notes.push('未找到交易 ' + tradeId + '（可能仍在 dry-run）');
+              }
+              return;
+            }
+            if (type === 'run_backtest') {
+              setControlValue('bt-strategy', action.strategy);
+              setControlValue('bt-tf', action.tf);
+              setControlValue('bt-bars', action.bars);
+              setControlValue('bt-fee-bps', action.feeBps);
+              setControlValue('bt-stop-atr', action.stopAtr);
+              setControlValue('bt-tp-atr', action.tpAtr);
+              setControlValue('bt-max-hold', action.maxHold);
+              switchView('backtest');
+              window.requestAnimationFrame(function() {
+                if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+              });
+              notes.push('已执行策略回验并刷新结果');
+            }
+          });
+          return notes.join('；');
+        }
+
         async function askOpenClaw(q) {
           const resp = await fetch('api/ai/chat', {
             method: 'POST',
@@ -1568,7 +1616,7 @@ const HTML = `<!DOCTYPE html>
             cache: 'no-store',
             body: JSON.stringify({
               message: q,
-              context: buildAiContext(),
+              clientContext: buildClientContext(),
             }),
           });
           let payload = null;
@@ -1579,17 +1627,18 @@ const HTML = `<!DOCTYPE html>
             const reason = (payload && payload.error) ? String(payload.error) : ('HTTP ' + resp.status);
             throw new Error(reason);
           }
-          setAiLinkStatus('ok', 'OpenClaw: 已连接');
-          return String(payload.reply).trim();
+          setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
+          return {
+            reply: String(payload.reply || '').trim(),
+            actions: Array.isArray(payload.actions) ? payload.actions : [],
+          };
         }
         async function answer(q) {
-          const cmdReply = handleUiCommand(q);
-          if (cmdReply) return cmdReply;
           try {
             return await askOpenClaw(q);
           } catch {
             setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
-            return localAnswer(q);
+            return { reply: localAnswer(q), actions: [] };
           }
         }
         let inFlight = false;
@@ -1601,8 +1650,11 @@ const HTML = `<!DOCTYPE html>
           box.appendChild(thinking);
           box.scrollTop = box.scrollHeight;
           try {
-            const reply = await answer(text);
-            thinking.textContent = reply || '收到，但暂时没有可返回内容。';
+            const result = await answer(text);
+            const reply = String(result?.reply || '').trim();
+            const actionNote = applyAiActions(result?.actions);
+            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n' + actionNote) : '');
+            thinking.textContent = finalText;
           } catch {
             thinking.textContent = '本次请求失败，请稍后重试。';
           }
@@ -1650,7 +1702,7 @@ const HTML = `<!DOCTYPE html>
         void fetch('api/ai/health', { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
-            if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 已就绪');
+            if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
           })
           .catch(function() {
@@ -3299,7 +3351,7 @@ const MANIFEST = {
   ],
 };
 
-const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v6';
+const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v7';
 const PRECACHE = [
   './',
   './index.html',

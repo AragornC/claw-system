@@ -171,11 +171,21 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 
 ### 5.6 OpenClaw 深度绑定（AI 交易助理）
 
-交易看板 UI 保持不变，但聊天能力会优先走 OpenClaw：
+交易看板 UI 保持不变，但 AI 对话改成 **OpenClaw + 交易域上下文**：
 
 - 前端：`/api/ai/chat`
 - 报告服务：`scripts/serve-report.js`
 - 后端执行：`openclaw agent --agent <id> --json`
+
+本次深度绑定要点：
+
+- 服务端每次请求会实时读取 `decisions.json / orders.json / ohlcv.json` 生成权威上下文（不依赖前端传参）
+- OpenClaw 按约定返回结构化动作（`switch_view / focus_trade / run_backtest`）
+- 前端自动执行动作：切页、定位交易开平区间、触发回验
+- 提供调试接口：
+  - `GET /api/ai/health`
+  - `GET /api/ai/context`
+  - `GET /api/ai/context?full=1`
 
 建议流程：
 
@@ -198,6 +208,9 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 - `OPENCLAW_VERBOSE`：如 `on | off`
 - `OPENCLAW_TIMEOUT_SEC`：OpenClaw `agent` 超时秒数（默认 `90`）
 - `OPENCLAW_CHAT_TIMEOUT_MS`：服务端桥接超时毫秒（默认 `95000`）
+- `OPENCLAW_CONTEXT_MAX_DECISIONS`：上下文中最近决策条数（默认 `36`）
+- `OPENCLAW_CONTEXT_TIMELINE_EVENTS`：上下文时间线条数（默认 `18`）
+- `OPENCLAW_CONTEXT_MAX_ORDERS`：上下文中最近订单条数（默认 `12`）
 
 当 OpenClaw 不可用时，聊天区会自动回退到本地兜底回复，并在界面上标记为离线状态。
 
