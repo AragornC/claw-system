@@ -25,6 +25,9 @@ const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
 const OPENCLAW_THINKING = (process.env.OPENCLAW_THINKING || '').trim();
 const OPENCLAW_VERBOSE = (process.env.OPENCLAW_VERBOSE || '').trim();
+const OPENCLAW_AGENT_LOCAL = /^(1|true|yes|on)$/i.test(
+  String(process.env.OPENCLAW_AGENT_LOCAL || ''),
+);
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
 const OPENCLAW_CHAT_TIMEOUT_MS = positiveInt(process.env.OPENCLAW_CHAT_TIMEOUT_MS, 95_000);
 const JSON_BODY_LIMIT = 64 * 1024;
@@ -581,6 +584,7 @@ async function runOpenClawChat(message, context) {
     '--timeout',
     String(OPENCLAW_TIMEOUT_SEC),
   ];
+  if (OPENCLAW_AGENT_LOCAL) args.push('--local');
   if (OPENCLAW_THINKING) args.push('--thinking', OPENCLAW_THINKING);
   if (OPENCLAW_VERBOSE) args.push('--verbose', OPENCLAW_VERBOSE);
   if (OPENCLAW_SESSION_ID) args.push('--session-id', OPENCLAW_SESSION_ID);
@@ -724,6 +728,7 @@ const server = http.createServer((req, res) => {
         bridge: '/api/ai/chat',
         binding: 'trading-context-v2',
         agentId: OPENCLAW_AGENT_ID,
+        agentLocal: OPENCLAW_AGENT_LOCAL,
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
         commandSource: cli.source,
         contextDigest: trading.digest,

@@ -204,6 +204,7 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 
 - `OPENCLAW_CLI_BIN`：指定 openclaw 可执行路径（未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
 - `OPENCLAW_AGENT_ID`：默认 `main`
+- `OPENCLAW_AGENT_LOCAL`：`1/true` 时强制 `openclaw agent --local`（无需先跑 Gateway，推荐本地直连模型时开启）
 - `OPENCLAW_THINKING`：如 `low | medium | high`
 - `OPENCLAW_VERBOSE`：如 `on | off`
 - `OPENCLAW_TIMEOUT_SEC`：OpenClaw `agent` 超时秒数（默认 `90`）
