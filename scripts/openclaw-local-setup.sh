@@ -22,6 +22,15 @@ prompt_default() {
   fi
 }
 
+is_yes() {
+  local v
+  v="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "${v}" in
+    y|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 OPENCLAW_BIN="${OPENCLAW_CLI_BIN:-openclaw}"
 if ! command -v "${OPENCLAW_BIN}" >/dev/null 2>&1; then
   echo "[init] openclaw 未安装，正在安装最新版本..."
@@ -32,7 +41,7 @@ echo "[init] OpenClaw version:"
 "${OPENCLAW_BIN}" --version || true
 
 RUN_OPENCLAW_CONFIGURE="$(prompt_default "是否先运行 OpenClaw 官方引导(openclaw configure)? (y/n)" "y")"
-if [[ "${RUN_OPENCLAW_CONFIGURE,,}" =~ ^(y|yes)$ ]]; then
+if is_yes "${RUN_OPENCLAW_CONFIGURE}"; then
   echo "[init] 启动 openclaw configure..."
   "${OPENCLAW_BIN}" configure || echo "[warn] openclaw configure 未完成，可稍后手动执行。"
 fi
@@ -42,7 +51,7 @@ THINKING="$(prompt_default "thinking 等级(off|minimal|low|medium|high)" "mediu
 VERBOSE="$(prompt_default "verbose(on|off)" "off")"
 
 BOOTSTRAP_DEEPSEEK="$(prompt_default "是否快速写入 DeepSeek provider? (y/n)" "n")"
-if [[ "${BOOTSTRAP_DEEPSEEK,,}" =~ ^(y|yes)$ ]]; then
+if is_yes "${BOOTSTRAP_DEEPSEEK}"; then
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
   if [[ -z "${DEEPSEEK_API_KEY}" ]]; then
     read -r -s -p "请输入 DEEPSEEK_API_KEY (sk-...): " DEEPSEEK_API_KEY
@@ -89,7 +98,7 @@ echo "[info] 当前 OpenClaw channels："
 "${OPENCLAW_BIN}" channels list || true
 
 CONFIGURE_CHANNELS="$(prompt_default "是否现在通过 OpenClaw 配置 channel(openclaw channels ...)? (y/n)" "n")"
-if [[ "${CONFIGURE_CHANNELS,,}" =~ ^(y|yes)$ ]]; then
+if is_yes "${CONFIGURE_CHANNELS}"; then
   echo "[tip] 你可以在此终端执行："
   echo "      openclaw channels add --channel telegram --account telegram-main --token <bot_token>"
   echo "      openclaw channels login --channel whatsapp"
@@ -101,7 +110,7 @@ OPENCLAW_CHANNEL="$(prompt_default "看板默认路由 channel（留空=不固�
 OPENCLAW_TO="$(prompt_default "看板默认路由目标 to（留空=由 OpenClaw 自行路由）" "")"
 OPENCLAW_SESSION_ID="$(prompt_default "固定 session id（留空=按 to/channel 生成）" "")"
 DELIVER_DEFAULT="$(prompt_default "AI 回复是否默认投递到频道? (y/n)" "n")"
-if [[ "${DELIVER_DEFAULT,,}" =~ ^(y|yes)$ ]]; then
+if is_yes "${DELIVER_DEFAULT}"; then
   OPENCLAW_DELIVER="1"
   OPENCLAW_REPLY_CHANNEL="$(prompt_default "reply-channel（留空=沿用 channel）" "${OPENCLAW_CHANNEL}")"
   OPENCLAW_REPLY_TO="$(prompt_default "reply-to（留空=沿用 to）" "${OPENCLAW_TO}")"
