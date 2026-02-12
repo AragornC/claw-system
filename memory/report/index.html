@@ -151,6 +151,13 @@
     .filters label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
     .filters input { accent-color: var(--green); }
     .table-toolbar { margin: 2px 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 0.76rem; }
+    .order-focus { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; background: rgba(0,0,0,0.18); color: var(--muted); font-size: 0.72rem; }
+    .order-focus.hidden { display: none; }
+    .order-focus.positive { border-color: rgba(63,185,80,0.45); color: var(--green); }
+    .order-focus.negative { border-color: rgba(248,81,73,0.45); color: var(--red); }
+    .order-focus.neutral { border-color: rgba(210,153,34,0.45); color: var(--yellow); }
+    .order-focus button { border: 1px solid var(--border); border-radius: 999px; background: rgba(0,0,0,0.2); color: var(--text); font-size: 0.68rem; padding: 2px 8px; cursor: pointer; }
+    .order-focus button:hover { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
     .pager { display: flex; align-items: center; gap: 6px; }
     .pager button { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 6px; padding: 4px 8px; font-size: 0.72rem; cursor: pointer; }
     .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -160,6 +167,7 @@
     th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
     tr:hover { background: var(--card); }
     tr.highlight { background: rgba(63,185,80,0.15); }
+    tr.order-focus-row { box-shadow: inset 0 0 0 999px rgba(88,166,255,0.09); }
     .ts { white-space: nowrap; color: var(--muted); cursor: pointer; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
     .badge.yes { background: rgba(63,185,80,0.2); color: var(--green); }
@@ -167,6 +175,9 @@
     .badge.dry { background: rgba(210,153,34,0.2); color: var(--yellow); }
     .reason { max-width: 280px; word-break: break-word; }
     .detail { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .order-focus-btn { margin-top: 4px; border: 1px solid var(--border); border-radius: 999px; background: rgba(0,0,0,0.2); color: #58a6ff; font-size: 0.68rem; padding: 2px 8px; cursor: pointer; }
+    .order-focus-btn:hover { border-color: rgba(88,166,255,0.6); color: var(--text); }
+    .order-focus-btn.compact { margin-top: 0; padding: 3px 8px; }
     .error-row { background: rgba(248,81,73,0.08); }
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
@@ -200,6 +211,7 @@
       .install-pwa button { font-size: 0.72rem; padding: 7px 9px; }
       .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
       .table-toolbar { margin-top: 0; font-size: 0.72rem; }
+      .order-focus { width: 100%; justify-content: space-between; }
       .pager { width: 100%; justify-content: flex-end; }
       .pager button { padding: 5px 8px; }
       .filters label { font-size: 0.8rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); white-space: nowrap; }
@@ -244,6 +256,10 @@
   </div>
   <div class="table-toolbar" id="table-toolbar" style="display:none">
     <div id="table-total">共 0 条</div>
+    <div class="order-focus hidden" id="order-focus">
+      <span id="order-focus-text"></span>
+      <button id="order-focus-clear" type="button">清除高亮</button>
+    </div>
     <div class="pager">
       <button id="page-prev" type="button">上一页</button>
       <span class="page-indicator" id="page-indicator">1 / 1</span>
@@ -370,7 +386,13 @@
         ? ordersPayload.orders
         : (Array.isArray(ordersPayload) ? ordersPayload : []);
       const ORDER_BY_CYCLE = new Map();
+      const ORDER_BY_TRADE = new Map();
       for (const o of ORDERS) {
+        if (!o) continue;
+        if (o.tradeId != null) {
+          const tradeKey = String(o.tradeId);
+          if (!ORDER_BY_TRADE.has(tradeKey)) ORDER_BY_TRADE.set(tradeKey, o);
+        }
         if (!o || o.cycleId == null) continue;
         const key = String(o.cycleId);
         if (!ORDER_BY_CYCLE.has(key)) ORDER_BY_CYCLE.set(key, o);
@@ -381,11 +403,22 @@
         return ORDER_BY_CYCLE.get(String(r.cycleId)) || null;
       }
 
+      function findOrderByTradeId(tradeId) {
+        if (tradeId == null) return null;
+        return ORDER_BY_TRADE.get(String(tradeId)) || null;
+      }
+
       function fmtTsShort(isoLike) {
         if (!isoLike) return '-';
         const d = new Date(String(isoLike));
         if (!Number.isFinite(d.getTime())) return String(isoLike).slice(0, 16).replace('T', ' ');
         return d.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      }
+
+      function parseToSec(v) {
+        if (v == null) return null;
+        const ms = Date.parse(String(v));
+        return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
       }
 
       function orderRelationHtml(order) {
@@ -396,14 +429,18 @@
         const pnl = Number(order.pnlEstUSDT);
         const pnlTxt = Number.isFinite(pnl) ? ((pnl >= 0 ? '+' : '') + pnl.toFixed(2) + 'U') : 'NA';
         const syn = order.isSynthetic ? '<span class="detail">（模拟）</span>' : '';
+        const tradeId = order.tradeId != null ? String(order.tradeId) : '';
+        const actionBtn = tradeId
+          ? '<button class="order-focus-btn compact" type="button" data-trade-id="' + escapeHtml(tradeId) + '">高亮区间</button>'
+          : '';
         if (close) {
-          return '<span class="badge ' + (Number.isFinite(pnl) ? (pnl >= 0 ? 'yes' : 'no') : 'dry') + '">' + sideCn + ' 开→平</span><div class="detail">' + open + ' → ' + close + ' · ' + pnlTxt + syn + '</div>';
+          return '<span class="badge ' + (Number.isFinite(pnl) ? (pnl >= 0 ? 'yes' : 'no') : 'dry') + '">' + sideCn + ' 开→平</span><div class="detail">' + open + ' → ' + close + ' · ' + pnlTxt + syn + '</div>' + actionBtn;
         }
-        return '<span class="badge dry">' + sideCn + ' 持仓中</span><div class="detail">开仓: ' + open + syn + '</div>';
+        return '<span class="badge dry">' + sideCn + ' 持仓中</span><div class="detail">开仓: ' + open + syn + '</div>' + actionBtn;
       }
       document.getElementById('meta-symbol').textContent = symbol + (isTouchDevice
-        ? ' · 手机端：点击决策点或下方记录看详情，双指缩放 K 线'
-        : ' · 鼠标悬停决策点显示详情，点击可放大该段');
+        ? ' · 手机端：点记录/高亮区间看开平关系，双指缩放 K 线'
+        : ' · 鼠标悬停决策点看详情；点“高亮区间”可定位开平段');
       document.getElementById('chart-wrap').innerHTML = '<div id="detail-popover"></div>';
       document.getElementById('filters').style.display = 'flex';
       document.getElementById('table-toolbar').style.display = 'flex';
@@ -416,6 +453,9 @@
       let currentOhlcv = OHLCV_BY_TF[currentTf] || [];
       const chartWrap = document.getElementById('chart-wrap');
       const popover = document.getElementById('detail-popover');
+      const orderFocusBox = document.getElementById('order-focus');
+      const orderFocusText = document.getElementById('order-focus-text');
+      const orderFocusClear = document.getElementById('order-focus-clear');
 
       const chart = LightweightCharts.createChart(chartEl, {
         layout: { background: { type: 'solid', color: '#0f1419' }, textColor: '#8b949e' },
@@ -424,6 +464,182 @@
         timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false },
       });
       const candleSeries = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false });
+      const orderBandSeries = chart.addHistogramSeries({
+        priceScaleId: '',
+        priceFormat: { type: 'volume' },
+        color: 'rgba(88,166,255,0.25)',
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      try {
+        orderBandSeries.priceScale().applyOptions({ visible: false, scaleMargins: { top: 0.88, bottom: 0 } });
+      } catch (_) {}
+      let activeOrderTradeId = null;
+      let activeOrder = null;
+
+      function orderPnlColor(order, alpha) {
+        const a = Number.isFinite(Number(alpha)) ? Number(alpha) : 0.42;
+        const pnl = Number(order?.pnlEstUSDT);
+        if (Number.isFinite(pnl)) {
+          if (pnl > 0) return 'rgba(63,185,80,' + a + ')';
+          if (pnl < 0) return 'rgba(248,81,73,' + a + ')';
+        }
+        return 'rgba(210,153,34,' + a + ')';
+      }
+
+      function findBarIndexAtOrAfter(sec) {
+        if (!Number.isFinite(sec) || !currentOhlcv.length) return -1;
+        for (let i = 0; i < currentOhlcv.length; i++) if (currentOhlcv[i].time >= sec) return i;
+        return -1;
+      }
+
+      function findBarIndexAtOrBefore(sec) {
+        if (!Number.isFinite(sec) || !currentOhlcv.length) return -1;
+        for (let i = currentOhlcv.length - 1; i >= 0; i--) if (currentOhlcv[i].time <= sec) return i;
+        return -1;
+      }
+
+      function buildOrderBandData(order) {
+        if (!order || !currentOhlcv.length) return [];
+        const tfSec = TF_SECONDS[currentTf] || 60;
+        const rawOpen = parseToSec(order.openTs);
+        if (!Number.isFinite(rawOpen)) return [];
+        const rawClose = parseToSec(order.closeTs);
+        let startSec = Math.floor(rawOpen / tfSec) * tfSec;
+        let endSec = Number.isFinite(rawClose) ? (Math.floor(rawClose / tfSec) * tfSec) : currentOhlcv[currentOhlcv.length - 1].time;
+        if (endSec < startSec) { const tmp = startSec; startSec = endSec; endSec = tmp; }
+        const color = orderPnlColor(order, 0.42);
+        const bars = currentOhlcv.filter(c => c.time >= startSec && c.time <= endSec);
+        if (bars.length) return bars.map(c => ({ time: c.time, value: 1, color }));
+        const fallbackIdx = findBarIndexAtOrBefore(startSec);
+        if (fallbackIdx < 0) return [];
+        return [{ time: currentOhlcv[fallbackIdx].time, value: 1, color }];
+      }
+
+      function buildOrderMarkers(order) {
+        if (!order || !currentOhlcv.length) return [];
+        const tfSec = TF_SECONDS[currentTf] || 60;
+        const openSec = parseToSec(order.openTs);
+        if (!Number.isFinite(openSec)) return [];
+        const closeSec = parseToSec(order.closeTs);
+        const side = order.side === 'short' ? 'short' : 'long';
+        const openSnap = Math.floor(openSec / tfSec) * tfSec;
+        const openIdx = findBarIndexAtOrBefore(openSnap);
+        const markers = [];
+        if (openIdx >= 0) {
+          markers.push({
+            time: currentOhlcv[openIdx].time,
+            shape: side === 'short' ? 'arrowDown' : 'arrowUp',
+            position: side === 'short' ? 'aboveBar' : 'belowBar',
+            color: '#58a6ff',
+            text: side === 'short' ? '开空' : '开多',
+            size: isTouchDevice ? 1.25 : 0.9,
+          });
+        }
+        if (Number.isFinite(closeSec)) {
+          const closeSnap = Math.floor(closeSec / tfSec) * tfSec;
+          const closeIdx = findBarIndexAtOrAfter(closeSnap);
+          if (closeIdx >= 0) {
+            const pnl = Number(order.pnlEstUSDT);
+            const closeText = Number.isFinite(pnl) ? ('平 ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + 'U') : '平仓';
+            markers.push({
+              time: currentOhlcv[closeIdx].time,
+              shape: side === 'short' ? 'arrowUp' : 'arrowDown',
+              position: side === 'short' ? 'belowBar' : 'aboveBar',
+              color: orderPnlColor(order, 1),
+              text: closeText,
+              size: isTouchDevice ? 1.25 : 0.95,
+            });
+          }
+        }
+        return markers;
+      }
+
+      function applyOrderFocusBadge() {
+        if (!orderFocusBox || !orderFocusText) return;
+        if (!activeOrder) {
+          orderFocusBox.className = 'order-focus hidden';
+          orderFocusText.textContent = '';
+          return;
+        }
+        const sideCn = activeOrder.side === 'short' ? '空' : '多';
+        const pnl = Number(activeOrder.pnlEstUSDT);
+        const pnlTxt = Number.isFinite(pnl) ? ((pnl >= 0 ? '+' : '') + pnl.toFixed(2) + 'U') : '持仓中';
+        const tradeLabel = activeOrder.tradeId != null ? String(activeOrder.tradeId) : '-';
+        orderFocusBox.className = 'order-focus ' + (Number.isFinite(pnl) ? (pnl >= 0 ? 'positive' : 'negative') : 'neutral');
+        orderFocusText.textContent = '高亮订单 ' + tradeLabel + ' · ' + sideCn + ' · ' + fmtTsShort(activeOrder.openTs) + (activeOrder.closeTs ? (' → ' + fmtTsShort(activeOrder.closeTs)) : ' → 持仓中') + ' · ' + pnlTxt;
+      }
+
+      function syncOrderHighlightRows() {
+        const rows = document.querySelectorAll('#tbody tr[data-trade-id]');
+        rows.forEach(function(tr) {
+          const isActive = activeOrderTradeId && tr.getAttribute('data-trade-id') === activeOrderTradeId;
+          tr.classList.toggle('order-focus-row', Boolean(isActive));
+        });
+      }
+
+      function applySeriesMarkers() {
+        const base = (MARKERS_BY_TF[currentTf] || []).map(m => ({ ...m, time: m.time, size: isTouchDevice ? 1.2 : 0.75 }));
+        const overlay = activeOrder ? buildOrderMarkers(activeOrder) : [];
+        candleSeries.setMarkers(base.concat(overlay));
+      }
+
+      function applyOrderBand() {
+        if (!activeOrder) {
+          orderBandSeries.setData([]);
+          return;
+        }
+        orderBandSeries.setData(buildOrderBandData(activeOrder));
+      }
+
+      function focusOrderRange(order) {
+        if (!order || !currentOhlcv.length) return;
+        const tfSec = TF_SECONDS[currentTf] || 60;
+        const openSec = parseToSec(order.openTs);
+        const closeSecRaw = parseToSec(order.closeTs);
+        if (!Number.isFinite(openSec)) return;
+        const startSec = Math.floor(openSec / tfSec) * tfSec;
+        const endSec = Number.isFinite(closeSecRaw)
+          ? Math.floor(closeSecRaw / tfSec) * tfSec
+          : currentOhlcv[currentOhlcv.length - 1].time;
+        const s = Math.min(startSec, endSec);
+        const e = Math.max(startSec, endSec);
+        const startIdx = findBarIndexAtOrAfter(s);
+        const endIdx = findBarIndexAtOrAfter(e);
+        if (startIdx >= 0 && endIdx >= 0) {
+          chart.timeScale().setVisibleLogicalRange({
+            from: Math.max(0, startIdx - 8),
+            to: Math.min(currentOhlcv.length, endIdx + 10),
+          });
+        }
+      }
+
+      function setActiveOrder(order, opts) {
+        const forceFocus = Boolean(opts && opts.focus);
+        if (!order || order.tradeId == null) {
+          activeOrderTradeId = null;
+          activeOrder = null;
+          applyOrderBand();
+          applySeriesMarkers();
+          applyOrderFocusBadge();
+          syncOrderHighlightRows();
+          return;
+        }
+        activeOrderTradeId = String(order.tradeId);
+        activeOrder = order;
+        applyOrderBand();
+        applySeriesMarkers();
+        applyOrderFocusBadge();
+        syncOrderHighlightRows();
+        if (forceFocus) focusOrderRange(order);
+      }
+
+      if (orderFocusClear) {
+        orderFocusClear.addEventListener('click', function() {
+          setActiveOrder(null);
+        });
+      }
+
       function resizeChart() {
         const w = Math.floor(chartEl.clientWidth || chartWrap.clientWidth || 0);
         const h = Math.floor(chartEl.clientHeight || chartWrap.clientHeight || 0);
@@ -440,7 +656,8 @@
         currentTf = tf;
         currentOhlcv = OHLCV_BY_TF[tf] || [];
         candleSeries.setData(currentOhlcv);
-        candleSeries.setMarkers((MARKERS_BY_TF[tf] || []).map(m => ({ ...m, time: m.time, size: isTouchDevice ? 1.2 : 0.75 })));
+        applySeriesMarkers();
+        applyOrderBand();
         chart.timeScale().fitContent();
         if (typeof clearDecisionPriceLines === 'function') clearDecisionPriceLines();
       }
@@ -736,6 +953,9 @@
 
         var primaryReason = planReasonText || (hasAlert ? (r?.signal?.note || '策略给出信号，但未附可读理由。') : '本轮无交易计划。');
         var finalReason = execReasonText || execReasonRaw || (executed ? '执行成功' : (skipped ? '未满足执行条件' : '无'));
+        var orderActionBtn = order?.tradeId
+          ? '<button class="order-focus-btn" type="button" data-trade-id="' + escapeHtml(String(order.tradeId)) + '">高亮这笔开平区间</button>'
+          : '';
         var reasonPanel = '<details class="fold" open><summary>一眼看懂：核心原因</summary><div class="fold-body"><div class="logic-result-block"><strong>为什么会这样决策：</strong>' + escapeHtml(primaryReason) + '<br/><strong>为什么是这个结果：</strong>' + escapeHtml(finalReason) + '</div></div></details>';
         var orderPanel = '<details class="fold" open><summary>订单关联（买/卖时序）</summary><div class="fold-body"><div class="compact-kv">' +
           '<div class="k">状态</div><div class="v">' + escapeHtml(orderState + (order?.isSynthetic ? '（模拟）' : '')) + '</div>' +
@@ -744,7 +964,7 @@
           '<div class="k">平仓</div><div class="v">' + escapeHtml(orderClose) + '</div>' +
           '<div class="k">盈亏</div><div class="v">' + escapeHtml(orderPnlTxt) + '</div>' +
           '<div class="k">持仓时长</div><div class="v">' + escapeHtml(orderDurTxt) + '</div>' +
-        '</div></div></details>';
+        '</div>' + orderActionBtn + '</div></details>';
         var metricsPanel = '<details class="fold"><summary>策略与指标详情</summary><div class="fold-body">' + algoDetails + '</div></details>';
         var newsPanel = newsLinkHtml
           ? '<details class="fold"><summary>新闻源（可点击跳转）</summary><div class="fold-body"><div class="news-list-wrap">' + newsLinkHtml + '</div><div class="popover-pin-hint">提示：点击图表固定弹窗后再打开链接更顺手。</div></div></details>'
@@ -768,7 +988,20 @@
       }
       var currentPopoverRecord = null;
       var popoverPinned = false;
-      popover.addEventListener('click', function(e) { if (e.target.classList.contains('popover-close')) { popoverPinned = false; hidePopover(); } });
+      popover.addEventListener('click', function(e) {
+        if (e.target.classList.contains('popover-close')) {
+          popoverPinned = false;
+          hidePopover();
+          return;
+        }
+        var orderBtn = e.target.closest && e.target.closest('[data-trade-id]');
+        if (orderBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          var order = findOrderByTradeId(orderBtn.getAttribute('data-trade-id'));
+          if (order) setActiveOrder(order, { focus: true });
+        }
+      });
       var calcTooltipTimer = null;
       var calcTooltipPinned = false;
       var miniChartInstance = null;
@@ -906,7 +1139,12 @@
       chart.subscribeClick(function(param) {
         if (!param.point) return;
         const record = getRecordAtCoord(param.point.x, isTouchDevice ? 2 : 1);
-        if (record) { showPopoverPinned(record); }
+        if (record) {
+          showPopoverPinned(record);
+          const order = findOrderForRecord(record);
+          if (order) setActiveOrder(order);
+          else setActiveOrder(null);
+        }
         const time = chart.timeScale().coordinateToTime(param.point.x);
         if (time == null) return;
         const t = typeof time === 'number' ? time : (time && time.year ? new Date(time.year, (time.month || 1) - 1, time.day || 1).getTime() / 1000 : 0);
@@ -932,9 +1170,16 @@
       const PAGE_SIZE = isTouchDevice ? 12 : 20;
       let currentPage = 1;
       function row(r, index) {
-        const isErr = !r.ok || r.stage, cls = isErr ? 'error-row' : '';
+        const isErr = !r.ok || r.stage;
+        const order = findOrderForRecord(r);
+        const tradeId = order?.tradeId != null ? String(order.tradeId) : '';
+        const classList = [];
+        if (isErr) classList.push('error-row');
+        if (activeOrderTradeId && tradeId && tradeId === activeOrderTradeId) classList.push('order-focus-row');
+        const cls = classList.join(' ');
         const ts = r.ts ? new Date(r.ts).toLocaleString('zh-CN', { hour12: false }) : '-';
         const tsAttr = r.ts ? ' data-ts="' + escapeHtml(r.ts) + '"' : '';
+        const tradeAttr = tradeId ? (' data-trade-id="' + escapeHtml(tradeId) + '"') : '';
         let signal = '-';
         if (r.signal) { signal = (r.signal.hasAlert ? '<span class="badge yes">有</span>' : '<span class="badge no">无</span>') + (r.signal.note ? '<span class="detail">' + escapeHtml(r.signal.note) + '</span>' : ''); } else if (r.error) signal = '<span class="badge no">' + escapeHtml(r.error) + '</span>';
         let plan = '-';
@@ -942,8 +1187,8 @@
         let news = r.decision ? (r.decision.blockedByNews ? '<span class="badge no">拦截</span>' + (r.decision.newsReason?.length ? '<div class="detail">' + escapeHtml(r.decision.newsReason.slice(0, 2).join('; ')) + '</div>' : '') : '<span class="badge yes">放行</span>') : '-';
         let exec = '-', reason = '-';
         if (r.executor) { const e = r.executor; if (e.executed) exec = '<span class="badge yes">已下单</span>'; else if (e.dryRun && (e.wouldOpenPosition || e.reason === 'dry_run_open')) exec = '<span class="badge dry">Dry-run 会开仓</span>'; else if (e.skipped) exec = '<span class="badge no">未下单</span>'; reason = e.reason ? escapeHtml(e.reason) : '-'; if (e.dailyRealizedPnlUSDT != null) reason += ' <span class="detail">日盈亏 ' + Number(e.dailyRealizedPnlUSDT).toFixed(2) + ' USDT</span>'; } else if (r.error) reason = escapeHtml(r.error);
-        const relation = orderRelationHtml(findOrderForRecord(r));
-        return '<tr class="' + cls + '" data-index="' + index + '"' + tsAttr + '><td class="ts" data-label="时间">' + ts + '</td><td data-label="信号">' + signal + '</td><td data-label="计划">' + plan + '</td><td data-label="新闻">' + news + '</td><td data-label="执行">' + exec + '</td><td data-label="关联订单">' + relation + '</td><td class="reason" data-label="原因">' + reason + '</td></tr>';
+        const relation = orderRelationHtml(order);
+        return '<tr class="' + cls + '" data-index="' + index + '"' + tsAttr + tradeAttr + '><td class="ts" data-label="时间">' + ts + '</td><td data-label="信号">' + signal + '</td><td data-label="计划">' + plan + '</td><td data-label="新闻">' + news + '</td><td data-label="执行">' + exec + '</td><td data-label="关联订单">' + relation + '</td><td class="reason" data-label="原因">' + reason + '</td></tr>';
       }
       function render() {
         let list = RECORDS.slice().reverse();
@@ -966,7 +1211,32 @@
         const pageList = list.slice(start, start + PAGE_SIZE);
         tbody.innerHTML = pageList.map((r, i) => row(r, start + i)).join('');
         function barIndexForTime(tsStr) { const t = Math.floor(new Date(tsStr).getTime() / 1000); for (let i = currentOhlcv.length - 1; i >= 0; i--) if (currentOhlcv[i].time <= t) return i; return 0; }
-        tbody.querySelectorAll('tr[data-ts]').forEach(tr => { tr.addEventListener('click', () => { tbody.querySelectorAll('tr').forEach(t => t.classList.remove('highlight')); tr.classList.add('highlight'); const ts = tr.getAttribute('data-ts'); if (!ts) return; const idx = barIndexForTime(ts); chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, idx - 25), to: Math.min(currentOhlcv.length, idx + 8) }); const record = RECORDS.find(r => r && r.ts === ts && !r.stage); if (record) showPopoverPinned(record); }); });
+        tbody.querySelectorAll('.order-focus-btn[data-trade-id]').forEach(btn => {
+          btn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const order = findOrderByTradeId(btn.getAttribute('data-trade-id'));
+            if (order) setActiveOrder(order, { focus: true });
+          });
+        });
+        tbody.querySelectorAll('tr[data-ts]').forEach(tr => {
+          tr.addEventListener('click', () => {
+            tbody.querySelectorAll('tr').forEach(t => t.classList.remove('highlight'));
+            tr.classList.add('highlight');
+            const ts = tr.getAttribute('data-ts');
+            if (!ts) return;
+            const idx = barIndexForTime(ts);
+            chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, idx - 25), to: Math.min(currentOhlcv.length, idx + 8) });
+            const record = RECORDS.find(r => r && r.ts === ts && !r.stage);
+            if (record) {
+              showPopoverPinned(record);
+              const order = findOrderForRecord(record);
+              if (order) setActiveOrder(order, { focus: true });
+              else setActiveOrder(null);
+            }
+          });
+        });
+        syncOrderHighlightRows();
       }
       if (pagePrev) pagePrev.addEventListener('click', () => { if (currentPage > 1) { currentPage -= 1; render(); } });
       if (pageNext) pageNext.addEventListener('click', () => { currentPage += 1; render(); });

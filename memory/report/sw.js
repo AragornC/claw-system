@@ -1,4 +1,4 @@
-const CACHE_NAME = 'perp-report-pwa-v1';
+const CACHE_NAME = 'perp-report-pwa-v2';
 const PRECACHE = [
   './',
   './index.html',
@@ -52,7 +52,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  const isRuntimeData = /\/(decisions|ohlcv)\.json$/.test(url.pathname);
+  const isRuntimeData = /\/(decisions|ohlcv|orders)\.json$/.test(url.pathname);
   if (isRuntimeData) {
     event.respondWith(networkFirst(request));
     return;
