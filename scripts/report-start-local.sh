@@ -12,6 +12,11 @@ if [[ -f "${ROOT_DIR}/.env.local" ]]; then
   set +a
 fi
 
+export OPENCLAW_AGENT_LOCAL="${OPENCLAW_AGENT_LOCAL:-1}"
+export OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-main}"
+export OPENCLAW_TIMEOUT_SEC="${OPENCLAW_TIMEOUT_SEC:-90}"
+export OPENCLAW_CHAT_TIMEOUT_MS="${OPENCLAW_CHAT_TIMEOUT_MS:-95000}"
+
 echo "[init] generating report data..."
 node scripts/perp-report-data.js 400
 
