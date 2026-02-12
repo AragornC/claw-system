@@ -129,7 +129,7 @@ async function main() {
       skipped: outJson.skipped === true,
       reason: outJson.reason ?? (outJson.executed ? 'opened' : outJson.dryRun ? 'dry_run_open' : null),
       executed: outJson.executed === true,
-      dryRun: outJson.dryRun === true,
+      dryRun: outJson.dryRun === true || process.env.DRY_RUN === '1',
       openPosition: outJson.openPosition ?? null,
       wouldOpenPosition: outJson.wouldOpenPosition ?? null,
       dailyRealizedPnlUSDT: outJson.dailyRealizedPnlUSDT,
