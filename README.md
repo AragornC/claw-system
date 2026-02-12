@@ -249,6 +249,21 @@ npm run report:start:local
 npm run report:start:local
 ```
 
+#### 5.6.3 无需先手工 clone：ThunderClaw 两步启动
+
+如果你希望像 OpenClaw 一样先装 CLI 再引导，可以直接：
+
+```bash
+npm i -g github:AragornC/claw-system
+thunderclaw onboard
+```
+
+说明：
+
+- `thunderclaw onboard` 会自动在 `~/.thunderclaw/workspace` 拉取/更新代码并执行本地配置引导；
+- 然后用 `thunderclaw start` 启动看板；
+- CLI 里除 `onboard/start/workspace/update` 外的命令，会透传给 OpenClaw（例如 `thunderclaw channels list`）。
+
 ### 5.7 腾讯云部署（CVM + Docker）
 
 如果你要在手机公网访问并测试 OpenClaw 打通，直接用：
@@ -285,7 +300,7 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 
 可选环境变量：
 
-- `OPENCLAW_CLI_BIN`：指定 openclaw 可执行路径（未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
+- `OPENCLAW_CLI_BIN`：指定 OpenClaw 命令入口（可设 `openclaw` 或 `thunderclaw`；未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
 - `OPENCLAW_AGENT_ID`：默认 `main`
 - `OPENCLAW_CHANNEL`：会话路由频道（如 `telegram` / `whatsapp`），透传到 `openclaw agent --channel`
 - `OPENCLAW_TO`：会话目标（如手机号、`@username`、chat_id），透传到 `openclaw agent --to`

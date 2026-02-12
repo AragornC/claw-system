@@ -1,8 +1,11 @@
 {
-  "name": "workspace",
+  "name": "thunderclaw",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "thunderclaw": "scripts/thunderclaw-cli.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "perp:dryrun:bridge": "node scripts/perp-dryrun-live-bridge.js 3 15 400",
@@ -12,7 +15,9 @@
     "report:start:cloud": "node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
     "report:deploy:console": "node scripts/perp-report-data.js 400 && node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
     "openclaw:deepseek:init": "bash scripts/setup-openclaw-deepseek.sh",
-    "openclaw:setup:local": "bash scripts/openclaw-local-setup.sh"
+    "openclaw:setup:local": "bash scripts/openclaw-local-setup.sh",
+    "thunderclaw:onboard": "node scripts/thunderclaw-cli.js onboard",
+    "thunderclaw:start": "node scripts/thunderclaw-cli.js start"
   },
   "keywords": [],
   "author": "",
