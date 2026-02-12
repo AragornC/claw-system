@@ -40,9 +40,18 @@ newgrp docker
 
 ## 3) 拉代码并配置环境变量
 
+方式 A：从 Git 仓库拉取（替换为你的仓库地址）
+
 ```bash
-git clone https://github.com/AragornC/claw-system.git
-cd claw-system/deploy/tencent-cvm
+git clone <你的仓库URL> .
+cd deploy/tencent-cvm
+cp .env.example .env
+```
+
+方式 B：已有本地项目，直接进入部署目录
+
+```bash
+cd /path/to/your/project/deploy/tencent-cvm
 cp .env.example .env
 ```
 
@@ -54,6 +63,15 @@ PUBLIC_PORT=8765
 ```
 
 ## 4) 启动服务
+
+方式 A：使用一键部署脚本（推荐）
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+方式 B：手动启动
 
 ```bash
 docker compose up -d --build

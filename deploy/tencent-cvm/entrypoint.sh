@@ -20,7 +20,7 @@ echo "[init] configuring OpenClaw deepseek provider..."
 openclaw config set "models.mode" "merge" >/dev/null 2>&1 || true
 openclaw config set "agents.defaults.model.primary" "deepseek/deepseek-chat" >/dev/null 2>&1 || true
 openclaw config set --json "models.providers.deepseek" \
-  '{"baseUrl":"https://api.deepseek.com/v1","apiKey":"${DEEPSEEK_API_KEY}","api":"openai-completions","models":[{"id":"deepseek-chat","name":"DeepSeek Chat"},{"id":"deepseek-reasoner","name":"DeepSeek Reasoner"}]}' >/dev/null 2>&1 || true
+  '{"baseUrl":"https://api.deepseek.com/v1","apiKey":"'"${DEEPSEEK_API_KEY}"'","api":"openai-completions","models":[{"id":"deepseek-chat","name":"DeepSeek Chat"},{"id":"deepseek-reasoner","name":"DeepSeek Reasoner"}]}' >/dev/null 2>&1 || true
 
 if [[ "${REFRESH_REPORT_DATA:-0}" == "1" ]]; then
   echo "[init] refreshing report data..."
