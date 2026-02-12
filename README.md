@@ -194,6 +194,30 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验）。
 - 清除本地 key：`/deepseek clear`
 
+#### 5.6.1 最简启动（纯 npm，不用 Docker）
+
+如果你只想快速跑通（包括云服务器），这几步就够了：
+
+```bash
+# 1) 拉对分支（默认 main 不包含最新对接改造）
+git fetch origin cursor/-bc-f94ec5fe-5b54-4b20-84e9-3f37528f33d0-f9ff
+git checkout cursor/-bc-f94ec5fe-5b54-4b20-84e9-3f37528f33d0-f9ff
+git pull origin cursor/-bc-f94ec5fe-5b54-4b20-84e9-3f37528f33d0-f9ff
+
+# 2) 安装依赖 + OpenClaw CLI
+npm install
+npm install -g openclaw@latest
+
+# 3) 配置 DeepSeek provider（只写 OpenClaw 配置，不入库）
+export DEEPSEEK_API_KEY="sk-xxxx"
+npm run openclaw:deepseek:init
+
+# 4) 启动看板（OpenClaw local 模式）
+OPENCLAW_AGENT_LOCAL=1 npm run report:start:cloud
+```
+
+云服务器公网访问：`http://<服务器IP>:8765`（记得放行安全组端口 8765）。
+
 ### 5.7 腾讯云部署（CVM + Docker）
 
 如果你要在手机公网访问并测试 OpenClaw 打通，直接用：
