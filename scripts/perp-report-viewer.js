@@ -141,6 +141,43 @@ const HTML = `<!DOCTYPE html>
     .global-back-btn.hidden { display: none; }
     .global-back-btn:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
     .assistant-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .backtest-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .backtest-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; color: var(--muted); }
+    .backtest-controls select, .backtest-controls input {
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 0.76rem;
+      min-width: 0;
+    }
+    .backtest-controls .run-btn {
+      align-self: flex-end;
+      border: 1px solid rgba(88,166,255,0.6);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.16);
+      color: #58a6ff;
+      padding: 8px 10px;
+      font-size: 0.76rem;
+      cursor: pointer;
+    }
+    .backtest-controls .run-btn:hover { border-color: rgba(88,166,255,0.78); color: var(--text); }
+    .bt-note { margin: 0 0 10px; font-size: 0.74rem; color: var(--muted); }
+    .bt-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .bt-metric { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.14); padding: 8px; }
+    .bt-metric .k { color: var(--muted); font-size: 0.68rem; margin-bottom: 2px; }
+    .bt-metric .v { color: var(--text); font-size: 0.88rem; font-weight: 600; }
+    .bt-metric .v.pos { color: var(--green); }
+    .bt-metric .v.neg { color: var(--red); }
+    .bt-equity-wrap { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.18); padding: 8px; margin-bottom: 10px; }
+    #bt-equity-canvas { width: 100%; height: 160px; display: block; }
+    #bt-trades-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    #bt-trades-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; white-space: nowrap; }
+    #bt-trades-table th, #bt-trades-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+    #bt-trades-table th { color: var(--muted); font-weight: 600; }
+    #bt-trades-table .pos { color: var(--green); }
+    #bt-trades-table .neg { color: var(--red); }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
     .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -433,7 +470,7 @@ const HTML = `<!DOCTYPE html>
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
     #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
-    #view-kline.active, #view-history.active, #view-runtime.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
+    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
     .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
@@ -451,6 +488,8 @@ const HTML = `<!DOCTYPE html>
       .input-func-toggle { min-width: 44px; font-size: 0.86rem; padding: 9px 10px; }
       .input-func-menu { min-width: 136px; }
       .ai-input-row input { font-size: 16px; }
+      .backtest-controls { grid-template-columns: 1fr 1fr; }
+      .backtest-controls .run-btn { grid-column: 1 / -1; width: 100%; }
       #orders-table-wrap { display: block; overflow-x: auto; white-space: nowrap; }
       .chart-header { gap: 8px; margin-bottom: 6px; }
       .chart-header .meta { font-size: 0.75rem; line-height: 1.35; }
@@ -525,6 +564,7 @@ const HTML = `<!DOCTYPE html>
           <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
           <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
           <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
+          <button class="ai-quick-btn" type="button" data-view-target="backtest">策略回验</button>
         </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
@@ -536,6 +576,7 @@ const HTML = `<!DOCTYPE html>
               <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">AI聊天</button>
               <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
               <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线图</button>
+              <button class="nav-btn" id="nav-backtest" data-view-target="backtest" type="button">策略回验</button>
               <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史单</button>
             </div>
           </div>
@@ -640,6 +681,70 @@ const HTML = `<!DOCTYPE html>
           </thead>
           <tbody id="orders-tbody"></tbody>
         </table>
+      </div>
+    </section>
+    <section id="view-backtest" class="view-panel">
+      <div class="panel-card">
+        <div class="card-title-row">
+          <h2>策略回验（历史 K 线 PnL）</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+        </div>
+        <div class="backtest-controls">
+          <label>策略版本
+            <select id="bt-strategy">
+              <option value="v5_hybrid">v5 混合（回踩+再入）</option>
+              <option value="v5_retest">v5 回踩确认</option>
+              <option value="v5_reentry">v5 趋势再入</option>
+              <option value="v4_breakout">v4 Donchian 突破</option>
+            </select>
+          </label>
+          <label>回验周期
+            <select id="bt-tf">${tfOptions}</select>
+          </label>
+          <label>回验窗口（最近N根）
+            <input id="bt-bars" type="number" min="120" max="3000" step="10" value="900" />
+          </label>
+          <label>手续费（bps）
+            <input id="bt-fee-bps" type="number" min="0" max="50" step="0.1" value="5" />
+          </label>
+          <label>止损 ATR 倍数
+            <input id="bt-stop-atr" type="number" min="0.2" max="8" step="0.1" value="1.8" />
+          </label>
+          <label>止盈 ATR 倍数
+            <input id="bt-tp-atr" type="number" min="0.2" max="12" step="0.1" value="3.0" />
+          </label>
+          <label>最大持仓（bars）
+            <input id="bt-max-hold" type="number" min="4" max="400" step="1" value="72" />
+          </label>
+          <button id="bt-run" class="run-btn" type="button">开始回验</button>
+        </div>
+        <p class="bt-note" id="bt-note">说明：回验使用当前报表中的历史 K 线，按所选策略版本重放信号并估算 PnL。</p>
+        <div class="bt-metrics" id="bt-metrics"></div>
+        <div class="bt-equity-wrap">
+          <canvas id="bt-equity-canvas"></canvas>
+        </div>
+        <div class="table-toolbar">
+          <div id="bt-trades-total">交易明细：0 条</div>
+        </div>
+        <div id="bt-trades-wrap">
+          <table id="bt-trades-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>方向</th>
+                <th>开仓时间</th>
+                <th>平仓时间</th>
+                <th>开仓价</th>
+                <th>平仓价</th>
+                <th>PnL%</th>
+                <th>持仓bars</th>
+                <th>触发</th>
+                <th>平仓原因</th>
+              </tr>
+            </thead>
+            <tbody id="bt-trades-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </div>
@@ -834,6 +939,7 @@ const HTML = `<!DOCTYPE html>
         dashboard: document.getElementById('view-dashboard'),
         runtime: document.getElementById('view-runtime'),
         kline: document.getElementById('view-kline'),
+        backtest: document.getElementById('view-backtest'),
         history: document.getElementById('view-history'),
       };
       const navButtons = Array.from(document.querySelectorAll('.nav-btn[data-view-target]'));
@@ -863,6 +969,7 @@ const HTML = `<!DOCTYPE html>
           if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能入口在输入框左侧';
           else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
           else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
+          else if (key === 'backtest') appSubtitle.textContent = '策略版本回验 · 历史 K 线 PnL 估算';
           else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
         }
         if (globalBackBtn) {
@@ -871,6 +978,9 @@ const HTML = `<!DOCTYPE html>
         setInputMenuOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
+        }
+        if (key === 'backtest' && typeof runBacktestFromUi === 'function') {
+          window.requestAnimationFrame(runBacktestFromUi);
         }
       }
       if (inputFuncToggle && inputFuncMenu) {
@@ -898,6 +1008,11 @@ const HTML = `<!DOCTYPE html>
           switchView(btn.getAttribute('data-view-target'));
         });
       });
+      if (globalBackBtn) {
+        globalBackBtn.addEventListener('click', function() {
+          switchView('dashboard');
+        });
+      }
       const currentTradeMeta = document.getElementById('current-trade-meta');
       const statusPositionEl = document.getElementById('status-position');
       const statusPnlEl = document.getElementById('status-pnl');
@@ -911,6 +1026,7 @@ const HTML = `<!DOCTYPE html>
       const navRuntimeBtn = document.getElementById('nav-runtime');
       const navHistoryBtn = document.getElementById('nav-history');
       const navKlineBtn = document.getElementById('nav-kline');
+      const navBacktestBtn = document.getElementById('nav-backtest');
 
       function getCurrentTradeOrder() {
         if (activeOrder) return activeOrder;
@@ -1137,10 +1253,12 @@ const HTML = `<!DOCTYPE html>
         clearBtnState(navRuntimeBtn);
         clearBtnState(navHistoryBtn);
         clearBtnState(navKlineBtn);
+        clearBtnState(navBacktestBtn);
         if (navRuntimeBtn && cur?.side === 'long') navRuntimeBtn.classList.add('state-long');
         if (navRuntimeBtn && cur?.side === 'short') navRuntimeBtn.classList.add('state-short');
         if (navHistoryBtn && Number.isFinite(shownPnl)) navHistoryBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
         if (navKlineBtn && Number.isFinite(miniChange)) navKlineBtn.classList.add(miniChange >= 0 ? 'state-pos' : 'state-neg');
+        if (navBacktestBtn && Number.isFinite(shownPnl)) navBacktestBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
       }
 
       function renderCurrentPositions() {
@@ -1390,6 +1508,10 @@ const HTML = `<!DOCTYPE html>
           if (/风险|新闻|风控/.test(ql)) {
             return '截至当前，新闻/风控拦截共 ' + s.blocked + ' 次。建议重点查看「当前交易运行时间线」里的 RISK 标签事件。';
           }
+          if (/回验|backtest|复盘/.test(ql)) {
+            switchView('backtest');
+            return '已切换到「策略回验」页面。你可以选择策略版本、周期和窗口后点击“开始回验”，查看历史 K 线 PnL。';
+          }
           if (/历史|订单|最近/.test(ql)) {
             const top = SORTED_ORDERS.slice(0, 3);
             if (!top.length) return '当前没有可用历史订单。';
@@ -1442,6 +1564,507 @@ const HTML = `<!DOCTYPE html>
         renderStrategySummary();
         renderRuntimeTimeline();
         renderAiChat();
+      }
+
+      function btStrategyLabel(v) {
+        if (v === 'v5_retest') return 'v5 回踩确认';
+        if (v === 'v5_reentry') return 'v5 趋势再入';
+        if (v === 'v4_breakout') return 'v4 Donchian 突破';
+        return 'v5 混合（回踩+再入）';
+      }
+
+      function btFmtTs(sec) {
+        const n = Number(sec);
+        if (!Number.isFinite(n)) return '-';
+        return new Date(n * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      }
+
+      function btNum(v, digits) {
+        const n = Number(v);
+        const d = Number.isFinite(Number(digits)) ? Number(digits) : 2;
+        return Number.isFinite(n) ? n.toFixed(d) : '-';
+      }
+
+      function btEmaSeries(values, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 2));
+        const out = new Array(values.length).fill(null);
+        const k = 2 / (p + 1);
+        let ema = null;
+        for (let i = 0; i < values.length; i++) {
+          const v = Number(values[i]);
+          if (!Number.isFinite(v)) continue;
+          ema = (ema == null) ? v : (v * k + ema * (1 - k));
+          out[i] = ema;
+        }
+        return out;
+      }
+
+      function btAtrSeries(bars, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 14));
+        const tr = new Array(bars.length).fill(null);
+        for (let i = 0; i < bars.length; i++) {
+          const h = Number(bars[i]?.high), l = Number(bars[i]?.low);
+          if (!Number.isFinite(h) || !Number.isFinite(l)) continue;
+          if (i === 0) {
+            tr[i] = h - l;
+            continue;
+          }
+          const pc = Number(bars[i - 1]?.close);
+          tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+        }
+        const out = new Array(bars.length).fill(null);
+        let atr = 0;
+        for (let i = 0; i < bars.length; i++) {
+          if (!Number.isFinite(tr[i])) continue;
+          if (i < p) {
+            atr += tr[i];
+            if (i === p - 1) {
+              atr = atr / p;
+              out[i] = atr;
+            }
+          } else {
+            atr = ((atr * (p - 1)) + tr[i]) / p;
+            out[i] = atr;
+          }
+        }
+        return out;
+      }
+
+      function btAdxSeries(bars, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 14));
+        const len = bars.length;
+        const out = new Array(len).fill(null);
+        if (len < p * 2 + 1) return out;
+        const tr = new Array(len).fill(0);
+        const pdm = new Array(len).fill(0);
+        const mdm = new Array(len).fill(0);
+        for (let i = 1; i < len; i++) {
+          const upMove = Number(bars[i].high) - Number(bars[i - 1].high);
+          const downMove = Number(bars[i - 1].low) - Number(bars[i].low);
+          pdm[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+          mdm[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+          const h = Number(bars[i].high), l = Number(bars[i].low), pc = Number(bars[i - 1].close);
+          tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+        }
+
+        let trSm = 0, pdmSm = 0, mdmSm = 0;
+        for (let i = 1; i <= p; i++) {
+          trSm += tr[i];
+          pdmSm += pdm[i];
+          mdmSm += mdm[i];
+        }
+        const dx = new Array(len).fill(null);
+        for (let i = p + 1; i < len; i++) {
+          trSm = trSm - (trSm / p) + tr[i];
+          pdmSm = pdmSm - (pdmSm / p) + pdm[i];
+          mdmSm = mdmSm - (mdmSm / p) + mdm[i];
+          if (trSm <= 0) continue;
+          const pdi = 100 * (pdmSm / trSm);
+          const mdi = 100 * (mdmSm / trSm);
+          const den = pdi + mdi;
+          if (den <= 0) continue;
+          dx[i] = 100 * Math.abs(pdi - mdi) / den;
+        }
+        let adxSum = 0;
+        let adxStart = p * 2;
+        let count = 0;
+        for (let i = p + 1; i <= adxStart && i < len; i++) {
+          if (Number.isFinite(dx[i])) {
+            adxSum += dx[i];
+            count += 1;
+          }
+        }
+        if (!count) return out;
+        let adx = adxSum / count;
+        out[adxStart] = adx;
+        for (let i = adxStart + 1; i < len; i++) {
+          if (!Number.isFinite(dx[i])) {
+            out[i] = adx;
+            continue;
+          }
+          adx = ((adx * (p - 1)) + dx[i]) / p;
+          out[i] = adx;
+        }
+        return out;
+      }
+
+      function btMapSeriesByTime(lowerBars, higherBars, values) {
+        const out = new Array(lowerBars.length).fill(null);
+        let j = 0;
+        let last = null;
+        for (let i = 0; i < lowerBars.length; i++) {
+          const t = Number(lowerBars[i]?.time);
+          while (j < higherBars.length && Number(higherBars[j]?.time) <= t) {
+            last = values[j];
+            j += 1;
+          }
+          out[i] = last;
+        }
+        return out;
+      }
+
+      function btDonchianPrevHigh(bars, i, lookback) {
+        const lb = Math.max(2, lookback);
+        if (i - lb < 0) return null;
+        let h = -Infinity;
+        for (let k = i - lb; k < i; k++) {
+          const v = Number(bars[k]?.high);
+          if (Number.isFinite(v) && v > h) h = v;
+        }
+        return Number.isFinite(h) ? h : null;
+      }
+
+      function btDonchianPrevLow(bars, i, lookback) {
+        const lb = Math.max(2, lookback);
+        if (i - lb < 0) return null;
+        let l = Infinity;
+        for (let k = i - lb; k < i; k++) {
+          const v = Number(bars[k]?.low);
+          if (Number.isFinite(v) && v < l) l = v;
+        }
+        return Number.isFinite(l) ? l : null;
+      }
+
+      function runBacktestByVersion(opts) {
+        const tf = String(opts?.tf || '1h');
+        const strategy = String(opts?.strategy || 'v5_hybrid');
+        const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
+        const stopAtrMult = Math.max(0.2, Number(opts?.stopAtr || 1.8));
+        const tpAtrMult = Math.max(0.2, Number(opts?.tpAtr || 3.0));
+        const maxHoldBars = Math.max(4, Math.floor(Number(opts?.maxHold || 72)));
+        const limitBars = Math.max(120, Math.floor(Number(opts?.bars || 900)));
+
+        const allBars = normalizeBars(OHLCV_BY_TF?.[tf]);
+        const bars = allBars.slice(-limitBars);
+        if (!bars.length) return { ok: false, message: '该周期没有可用 K 线数据。' };
+        if (bars.length < 120) return { ok: false, message: 'K 线样本不足（至少 120 根）。' };
+
+        const close = bars.map(b => Number(b.close));
+        const atr = btAtrSeries(bars, 14);
+        const entryEma = btEmaSeries(close, 20);
+
+        const useV5 = /^v5_/.test(strategy);
+        const biasSourceBars = (useV5 && tf === '1h' && Array.isArray(OHLCV_BY_TF?.['4h']) && OHLCV_BY_TF['4h'].length)
+          ? normalizeBars(OHLCV_BY_TF['4h'])
+          : bars;
+        const biasClose = biasSourceBars.map(b => Number(b.close));
+        const biasEmaF = btEmaSeries(biasClose, 20);
+        const biasEmaS = btEmaSeries(biasClose, 50);
+        const biasAdx = btAdxSeries(biasSourceBars, 14);
+        const mappedBiasEmaF = biasSourceBars === bars ? biasEmaF : btMapSeriesByTime(bars, biasSourceBars, biasEmaF);
+        const mappedBiasEmaS = biasSourceBars === bars ? biasEmaS : btMapSeriesByTime(bars, biasSourceBars, biasEmaS);
+        const mappedBiasAdx = biasSourceBars === bars ? biasAdx : btMapSeriesByTime(bars, biasSourceBars, biasAdx);
+
+        let equity = 1;
+        let peak = 1;
+        let maxDd = 0;
+        let pos = null;
+        let cooldown = 0;
+        let lastBreakLong = null;
+        let lastBreakShort = null;
+        const trades = [];
+        const curve = [];
+
+        function closePosition(i, px, reason) {
+          if (!pos) return;
+          const exitPx = Number(px);
+          if (!Number.isFinite(exitPx) || exitPx <= 0) return;
+          const gross = pos.side === 'long'
+            ? ((exitPx - pos.entryPrice) / pos.entryPrice)
+            : ((pos.entryPrice - exitPx) / pos.entryPrice);
+          const net = gross - feeRate * 2;
+          equity = Math.max(0.0001, equity * (1 + net));
+          const holdBars = Math.max(1, i - pos.entryIdx);
+          trades.push({
+            side: pos.side,
+            signalTag: pos.signalTag,
+            entryTime: bars[pos.entryIdx].time,
+            exitTime: bars[i].time,
+            entryPrice: pos.entryPrice,
+            exitPrice: exitPx,
+            pnlPct: net * 100,
+            holdBars,
+            reason,
+          });
+          pos = null;
+          cooldown = 2;
+        }
+
+        for (let i = 1; i < bars.length; i++) {
+          const b = bars[i];
+          const atrNow = Number.isFinite(atr[i]) ? Number(atr[i]) : (Number(b.close) * 0.0035);
+          const biasLong = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
+            ? (mappedBiasEmaF[i] > mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            : false;
+          const biasShort = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
+            ? (mappedBiasEmaF[i] < mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            : false;
+
+          // Exit check (intrabar)
+          if (pos) {
+            if (pos.side === 'long') {
+              if (Number(b.low) <= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (Number(b.high) >= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            } else {
+              if (Number(b.high) >= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (Number(b.low) <= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            }
+          }
+          if (pos && (i - pos.entryIdx) >= maxHoldBars) {
+            closePosition(i, Number(b.close), 'timeout');
+          }
+
+          // Signal generation
+          if (cooldown > 0) cooldown -= 1;
+          let signal = null;
+          const closeNow = Number(b.close);
+          const highNow = Number(b.high);
+          const lowNow = Number(b.low);
+          const lookback = strategy === 'v4_breakout' ? 20 : 15;
+          const dHigh = btDonchianPrevHigh(bars, i, lookback);
+          const dLow = btDonchianPrevLow(bars, i, lookback);
+
+          if (Number.isFinite(dHigh) && closeNow > dHigh) lastBreakLong = { idx: i, level: dHigh };
+          if (Number.isFinite(dLow) && closeNow < dLow) lastBreakShort = { idx: i, level: dLow };
+
+          if (cooldown === 0) {
+            if (strategy === 'v4_breakout') {
+              if (Number.isFinite(dHigh) && closeNow > dHigh) signal = { side: 'long', tag: 'breakout' };
+              else if (Number.isFinite(dLow) && closeNow < dLow) signal = { side: 'short', tag: 'breakout' };
+            } else {
+              const allowRetest = strategy === 'v5_retest' || strategy === 'v5_hybrid';
+              const allowReentry = strategy === 'v5_reentry' || strategy === 'v5_hybrid';
+              const tolRetest = atrNow * 0.25;
+              const tolReentry = atrNow * 0.35;
+              const emaNow = Number(entryEma[i]);
+              if (allowRetest && biasLong && lastBreakLong && (i - lastBreakLong.idx) <= 12) {
+                if (lowNow <= lastBreakLong.level + tolRetest && closeNow > lastBreakLong.level) {
+                  signal = { side: 'long', tag: 'retest' };
+                  lastBreakLong = null;
+                }
+              }
+              if (!signal && allowRetest && biasShort && lastBreakShort && (i - lastBreakShort.idx) <= 12) {
+                if (highNow >= lastBreakShort.level - tolRetest && closeNow < lastBreakShort.level) {
+                  signal = { side: 'short', tag: 'retest' };
+                  lastBreakShort = null;
+                }
+              }
+              if (!signal && allowReentry && Number.isFinite(emaNow)) {
+                if (biasLong && lowNow <= emaNow + tolReentry && closeNow > emaNow) signal = { side: 'long', tag: 'reentry' };
+                else if (biasShort && highNow >= emaNow - tolReentry && closeNow < emaNow) signal = { side: 'short', tag: 'reentry' };
+              }
+            }
+          }
+
+          // Reverse signal closes existing position
+          if (pos && signal && signal.side !== pos.side) {
+            closePosition(i, closeNow, 'reverse');
+          }
+
+          // Open new position
+          if (!pos && signal) {
+            const stopDist = Math.max(atrNow * stopAtrMult, closeNow * 0.0012);
+            const takeDist = Math.max(atrNow * tpAtrMult, closeNow * 0.0012);
+            pos = {
+              side: signal.side,
+              signalTag: signal.tag,
+              entryIdx: i,
+              entryPrice: closeNow,
+              sl: signal.side === 'long' ? (closeNow - stopDist) : (closeNow + stopDist),
+              tp: signal.side === 'long' ? (closeNow + takeDist) : (closeNow - takeDist),
+            };
+          }
+
+          let markEq = equity;
+          if (pos) {
+            const unreal = pos.side === 'long'
+              ? ((closeNow - pos.entryPrice) / pos.entryPrice)
+              : ((pos.entryPrice - closeNow) / pos.entryPrice);
+            markEq = Math.max(0.0001, equity * (1 + unreal - feeRate * 2));
+          }
+          curve.push({ time: bars[i].time, equity: markEq });
+          if (markEq > peak) peak = markEq;
+          if (peak > 0) maxDd = Math.max(maxDd, (peak - markEq) / peak);
+        }
+
+        if (pos) closePosition(bars.length - 1, Number(bars[bars.length - 1].close), 'eod');
+
+        const winCount = trades.filter(t => Number(t.pnlPct) > 0).length;
+        const lossCount = trades.filter(t => Number(t.pnlPct) <= 0).length;
+        const avgPnl = trades.length ? trades.reduce((s, t) => s + Number(t.pnlPct || 0), 0) / trades.length : 0;
+        return {
+          ok: true,
+          strategy,
+          tf,
+          bars: bars.length,
+          tradeCount: trades.length,
+          winRate: trades.length ? (winCount / trades.length) * 100 : 0,
+          wins: winCount,
+          losses: lossCount,
+          avgPnlPct: avgPnl,
+          netPnlPct: (equity - 1) * 100,
+          maxDrawdownPct: maxDd * 100,
+          curve,
+          trades: trades.slice().reverse(),
+        };
+      }
+
+      function drawBacktestEquityCurve(curve) {
+        const canvas = document.getElementById('bt-equity-canvas');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const width = Math.max(240, Math.floor(rect.width || canvas.clientWidth || 320));
+        const height = Math.max(120, Math.floor(rect.height || canvas.clientHeight || 160));
+        const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+        if (!Array.isArray(curve) || curve.length < 2) {
+          ctx.strokeStyle = 'rgba(139,148,158,0.35)';
+          ctx.beginPath();
+          ctx.moveTo(8, height * 0.5);
+          ctx.lineTo(width - 8, height * 0.5);
+          ctx.stroke();
+          return;
+        }
+        const pad = 10;
+        const vals = curve.map(p => Number(p.equity)).filter(Number.isFinite);
+        const minV = Math.min.apply(null, vals);
+        const maxV = Math.max.apply(null, vals);
+        const range = Math.max(1e-6, maxV - minV);
+        const toX = i => pad + (i / (curve.length - 1)) * (width - pad * 2);
+        const toY = v => pad + (1 - ((v - minV) / range)) * (height - pad * 2);
+
+        ctx.strokeStyle = 'rgba(139,148,158,0.18)';
+        ctx.lineWidth = 1;
+        [0.2, 0.5, 0.8].forEach(function(r) {
+          const y = pad + (height - pad * 2) * r;
+          ctx.beginPath();
+          ctx.moveTo(pad, y);
+          ctx.lineTo(width - pad, y);
+          ctx.stroke();
+        });
+
+        const up = curve[curve.length - 1].equity >= curve[0].equity;
+        const lineColor = up ? '#3fb950' : '#f85149';
+        const area = ctx.createLinearGradient(0, 0, 0, height);
+        area.addColorStop(0, up ? 'rgba(63,185,80,0.18)' : 'rgba(248,81,73,0.18)');
+        area.addColorStop(1, 'rgba(15,20,25,0)');
+        ctx.beginPath();
+        ctx.moveTo(toX(0), toY(curve[0].equity));
+        for (let i = 1; i < curve.length; i++) ctx.lineTo(toX(i), toY(curve[i].equity));
+        ctx.lineTo(toX(curve.length - 1), height - pad);
+        ctx.lineTo(toX(0), height - pad);
+        ctx.closePath();
+        ctx.fillStyle = area;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(toX(0), toY(curve[0].equity));
+        for (let i = 1; i < curve.length; i++) ctx.lineTo(toX(i), toY(curve[i].equity));
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const lx = toX(curve.length - 1);
+        const ly = toY(curve[curve.length - 1].equity);
+        ctx.beginPath();
+        ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+        ctx.fillStyle = lineColor;
+        ctx.fill();
+      }
+
+      function renderBacktestResult(result, cfg) {
+        const noteEl = document.getElementById('bt-note');
+        const metricsEl = document.getElementById('bt-metrics');
+        const totalEl = document.getElementById('bt-trades-total');
+        const tbodyEl = document.getElementById('bt-trades-tbody');
+        if (!noteEl || !metricsEl || !totalEl || !tbodyEl) return;
+
+        if (!result?.ok) {
+          noteEl.textContent = '回验失败：' + (result?.message || '未知错误');
+          metricsEl.innerHTML = '';
+          totalEl.textContent = '交易明细：0 条';
+          tbodyEl.innerHTML = '<tr><td colspan="10" class="empty">回验失败，请调整参数后重试。</td></tr>';
+          drawBacktestEquityCurve([]);
+          return;
+        }
+
+        noteEl.textContent = '策略：' + btStrategyLabel(result.strategy) + ' · 周期：' + result.tf + ' · 样本：' + result.bars + ' 根 · 手续费：' + btNum(cfg.feeBps, 2) + ' bps';
+        const pnlCls = result.netPnlPct >= 0 ? 'pos' : 'neg';
+        const avgCls = result.avgPnlPct >= 0 ? 'pos' : 'neg';
+        metricsEl.innerHTML = ''
+          + '<div class="bt-metric"><div class="k">净值收益</div><div class="v ' + pnlCls + '">' + (result.netPnlPct >= 0 ? '+' : '') + btNum(result.netPnlPct, 2) + '%</div></div>'
+          + '<div class="bt-metric"><div class="k">最大回撤</div><div class="v neg">' + btNum(result.maxDrawdownPct, 2) + '%</div></div>'
+          + '<div class="bt-metric"><div class="k">交易次数</div><div class="v">' + result.tradeCount + '</div></div>'
+          + '<div class="bt-metric"><div class="k">胜率</div><div class="v">' + btNum(result.winRate, 1) + '%</div></div>'
+          + '<div class="bt-metric"><div class="k">平均单笔</div><div class="v ' + avgCls + '">' + (result.avgPnlPct >= 0 ? '+' : '') + btNum(result.avgPnlPct, 2) + '%</div></div>'
+          + '<div class="bt-metric"><div class="k">胜/负</div><div class="v">' + result.wins + ' / ' + result.losses + '</div></div>';
+
+        drawBacktestEquityCurve(result.curve);
+        totalEl.textContent = '交易明细：' + result.trades.length + ' 条';
+        if (!result.trades.length) {
+          tbodyEl.innerHTML = '<tr><td colspan="10" class="empty">暂无成交（可调低阈值/扩大回验窗口）。</td></tr>';
+          return;
+        }
+        tbodyEl.innerHTML = result.trades.slice(0, 300).map(function(t, idx) {
+          const cls = Number(t.pnlPct) >= 0 ? 'pos' : 'neg';
+          return '<tr>'
+            + '<td>' + (idx + 1) + '</td>'
+            + '<td>' + (t.side === 'short' ? '做空' : '做多') + '</td>'
+            + '<td>' + btFmtTs(t.entryTime) + '</td>'
+            + '<td>' + btFmtTs(t.exitTime) + '</td>'
+            + '<td>' + btNum(t.entryPrice, 2) + '</td>'
+            + '<td>' + btNum(t.exitPrice, 2) + '</td>'
+            + '<td class="' + cls + '">' + (Number(t.pnlPct) >= 0 ? '+' : '') + btNum(t.pnlPct, 2) + '%</td>'
+            + '<td>' + t.holdBars + '</td>'
+            + '<td>' + escapeHtml(t.signalTag || '-') + '</td>'
+            + '<td>' + escapeHtml(t.reason || '-') + '</td>'
+          + '</tr>';
+        }).join('');
+      }
+
+      function runBacktestFromUi() {
+        const strategyEl = document.getElementById('bt-strategy');
+        const tfEl = document.getElementById('bt-tf');
+        const barsEl = document.getElementById('bt-bars');
+        const feeEl = document.getElementById('bt-fee-bps');
+        const stopEl = document.getElementById('bt-stop-atr');
+        const tpEl = document.getElementById('bt-tp-atr');
+        const holdEl = document.getElementById('bt-max-hold');
+        if (!strategyEl || !tfEl || !barsEl || !feeEl || !stopEl || !tpEl || !holdEl) return;
+        const cfg = {
+          strategy: strategyEl.value || 'v5_hybrid',
+          tf: tfEl.value || '1h',
+          bars: Number(barsEl.value || 900),
+          feeBps: Number(feeEl.value || 5),
+          stopAtr: Number(stopEl.value || 1.8),
+          tpAtr: Number(tpEl.value || 3.0),
+          maxHold: Number(holdEl.value || 72),
+        };
+        const result = runBacktestByVersion(cfg);
+        renderBacktestResult(result, cfg);
+      }
+
+      function setupBacktestPanel() {
+        const runBtn = document.getElementById('bt-run');
+        const tfEl = document.getElementById('bt-tf');
+        if (!runBtn || !tfEl) return;
+        if (Array.isArray(OHLCV_BY_TF?.['1h']) && OHLCV_BY_TF['1h'].length) tfEl.value = '1h';
+        else if (Array.isArray(OHLCV_BY_TF?.['15m']) && OHLCV_BY_TF['15m'].length) tfEl.value = '15m';
+        runBtn.addEventListener('click', runBacktestFromUi);
+        const autoIds = ['bt-strategy', 'bt-tf', 'bt-bars', 'bt-fee-bps', 'bt-stop-atr', 'bt-tp-atr', 'bt-max-hold'];
+        autoIds.forEach(function(id) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener('change', function() {
+            if (id === 'bt-strategy' || id === 'bt-tf') runBacktestFromUi();
+          });
+        });
+        runBacktestFromUi();
       }
 
       function orderRelationHtml(order) {
@@ -2548,6 +3171,7 @@ const HTML = `<!DOCTYPE html>
       render();
       renderHistoryOrders();
       renderDashboard();
+      setupBacktestPanel();
       switchView('dashboard');
     }
 
@@ -2574,7 +3198,7 @@ const MANIFEST = {
   ],
 };
 
-const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v4';
+const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v5';
 const PRECACHE = [
   './',
   './index.html',
