@@ -9,6 +9,7 @@
     "report:viewer": "node scripts/perp-report-viewer.js",
     "report:serve": "node scripts/serve-report.js",
     "report:start:cloud": "node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
+    "report:deploy:console": "node scripts/perp-report-data.js 400 && node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
     "openclaw:deepseek:init": "bash scripts/setup-openclaw-deepseek.sh"
   },
   "keywords": [],

@@ -213,6 +213,10 @@ export DEEPSEEK_API_KEY="sk-xxxx"
 npm run openclaw:deepseek:init
 
 # 4) 启动看板（OpenClaw local 模式）
+# 若要一键刷新数据 + 生成页面 + 启动服务，直接用：
+npm run report:deploy:console
+#
+# 若只想基于已有数据快速起服务（不刷新 decisions/ohlcv）：
 OPENCLAW_AGENT_LOCAL=1 npm run report:start:cloud
 ```
 
