@@ -21,10 +21,17 @@ const PORT = parseInt(process.argv[2], 10) || 8765;
 const OPENCLAW_REPO_ENTRY = path.resolve(WORKDIR, 'openclaw/openclaw.mjs');
 const OPENCLAW_REPO_MODULES = path.resolve(WORKDIR, 'openclaw/node_modules');
 const OPENCLAW_AGENT_ID = (process.env.OPENCLAW_AGENT_ID || 'main').trim() || 'main';
+const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
 const OPENCLAW_THINKING = (process.env.OPENCLAW_THINKING || '').trim();
 const OPENCLAW_VERBOSE = (process.env.OPENCLAW_VERBOSE || '').trim();
+const OPENCLAW_REPLY_CHANNEL = (process.env.OPENCLAW_REPLY_CHANNEL || '').trim();
+const OPENCLAW_REPLY_TO = (process.env.OPENCLAW_REPLY_TO || '').trim();
+const OPENCLAW_REPLY_ACCOUNT = (process.env.OPENCLAW_REPLY_ACCOUNT || '').trim();
+const OPENCLAW_DELIVER = /^(1|true|yes|on)$/i.test(
+  String(process.env.OPENCLAW_DELIVER || ''),
+);
 const OPENCLAW_AGENT_LOCAL = /^(1|true|yes|on)$/i.test(
   String(process.env.OPENCLAW_AGENT_LOCAL || ''),
 );
@@ -584,11 +591,16 @@ async function runOpenClawChat(message, context) {
     '--timeout',
     String(OPENCLAW_TIMEOUT_SEC),
   ];
+  if (OPENCLAW_CHANNEL) args.push('--channel', OPENCLAW_CHANNEL);
   if (OPENCLAW_AGENT_LOCAL) args.push('--local');
   if (OPENCLAW_THINKING) args.push('--thinking', OPENCLAW_THINKING);
   if (OPENCLAW_VERBOSE) args.push('--verbose', OPENCLAW_VERBOSE);
   if (OPENCLAW_SESSION_ID) args.push('--session-id', OPENCLAW_SESSION_ID);
   if (OPENCLAW_TO) args.push('--to', OPENCLAW_TO);
+  if (OPENCLAW_DELIVER) args.push('--deliver');
+  if (OPENCLAW_REPLY_CHANNEL) args.push('--reply-channel', OPENCLAW_REPLY_CHANNEL);
+  if (OPENCLAW_REPLY_TO) args.push('--reply-to', OPENCLAW_REPLY_TO);
+  if (OPENCLAW_REPLY_ACCOUNT) args.push('--reply-account', OPENCLAW_REPLY_ACCOUNT);
 
   const startedAt = Date.now();
   const proc = await runProcess(cli.command, args, OPENCLAW_CHAT_TIMEOUT_MS);
@@ -728,7 +740,16 @@ const server = http.createServer((req, res) => {
         bridge: '/api/ai/chat',
         binding: 'trading-context-v2',
         agentId: OPENCLAW_AGENT_ID,
+        channel: OPENCLAW_CHANNEL || null,
+        deliver: OPENCLAW_DELIVER,
         agentLocal: OPENCLAW_AGENT_LOCAL,
+        hasTo: Boolean(OPENCLAW_TO),
+        hasSessionId: Boolean(OPENCLAW_SESSION_ID),
+        replyChannel: OPENCLAW_REPLY_CHANNEL || null,
+        hasReplyTo: Boolean(OPENCLAW_REPLY_TO),
+        hasReplyAccount: Boolean(OPENCLAW_REPLY_ACCOUNT),
+        thinking: OPENCLAW_THINKING || null,
+        verbose: OPENCLAW_VERBOSE || null,
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
         commandSource: cli.source,
         contextDigest: trading.digest,
@@ -767,5 +788,14 @@ server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
   console.log('Serving:', REPORT_DIR);
   console.log('AI bridge: POST /api/ai/chat (OpenClaw agent=' + OPENCLAW_AGENT_ID + ', binding=trading-context-v2)');
+  const routingParts = [];
+  if (OPENCLAW_CHANNEL) routingParts.push('channel=' + OPENCLAW_CHANNEL);
+  if (OPENCLAW_TO) routingParts.push('to=' + OPENCLAW_TO);
+  if (OPENCLAW_SESSION_ID) routingParts.push('session=' + OPENCLAW_SESSION_ID);
+  if (OPENCLAW_DELIVER) routingParts.push('deliver=on');
+  if (OPENCLAW_REPLY_CHANNEL) routingParts.push('replyChannel=' + OPENCLAW_REPLY_CHANNEL);
+  if (OPENCLAW_REPLY_TO) routingParts.push('replyTo=' + OPENCLAW_REPLY_TO);
+  if (OPENCLAW_REPLY_ACCOUNT) routingParts.push('replyAccount=' + OPENCLAW_REPLY_ACCOUNT);
+  if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
 });

@@ -260,7 +260,12 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 
 - `OPENCLAW_CLI_BIN`：指定 openclaw 可执行路径（未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
 - `OPENCLAW_AGENT_ID`：默认 `main`
+- `OPENCLAW_CHANNEL`：会话路由频道（如 `telegram` / `whatsapp`），透传到 `openclaw agent --channel`
+- `OPENCLAW_TO`：会话目标（如手机号、`@username`、chat_id），透传到 `openclaw agent --to`
+- `OPENCLAW_SESSION_ID`：指定会话 ID，透传到 `openclaw agent --session-id`
 - `OPENCLAW_AGENT_LOCAL`：`1/true` 时强制 `openclaw agent --local`（无需先跑 Gateway，推荐本地直连模型时开启）
+- `OPENCLAW_DELIVER`：`1/true` 时在执行 agent 后投递回复到频道（`--deliver`）
+- `OPENCLAW_REPLY_CHANNEL` / `OPENCLAW_REPLY_TO` / `OPENCLAW_REPLY_ACCOUNT`：投递覆盖参数（`--reply-channel` / `--reply-to` / `--reply-account`）
 - `OPENCLAW_THINKING`：如 `low | medium | high`
 - `OPENCLAW_VERBOSE`：如 `on | off`
 - `OPENCLAW_TIMEOUT_SEC`：OpenClaw `agent` 超时秒数（默认 `90`）
