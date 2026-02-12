@@ -124,6 +124,22 @@ const HTML = `<!DOCTYPE html>
     }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
+    .global-back-btn {
+      position: fixed;
+      right: 12px;
+      bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+      z-index: 250;
+      border: 1px solid rgba(88,166,255,0.55);
+      border-radius: 999px;
+      background: rgba(88,166,255,0.18);
+      color: #58a6ff;
+      padding: 8px 12px;
+      font-size: 0.74rem;
+      cursor: pointer;
+      box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+    }
+    .global-back-btn.hidden { display: none; }
+    .global-back-btn:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
     .assistant-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
@@ -431,6 +447,7 @@ const HTML = `<!DOCTYPE html>
       #view-dashboard .ai-chat-wrap { padding: 8px; }
       #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
+      .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .input-func-toggle { min-width: 44px; font-size: 0.86rem; padding: 9px 10px; }
       .input-func-menu { min-width: 136px; }
       .ai-input-row input { font-size: 16px; }
@@ -532,7 +549,10 @@ const HTML = `<!DOCTYPE html>
       <div class="panel-card" id="runtime-timeline-card">
         <div class="card-title-row">
           <h2>当前交易运行时间线</h2>
-          <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;">
+            <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
+            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+          </span>
         </div>
         <div id="runtime-timeline" class="timeline-list"></div>
       </div>
@@ -623,6 +643,7 @@ const HTML = `<!DOCTYPE html>
       </div>
     </section>
   </div>
+  <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回主界面</button>
 
   <div id="install-pwa" class="install-pwa hidden">
     <div class="ipwa-main">
@@ -819,6 +840,7 @@ const HTML = `<!DOCTYPE html>
       const appSubtitle = document.getElementById('app-subtitle');
       const inputFuncToggle = document.getElementById('input-func-toggle');
       const inputFuncMenu = document.getElementById('input-func-menu');
+      const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
 
       function setInputMenuOpen(open) {
@@ -842,6 +864,9 @@ const HTML = `<!DOCTYPE html>
           else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
           else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
           else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
+        }
+        if (globalBackBtn) {
+          globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
         setInputMenuOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
