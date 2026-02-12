@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+is_true() {
+  local v
+  v="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "${v}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 export OPENCLAW_WORKDIR="${OPENCLAW_WORKDIR:-/app}"
 export OPENCLAW_CLI_BIN="${OPENCLAW_CLI_BIN:-openclaw}"
 export OPENCLAW_AGENT_LOCAL="${OPENCLAW_AGENT_LOCAL:-1}"
@@ -18,7 +27,7 @@ openclaw config set "models.mode" "merge" >/dev/null 2>&1 || true
 if [[ -n "${OPENCLAW_PRIMARY_MODEL:-}" ]]; then
   openclaw config set "agents.defaults.model.primary" "${OPENCLAW_PRIMARY_MODEL}" >/dev/null 2>&1 || true
 fi
-if [[ "${OPENCLAW_BOOTSTRAP_DEEPSEEK,,}" =~ ^(1|true|yes|on)$ ]]; then
+if is_true "${OPENCLAW_BOOTSTRAP_DEEPSEEK}"; then
   if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
     echo "[init] wiring DeepSeek provider into OpenClaw config..."
     DEEPSEEK_PROVIDER_JSON="$(
