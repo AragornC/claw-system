@@ -194,6 +194,25 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验）。
 - 清除本地 key：`/deepseek clear`
 
+### 5.7 腾讯云部署（CVM + Docker）
+
+如果你要在手机公网访问并测试 OpenClaw 打通，直接用：
+
+- `deploy/tencent-cvm/docker-compose.yml`
+- `deploy/tencent-cvm/.env.example`
+- `deploy/tencent-cvm/README.md`
+
+最短路径：
+
+```bash
+cd deploy/tencent-cvm
+cp .env.example .env
+# 编辑 .env，填 DEEPSEEK_API_KEY
+docker compose up -d --build
+```
+
+随后手机访问：`http://<CVM公网IP>:8765`
+
 建议流程：
 
 ```bash
