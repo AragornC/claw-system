@@ -58,6 +58,7 @@ const HTML = `<!DOCTYPE html>
     .top-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
+    .assistant-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
     .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -92,6 +93,9 @@ const HTML = `<!DOCTYPE html>
     .timeline-main { font-size: 0.75rem; color: var(--text); }
     .timeline-sub { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
     .ai-chat-wrap { margin-top: 10px; }
+    .ai-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .ai-quick-btn { border: 1px dashed var(--border); border-radius: 999px; background: rgba(0,0,0,0.18); color: var(--muted); font-size: 0.68rem; padding: 3px 9px; cursor: pointer; }
+    .ai-quick-btn:hover { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
     .ai-chat-box { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.16); padding: 8px; min-height: 180px; max-height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
     .ai-msg { max-width: min(90%, 760px); border-radius: 10px; padding: 7px 9px; font-size: 0.74rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
     .ai-msg.user { align-self: flex-end; background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
@@ -283,6 +287,8 @@ const HTML = `<!DOCTYPE html>
       .app-topbar { flex-direction: column; align-items: stretch; gap: 8px; }
       .top-actions { justify-content: flex-start; }
       .nav-btn { font-size: 0.72rem; padding: 6px 10px; }
+      .assistant-nav { margin-bottom: 6px; }
+      .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
       .dashboard-grid { grid-template-columns: 1fr; gap: 8px; }
       .panel-card { padding: 9px; border-radius: 10px; }
       .timeline-list { max-height: 280px; }
@@ -329,16 +335,34 @@ const HTML = `<!DOCTYPE html>
     <div class="app-topbar">
       <div>
         <h1>AI 交易机器人集成看板</h1>
-        <div class="app-subtitle" id="app-subtitle">默认展示当前订单、仓位与运行状态</div>
-      </div>
-      <div class="top-actions">
-        <button class="nav-btn active" data-view-target="dashboard" type="button">当前订单</button>
-        <button class="nav-btn" data-view-target="kline" type="button">K线图</button>
-        <button class="nav-btn" data-view-target="history" type="button">历史订单</button>
+        <div class="app-subtitle" id="app-subtitle">围绕 AI 助理组织交易、风控与订单视图</div>
       </div>
     </div>
 
     <section id="view-dashboard" class="view-panel active">
+      <div class="panel-card ai-chat-wrap">
+        <div class="card-title-row">
+          <h2>AI 交易助理（主页面）</h2>
+          <span class="app-subtitle">从这里切换功能与发起提问</span>
+        </div>
+        <div class="assistant-nav">
+          <button class="nav-btn active" data-view-target="dashboard" type="button">AI主页面</button>
+          <button class="nav-btn" data-view-target="kline" type="button">打开K线</button>
+          <button class="nav-btn" data-view-target="history" type="button">历史订单</button>
+        </div>
+        <div class="ai-quick" id="ai-quick">
+          <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
+          <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
+          <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
+          <button class="ai-quick-btn" type="button" data-view-target="kline">去看K线</button>
+        </div>
+        <div id="ai-chat-box" class="ai-chat-box"></div>
+        <div class="ai-input-row">
+          <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
+          <button id="ai-chat-send" type="button">发送</button>
+        </div>
+      </div>
+
       <div class="dashboard-grid">
         <div class="panel-card">
           <div class="card-title-row">
@@ -363,25 +387,18 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>机器人完整运行时间线</h2>
-          <span class="app-subtitle">按时间倒序</span>
+          <h2>当前交易运行时间线</h2>
+          <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
         </div>
         <div id="runtime-timeline" class="timeline-list"></div>
-      </div>
-      <div class="panel-card ai-chat-wrap">
-        <div class="card-title-row">
-          <h2>AI 交易助理（模型交互）</h2>
-          <span class="app-subtitle">可询问仓位、策略、风险与最近行为</span>
-        </div>
-        <div id="ai-chat-box" class="ai-chat-box"></div>
-        <div class="ai-input-row">
-          <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
-          <button id="ai-chat-send" type="button">发送</button>
-        </div>
       </div>
     </section>
 
     <section id="view-kline" class="view-panel">
+      <div class="card-title-row" style="margin-bottom:6px">
+        <h2>K线决策视图</h2>
+        <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+      </div>
       <div class="chart-header">
         <select id="tf-select">${tfOptions}</select>
         <span class="meta" id="meta-symbol">· 电脑可悬停，手机可点击决策点/记录看详情</span>
@@ -426,7 +443,10 @@ const HTML = `<!DOCTYPE html>
       <div class="panel-card">
         <div class="card-title-row">
           <h2>历史订单详情</h2>
-          <span class="app-subtitle" id="history-total">共 0 条</span>
+          <span>
+            <span class="app-subtitle" id="history-total">共 0 条</span>
+            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+          </span>
         </div>
         <div class="table-toolbar">
           <div class="history-summary" id="history-summary">点击任意订单可跳到 K 线高亮开平区间。</div>
@@ -662,7 +682,7 @@ const HTML = `<!DOCTYPE html>
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
         if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = '默认展示当前订单、仓位与运行状态';
+          if (key === 'dashboard') appSubtitle.textContent = '围绕 AI 助理组织交易、风控与订单视图';
           else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
           else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
         }
@@ -679,6 +699,15 @@ const HTML = `<!DOCTYPE html>
       if (goKlineBtn) goKlineBtn.addEventListener('click', function() { switchView('kline'); });
       const goHistoryBtn = document.getElementById('go-history-from-dashboard');
       if (goHistoryBtn) goHistoryBtn.addEventListener('click', function() { switchView('history'); });
+      const currentTradeMeta = document.getElementById('current-trade-meta');
+
+      function getCurrentTradeOrder() {
+        if (activeOrder) return activeOrder;
+        if (OPEN_ORDERS.length) return OPEN_ORDERS
+          .slice()
+          .sort((a, b) => (Date.parse(b?.openTs || '') || 0) - (Date.parse(a?.openTs || '') || 0))[0];
+        return SORTED_ORDERS[0] || null;
+      }
 
       function renderCurrentPositions() {
         const wrap = document.getElementById('current-position-list');
@@ -726,8 +755,15 @@ const HTML = `<!DOCTYPE html>
         const runSince = SORTED_RECORDS[total - 1]?.ts || latest?.ts || null;
         const latestSide = latest?.signal?.plan?.side === 'short' ? '做空' : (latest?.signal?.plan?.side === 'long' ? '做多' : '无信号');
         const latestLevel = latest?.signal?.plan?.level || '-';
+        const currentOrder = getCurrentTradeOrder();
+        const currentTradeId = currentOrder?.tradeId != null ? String(currentOrder.tradeId) : '-';
+        const currentState = currentOrder ? (currentOrder.closeTs ? '已平仓' : '持仓中') : '无当前单';
+        const currentRuntime = currentOrder ? fmtDurationMin(currentOrder.durationMin != null ? currentOrder.durationMin : minutesFromTo(currentOrder.openTs, new Date().toISOString())) : '-';
         box.innerHTML = '<div class="strategy-grid">' +
           '<div class="metric-tile"><div class="metric-label">运行策略</div><div class="metric-value">' + escapeHtml(detectStrategyLabel()) + '</div></div>' +
+          '<div class="metric-tile"><div class="metric-label">当前单ID</div><div class="metric-value">' + escapeHtml(currentTradeId) + '</div></div>' +
+          '<div class="metric-tile"><div class="metric-label">当前单状态</div><div class="metric-value">' + escapeHtml(currentState) + '</div></div>' +
+          '<div class="metric-tile"><div class="metric-label">当前单运行时长</div><div class="metric-value">' + escapeHtml(currentRuntime) + '</div></div>' +
           '<div class="metric-tile"><div class="metric-label">总轮次</div><div class="metric-value">' + total + '</div></div>' +
           '<div class="metric-tile"><div class="metric-label">信号触发</div><div class="metric-value">' + signalCnt + '</div></div>' +
           '<div class="metric-tile"><div class="metric-label">真实执行</div><div class="metric-value">' + executedCnt + '</div></div>' +
@@ -737,47 +773,125 @@ const HTML = `<!DOCTYPE html>
         '<div class="strategy-note">运行起点：' + escapeHtml(fmtTsShort(runSince)) + ' · 最新信号：' + escapeHtml(latestSide + ' / ' + latestLevel) + '</div>';
       }
 
-      function buildRuntimeEvents(limit) {
-        const maxN = Number.isFinite(Number(limit)) ? Number(limit) : 120;
+      function buildCurrentTradeEvents(order, limit) {
+        const maxN = Number.isFinite(Number(limit)) ? Number(limit) : 80;
+        if (!order) return [];
+        const start = parseToSec(order.openTs);
+        const end = parseToSec(order.closeTs);
+        const sideText = order.side === 'short' ? '做空' : (order.side === 'long' ? '做多' : '-');
         const events = [];
-        SORTED_RECORDS.forEach(function(r) {
-          const ts = r.ts;
-          const side = r?.signal?.plan?.side === 'short' ? '做空' : (r?.signal?.plan?.side === 'long' ? '做多' : '');
-          if (r?.executor?.executed) {
-            events.push({ ts, tag: 'order', title: '执行开仓 ' + side, sub: (r?.executor?.reason || 'opened') + ' · cycleId=' + (r?.cycleId || '-') });
-          } else if (r?.decision?.blockedByNews) {
-            const reason = Array.isArray(r?.decision?.newsReason) && r.decision.newsReason.length ? r.decision.newsReason.join('; ') : '命中新闻风控';
-            events.push({ ts, tag: 'risk', title: '新闻风控拦截', sub: reason });
-          } else if (r?.signal?.hasAlert) {
-            events.push({ ts, tag: 'signal', title: '识别信号 ' + side + '（' + (r?.signal?.plan?.level || '-') + '）', sub: r?.signal?.plan?.reason || (r?.signal?.note || '-') });
-          } else {
-            events.push({ ts, tag: 'info', title: '轮询完成（无信号）', sub: r?.executor?.reason || (r?.signal?.note || '-') });
-          }
+
+        events.push({
+          ts: order.openTs,
+          tag: 'order',
+          title: '当前单开仓',
+          sub: sideText + ' · 价格 ' + fmtPrice(order.openPrice) + ' · tradeId=' + (order.tradeId || '-'),
         });
-        SORTED_ORDERS.forEach(function(o) {
-          if (!o?.closeTs) return;
-          const side = o.side === 'short' ? '空' : '多';
-          const pnl = Number(o.pnlEstUSDT);
+        if (order.closeTs) {
+          const pnl = Number(order.pnlEstUSDT);
           const pnlTxt = Number.isFinite(pnl) ? ((pnl >= 0 ? '+' : '') + pnl.toFixed(2) + 'U') : '-';
           events.push({
-            ts: o.closeTs,
+            ts: order.closeTs,
             tag: 'order',
-            title: '订单平仓（' + side + '）',
-            sub: 'tradeId=' + (o.tradeId || '-') + ' · PnL ' + pnlTxt,
+            title: '当前单平仓',
+            sub: '价格 ' + fmtPrice(order.closePrice) + ' · PnL ' + pnlTxt,
+          });
+        } else {
+          events.push({
+            ts: new Date().toISOString(),
+            tag: 'info',
+            title: '当前单仍在运行',
+            sub: '已运行 ' + fmtDurationMin(minutesFromTo(order.openTs, new Date().toISOString())),
+          });
+        }
+
+        const scopedRecords = SORTED_RECORDS.filter(function(r) {
+          const t = parseToSec(r?.ts);
+          if (!Number.isFinite(t) || !Number.isFinite(start)) return false;
+          if (Number.isFinite(end) && t > end) return false;
+          return t >= start;
+        });
+
+        scopedRecords.forEach(function(r) {
+          const reason = String(r?.executor?.reason || '');
+          const side = r?.signal?.plan?.side === 'short' ? '做空' : (r?.signal?.plan?.side === 'long' ? '做多' : '');
+          if (r?.executor?.executed && r?.cycleId != null && order?.cycleId != null && String(r.cycleId) === String(order.cycleId)) {
+            events.push({
+              ts: r.ts,
+              tag: 'order',
+              title: '开仓执行确认',
+              sub: (r?.executor?.reason || 'opened') + ' · cycleId=' + (r?.cycleId || '-'),
+            });
+            return;
+          }
+          if (/position_open|idempotent/i.test(reason)) {
+            events.push({
+              ts: r.ts,
+              tag: 'info',
+              title: '持仓检查',
+              sub: '已有持仓，继续按当前单运行',
+            });
+            return;
+          }
+          if (r?.decision?.blockedByNews) {
+            const riskReason = Array.isArray(r?.decision?.newsReason) && r.decision.newsReason.length
+              ? r.decision.newsReason.join('; ')
+              : '命中新闻风控';
+            events.push({
+              ts: r.ts,
+              tag: 'risk',
+              title: '新闻门控检查',
+              sub: riskReason,
+            });
+            return;
+          }
+          if (r?.signal?.hasAlert) {
+            events.push({
+              ts: r.ts,
+              tag: 'signal',
+              title: '信号巡检：' + side + '（' + (r?.signal?.plan?.level || '-') + '）',
+              sub: r?.signal?.plan?.reason || (r?.signal?.note || '-'),
+            });
+            return;
+          }
+          events.push({
+            ts: r.ts,
+            tag: 'info',
+            title: '运行心跳',
+            sub: r?.executor?.reason || (r?.signal?.note || '无新信号'),
           });
         });
+
+        const seen = new Set();
         return events
           .filter(e => e.ts)
           .sort((a, b) => (Date.parse(b.ts) || 0) - (Date.parse(a.ts) || 0))
+          .filter(function(e) {
+            const k = (e.ts || '') + '|' + (e.title || '');
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          })
           .slice(0, maxN);
       }
 
       function renderRuntimeTimeline() {
         const wrap = document.getElementById('runtime-timeline');
         if (!wrap) return;
-        const events = buildRuntimeEvents(120);
+        const currentOrder = getCurrentTradeOrder();
+        if (currentTradeMeta) {
+          if (currentOrder) {
+            const runMin = currentOrder.durationMin != null
+              ? currentOrder.durationMin
+              : minutesFromTo(currentOrder.openTs, new Date().toISOString());
+            currentTradeMeta.textContent = 'tradeId=' + (currentOrder.tradeId || '-') + ' · ' + (currentOrder.side === 'short' ? '做空' : '做多') + ' · 运行 ' + fmtDurationMin(runMin);
+          } else {
+            currentTradeMeta.textContent = '当前无可聚焦交易';
+          }
+        }
+        const events = buildCurrentTradeEvents(currentOrder, 80);
         if (!events.length) {
-          wrap.innerHTML = '<div class="timeline-item"><div class="timeline-main">暂无运行事件</div></div>';
+          wrap.innerHTML = '<div class="timeline-item"><div class="timeline-main">暂无当前单运行事件</div></div>';
           return;
         }
         wrap.innerHTML = events.map(function(e) {
@@ -791,6 +905,7 @@ const HTML = `<!DOCTYPE html>
 
       function aiSnapshot() {
         const latest = SORTED_RECORDS[0] || null;
+        const currentOrder = getCurrentTradeOrder();
         return {
           openCount: OPEN_ORDERS.length,
           latestSide: latest?.signal?.plan?.side === 'short' ? '做空' : (latest?.signal?.plan?.side === 'long' ? '做多' : '无信号'),
@@ -798,6 +913,13 @@ const HTML = `<!DOCTYPE html>
           blocked: SORTED_RECORDS.filter(r => r?.decision?.blockedByNews).length,
           executed: SORTED_RECORDS.filter(r => r?.executor?.executed).length,
           strategy: detectStrategyLabel(),
+          currentTradeId: currentOrder?.tradeId || null,
+          currentTradeState: currentOrder ? (currentOrder.closeTs ? '已平仓' : '持仓中') : '无当前单',
+          currentTradeSide: currentOrder?.side === 'short' ? '做空' : (currentOrder?.side === 'long' ? '做多' : '-'),
+          currentTradeOpen: currentOrder?.openTs || null,
+          currentTradeDuration: currentOrder
+            ? fmtDurationMin(currentOrder.durationMin != null ? currentOrder.durationMin : minutesFromTo(currentOrder.openTs, new Date().toISOString()))
+            : '-',
         };
       }
 
@@ -816,7 +938,7 @@ const HTML = `<!DOCTYPE html>
         function answer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
-          if (!ql.trim()) return '可以问我：当前仓位、策略状态、风险拦截、最近订单。';
+          if (!ql.trim()) return '可以问我：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。';
           if (/仓位|持仓|position/.test(ql)) {
             if (!OPEN_ORDERS.length) return '当前无持仓，机器人处于空仓扫描状态。';
             return OPEN_ORDERS.map(function(o, i) {
@@ -824,11 +946,15 @@ const HTML = `<!DOCTYPE html>
               return (i + 1) + '. ' + side + ' ' + (o.symbol || '-') + '，开仓价 ' + fmtPrice(o.openPrice) + '，时间 ' + fmtTsShort(o.openTs);
             }).join('\\n');
           }
+          if (/这单|当前单|进展|timeline|时间线|过程/.test(ql)) {
+            if (!s.currentTradeId) return '当前没有可跟踪的交易单。';
+            return '当前单：' + s.currentTradeId + '\\n方向：' + s.currentTradeSide + '\\n状态：' + s.currentTradeState + '\\n开仓时间：' + fmtTsShort(s.currentTradeOpen) + '\\n运行时长：' + s.currentTradeDuration + '\\n你可以切到「K线图」查看这单对应区间。';
+          }
           if (/策略|signal|信号/.test(ql)) {
-            return '当前策略：' + s.strategy + '\\n最新信号：' + s.latestSide + ' @ ' + fmtTsShort(s.latestTs) + '\\n累计执行：' + s.executed + ' 次';
+            return '当前策略：' + s.strategy + '\\n当前单状态：' + s.currentTradeState + '\\n最新信号：' + s.latestSide + ' @ ' + fmtTsShort(s.latestTs) + '\\n累计执行：' + s.executed + ' 次';
           }
           if (/风险|新闻|风控/.test(ql)) {
-            return '截至当前，新闻/风控拦截共 ' + s.blocked + ' 次。建议重点复盘时间线中 RISK 标签事件。';
+            return '截至当前，新闻/风控拦截共 ' + s.blocked + ' 次。建议重点查看「当前交易运行时间线」里的 RISK 标签事件。';
           }
           if (/历史|订单|最近/.test(ql)) {
             const top = SORTED_ORDERS.slice(0, 3);
@@ -839,7 +965,7 @@ const HTML = `<!DOCTYPE html>
               return (idx + 1) + '. ' + (o.tradeId || '-') + ' · ' + (o.side === 'short' ? '空' : '多') + ' · ' + fmtTsShort(o.openTs) + ' · ' + pnlTxt;
             }).join('\\n');
           }
-          return '我能回答：\\n- 当前仓位\\n- 运行策略\\n- 风控与新闻拦截\\n- 最近订单\\n也可以输入“帮我总结今天表现”。';
+          return '我能回答：\\n- 当前仓位\\n- 当前这单进展\\n- 运行策略\\n- 风控与新闻拦截\\n- 最近订单\\n也可以输入“帮我总结今天表现”。';
         }
         function send() {
           const text = input.value.trim();
@@ -857,7 +983,23 @@ const HTML = `<!DOCTYPE html>
             send();
           }
         });
-        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、策略状态、风险拦截、最近订单。');
+        const quickBtns = Array.from(document.querySelectorAll('#ai-quick .ai-quick-btn'));
+        quickBtns.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            const viewTarget = btn.getAttribute('data-view-target');
+            if (viewTarget) {
+              switchView(viewTarget);
+              return;
+            }
+            const ask = btn.getAttribute('data-ask') || '';
+            if (!ask) return;
+            pushMsg('user', ask);
+            setTimeout(function() {
+              pushMsg('bot', answer(ask));
+            }, 120);
+          });
+        });
+        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。');
       }
 
       function renderDashboard() {
@@ -1075,6 +1217,8 @@ const HTML = `<!DOCTYPE html>
           applySeriesMarkers();
           applyOrderFocusBadge();
           syncOrderHighlightRows();
+          renderRuntimeTimeline();
+          renderStrategySummary();
           return;
         }
         activeOrderTradeId = String(order.tradeId);
@@ -1083,6 +1227,8 @@ const HTML = `<!DOCTYPE html>
         applySeriesMarkers();
         applyOrderFocusBadge();
         syncOrderHighlightRows();
+        renderRuntimeTimeline();
+        renderStrategySummary();
         if (forceFocus) focusOrderRange(order);
       }
 
