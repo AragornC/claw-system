@@ -208,7 +208,11 @@ git pull origin cursor/-bc-f94ec5fe-5b54-4b20-84e9-3f37528f33d0-f9ff
 npm install
 npm install -g openclaw@latest
 
-# 3) 配置 DeepSeek provider（只写 OpenClaw 配置，不入库）
+# 3) 配置 OpenClaw 模型（二选一）
+# 3A: 走 OpenClaw 官方向导（推荐，支持任意 provider / channel）
+openclaw configure
+#
+# 3B: 仅快速写入 DeepSeek provider（可选）
 export DEEPSEEK_API_KEY="sk-xxxx"
 npm run openclaw:deepseek:init
 
@@ -234,10 +238,10 @@ npm run report:start:local
 
 `openclaw:setup:local` 会引导你填写：
 
-- DeepSeek API key（仅写入 OpenClaw 本地配置）
-- 默认模型（如 `deepseek/deepseek-chat`）
-- 可选 Telegram channel（token/account/默认目标）
-- 看板桥接参数（写入 `.env.local`，不含 API key）
+- 是否运行 OpenClaw 官方 `configure` 向导
+- 默认模型 ID（留空则沿用 OpenClaw 当前配置）
+- 可选 DeepSeek provider 快速写入（仅当你选择时）
+- OpenClaw 路由参数（写入 `.env.local`，不含 API key）
 
 之后你也可以手工编辑 `.env.local`（可参考 `.env.local.example`），再执行：
 
@@ -260,7 +264,7 @@ npm run report:start:local
 ```bash
 cd deploy/tencent-cvm
 cp .env.example .env
-# 编辑 .env，填 DEEPSEEK_API_KEY
+# 编辑 .env（至少填 PUBLIC_PORT；模型/provider 按你的 OpenClaw 配置选择）
 docker compose up -d --build
 ```
 

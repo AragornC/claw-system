@@ -4,7 +4,7 @@
 
 - 手机公网访问看板 UI
 - 看板 AI 聊天通过 OpenClaw 打通
-- OpenClaw 走 DeepSeek API（`OPENCLAW_AGENT_LOCAL=1`）
+- OpenClaw 使用任意已配置模型 provider（DeepSeek / OpenAI / 其他）
 
 ## 1) 准备一台腾讯云 CVM
 
@@ -50,7 +50,6 @@ cp .env.example .env
 编辑 `.env`，最低可用配置：
 
 ```dotenv
-DEEPSEEK_API_KEY=sk-你的真实key
 PUBLIC_PORT=8765
 ```
 
@@ -60,8 +59,11 @@ PUBLIC_PORT=8765
 # OpenClaw 基础
 OPENCLAW_AGENT_LOCAL=1
 OPENCLAW_AGENT_ID=main
-OPENCLAW_PRIMARY_MODEL=deepseek/deepseek-chat
-OPENCLAW_BOOTSTRAP_DEEPSEEK=1
+# 可选：留空则沿用 OpenClaw 当前默认模型
+OPENCLAW_PRIMARY_MODEL=
+# 可选：如需自动写入 DeepSeek provider，设为 1 并提供 DEEPSEEK_API_KEY
+OPENCLAW_BOOTSTRAP_DEEPSEEK=0
+DEEPSEEK_API_KEY=
 
 # 会话/路由（可留空）
 OPENCLAW_CHANNEL=
@@ -202,7 +204,7 @@ docker exec -it claw-report openclaw message send \
   --json
 ```
 
-### 4) 让交易看板桥接使用指定会话/频道（可选）
+### 4) 让交易看板 OpenClaw 路由使用指定会话/频道（可选）
 
 在 `.env` 里加：
 
