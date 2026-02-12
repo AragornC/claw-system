@@ -91,6 +91,31 @@ async function ensureWorkspace() {
   await runChecked('git', ['-C', WORKSPACE_DIR, 'pull', 'origin', REPO_BRANCH]);
 }
 
+function needsDependencyInstall() {
+  const packageJson = path.join(WORKSPACE_DIR, 'package.json');
+  const nodeModules = path.join(WORKSPACE_DIR, 'node_modules');
+  const ccxtPkg = path.join(nodeModules, 'ccxt', 'package.json');
+  const lockPath = path.join(WORKSPACE_DIR, 'package-lock.json');
+  const modulesLockPath = path.join(nodeModules, '.package-lock.json');
+  if (!exists(packageJson)) return false;
+  if (!exists(nodeModules)) return true;
+  if (!exists(ccxtPkg)) return true;
+  if (exists(lockPath) && exists(modulesLockPath)) {
+    try {
+      const src = fs.statSync(lockPath).mtimeMs;
+      const dst = fs.statSync(modulesLockPath).mtimeMs;
+      if (src > dst + 500) return true;
+    } catch {}
+  }
+  return false;
+}
+
+async function ensureWorkspaceDependencies() {
+  if (!needsDependencyInstall()) return;
+  console.log('[thunderclaw] 安装项目依赖（npm install）...');
+  await runChecked('npm', ['install', '--no-audit', '--no-fund'], { cwd: WORKSPACE_DIR });
+}
+
 async function runLocalScript(scriptName, extraEnv = {}) {
   const scriptPath = path.join(WORKSPACE_DIR, 'scripts', scriptName);
   if (!exists(scriptPath)) {
@@ -150,6 +175,7 @@ async function main() {
   if (cmd === 'onboard') {
     const noStart = argv.includes('--no-start');
     await ensureWorkspace();
+    await ensureWorkspaceDependencies();
     await runLocalScript('openclaw-local-setup.sh', {
       OPENCLAW_CLI_BIN: process.env.OPENCLAW_CLI_BIN || 'openclaw',
     });
@@ -166,6 +192,7 @@ async function main() {
   }
   if (cmd === 'start') {
     await ensureWorkspace();
+    await ensureWorkspaceDependencies();
     await runLocalScript('report-start-local.sh', {
       OPENCLAW_CLI_BIN: process.env.OPENCLAW_CLI_BIN || 'thunderclaw',
       OPENCLAW_AGENT_LOCAL: process.env.OPENCLAW_AGENT_LOCAL || '1',
