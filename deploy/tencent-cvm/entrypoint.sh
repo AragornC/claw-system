@@ -21,8 +21,19 @@ fi
 if [[ "${OPENCLAW_BOOTSTRAP_DEEPSEEK,,}" =~ ^(1|true|yes|on)$ ]]; then
   if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
     echo "[init] wiring DeepSeek provider into OpenClaw config..."
+    DEEPSEEK_PROVIDER_JSON="$(
+      DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" node -e "console.log(JSON.stringify({
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        api: 'openai-completions',
+        models: [
+          { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+          { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
+        ],
+      }))"
+    )"
     openclaw config set --json "models.providers.deepseek" \
-      '{"baseUrl":"https://api.deepseek.com/v1","apiKey":"${DEEPSEEK_API_KEY}","api":"openai-completions","models":[{"id":"deepseek-chat","name":"DeepSeek Chat"},{"id":"deepseek-reasoner","name":"DeepSeek Reasoner"}]}' >/dev/null 2>&1 || true
+      "${DEEPSEEK_PROVIDER_JSON}" >/dev/null 2>&1 || true
   else
     echo "[warn] DEEPSEEK_API_KEY is empty; skip DeepSeek provider bootstrap."
   fi

@@ -222,6 +222,29 @@ OPENCLAW_AGENT_LOCAL=1 npm run report:start:cloud
 
 云服务器公网访问：`http://<服务器IP>:8765`（记得放行安全组端口 8765）。
 
+#### 5.6.2 本地交互引导（terminal wizard，最省事）
+
+如果你在本机部署，想要类似 OpenClaw onboarding 的交互流程，直接用：
+
+```bash
+npm install
+npm run openclaw:setup:local
+npm run report:start:local
+```
+
+`openclaw:setup:local` 会引导你填写：
+
+- DeepSeek API key（仅写入 OpenClaw 本地配置）
+- 默认模型（如 `deepseek/deepseek-chat`）
+- 可选 Telegram channel（token/account/默认目标）
+- 看板桥接参数（写入 `.env.local`，不含 API key）
+
+之后你也可以手工编辑 `.env.local`（可参考 `.env.local.example`），再执行：
+
+```bash
+npm run report:start:local
+```
+
 ### 5.7 腾讯云部署（CVM + Docker）
 
 如果你要在手机公网访问并测试 OpenClaw 打通，直接用：

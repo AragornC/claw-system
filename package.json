@@ -8,9 +8,11 @@
     "perp:dryrun:bridge": "node scripts/perp-dryrun-live-bridge.js 3 15 400",
     "report:viewer": "node scripts/perp-report-viewer.js",
     "report:serve": "node scripts/serve-report.js",
+    "report:start:local": "bash scripts/report-start-local.sh",
     "report:start:cloud": "node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
     "report:deploy:console": "node scripts/perp-report-data.js 400 && node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
-    "openclaw:deepseek:init": "bash scripts/setup-openclaw-deepseek.sh"
+    "openclaw:deepseek:init": "bash scripts/setup-openclaw-deepseek.sh",
+    "openclaw:setup:local": "bash scripts/openclaw-local-setup.sh"
   },
   "keywords": [],
   "author": "",

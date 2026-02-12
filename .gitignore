@@ -38,3 +38,6 @@ MEMORY.md
 # deploy env files
 deploy/tencent-cvm/.env
 deploy/tencent-cvm/.env.https
+
+# local env
+.env.local
