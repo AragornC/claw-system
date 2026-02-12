@@ -261,6 +261,7 @@ thunderclaw onboard
 说明：
 
 - `thunderclaw onboard` 会自动在 `~/.thunderclaw/workspace` 拉取/更新代码并执行本地配置引导；
+- 首次运行会自动执行项目依赖安装（`npm install`）；
 - 引导完成后会直接启动看板（若只想配置不启动可用 `thunderclaw onboard --no-start`）；
 - 也可以后续手动执行 `thunderclaw start`；
 - CLI 里除 `onboard/start/workspace/update` 外的命令，会透传给 OpenClaw（例如 `thunderclaw channels list`）。
