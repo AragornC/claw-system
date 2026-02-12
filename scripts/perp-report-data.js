@@ -16,9 +16,11 @@ import ccxt from 'ccxt';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
 const DECISIONS_JSONL = path.resolve(WORKDIR, 'memory/bitget-perp-cycle-decisions.jsonl');
+const TRADES_JSONL = path.resolve(WORKDIR, 'memory/bitget-perp-autotrade-trades.jsonl');
 const OHLCV_CACHE = path.resolve(WORKDIR, 'memory/perp-ohlcv-multi-tf.json');
 const REPORT_DIR = path.resolve(WORKDIR, 'memory/report');
 const DECISIONS_JSON = path.resolve(REPORT_DIR, 'decisions.json');
+const ORDERS_JSON = path.resolve(REPORT_DIR, 'orders.json');
 const OHLCV_JSON = path.resolve(REPORT_DIR, 'ohlcv.json');
 
 const MAX_DECISIONS = Math.min(1000, Math.max(50, parseInt(process.argv[2], 10) || 200));
@@ -44,6 +46,161 @@ function readJsonl(p, maxLines) {
   } catch {
     return [];
   }
+}
+
+function parseTsMs(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  let s = String(v).trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return Number(s);
+  if (s.includes(' ') && /\+\d{2}:\d{2}$/.test(s)) s = s.replace(' ', 'T');
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function toIso(v) {
+  const ms = parseTsMs(v);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+function numeric(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildOrdersFromTrades(trades) {
+  if (!Array.isArray(trades) || !trades.length) return [];
+
+  const opens = trades.filter((t) => t?.event === 'open');
+  const closes = trades.filter((t) => t?.event === 'close');
+  const out = [];
+  const byOpenOrderId = new Map();
+
+  for (let i = 0; i < opens.length; i++) {
+    const o = opens[i] || {};
+    const openOrderId = o.orderId != null ? String(o.orderId) : null;
+    const cycleId = o?.meta?.cycleId != null ? String(o.meta.cycleId) : null;
+    const pair = {
+      tradeId: openOrderId || (cycleId ? `cycle:${cycleId}` : `open:${i}`),
+      source: 'trades',
+      isSynthetic: false,
+      cycleId,
+      symbol: o.symbol || null,
+      side: o.side || null,
+      level: o.level || null,
+      openOrderId,
+      closeOrderId: null,
+      amount: numeric(o.amount),
+      openTs: toIso(o.tsUtc || o.tsLocal || o.ts),
+      closeTs: null,
+      openPrice: numeric(o.entryPrice),
+      closePrice: null,
+      closeReason: null,
+      pnlEstUSDT: null,
+      durationMin: null,
+      status: 'open',
+    };
+    out.push(pair);
+    if (openOrderId) byOpenOrderId.set(openOrderId, pair);
+  }
+
+  for (let i = 0; i < closes.length; i++) {
+    const c = closes[i] || {};
+    const openOrderId = c.openOrderId != null ? String(c.openOrderId) : null;
+    let pair = openOrderId ? byOpenOrderId.get(openOrderId) : null;
+    if (!pair) {
+      pair = out.find((x) => x.status === 'open' && x.symbol === (c.symbol || null) && x.side === (c.side || null)) || null;
+    }
+    if (!pair) {
+      pair = {
+        tradeId: `close:${i}`,
+        source: 'trades',
+        isSynthetic: false,
+        cycleId: null,
+        symbol: c.symbol || null,
+        side: c.side || null,
+        level: null,
+        openOrderId: openOrderId || null,
+        closeOrderId: c.closeOrderId != null ? String(c.closeOrderId) : null,
+        amount: numeric(c.amount),
+        openTs: null,
+        closeTs: toIso(c.tsUtc || c.tsLocal || c.ts),
+        openPrice: numeric(c.entryPrice),
+        closePrice: numeric(c.closePrice),
+        closeReason: c.reason || null,
+        pnlEstUSDT: numeric(c.pnlEstUSDT),
+        durationMin: null,
+        status: 'closed_unmatched',
+      };
+      out.push(pair);
+      continue;
+    }
+
+    pair.status = 'closed';
+    pair.closeOrderId = c.closeOrderId != null ? String(c.closeOrderId) : pair.closeOrderId;
+    pair.closeTs = toIso(c.tsUtc || c.tsLocal || c.ts);
+    pair.closePrice = numeric(c.closePrice);
+    pair.closeReason = c.reason || pair.closeReason || null;
+    pair.pnlEstUSDT = numeric(c.pnlEstUSDT);
+    const openMs = parseTsMs(pair.openTs);
+    const closeMs = parseTsMs(pair.closeTs);
+    if (Number.isFinite(openMs) && Number.isFinite(closeMs) && closeMs >= openMs) {
+      pair.durationMin = (closeMs - openMs) / 60000;
+    }
+  }
+
+  return out
+    .sort((a, b) => (parseTsMs(b.openTs || b.closeTs) || 0) - (parseTsMs(a.openTs || a.closeTs) || 0))
+    .slice(0, 1000);
+}
+
+function buildSyntheticOrdersFromDecisions(decisions) {
+  const executed = (Array.isArray(decisions) ? decisions : [])
+    .filter((r) => r?.executor?.executed === true && r?.signal?.plan)
+    .sort((a, b) => (parseTsMs(a.ts) || 0) - (parseTsMs(b.ts) || 0));
+  if (!executed.length) return [];
+
+  const out = [];
+  for (let i = 0; i < executed.length; i++) {
+    const cur = executed[i];
+    const next = executed[i + 1] || null;
+    const openTs = toIso(cur.ts);
+    const closeTs = next ? toIso(next.ts) : null;
+    const openPrice = numeric(cur?.executor?.openPosition?.entryPrice || cur?.executor?.wouldOpenPosition?.entryPrice || null);
+    const closePrice = next ? numeric(next?.executor?.openPosition?.entryPrice || next?.executor?.wouldOpenPosition?.entryPrice || null) : null;
+    const side = cur?.signal?.plan?.side || null;
+    let pnl = null;
+    if (openPrice != null && closePrice != null && side) {
+      const delta = side === 'long' ? (closePrice - openPrice) : (openPrice - closePrice);
+      pnl = delta;
+    }
+    const openMs = parseTsMs(openTs);
+    const closeMs = parseTsMs(closeTs);
+    out.push({
+      tradeId: `synthetic:${cur?.cycleId || i}`,
+      source: 'decisions',
+      isSynthetic: true,
+      cycleId: cur?.cycleId != null ? String(cur.cycleId) : null,
+      symbol: cur?.signal?.plan?.symbol || null,
+      side,
+      level: cur?.signal?.plan?.level || null,
+      openOrderId: null,
+      closeOrderId: null,
+      amount: null,
+      openTs,
+      closeTs,
+      openPrice,
+      closePrice,
+      closeReason: next ? 'synthetic_next_executed_signal' : null,
+      pnlEstUSDT: pnl,
+      durationMin: Number.isFinite(openMs) && Number.isFinite(closeMs) ? (closeMs - openMs) / 60000 : null,
+      status: next ? 'closed' : 'open',
+    });
+  }
+  return out
+    .sort((a, b) => (parseTsMs(b.openTs || b.closeTs) || 0) - (parseTsMs(a.openTs || a.closeTs) || 0))
+    .slice(0, 1000);
 }
 
 async function fetchOHLCVMulti() {
@@ -83,6 +240,16 @@ async function main() {
   const records = readJsonl(DECISIONS_JSONL, MAX_DECISIONS);
   fs.writeFileSync(DECISIONS_JSON, JSON.stringify(records), 'utf8');
   console.log('Wrote report/decisions.json:', records.length, 'records');
+
+  const tradeRecords = readJsonl(TRADES_JSONL, 10000);
+  const realOrders = buildOrdersFromTrades(tradeRecords);
+  const orders = realOrders.length ? realOrders : buildSyntheticOrdersFromDecisions(records);
+  fs.writeFileSync(ORDERS_JSON, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    source: realOrders.length ? 'trades_jsonl' : 'synthetic_from_decisions',
+    orders,
+  }), 'utf8');
+  console.log('Wrote report/orders.json:', orders.length, 'orders', realOrders.length ? '(real)' : '(synthetic)');
 
   let ohlcvByTf = loadOHLCVFromCache();
   if (!ohlcvByTf) {
