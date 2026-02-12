@@ -187,6 +187,13 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
   - `GET /api/ai/context`
   - `GET /api/ai/context?full=1`
 
+手机/静态部署（无本地后端）可用方案：
+
+- 页面会自动尝试 `OpenClaw` 后端；不可达时可切到 **DeepSeek 直连模式**。
+- 在聊天框发送：`/deepseek sk-xxxx`（仅保存到当前浏览器 localStorage，不入库）。
+- 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验）。
+- 清除本地 key：`/deepseek clear`
+
 建议流程：
 
 ```bash

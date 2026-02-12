@@ -1467,6 +1467,199 @@
           if (state === 'warn') aiLinkStatusEl.classList.add('warn');
           aiLinkStatusEl.textContent = text;
         }
+        const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
+        const DEEPSEEK_MODEL = 'deepseek-chat';
+        function readDeepSeekKey() {
+          try {
+            return String(localStorage.getItem(DEEPSEEK_STORAGE_KEY) || '').trim();
+          } catch {
+            return '';
+          }
+        }
+        function writeDeepSeekKey(key) {
+          const k = String(key || '').trim();
+          if (!k) return false;
+          try {
+            localStorage.setItem(DEEPSEEK_STORAGE_KEY, k);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        function clearDeepSeekKey() {
+          try { localStorage.removeItem(DEEPSEEK_STORAGE_KEY); } catch {}
+        }
+        function maskKey(key) {
+          const k = String(key || '').trim();
+          if (k.length < 12) return '****';
+          return k.slice(0, 6) + '...' + k.slice(-4);
+        }
+        function parseJsonLooseLocal(text) {
+          const raw = String(text || '').trim();
+          if (!raw) return null;
+          try {
+            return JSON.parse(raw);
+          } catch {}
+          const start = raw.indexOf('{');
+          const end = raw.lastIndexOf('}');
+          if (start >= 0 && end > start) {
+            try {
+              return JSON.parse(raw.slice(start, end + 1));
+            } catch {}
+          }
+          return null;
+        }
+        function normalizeActionArray(actionsLike) {
+          if (!Array.isArray(actionsLike)) return [];
+          const out = [];
+          actionsLike.slice(0, 4).forEach(function(action) {
+            if (!action || typeof action !== 'object') return;
+            const type = String(action.type || '').toLowerCase();
+            if (type === 'switch_view') {
+              const view = String(action.view || '');
+              if (viewMap[view]) out.push({ type: 'switch_view', view: view });
+              return;
+            }
+            if (type === 'focus_trade') {
+              const tradeId = String(action.tradeId || '').trim();
+              if (tradeId) out.push({ type: 'focus_trade', tradeId: tradeId });
+              return;
+            }
+            if (type === 'run_backtest') {
+              const cfg = { type: 'run_backtest' };
+              const strategy = String(action.strategy || '');
+              const tf = String(action.tf || '');
+              if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(strategy)) cfg.strategy = strategy;
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              out.push(cfg);
+            }
+          });
+          return out;
+        }
+        function parseStructuredReply(rawText) {
+          const raw = String(rawText || '').trim();
+          if (!raw) return { reply: '', actions: [] };
+          const candidates = [];
+          const direct = parseJsonLooseLocal(raw);
+          if (direct && typeof direct === 'object') candidates.push(direct);
+          for (let i = 0; i < candidates.length; i++) {
+            const c = candidates[i];
+            const reply = String(c.reply || '').trim();
+            const actions = normalizeActionArray(c.actions);
+            if (reply || actions.length) return { reply: reply || raw, actions: actions };
+          }
+          return { reply: raw, actions: [] };
+        }
+        function latestPriceFromBrowserData() {
+          const tfs = ['1m', '5m', '15m', '1h', '4h', '1d'];
+          for (let i = 0; i < tfs.length; i++) {
+            const tf = tfs[i];
+            const bars = Array.isArray(OHLCV_BY_TF?.[tf]) ? OHLCV_BY_TF[tf] : [];
+            if (!bars.length) continue;
+            const last = bars[bars.length - 1];
+            const prev = bars.length > 1 ? bars[bars.length - 2] : null;
+            const close = Number(last?.close);
+            const prevClose = Number(prev?.close);
+            const pct = Number.isFinite(close) && Number.isFinite(prevClose) && prevClose !== 0
+              ? ((close - prevClose) / prevClose) * 100
+              : null;
+            return { tf: tf, close: close, changePct: pct, ts: last?.time || null };
+          }
+          return null;
+        }
+        function buildDirectContext() {
+          const latest = SORTED_RECORDS[0] || null;
+          const price = latestPriceFromBrowserData();
+          return {
+            snapshot: aiSnapshot(),
+            market: {
+              symbol: symbol,
+              latestPrice: price,
+            },
+            latestDecision: latest ? {
+              ts: latest.ts || null,
+              cycleId: latest.cycleId || null,
+              side: latest?.signal?.plan?.side || null,
+              signalReason: latest?.signal?.plan?.reason || null,
+              blockedByNews: Boolean(latest?.decision?.blockedByNews),
+              executorReason: latest?.executor?.reason || null,
+              dryRun: Boolean(latest?.executor?.dryRun),
+            } : null,
+            openOrders: OPEN_ORDERS.slice(0, 6).map(function(o) {
+              return {
+                tradeId: o?.tradeId || null,
+                side: o?.side || null,
+                symbol: o?.symbol || null,
+                openTs: o?.openTs || null,
+                openPrice: o?.openPrice ?? null,
+              };
+            }),
+            recentOrders: SORTED_ORDERS.slice(0, 12).map(function(o) {
+              return {
+                tradeId: o?.tradeId || null,
+                side: o?.side || null,
+                openTs: o?.openTs || null,
+                closeTs: o?.closeTs || null,
+                pnlEstUSDT: Number(o?.pnlEstUSDT),
+              };
+            }),
+          };
+        }
+        function buildDeepSeekMessages(question) {
+          const context = buildDirectContext();
+          return [
+            {
+              role: 'system',
+              content: [
+                '你是交易看板中的AI交易助理。',
+                '请严格根据给出的上下文回答，不要编造。',
+                '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
+                'actions可选，支持：switch_view/focus_trade/run_backtest。',
+              ].join('\n'),
+            },
+            {
+              role: 'user',
+              content: [
+                '[上下文]',
+                JSON.stringify(context, null, 2),
+                '',
+                '[问题]',
+                String(question || '').trim(),
+              ].join('\n'),
+            },
+          ];
+        }
+        async function askDeepSeekDirect(q) {
+          const key = readDeepSeekKey();
+          if (!key) throw new Error('NO_DEEPSEEK_KEY');
+          const resp = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + key,
+            },
+            body: JSON.stringify({
+              model: DEEPSEEK_MODEL,
+              temperature: 0.2,
+              messages: buildDeepSeekMessages(q),
+            }),
+          });
+          const payload = await resp.json().catch(function() { return null; });
+          if (!resp.ok || !payload) {
+            const errMsg = payload?.error?.message || ('HTTP ' + resp.status);
+            throw new Error(String(errMsg));
+          }
+          const content = String(payload?.choices?.[0]?.message?.content || '').trim();
+          if (!content) throw new Error('DeepSeek 返回为空');
+          const parsed = parseStructuredReply(content);
+          setAiLinkStatus('ok', 'DeepSeek: 直连模式');
+          return parsed;
+        }
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
@@ -1508,8 +1701,34 @@
             currentView: activeViewName || 'dashboard',
             activeTradeId: activeOrderTradeId || null,
             userIntentHint: 'trade_dashboard_assistant',
+            directModeBound: Boolean(readDeepSeekKey()),
             snapshot: aiSnapshot(),
           };
+        }
+
+        function handleLocalCmd(q) {
+          const text = String(q || '').trim();
+          if (!text) return null;
+          const setMatch = text.match(/^/deepseeks+(sk-[A-Za-z0-9_-]{16,})$/i);
+          if (setMatch) {
+            const ok = writeDeepSeekKey(setMatch[1]);
+            if (ok) {
+              setAiLinkStatus('ok', 'DeepSeek: 已绑定(' + maskKey(setMatch[1]) + ')');
+              return { reply: '已绑定 DeepSeek Key（本机存储）。在静态部署/手机访问时将自动直连 DeepSeek。', actions: [] };
+            }
+            return { reply: '绑定失败：浏览器不允许本地存储。', actions: [] };
+          }
+          if (/^/deepseeks+clear$/i.test(text)) {
+            clearDeepSeekKey();
+            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            return { reply: '已清除本地 DeepSeek Key。', actions: [] };
+          }
+          if (/^/deepseek$/i.test(text)) {
+            const key = readDeepSeekKey();
+            if (key) return { reply: '当前已绑定 DeepSeek Key：' + maskKey(key), actions: [] };
+            return { reply: '当前未绑定 DeepSeek Key。可发送：/deepseek sk-xxxxx', actions: [] };
+          }
+          return null;
         }
 
         function setControlValue(id, value) {
@@ -1601,11 +1820,25 @@
           };
         }
         async function answer(q) {
+          const cmd = handleLocalCmd(q);
+          if (cmd) return cmd;
           try {
             return await askOpenClaw(q);
           } catch {
-            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
-            return { reply: localAnswer(q), actions: [] };
+            try {
+              return await askDeepSeekDirect(q);
+            } catch (deepseekErr) {
+              const msg = String(deepseekErr?.message || deepseekErr || '');
+              if (msg === 'NO_DEEPSEEK_KEY') {
+                setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+                return {
+                  reply: localAnswer(q) + '\n\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
+                  actions: [],
+                };
+              }
+              setAiLinkStatus('warn', 'AI离线(本地兜底)');
+              return { reply: localAnswer(q), actions: [] };
+            }
           }
         }
         let inFlight = false;
@@ -1670,12 +1903,14 @@
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
             if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
-            else setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            else if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
+            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           })
           .catch(function() {
-            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
+            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。');
+        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
       }
 
       function renderDashboard() {
