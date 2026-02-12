@@ -53,9 +53,45 @@ const HTML = `<!DOCTYPE html>
     h1 { font-size: 1.18rem; margin: 0 0 2px; }
     h2 { font-size: 0.92rem; margin: 0; font-weight: 600; }
     .app-shell { max-width: 1280px; margin: 0 auto; }
-    .app-topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+    .app-topbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
     .app-subtitle { color: var(--muted); font-size: 0.76rem; }
-    .top-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .top-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 12px; align-items: stretch; }
+    .top-hero-main { min-width: 0; }
+    .top-status { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .top-mini-kline {
+      position: relative;
+      border: 1px solid rgba(88,166,255,0.35);
+      border-radius: 12px;
+      overflow: hidden;
+      background:
+        radial-gradient(120% 120% at 100% 0%, rgba(88,166,255,0.18) 0%, rgba(88,166,255,0.02) 45%, transparent 80%),
+        linear-gradient(140deg, rgba(26,35,50,0.98), rgba(15,20,25,0.96));
+      box-shadow: 0 0 0 1px rgba(88,166,255,0.08) inset, 0 10px 24px rgba(0,0,0,0.35);
+      animation: heroGlow 3.2s ease-in-out infinite;
+    }
+    .top-mini-kline::before {
+      content: '';
+      position: absolute;
+      inset: -40% -15%;
+      background: linear-gradient(110deg, transparent 30%, rgba(88,166,255,0.22) 48%, transparent 68%);
+      transform: translateX(-45%);
+      animation: heroSweep 5.5s linear infinite;
+      pointer-events: none;
+    }
+    .top-mini-kline canvas { position: relative; z-index: 1; display: block; width: 100%; height: 86px; }
+    .top-mini-meta { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid rgba(88,166,255,0.25); padding: 6px 10px 7px; font-size: 0.7rem; }
+    .mini-main { color: #58a6ff; font-weight: 600; letter-spacing: 0.2px; }
+    .mini-sub { color: var(--muted); }
+    .mini-sub.positive { color: var(--green); }
+    .mini-sub.negative { color: var(--red); }
+    @keyframes heroGlow {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(88,166,255,0.08) inset, 0 10px 24px rgba(0,0,0,0.35); }
+      50% { box-shadow: 0 0 0 1px rgba(88,166,255,0.26) inset, 0 12px 28px rgba(0,0,0,0.45); }
+    }
+    @keyframes heroSweep {
+      0% { transform: translateX(-60%) rotate(0.001deg); }
+      100% { transform: translateX(75%) rotate(0.001deg); }
+    }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
     .assistant-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -100,9 +136,53 @@ const HTML = `<!DOCTYPE html>
     .ai-msg { max-width: min(90%, 760px); border-radius: 10px; padding: 7px 9px; font-size: 0.74rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
     .ai-msg.user { align-self: flex-end; background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
     .ai-msg.bot { align-self: flex-start; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
-    .ai-input-row { margin-top: 8px; display: flex; gap: 8px; }
+    .ai-input-row { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; position: relative; }
+    .input-func-wrap { position: relative; flex: 0 0 auto; }
+    .input-func-toggle {
+      border: 1px solid rgba(88,166,255,0.45);
+      border-radius: 10px;
+      background: rgba(88,166,255,0.14);
+      color: #58a6ff;
+      padding: 8px 9px;
+      font-size: 0.8rem;
+      line-height: 1;
+      cursor: pointer;
+      min-width: 40px;
+    }
+    .input-func-toggle:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
+    .input-func-menu {
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 8px);
+      min-width: 132px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(22,30,43,0.98);
+      box-shadow: 0 8px 26px rgba(0,0,0,0.45);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      transform-origin: left bottom;
+      transition: opacity 140ms ease, transform 140ms ease;
+      z-index: 260;
+    }
+    .input-func-menu.hidden {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+      pointer-events: none;
+    }
+    .input-func-menu .nav-btn {
+      border-radius: 8px;
+      text-align: left;
+      width: 100%;
+      font-size: 0.72rem;
+      padding: 6px 8px;
+    }
     .ai-input-row input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); padding: 8px 10px; font-size: 0.78rem; }
-    .ai-input-row button { border: 1px solid rgba(88,166,255,0.55); border-radius: 8px; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 8px 12px; font-size: 0.76rem; cursor: pointer; }
+    .ai-input-row .send-btn { border: 1px solid rgba(88,166,255,0.55); border-radius: 8px; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 8px 12px; font-size: 0.76rem; cursor: pointer; }
     .history-summary { margin-bottom: 8px; color: var(--muted); font-size: 0.76rem; }
     #orders-table-wrap { width: 100%; border-collapse: collapse; font-size: 0.79rem; }
     #orders-table-wrap th, #orders-table-wrap td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
@@ -289,19 +369,18 @@ const HTML = `<!DOCTYPE html>
     /* Chat-first layout (Telegram-like) */
     body { padding: 0; min-height: 100dvh; overflow: auto; }
     .app-shell { max-width: none; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; }
-    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; }
-    .top-status { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; backdrop-filter: blur(8px); }
     .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
     .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
     .status-chip.long, .status-chip.positive { border-color: rgba(63,185,80,0.55); color: var(--green); }
     .status-chip.short, .status-chip.negative { border-color: rgba(248,81,73,0.55); color: var(--red); }
     .status-chip.price { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
-    .top-actions { gap: 6px; }
-    .top-actions .nav-btn { font-size: 0.7rem; padding: 4px 10px; }
-    .top-actions .nav-btn.state-long { border-color: rgba(63,185,80,0.6); color: var(--green); }
-    .top-actions .nav-btn.state-short { border-color: rgba(248,81,73,0.6); color: var(--red); }
-    .top-actions .nav-btn.state-pos { border-color: rgba(63,185,80,0.55); color: var(--green); }
-    .top-actions .nav-btn.state-neg { border-color: rgba(248,81,73,0.55); color: var(--red); }
+    .status-chip.trade { border-color: rgba(210,153,34,0.5); color: var(--yellow); }
+    .status-chip.runtime { border-color: rgba(88,166,255,0.35); color: #79c0ff; }
+    .nav-btn.state-long { border-color: rgba(63,185,80,0.6); color: var(--green); }
+    .nav-btn.state-short { border-color: rgba(248,81,73,0.6); color: var(--red); }
+    .nav-btn.state-pos { border-color: rgba(63,185,80,0.55); color: var(--green); }
+    .nav-btn.state-neg { border-color: rgba(248,81,73,0.55); color: var(--red); }
     .view-panel.active { flex: 1; min-height: 0; }
     #view-dashboard.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
     #view-dashboard .ai-chat-wrap { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -315,13 +394,15 @@ const HTML = `<!DOCTYPE html>
       body { padding: 0; }
       h1 { font-size: 1.02rem; margin-bottom: 4px; }
       .app-topbar { flex-direction: column; align-items: stretch; gap: 8px; }
-      .top-actions { justify-content: flex-start; }
+      .top-hero { grid-template-columns: 1fr; gap: 8px; }
       .nav-btn { font-size: 0.72rem; padding: 6px 10px; }
       .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
       .panel-card { padding: 9px; border-radius: 10px; }
       #view-dashboard .ai-chat-wrap { padding: 8px; }
       #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
+      .input-func-toggle { min-width: 44px; font-size: 0.86rem; padding: 9px 10px; }
+      .input-func-menu { min-width: 136px; }
       .ai-input-row input { font-size: 16px; }
       #orders-table-wrap { display: block; overflow-x: auto; white-space: nowrap; }
       .chart-header { gap: 8px; margin-bottom: 6px; }
@@ -364,20 +445,25 @@ const HTML = `<!DOCTYPE html>
 <body>
   <div class="app-shell">
     <div class="app-topbar">
-      <div>
-        <h1>AI 交易机器人</h1>
-        <div class="top-status">
-          <span id="status-position" class="status-chip neutral">仓位: --</span>
-          <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
-          <span id="status-price" class="status-chip neutral">币价: --</span>
+      <div class="top-hero">
+        <div class="top-hero-main">
+          <h1>AI 交易机器人</h1>
+          <div class="top-status">
+            <span id="status-position" class="status-chip neutral">仓位: --</span>
+            <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
+            <span id="status-price" class="status-chip neutral">币价: --</span>
+            <span id="status-trade" class="status-chip trade">交易: --</span>
+            <span id="status-runtime" class="status-chip runtime">运行: --</span>
+          </div>
+          <div class="app-subtitle" id="app-subtitle">聊天优先 · 功能入口在输入框左侧</div>
         </div>
-        <div class="app-subtitle" id="app-subtitle">聊天优先 · 功能从右上角进入</div>
-      </div>
-      <div class="top-actions">
-        <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">聊天</button>
-        <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
-        <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线</button>
-        <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史</button>
+        <div class="top-mini-kline">
+          <canvas id="top-mini-kline-canvas"></canvas>
+          <div class="top-mini-meta">
+            <span class="mini-main" id="mini-kline-main">BTC 实时缩略</span>
+            <span class="mini-sub" id="mini-kline-sub">等待数据...</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -391,14 +477,22 @@ const HTML = `<!DOCTYPE html>
           <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
           <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
           <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
-          <button class="ai-quick-btn" type="button" data-view-target="kline">去看K线</button>
         </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
         </div>
         <div class="ai-input-row">
+          <div class="input-func-wrap">
+            <button id="input-func-toggle" class="input-func-toggle" type="button" aria-expanded="false" aria-controls="input-func-menu">☰</button>
+            <div id="input-func-menu" class="input-func-menu hidden">
+              <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">AI聊天</button>
+              <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
+              <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线图</button>
+              <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史单</button>
+            </div>
+          </div>
           <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
-          <button id="ai-chat-send" type="button">发送</button>
+          <button id="ai-chat-send" class="send-btn" type="button">发送</button>
         </div>
       </div>
     </section>
@@ -692,7 +786,16 @@ const HTML = `<!DOCTYPE html>
       };
       const navButtons = Array.from(document.querySelectorAll('.nav-btn[data-view-target]'));
       const appSubtitle = document.getElementById('app-subtitle');
+      const inputFuncToggle = document.getElementById('input-func-toggle');
+      const inputFuncMenu = document.getElementById('input-func-menu');
       let onKlineVisible = null;
+
+      function setInputMenuOpen(open) {
+        if (!inputFuncMenu || !inputFuncToggle) return;
+        const isOpen = Boolean(open);
+        inputFuncMenu.classList.toggle('hidden', !isOpen);
+        inputFuncToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
 
       function switchView(name) {
         const key = viewMap[name] ? name : 'dashboard';
@@ -704,14 +807,35 @@ const HTML = `<!DOCTYPE html>
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
         if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能从右上角进入';
+          if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能入口在输入框左侧';
           else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
           else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
           else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
         }
+        setInputMenuOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
         }
+      }
+      if (inputFuncToggle && inputFuncMenu) {
+        inputFuncToggle.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const open = inputFuncToggle.getAttribute('aria-expanded') === 'true';
+          setInputMenuOpen(!open);
+        });
+        inputFuncMenu.addEventListener('click', function(ev) {
+          const btn = ev.target.closest('.nav-btn[data-view-target]');
+          if (btn) setInputMenuOpen(false);
+        });
+        document.addEventListener('click', function(ev) {
+          if (inputFuncMenu.classList.contains('hidden')) return;
+          if (inputFuncMenu.contains(ev.target) || inputFuncToggle.contains(ev.target)) return;
+          setInputMenuOpen(false);
+        });
+        document.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Escape') setInputMenuOpen(false);
+        });
       }
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
@@ -722,6 +846,11 @@ const HTML = `<!DOCTYPE html>
       const statusPositionEl = document.getElementById('status-position');
       const statusPnlEl = document.getElementById('status-pnl');
       const statusPriceEl = document.getElementById('status-price');
+      const statusTradeEl = document.getElementById('status-trade');
+      const statusRuntimeEl = document.getElementById('status-runtime');
+      const miniKlineCanvas = document.getElementById('top-mini-kline-canvas');
+      const miniKlineMainEl = document.getElementById('mini-kline-main');
+      const miniKlineSubEl = document.getElementById('mini-kline-sub');
       const navRuntimeBtn = document.getElementById('nav-runtime');
       const navHistoryBtn = document.getElementById('nav-history');
       const navKlineBtn = document.getElementById('nav-kline');
@@ -745,6 +874,105 @@ const HTML = `<!DOCTYPE html>
       function clearBtnState(btn) {
         if (!btn) return;
         btn.classList.remove('state-long', 'state-short', 'state-pos', 'state-neg');
+      }
+
+      function getMiniBars() {
+        const candidates = ['1m', '5m', '15m', '1h'];
+        for (let i = 0; i < candidates.length; i++) {
+          const key = candidates[i];
+          const arr = OHLCV_BY_TF && Array.isArray(OHLCV_BY_TF[key]) ? OHLCV_BY_TF[key] : null;
+          if (arr && arr.length) return arr.slice(-96);
+        }
+        if (Array.isArray(currentOhlcv) && currentOhlcv.length) return currentOhlcv.slice(-96);
+        return [];
+      }
+
+      function miniChangePctFromBars(bars) {
+        if (!Array.isArray(bars) || bars.length < 2) return null;
+        const first = Number(bars[0]?.close);
+        const last = Number(bars[bars.length - 1]?.close);
+        if (!Number.isFinite(first) || !Number.isFinite(last) || first === 0) return null;
+        return ((last - first) / first) * 100;
+      }
+
+      function drawTopMiniKline(bars) {
+        if (!miniKlineCanvas) return;
+        const list = Array.isArray(bars) ? bars : getMiniBars();
+        const rect = miniKlineCanvas.getBoundingClientRect();
+        const width = Math.max(180, Math.floor(rect.width || miniKlineCanvas.clientWidth || 280));
+        const height = Math.max(56, Math.floor(rect.height || miniKlineCanvas.clientHeight || 86));
+        const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        const rawW = Math.floor(width * dpr);
+        const rawH = Math.floor(height * dpr);
+        if (miniKlineCanvas.width !== rawW || miniKlineCanvas.height !== rawH) {
+          miniKlineCanvas.width = rawW;
+          miniKlineCanvas.height = rawH;
+        }
+        const ctx = miniKlineCanvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+
+        if (!list.length) {
+          ctx.strokeStyle = 'rgba(139,148,158,0.28)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(8, height * 0.55);
+          ctx.lineTo(width - 8, height * 0.55);
+          ctx.stroke();
+          return;
+        }
+
+        const closes = list.map(b => Number(b?.close)).filter(Number.isFinite);
+        if (!closes.length) return;
+        const min = Math.min.apply(null, closes);
+        const max = Math.max.apply(null, closes);
+        const range = Math.max(1e-6, max - min);
+        const padX = 8;
+        const padY = 6;
+        const innerW = Math.max(1, width - padX * 2);
+        const innerH = Math.max(1, height - padY * 2);
+        const pts = closes.map((v, idx) => ({
+          x: padX + (closes.length <= 1 ? 0 : (idx / (closes.length - 1)) * innerW),
+          y: padY + (1 - ((v - min) / range)) * innerH,
+        }));
+
+        const rise = closes[closes.length - 1] >= closes[0];
+        const lineColor = rise ? '#3fb950' : '#f85149';
+        const softColor = rise ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)';
+
+        const area = ctx.createLinearGradient(0, 0, 0, height);
+        area.addColorStop(0, softColor);
+        area.addColorStop(1, 'rgba(15,20,25,0)');
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.lineTo(pts[pts.length - 1].x, height - 1);
+        ctx.lineTo(pts[0].x, height - 1);
+        ctx.closePath();
+        ctx.fillStyle = area;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        const lineGrad = ctx.createLinearGradient(0, 0, width, 0);
+        lineGrad.addColorStop(0, 'rgba(88,166,255,0.95)');
+        lineGrad.addColorStop(1, lineColor);
+        ctx.strokeStyle = lineGrad;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const tail = pts[pts.length - 1];
+        ctx.beginPath();
+        ctx.arc(tail.x, tail.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = lineColor;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(tail.x, tail.y, 7, 0, Math.PI * 2);
+        ctx.strokeStyle = rise ? 'rgba(63,185,80,0.32)' : 'rgba(248,81,73,0.32)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
       }
 
       function updateHeaderStatus() {
@@ -784,12 +1012,45 @@ const HTML = `<!DOCTYPE html>
           statusPriceEl.textContent = '币价: ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
         }
 
+        if (statusTradeEl) {
+          const tradeId = cur?.tradeId != null ? ('#' + String(cur.tradeId)) : '--';
+          const sideTxt = cur?.side === 'short' ? '做空' : (cur?.side === 'long' ? '做多' : '无方向');
+          const stateTxt = cur ? (cur.closeTs ? '已平仓' : '持仓中') : '无当前单';
+          statusTradeEl.className = 'status-chip trade';
+          statusTradeEl.textContent = '交易: ' + tradeId + ' · ' + sideTxt + ' · ' + stateTxt;
+        }
+
+        if (statusRuntimeEl) {
+          const runtimeMin = cur
+            ? (cur.durationMin != null ? Number(cur.durationMin) : minutesFromTo(cur.openTs, new Date().toISOString()))
+            : null;
+          statusRuntimeEl.className = 'status-chip runtime';
+          statusRuntimeEl.textContent = '运行: ' + (cur ? fmtDurationMin(runtimeMin) : '等待信号');
+        }
+
+        const miniBars = getMiniBars();
+        drawTopMiniKline(miniBars);
+        if (miniKlineMainEl) {
+          miniKlineMainEl.textContent = 'BTC ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
+        }
+        const miniChange = miniChangePctFromBars(miniBars);
+        if (miniKlineSubEl) {
+          miniKlineSubEl.className = 'mini-sub';
+          if (Number.isFinite(miniChange)) {
+            miniKlineSubEl.classList.add(miniChange >= 0 ? 'positive' : 'negative');
+            miniKlineSubEl.textContent = '缩略窗口 ' + (miniChange >= 0 ? '+' : '') + miniChange.toFixed(2) + '%';
+          } else {
+            miniKlineSubEl.textContent = '缩略窗口 --';
+          }
+        }
+
         clearBtnState(navRuntimeBtn);
         clearBtnState(navHistoryBtn);
         clearBtnState(navKlineBtn);
         if (navRuntimeBtn && cur?.side === 'long') navRuntimeBtn.classList.add('state-long');
         if (navRuntimeBtn && cur?.side === 'short') navRuntimeBtn.classList.add('state-short');
         if (navHistoryBtn && Number.isFinite(shownPnl)) navHistoryBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
+        if (navKlineBtn && Number.isFinite(miniChange)) navKlineBtn.classList.add(miniChange >= 0 ? 'state-pos' : 'state-neg');
       }
 
       function renderCurrentPositions() {
@@ -1408,6 +1669,7 @@ const HTML = `<!DOCTYPE html>
         const w = Math.floor(chartEl.clientWidth || chartWrap.clientWidth || 0);
         const h = Math.floor(chartEl.clientHeight || chartWrap.clientHeight || 0);
         if (w > 0 && h > 0) chart.applyOptions({ width: w, height: h });
+        drawTopMiniKline(getMiniBars());
       }
       if (typeof ResizeObserver !== 'undefined') {
         const ro = new ResizeObserver(resizeChart);
