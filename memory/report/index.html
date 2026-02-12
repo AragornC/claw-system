@@ -77,7 +77,12 @@
     #orders-table-wrap tr:hover { background: rgba(255,255,255,0.03); }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
+    .chart-header .meta.ok { color: var(--green); }
+    .chart-header .meta.warn { color: var(--yellow); }
+    .chart-header .meta.err { color: var(--red); }
     .chart-header select { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 0.875rem; cursor: pointer; }
+    .live-toggle { border: 1px solid var(--border); border-radius: 999px; background: rgba(0,0,0,0.2); color: var(--text); font-size: 0.72rem; padding: 5px 10px; cursor: pointer; }
+    .live-toggle.on { border-color: rgba(63,185,80,0.55); color: var(--green); }
     #chart-wrap { height: clamp(300px, 52vh, 460px); margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; touch-action: manipulation; }
     #detail-popover { display: none; position: absolute; z-index: 100; min-width: 320px; max-width: 420px; max-height: min(75vh, 380px); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 0.8125rem; }
     #detail-popover.visible { display: block; }
@@ -264,6 +269,7 @@
       .chart-header { gap: 8px; margin-bottom: 6px; }
       .chart-header .meta { font-size: 0.75rem; line-height: 1.35; }
       .chart-header select { font-size: 16px; padding: 8px 10px; }
+      .live-toggle { font-size: 0.7rem; padding: 6px 10px; }
       #chart-wrap { height: min(56vh, 420px); min-height: 280px; border-radius: 10px; }
       #detail-popover { position: fixed; left: 8px !important; right: 8px !important; bottom: 8px !important; top: auto !important; width: auto !important; max-width: none; max-height: 68vh; border-radius: 12px; z-index: 300; }
       #detail-popover .popover-close { font-size: 1.25rem; padding: 8px; top: 4px; right: 4px; }
@@ -368,6 +374,8 @@
       </div>
       <div class="chart-header">
         <select id="tf-select"><option value="1m" selected>分时(1分钟)</option><option value="5m">5分钟</option><option value="15m">15分钟</option><option value="1h">1小时</option><option value="4h">4小时</option><option value="1d">日线</option></select>
+        <button id="live-toggle" class="live-toggle on" type="button">实时: 开</button>
+        <span class="meta ok" id="live-status">实时初始化中...</span>
         <span class="meta" id="meta-symbol">· 电脑可悬停，手机可点击决策点/记录看详情</span>
       </div>
       <div id="chart-wrap"><p class="load-error">加载中…</p></div>
@@ -994,8 +1002,8 @@
         return '<span class="badge dry">' + sideCn + ' 持仓中</span><div class="detail">开仓: ' + open + syn + '</div>' + actionBtn;
       }
       document.getElementById('meta-symbol').textContent = symbol + (isTouchDevice
-        ? ' · 手机端：点记录/高亮区间看开平关系，双指缩放 K 线'
-        : ' · 鼠标悬停决策点看详情；点“高亮区间”可定位开平段');
+        ? ' · 手机端：点记录/高亮区间看开平关系，双指缩放 K 线（默认最近区间）'
+        : ' · 鼠标悬停决策点看详情；点“高亮区间”可定位开平段（默认最近区间）');
       document.getElementById('chart-wrap').innerHTML = '<div id="detail-popover"></div>';
       document.getElementById('filters').style.display = 'flex';
       document.getElementById('table-toolbar').style.display = 'flex';
@@ -1017,12 +1025,16 @@
       const historyPrev = document.getElementById('history-prev');
       const historyNext = document.getElementById('history-next');
       const historyTbody = document.getElementById('orders-tbody');
+      const liveToggleBtn = document.getElementById('live-toggle');
+      const liveStatusEl = document.getElementById('live-status');
+      const TF_VIEW_WINDOW = { '1m': 120, '5m': 160, '15m': 170, '1h': 180, '4h': 140, '1d': 90 };
+      const TF_LIVE_LIMIT = { '1m': 500, '5m': 420, '15m': 320, '1h': 300, '4h': 220, '1d': 120 };
 
       const chart = LightweightCharts.createChart(chartEl, {
         layout: { background: { type: 'solid', color: '#0f1419' }, textColor: '#8b949e' },
         grid: { vertLines: { color: '#1a2332' }, horzLines: { color: '#1a2332' } },
         rightPriceScale: { borderColor: '#2d3a4f', scaleMargins: { top: 0.1, bottom: 0.2 } },
-        timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false },
+        timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false, barSpacing: 7, minBarSpacing: 2, rightOffset: 6 },
       });
       const candleSeries = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false });
       const orderBandSeries = chart.addHistogramSeries({
@@ -1298,17 +1310,198 @@
         applyOrderBand();
       };
 
+      function updateLiveStatus(text, tone) {
+        if (!liveStatusEl) return;
+        liveStatusEl.textContent = text;
+        liveStatusEl.classList.remove('ok', 'warn', 'err');
+        liveStatusEl.classList.add(tone || 'warn');
+      }
+
+      function toHmss(isoLike) {
+        const d = new Date(String(isoLike || ''));
+        if (!Number.isFinite(d.getTime())) return '--:--:--';
+        return d.toLocaleTimeString('zh-CN', { hour12: false });
+      }
+
+      function normalizeBars(rawBars) {
+        if (!Array.isArray(rawBars)) return [];
+        return rawBars
+          .map(function(b) {
+            const t = Number(b?.time);
+            const o = Number(b?.open);
+            const h = Number(b?.high);
+            const l = Number(b?.low);
+            const c = Number(b?.close);
+            if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) return null;
+            return { time: t, open: o, high: h, low: l, close: c };
+          })
+          .filter(Boolean)
+          .sort(function(a, b) { return a.time - b.time; });
+      }
+
+      function barsFingerprint(bars) {
+        if (!Array.isArray(bars) || !bars.length) return '';
+        const last = bars[bars.length - 1];
+        return String(last.time) + ':' + Number(last.close).toFixed(2) + ':' + bars.length;
+      }
+
+      function applyDefaultVisibleRange(tf) {
+        if (!currentOhlcv.length) return;
+        const win = TF_VIEW_WINDOW[tf] || 140;
+        const to = Math.max(1, currentOhlcv.length + 4);
+        const from = Math.max(0, to - win);
+        chart.timeScale().setVisibleLogicalRange({ from, to });
+      }
+
+      function extractBitgetSymbolFromPair(pair) {
+        if (!pair) return 'BTCUSDT';
+        if (pair.includes('/')) {
+          const base = pair.split('/')[0] || 'BTC';
+          const quotePart = pair.split('/')[1] || 'USDT';
+          const quote = quotePart.split(':')[0] || 'USDT';
+          return (base + quote).toUpperCase();
+        }
+        return String(pair).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      }
+
+      function tfToBitgetGranularity(tf) {
+        const map = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D' };
+        return map[tf] || '1m';
+      }
+
+      const bitgetSymbol = extractBitgetSymbolFromPair(symbol);
+      let liveEnabled = true;
+      let liveTimer = null;
+      let liveSeq = 0;
+      let lastDataFingerprint = '';
+      let liveErrorCount = 0;
+
+      async function fetchLiveCandlesFromBitget(tf, limit) {
+        const granularity = tfToBitgetGranularity(tf);
+        const lmt = Number.isFinite(Number(limit)) ? Number(limit) : (TF_LIVE_LIMIT[tf] || 320);
+        const url = 'https://api.bitget.com/api/v2/mix/market/candles?symbol=' +
+          encodeURIComponent(bitgetSymbol) +
+          '&productType=USDT-FUTURES&granularity=' + encodeURIComponent(granularity) +
+          '&limit=' + encodeURIComponent(String(lmt));
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error('bitget ' + res.status);
+        const payload = await res.json();
+        const arr = Array.isArray(payload?.data) ? payload.data : [];
+        return arr
+          .map(function(c) {
+            const ts = Number(c && c[0]);
+            const open = Number(c && c[1]);
+            const high = Number(c && c[2]);
+            const low = Number(c && c[3]);
+            const close = Number(c && c[4]);
+            if (!Number.isFinite(ts) || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+            return { time: Math.floor(ts / 1000), open, high, low, close };
+          })
+          .filter(Boolean)
+          .sort(function(a, b) { return a.time - b.time; });
+      }
+
+      async function fetchBarsFromReport(tf) {
+        const res = await fetch('ohlcv.json?_ts=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) throw new Error('ohlcv.json ' + res.status);
+        const payload = await res.json();
+        const data = (payload && payload.data) ? payload.data : payload;
+        return normalizeBars(data && data[tf]);
+      }
+
+      function applyOhlcvToChart(tf, bars, opts) {
+        const useAutoFocus = !(opts && opts.keepRange);
+        const normalized = normalizeBars(bars);
+        if (!normalized.length) return false;
+        OHLCV_BY_TF[tf] = normalized;
+        if (tf === currentTf) {
+          currentOhlcv = normalized;
+          candleSeries.setData(currentOhlcv);
+          applySeriesMarkers();
+          applyOrderBand();
+          if (useAutoFocus) applyDefaultVisibleRange(tf);
+        }
+        return true;
+      }
+
+      async function refreshCurrentTfBars(reason) {
+        if (!liveEnabled) return;
+        const seq = ++liveSeq;
+        const tf = currentTf;
+        const limit = TF_LIVE_LIMIT[tf] || 320;
+        const keepRange = reason === 'tick';
+        try {
+          const liveBars = await fetchLiveCandlesFromBitget(tf, limit);
+          if (seq !== liveSeq) return;
+          const fp = barsFingerprint(liveBars);
+          if (fp && fp !== lastDataFingerprint) {
+            applyOhlcvToChart(tf, liveBars, { keepRange });
+            lastDataFingerprint = fp;
+          }
+          liveErrorCount = 0;
+          updateLiveStatus('实时数据已更新 · ' + toHmss(new Date().toISOString()) + ' · ' + reason, 'ok');
+        } catch (err) {
+          liveErrorCount += 1;
+          try {
+            const reportBars = await fetchBarsFromReport(tf);
+            if (seq !== liveSeq) return;
+            const fp = barsFingerprint(reportBars);
+            if (fp && fp !== lastDataFingerprint) {
+              applyOhlcvToChart(tf, reportBars, { keepRange });
+              lastDataFingerprint = fp;
+            }
+            updateLiveStatus('实时接口异常，已回退文件数据 · ' + toHmss(new Date().toISOString()), 'warn');
+          } catch (_) {
+            updateLiveStatus('实时更新失败(' + liveErrorCount + ')，保留本地数据', 'err');
+          }
+        }
+      }
+
+      function stopLiveLoop() {
+        if (liveTimer) {
+          clearInterval(liveTimer);
+          liveTimer = null;
+        }
+      }
+
+      function startLiveLoop() {
+        stopLiveLoop();
+        if (!liveEnabled) return;
+        refreshCurrentTfBars('initial');
+        liveTimer = setInterval(function() {
+          refreshCurrentTfBars('tick');
+        }, 15000);
+      }
+
+      if (liveToggleBtn) {
+        liveToggleBtn.addEventListener('click', function() {
+          liveEnabled = !liveEnabled;
+          liveToggleBtn.classList.toggle('on', liveEnabled);
+          liveToggleBtn.textContent = liveEnabled ? '实时: 开' : '实时: 关';
+          if (liveEnabled) {
+            updateLiveStatus('实时重连中...', 'warn');
+            startLiveLoop();
+          } else {
+            stopLiveLoop();
+            updateLiveStatus('实时已暂停，显示最近缓存数据', 'warn');
+          }
+        });
+      }
+
       function setTf(tf) {
         currentTf = tf;
-        currentOhlcv = OHLCV_BY_TF[tf] || [];
+        currentOhlcv = normalizeBars(OHLCV_BY_TF[tf]);
         candleSeries.setData(currentOhlcv);
         applySeriesMarkers();
         applyOrderBand();
-        chart.timeScale().fitContent();
+        applyDefaultVisibleRange(tf);
         if (typeof clearDecisionPriceLines === 'function') clearDecisionPriceLines();
+        lastDataFingerprint = barsFingerprint(currentOhlcv);
+        if (liveEnabled) refreshCurrentTfBars('switch_tf');
       }
       document.getElementById('tf-select').addEventListener('change', e => setTf(e.target.value));
       setTf('1m');
+      startLiveLoop();
 
       var decisionPriceLines = [];
       function clearDecisionPriceLines() { var list = (decisionPriceLines && Array.isArray(decisionPriceLines)) ? decisionPriceLines : []; decisionPriceLines = []; list.forEach(function(pl) { try { candleSeries.removePriceLine(pl); } catch (_) {} }); }
