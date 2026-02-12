@@ -112,7 +112,8 @@ function printHelp() {
       'ThunderClaw CLI',
       '',
       'Usage:',
-      '  thunderclaw onboard     # 拉取/更新工作区 + 本地引导配置',
+      '  thunderclaw onboard     # 拉取/更新工作区 + 本地引导配置 + 启动看板',
+      '  thunderclaw onboard --no-start  # 仅引导配置，不启动服务',
       '  thunderclaw start       # 启动交易看板服务',
       '  thunderclaw workspace   # 查看本地工作区路径',
       '  thunderclaw update      # 仅更新工作区代码',
@@ -147,11 +148,20 @@ async function main() {
     return;
   }
   if (cmd === 'onboard') {
+    const noStart = argv.includes('--no-start');
     await ensureWorkspace();
     await runLocalScript('openclaw-local-setup.sh', {
       OPENCLAW_CLI_BIN: process.env.OPENCLAW_CLI_BIN || 'openclaw',
     });
-    console.log('[thunderclaw] 下一步: thunderclaw start');
+    if (noStart) {
+      console.log('[thunderclaw] 下一步: thunderclaw start');
+      return;
+    }
+    console.log('[thunderclaw] 正在启动看板服务...');
+    await runLocalScript('report-start-local.sh', {
+      OPENCLAW_CLI_BIN: process.env.OPENCLAW_CLI_BIN || 'thunderclaw',
+      OPENCLAW_AGENT_LOCAL: process.env.OPENCLAW_AGENT_LOCAL || '1',
+    });
     return;
   }
   if (cmd === 'start') {
