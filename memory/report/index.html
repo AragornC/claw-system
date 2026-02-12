@@ -22,6 +22,9 @@
     .app-shell { max-width: 1280px; margin: 0 auto; }
     .app-topbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
     .app-subtitle { color: var(--muted); font-size: 0.76rem; }
+    .ai-link-status { color: var(--muted); font-size: 0.72rem; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+    .ai-link-status.ok { color: var(--green); border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.08); }
+    .ai-link-status.warn { color: var(--yellow); border-color: rgba(210,153,34,0.45); background: rgba(210,153,34,0.08); }
     .top-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 12px; align-items: stretch; }
     .top-hero-main { min-width: 0; }
     .top-status { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -525,7 +528,7 @@
       <div class="panel-card ai-chat-wrap">
         <div class="card-title-row">
           <h2>AI 交易助理</h2>
-          <span class="app-subtitle">输入问题，或用快捷操作</span>
+          <span id="ai-link-status" class="ai-link-status">OpenClaw: 检测中</span>
         </div>
         <div class="ai-quick" id="ai-quick">
           <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
@@ -990,6 +993,7 @@
       const miniKlineDotEl = document.getElementById('mini-kline-dot');
       const miniKlineMainEl = document.getElementById('mini-kline-main');
       const miniKlineSubEl = document.getElementById('mini-kline-sub');
+      const aiLinkStatusEl = document.getElementById('ai-link-status');
       const navRuntimeBtn = document.getElementById('nav-runtime');
       const navHistoryBtn = document.getElementById('nav-history');
       const navKlineBtn = document.getElementById('nav-kline');
@@ -1454,7 +1458,14 @@
           box.appendChild(div);
           box.scrollTop = box.scrollHeight;
         }
-        function answer(q) {
+        function setAiLinkStatus(state, text) {
+          if (!aiLinkStatusEl) return;
+          aiLinkStatusEl.classList.remove('ok', 'warn');
+          if (state === 'ok') aiLinkStatusEl.classList.add('ok');
+          if (state === 'warn') aiLinkStatusEl.classList.add('warn');
+          aiLinkStatusEl.textContent = text;
+        }
+        function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
           if (!ql.trim()) return '可以问我：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。';
@@ -1475,10 +1486,6 @@
           if (/风险|新闻|风控/.test(ql)) {
             return '截至当前，新闻/风控拦截共 ' + s.blocked + ' 次。建议重点查看「当前交易运行时间线」里的 RISK 标签事件。';
           }
-          if (/回验|backtest|复盘/.test(ql)) {
-            switchView('backtest');
-            return '已切换到「策略回验」页面。你可以选择策略版本、周期和窗口后点击“开始回验”，查看历史 K 线 PnL。';
-          }
           if (/历史|订单|最近/.test(ql)) {
             const top = SORTED_ORDERS.slice(0, 3);
             if (!top.length) return '当前没有可用历史订单。';
@@ -1488,22 +1495,104 @@
               return (idx + 1) + '. ' + (o.tradeId || '-') + ' · ' + (o.side === 'short' ? '空' : '多') + ' · ' + fmtTsShort(o.openTs) + ' · ' + pnlTxt;
             }).join('\n');
           }
-          return '我能回答：\n- 当前仓位\n- 当前这单进展\n- 运行策略\n- 风控与新闻拦截\n- 最近订单\n也可以输入“帮我总结今天表现”。';
+          return 'OpenClaw 暂时不可用，已切换本地助手兜底。你可以问：当前仓位、当前交易进展、策略状态、风控拦截、最近订单。';
         }
-        function send() {
-          const text = input.value.trim();
-          if (!text) return;
+        function buildAiContext() {
+          return {
+            snapshot: aiSnapshot(),
+            openOrders: OPEN_ORDERS.slice(0, 4).map(function(o) {
+              return {
+                tradeId: o?.tradeId || null,
+                side: o?.side || null,
+                symbol: o?.symbol || null,
+                openPrice: o?.openPrice ?? null,
+                openTs: o?.openTs || null,
+              };
+            }),
+            recentOrders: SORTED_ORDERS.slice(0, 6).map(function(o) {
+              return {
+                tradeId: o?.tradeId || null,
+                side: o?.side || null,
+                openTs: o?.openTs || null,
+                closeTs: o?.closeTs || null,
+                pnlEstUSDT: Number(o?.pnlEstUSDT),
+              };
+            }),
+          };
+        }
+        function handleUiCommand(q) {
+          const ql = String(q || '').toLowerCase();
+          if (/回验|backtest|复盘/.test(ql)) {
+            switchView('backtest');
+            return '已切换到「策略回验」页面。你可以选择策略版本、周期和窗口后点击“开始回验”，查看历史 K 线 PnL。';
+          }
+          return null;
+        }
+        async function askOpenClaw(q) {
+          const resp = await fetch('api/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({
+              message: q,
+              context: buildAiContext(),
+            }),
+          });
+          let payload = null;
+          try {
+            payload = await resp.json();
+          } catch {}
+          if (!resp.ok || !payload || payload.ok !== true || !String(payload.reply || '').trim()) {
+            const reason = (payload && payload.error) ? String(payload.error) : ('HTTP ' + resp.status);
+            throw new Error(reason);
+          }
+          setAiLinkStatus('ok', 'OpenClaw: 已连接');
+          return String(payload.reply).trim();
+        }
+        async function answer(q) {
+          const cmdReply = handleUiCommand(q);
+          if (cmdReply) return cmdReply;
+          try {
+            return await askOpenClaw(q);
+          } catch {
+            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            return localAnswer(q);
+          }
+        }
+        let inFlight = false;
+        async function runTurn(text) {
           pushMsg('user', text);
-          input.value = '';
-          setTimeout(function() {
-            pushMsg('bot', answer(text));
-          }, 120);
+          const thinking = document.createElement('div');
+          thinking.className = 'ai-msg bot';
+          thinking.textContent = 'OpenClaw 思考中...';
+          box.appendChild(thinking);
+          box.scrollTop = box.scrollHeight;
+          try {
+            const reply = await answer(text);
+            thinking.textContent = reply || '收到，但暂时没有可返回内容。';
+          } catch {
+            thinking.textContent = '本次请求失败，请稍后重试。';
+          }
+          box.scrollTop = box.scrollHeight;
         }
-        sendBtn.addEventListener('click', send);
+        async function send() {
+          const text = input.value.trim();
+          if (!text || inFlight) return;
+          inFlight = true;
+          sendBtn.disabled = true;
+          input.value = '';
+          try {
+            await runTurn(text);
+          } finally {
+            inFlight = false;
+            sendBtn.disabled = false;
+          }
+        }
+        sendBtn.addEventListener('click', function() { void send(); });
         input.addEventListener('keydown', function(ev) {
           if (ev.key === 'Enter') {
             ev.preventDefault();
-            send();
+            void send();
           }
         });
         const quickBtns = Array.from(document.querySelectorAll('#ai-quick .ai-quick-btn'));
@@ -1515,13 +1604,25 @@
               return;
             }
             const ask = btn.getAttribute('data-ask') || '';
-            if (!ask) return;
-            pushMsg('user', ask);
-            setTimeout(function() {
-              pushMsg('bot', answer(ask));
-            }, 120);
+            if (!ask || inFlight) return;
+            inFlight = true;
+            sendBtn.disabled = true;
+            void runTurn(ask).finally(function() {
+              inFlight = false;
+              sendBtn.disabled = false;
+            });
           });
         });
+        setAiLinkStatus('warn', 'OpenClaw: 检测中');
+        void fetch('api/ai/health', { cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
+          .then(function(j) {
+            if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 已就绪');
+            else setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+          })
+          .catch(function() {
+            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+          });
         pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。');
       }
 

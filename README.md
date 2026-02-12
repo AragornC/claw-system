@@ -169,6 +169,38 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 
 页面可切换 K 线周期，悬停决策点显示详情，点击放大该段。
 
+### 5.6 OpenClaw 深度绑定（AI 交易助理）
+
+交易看板 UI 保持不变，但聊天能力会优先走 OpenClaw：
+
+- 前端：`/api/ai/chat`
+- 报告服务：`scripts/serve-report.js`
+- 后端执行：`openclaw agent --agent <id> --json`
+
+建议流程：
+
+```bash
+# 1) 先确保 OpenClaw 可用（已完成 onboarding / gateway 正常）
+openclaw status
+
+# 2) 生成页面
+node scripts/perp-report.js viewer
+
+# 3) 启动看板（默认绑定 OpenClaw 的 main agent）
+OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
+```
+
+可选环境变量：
+
+- `OPENCLAW_CLI_BIN`：指定 openclaw 可执行路径（未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
+- `OPENCLAW_AGENT_ID`：默认 `main`
+- `OPENCLAW_THINKING`：如 `low | medium | high`
+- `OPENCLAW_VERBOSE`：如 `on | off`
+- `OPENCLAW_TIMEOUT_SEC`：OpenClaw `agent` 超时秒数（默认 `90`）
+- `OPENCLAW_CHAT_TIMEOUT_MS`：服务端桥接超时毫秒（默认 `95000`）
+
+当 OpenClaw 不可用时，聊天区会自动回退到本地兜底回复，并在界面上标记为离线状态。
+
 ---
 
 ## 6. Scheduling (no OpenClaw required)
