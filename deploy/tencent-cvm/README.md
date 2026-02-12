@@ -14,9 +14,10 @@
 - 2C4G 或更高
 - 安全组放行：
   - `22`（SSH）
-  - `8765`（看板服务）
+  - HTTP 方案：`8765`
+  - HTTPS 方案：`80`、`443`
 
-> 如果你后面要挂 HTTPS 域名，可再放行 `80/443`。
+> 推荐直接用 HTTPS 方案（域名 + `80/443`）。
 
 ## 2) 安装 Docker + Compose
 
@@ -53,7 +54,7 @@ DEEPSEEK_API_KEY=sk-你的真实key
 PUBLIC_PORT=8765
 ```
 
-## 4) 启动服务
+## 4A) 启动 HTTP 版本（快速验证）
 
 ```bash
 docker compose up -d --build
@@ -72,7 +73,7 @@ docker compose logs -f --tail=100
 curl -s http://127.0.0.1:8765/api/ai/health
 ```
 
-## 5) 手机访问
+## 5A) 手机访问（HTTP）
 
 用手机浏览器打开：
 
@@ -82,29 +83,96 @@ http://<你的CVM公网IP>:8765
 
 ---
 
+## 4B) 启动 HTTPS 版本（推荐生产）
+
+### 前置：域名解析
+
+在 DNS 控制台新增：
+
+- 记录类型：`A`
+- 主机记录：例如 `trade`
+- 记录值：`<你的CVM公网IP>`
+
+等待解析生效后继续。
+
+### 配置 HTTPS 环境变量
+
+```bash
+cp .env.https.example .env.https
+```
+
+编辑 `.env.https`：
+
+```dotenv
+DOMAIN=trade.yourdomain.com
+ACME_EMAIL=you@yourdomain.com
+```
+
+### 启动 HTTPS 栈（OpenClaw + Caddy）
+
+```bash
+docker compose -f docker-compose.https.yml up -d --build
+```
+
+### 访问
+
+```text
+https://trade.yourdomain.com
+```
+
+### HTTPS 诊断
+
+```bash
+docker compose -f docker-compose.https.yml ps
+docker compose -f docker-compose.https.yml logs -f --tail=120 caddy
+curl -I https://trade.yourdomain.com
+```
+
+---
+
 ## 常用运维命令
 
-重启：
+重启（HTTP）：
 
 ```bash
 docker compose restart
 ```
 
-更新代码后重建：
+重启（HTTPS）：
+
+```bash
+docker compose -f docker-compose.https.yml restart
+```
+
+更新代码后重建（HTTP）：
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-停止：
+更新代码后重建（HTTPS）：
+
+```bash
+git pull
+docker compose -f docker-compose.https.yml up -d --build
+```
+
+停止（HTTP）：
 
 ```bash
 docker compose down
 ```
 
+停止（HTTPS）：
+
+```bash
+docker compose -f docker-compose.https.yml down
+```
+
 ## 安全建议
 
 - 不要把 `.env` 提交到 git。
+- 不要把 `.env.https` 提交到 git。
 - API key 若曾在聊天中暴露，务必立即轮换。
-- 生产建议加 Nginx/Caddy + HTTPS + 基础认证（至少限制 `/api/ai/*`）。
+- HTTPS 已内置 Caddy 自动签发证书；如需更严格，可在 Caddyfile 增加 `/api/ai/*` 认证或 IP 白名单。

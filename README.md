@@ -199,7 +199,9 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 如果你要在手机公网访问并测试 OpenClaw 打通，直接用：
 
 - `deploy/tencent-cvm/docker-compose.yml`
+- `deploy/tencent-cvm/docker-compose.https.yml`
 - `deploy/tencent-cvm/.env.example`
+- `deploy/tencent-cvm/.env.https.example`
 - `deploy/tencent-cvm/README.md`
 
 最短路径：
