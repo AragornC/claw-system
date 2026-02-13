@@ -2402,24 +2402,76 @@
             void send();
           }
         });
-        const quickBtns = Array.from(document.querySelectorAll('#ai-quick .ai-quick-btn'));
-        quickBtns.forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            const viewTarget = btn.getAttribute('data-view-target');
-            if (viewTarget) {
-              switchView(viewTarget);
+        const tgRelay = (function() {
+          const existing = window.__thunderclawTelegramRelayState;
+          if (existing && typeof existing === 'object') return existing;
+          const state = {
+            started: false,
+            busy: false,
+            afterId: 0,
+            timer: null,
+            seenIds: new Set(),
+            available: true,
+          };
+          window.__thunderclawTelegramRelayState = state;
+          return state;
+        })();
+
+        function appendTelegramEvent(ev) {
+          const idNum = Number(ev?.id);
+          if (Number.isFinite(idNum) && tgRelay.seenIds.has(idNum)) return;
+          if (Number.isFinite(idNum)) {
+            tgRelay.seenIds.add(idNum);
+            if (tgRelay.seenIds.size > 1200) {
+              const sorted = Array.from(tgRelay.seenIds).sort((a, b) => b - a);
+              tgRelay.seenIds = new Set(sorted.slice(0, 800));
+            }
+          }
+          const text = String(ev?.text || '').trim();
+          if (!text) return;
+          const role = ev?.role === 'bot' ? 'bot' : 'user';
+          const from = String(ev?.from || '').trim();
+          const chatId = ev?.chatId != null ? String(ev.chatId) : '';
+          const head = role === 'user'
+            ? '[TG ' + (from || chatId || 'message') + '] '
+            : '[TG 回执] ';
+          pushMsg(role, head + text);
+        }
+
+        async function pollTelegramEvents() {
+          if (!tgRelay.available || tgRelay.busy) return;
+          tgRelay.busy = true;
+          try {
+            const resp = await fetch('api/telegram/events?afterId=' + encodeURIComponent(String(tgRelay.afterId)), {
+              cache: 'no-store',
+            });
+            if (!resp.ok) return;
+            const payload = await resp.json();
+            if (!payload || payload.enabled === false) {
+              tgRelay.available = false;
               return;
             }
-            const ask = btn.getAttribute('data-ask') || '';
-            if (!ask || inFlight) return;
-            inFlight = true;
-            sendBtn.disabled = true;
-            void runTurn(ask).finally(function() {
-              inFlight = false;
-              sendBtn.disabled = false;
+            const events = Array.isArray(payload.events) ? payload.events : [];
+            events.forEach(function(ev) {
+              const idNum = Number(ev?.id);
+              if (Number.isFinite(idNum)) tgRelay.afterId = Math.max(tgRelay.afterId, idNum);
+              appendTelegramEvent(ev);
             });
-          });
-        });
+          } catch (_) {
+          } finally {
+            tgRelay.busy = false;
+          }
+        }
+
+        function startTelegramRelayPolling() {
+          if (tgRelay.started) return;
+          tgRelay.started = true;
+          void pollTelegramEvents();
+          tgRelay.timer = window.setInterval(function() {
+            void pollTelegramEvents();
+          }, 2400);
+        }
+        startTelegramRelayPolling();
         setAiLinkStatus('warn', 'OpenClaw: 检测中');
         void fetch('api/ai/health', { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
