@@ -157,6 +157,7 @@ const HTML = `<!DOCTYPE html>
       z-index: 210;
       backdrop-filter: blur(8px);
     }
+    .toolbar-link-status { margin-left: auto; }
     .content-page-head {
       display: inline-flex;
       align-items: center;
@@ -328,6 +329,8 @@ const HTML = `<!DOCTYPE html>
     .sidebar-trade-hub .top-hero { grid-template-columns: 1fr; gap: 8px; }
     .sidebar-trade-hub .hero-title-row { margin-bottom: 0; }
     .sidebar-trade-hub h1 { font-size: 0.86rem; margin: 0; }
+    .sidebar-trade-hub .top-status { margin-top: 5px; gap: 5px; }
+    .sidebar-trade-hub .status-chip { font-size: 0.66rem; padding: 2px 8px; }
     .sidebar-trade-hub .app-subtitle { font-size: 0.69rem; }
     .sidebar-trade-hub .top-mini-kline canvas { height: 78px; }
     .global-back-btn {
@@ -679,6 +682,7 @@ const HTML = `<!DOCTYPE html>
       .feature-sidebar-toggle { width: 34px; height: 30px; }
       .content-page-title { font-size: 0.9rem; }
       .symbol-switch-toggle { font-size: 0.66rem; padding: 3px 9px; }
+      .toolbar-link-status { font-size: 0.68rem; padding: 2px 7px; }
       .feature-sidebar { min-height: 0; }
       .feature-sidebar-inner { width: var(--sidebar-width); }
       .xsea-grid { grid-template-columns: 1fr; }
@@ -735,6 +739,13 @@ const HTML = `<!DOCTYPE html>
               <div class="hero-title-row">
                 <h1>ThunderClaw 交易中枢</h1>
               </div>
+              <div class="top-status">
+                <span id="status-position" class="status-chip neutral">仓位: --</span>
+                <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
+                <span id="status-price" class="status-chip neutral">币价: --</span>
+                <span id="status-trade" class="status-chip trade">交易: --</span>
+                <span id="status-runtime" class="status-chip runtime">运行: --</span>
+              </div>
               <div class="app-subtitle" id="app-subtitle">ThunderClaw · 简洁交易工作台</div>
             </div>
             <div class="top-mini-kline">
@@ -763,21 +774,13 @@ const HTML = `<!DOCTYPE html>
             </div>
           </div>
         </div>
+        <span id="ai-link-status" class="ai-link-status toolbar-link-status">OpenClaw: 检测中</span>
       </div>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
         <div class="card-title-row">
           <h2>ThunderClaw</h2>
-          <span id="ai-link-status" class="ai-link-status">OpenClaw: 检测中</span>
-        </div>
-        <div class="ai-quick" id="ai-quick">
-          <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
-          <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
-          <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
-          <button class="ai-quick-btn" type="button" data-view-target="kline">进入虾线</button>
-          <button class="ai-quick-btn" type="button" data-view-target="backtest">进入虾策</button>
-          <button class="ai-quick-btn" type="button" data-view-target="xsea">进入虾海</button>
         </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
@@ -2465,7 +2468,7 @@ const HTML = `<!DOCTYPE html>
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击右上角 ☰ 图标可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
+        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
       }
 
       function renderDashboard() {
