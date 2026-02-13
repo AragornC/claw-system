@@ -1220,6 +1220,7 @@ async function runOpenClawAdmin(args, timeoutMs = 35_000) {
 function looksLikeConfigIntent(message) {
   const text = String(message || '').trim();
   if (!text) return false;
+  if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
   if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
   if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
     return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
