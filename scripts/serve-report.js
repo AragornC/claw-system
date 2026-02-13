@@ -111,6 +111,14 @@ const TELEGRAM_POLL_LOCK_STALE_MS = Math.max(
   20_000,
   positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_LOCK_STALE_MS, 180_000),
 );
+const TELEGRAM_INBOUND_DEDUPE_DIR = path.resolve(
+  WORKDIR,
+  'memory/.telegram-inbound-dedupe.' + TELEGRAM_POLL_LOCK_KEY,
+);
+const TELEGRAM_INBOUND_DEDUPE_TTL_MS = Math.max(
+  6 * 3600 * 1000,
+  positiveInt(process.env.THUNDERCLAW_TELEGRAM_INBOUND_DEDUPE_TTL_MS, 7 * 24 * 3600 * 1000),
+);
 
 const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
 const TRADER_SHORT_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory-short.json');
@@ -180,6 +188,7 @@ let telegramPollTimer = null;
 let telegramTradePushTimer = null;
 let telegramPollLockFd = null;
 let telegramPollLockAcquired = false;
+let telegramInboundDedupeLastCleanupAt = 0;
 const telegramKnownChatIds = new Set();
 const telegramTradeKnownEventKeys = new Set();
 const telegramTradeSentAck = new Set();
@@ -222,6 +231,16 @@ const telegramState = {
     acquired: false,
     ownerPid: null,
     reason: null,
+  },
+  dedupe: {
+    path: TELEGRAM_INBOUND_DEDUPE_DIR,
+    ttlMs: TELEGRAM_INBOUND_DEDUPE_TTL_MS,
+    claimed: 0,
+    duplicates: 0,
+    lastKey: null,
+    lastClaimAt: null,
+    lastDuplicateAt: null,
+    lastError: null,
   },
   conflicts: {
     count: 0,
@@ -452,6 +471,69 @@ function registerProcessCleanupHooks() {
     cleanup();
     process.exit(143);
   });
+}
+
+function cleanupTelegramInboundDedupe(force = false) {
+  const now = Date.now();
+  if (!force && now - telegramInboundDedupeLastCleanupAt < 60 * 60 * 1000) return;
+  telegramInboundDedupeLastCleanupAt = now;
+  try {
+    if (!fs.existsSync(TELEGRAM_INBOUND_DEDUPE_DIR)) return;
+    const names = fs.readdirSync(TELEGRAM_INBOUND_DEDUPE_DIR);
+    for (const name of names) {
+      if (!name.endsWith('.seen')) continue;
+      const file = path.resolve(TELEGRAM_INBOUND_DEDUPE_DIR, name);
+      let st = null;
+      try { st = fs.statSync(file); } catch { st = null; }
+      if (!st) continue;
+      if (now - Number(st.mtimeMs || 0) > TELEGRAM_INBOUND_DEDUPE_TTL_MS) {
+        try { fs.unlinkSync(file); } catch {}
+      }
+    }
+  } catch {}
+}
+
+function claimTelegramInbound(incoming) {
+  const chatId = incoming?.chatId != null ? String(incoming.chatId) : '';
+  const messageId = Number(incoming?.messageId);
+  const updateId = Number(incoming?.updateId);
+  if (!chatId) return { claimed: true, key: null };
+  const idPart = Number.isFinite(messageId) && messageId > 0
+    ? 'm:' + String(messageId)
+    : Number.isFinite(updateId) && updateId > 0
+      ? 'u:' + String(updateId)
+      : 'h:' + sha1(chatId + '|' + String(incoming?.from || '') + '|' + String(incoming?.text || '')).slice(0, 20);
+  const key = chatId + ':' + idPart;
+  const file = path.resolve(TELEGRAM_INBOUND_DEDUPE_DIR, sha1(key).slice(0, 32) + '.seen');
+  try {
+    fs.mkdirSync(TELEGRAM_INBOUND_DEDUPE_DIR, { recursive: true });
+    const fd = fs.openSync(file, 'wx', 0o600);
+    const payload = {
+      key,
+      chatId,
+      messageId: Number.isFinite(messageId) ? messageId : null,
+      updateId: Number.isFinite(updateId) ? updateId : null,
+      ts: nowIso(),
+    };
+    fs.writeFileSync(fd, JSON.stringify(payload), 'utf8');
+    fs.closeSync(fd);
+    telegramState.dedupe.claimed += 1;
+    telegramState.dedupe.lastKey = key;
+    telegramState.dedupe.lastClaimAt = nowIso();
+    telegramState.dedupe.lastError = null;
+    cleanupTelegramInboundDedupe(false);
+    return { claimed: true, key };
+  } catch (err) {
+    if (String(err?.code || '') === 'EEXIST') {
+      telegramState.dedupe.duplicates += 1;
+      telegramState.dedupe.lastKey = key;
+      telegramState.dedupe.lastDuplicateAt = nowIso();
+      return { claimed: false, key };
+    }
+    telegramState.dedupe.lastError = safeErrMsg(err, 'dedupe failed');
+    // Fail-open: if dedupe file unexpectedly errors, don't block normal replies.
+    return { claimed: true, key, dedupeError: telegramState.dedupe.lastError };
+  }
 }
 
 function redactSecrets(textLike) {
@@ -1794,8 +1876,10 @@ function listTelegramEvents(afterId, limit = 80) {
 function parseTelegramIncoming(update) {
   const msg = update?.message || null;
   if (!msg) return null;
+  if (msg?.from?.is_bot) return null;
   const chatIdRaw = msg?.chat?.id;
   const chatId = chatIdRaw != null ? String(chatIdRaw) : '';
+  const messageId = Number(msg?.message_id);
   if (!chatId) return null;
   if (TELEGRAM_ALLOWED_CHAT_IDS.size && !TELEGRAM_ALLOWED_CHAT_IDS.has(chatId)) {
     telegramState.droppedUpdates += 1;
@@ -1818,9 +1902,11 @@ function parseTelegramIncoming(update) {
     ) || 'telegram';
   return {
     updateId: Number(update?.update_id) || 0,
+    messageId: Number.isFinite(messageId) ? messageId : 0,
     chatId,
     from,
     text,
+    ts: Number.isFinite(Number(msg?.date)) ? new Date(Number(msg.date) * 1000).toISOString() : null,
   };
 }
 
@@ -1870,6 +1956,18 @@ async function sendTelegramText(chatId, text) {
 
 async function handleTelegramIncoming(incoming) {
   if (!incoming || !incoming.text) return;
+  const dedupe = claimTelegramInbound(incoming);
+  if (!dedupe.claimed) {
+    pushTelegramEvent({
+      role: 'system',
+      chatId: incoming.chatId,
+      from: 'thunderclaw-dedupe',
+      text: '[去重] 忽略重复 Telegram 消息: ' + truncText(incoming.text, 120),
+      direction: 'inbound',
+      ok: true,
+    });
+    return;
+  }
   telegramState.lastInboundAt = nowIso();
   if (incoming.chatId) telegramKnownChatIds.add(String(incoming.chatId));
   pushTelegramEvent({
@@ -2859,6 +2957,16 @@ function handleTelegramHealthApi(req, res) {
       ownerPid: telegramState.pollLock.ownerPid,
       reason: telegramState.pollLock.reason,
     },
+    dedupe: {
+      path: telegramState.dedupe.path,
+      ttlMs: telegramState.dedupe.ttlMs,
+      claimed: telegramState.dedupe.claimed,
+      duplicates: telegramState.dedupe.duplicates,
+      lastKey: telegramState.dedupe.lastKey,
+      lastClaimAt: telegramState.dedupe.lastClaimAt,
+      lastDuplicateAt: telegramState.dedupe.lastDuplicateAt,
+      lastError: telegramState.dedupe.lastError,
+    },
     conflicts: {
       count: telegramState.conflicts.count,
       lastAt: telegramState.conflicts.lastAt,
@@ -2981,6 +3089,8 @@ const server = http.createServer((req, res) => {
           lastInboundAt: telegramState.lastInboundAt,
           pollLockAcquired: telegramState.pollLock.acquired,
           pollLockOwnerPid: telegramState.pollLock.ownerPid,
+          dedupeDuplicates: telegramState.dedupe.duplicates,
+          dedupeLastAt: telegramState.dedupe.lastDuplicateAt,
           conflictCount: telegramState.conflicts.count,
           conflictLastAt: telegramState.conflicts.lastAt,
           pushTrades: telegramState.push.enabled,
@@ -3043,6 +3153,7 @@ loadStrategyFeedbackState();
 rememberTradeOutcomesToMemory();
 learnStrategyWeightsFromTrades();
 buildMidTermMemoryProfile();
+cleanupTelegramInboundDedupe(true);
 
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
