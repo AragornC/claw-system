@@ -779,9 +779,6 @@ const HTML = `<!DOCTYPE html>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
-        <div class="card-title-row">
-          <h2>ThunderClaw</h2>
-        </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
         </div>
