@@ -141,14 +141,78 @@ const HTML = `<!DOCTYPE html>
       font-size: 0.88rem;
       line-height: 1;
       flex: 0 0 auto;
-      position: fixed;
-      left: 10px;
-      top: 10px;
-      z-index: 260;
-      transition: left 180ms ease, border-color 120ms ease, color 120ms ease;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
     }
     .feature-sidebar-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
-    .app-shell.sidebar-open .feature-sidebar-toggle { left: 258px; }
+    .feature-sidebar-toggle:active { background: rgba(88,166,255,0.22); }
+    .app-content-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15,20,25,0.92);
+      position: sticky;
+      top: 0;
+      z-index: 210;
+      backdrop-filter: blur(8px);
+    }
+    .content-page-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .content-page-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .symbol-switch-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .symbol-switch-wrap.hidden { display: none; }
+    .symbol-switch-toggle {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.2);
+      color: #79c0ff;
+      padding: 3px 10px;
+      font-size: 0.68rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .symbol-switch-toggle:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
+    .symbol-switch-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      min-width: 138px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15,20,25,0.98);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 260;
+    }
+    .symbol-switch-popover.hidden { display: none; }
+    .symbol-option {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-size: 0.72rem;
+      padding: 6px 8px;
+      cursor: pointer;
+    }
+    .symbol-option:hover { background: rgba(88,166,255,0.12); border-color: rgba(88,166,255,0.35); }
+    .symbol-option.active { border-color: rgba(88,166,255,0.58); color: #79c0ff; background: rgba(88,166,255,0.12); }
     .feature-sidebar {
       width: var(--sidebar-width);
       overflow: hidden auto;
@@ -224,7 +288,7 @@ const HTML = `<!DOCTYPE html>
       border-color: rgba(197,142,255,0.56);
       background:
         linear-gradient(90deg, rgba(11,8,24,0.8) 0%, rgba(11,8,24,0.46) 46%, rgba(11,8,24,0.2) 100%),
-        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ec74137192.webp') center / cover no-repeat,
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ecdd5deb70.webp') center / cover no-repeat,
         linear-gradient(135deg, rgba(37,13,61,0.95), rgba(20,8,36,0.95));
     }
     .feature-menu-btn.feature-xstrategy .k {
@@ -264,8 +328,6 @@ const HTML = `<!DOCTYPE html>
     .sidebar-trade-hub .top-hero { grid-template-columns: 1fr; gap: 8px; }
     .sidebar-trade-hub .hero-title-row { margin-bottom: 0; }
     .sidebar-trade-hub h1 { font-size: 0.86rem; margin: 0; }
-    .sidebar-trade-hub .top-status { margin-top: 5px; gap: 5px; }
-    .sidebar-trade-hub .status-chip { font-size: 0.66rem; padding: 2px 8px; }
     .sidebar-trade-hub .app-subtitle { font-size: 0.69rem; }
     .sidebar-trade-hub .top-mini-kline canvas { height: 78px; }
     .global-back-btn {
@@ -613,8 +675,10 @@ const HTML = `<!DOCTYPE html>
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .hero-title-row { margin-bottom: 0; }
-      .feature-sidebar-toggle { width: 36px; height: 32px; left: 8px; top: 8px; }
-      .app-shell.sidebar-open .feature-sidebar-toggle { left: 236px; }
+      .app-content-toolbar { padding: 8px 10px; gap: 8px; }
+      .feature-sidebar-toggle { width: 34px; height: 30px; }
+      .content-page-title { font-size: 0.9rem; }
+      .symbol-switch-toggle { font-size: 0.66rem; padding: 3px 9px; }
       .feature-sidebar { min-height: 0; }
       .feature-sidebar-inner { width: var(--sidebar-width); }
       .xsea-grid { grid-template-columns: 1fr; }
@@ -671,14 +735,7 @@ const HTML = `<!DOCTYPE html>
               <div class="hero-title-row">
                 <h1>ThunderClaw 交易中枢</h1>
               </div>
-              <div class="top-status">
-                <span id="status-position" class="status-chip neutral">仓位: --</span>
-                <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
-                <span id="status-price" class="status-chip neutral">币价: --</span>
-                <span id="status-trade" class="status-chip trade">交易: --</span>
-                <span id="status-runtime" class="status-chip runtime">运行: --</span>
-              </div>
-              <div class="app-subtitle" id="app-subtitle">ThunderClaw · AI 交易交流与执行主界面</div>
+              <div class="app-subtitle" id="app-subtitle">ThunderClaw · 简洁交易工作台</div>
             </div>
             <div class="top-mini-kline">
               <canvas id="top-mini-kline-canvas"></canvas>
@@ -693,12 +750,25 @@ const HTML = `<!DOCTYPE html>
       </div>
     </aside>
     <div class="app-content">
-      <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开左侧功能栏">☰</button>
+      <div class="app-content-toolbar">
+        <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开左侧功能栏">☰</button>
+        <div class="content-page-head">
+          <span id="content-page-title" class="content-page-title">ThunderClaw</span>
+          <div id="symbol-switch-wrap" class="symbol-switch-wrap">
+            <button id="symbol-switch-toggle" class="symbol-switch-toggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="symbol-switch-popover">BTC ▾</button>
+            <div id="symbol-switch-popover" class="symbol-switch-popover hidden" role="menu">
+              <button class="symbol-option active" type="button" data-symbol-code="BTC" data-symbol-label="BTC/USDT">BTC/USDT</button>
+              <button class="symbol-option" type="button" data-symbol-code="ETH" data-symbol-label="ETH/USDT">ETH/USDT</button>
+              <button class="symbol-option" type="button" data-symbol-code="SOL" data-symbol-label="SOL/USDT">SOL/USDT</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
         <div class="card-title-row">
-          <h2>AI 交易助理</h2>
+          <h2>ThunderClaw</h2>
           <span id="ai-link-status" class="ai-link-status">OpenClaw: 检测中</span>
         </div>
         <div class="ai-quick" id="ai-quick">
@@ -722,7 +792,7 @@ const HTML = `<!DOCTYPE html>
     <section id="view-runtime" class="view-panel">
       <div class="panel-card" id="runtime-timeline-card">
         <div class="card-title-row">
-          <h2>当前交易运行时间线</h2>
+          <h2>ThunderClaw</h2>
           <span style="display:inline-flex;align-items:center;gap:8px;">
             <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
             <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
@@ -734,7 +804,7 @@ const HTML = `<!DOCTYPE html>
 
     <section id="view-kline" class="view-panel">
       <div class="card-title-row" style="margin-bottom:6px">
-        <h2>虾线 · K线决策视图</h2>
+        <h2>虾线</h2>
         <span>
           <button class="nav-btn" data-view-target="history" type="button">历史交易</button>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
@@ -786,7 +856,7 @@ const HTML = `<!DOCTYPE html>
     <section id="view-history" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>虾线 · 历史订单详情</h2>
+          <h2>虾线</h2>
           <span>
             <span class="app-subtitle" id="history-total">共 0 条</span>
             <button class="nav-btn" data-view-target="kline" type="button">返回虾线K线页</button>
@@ -824,7 +894,7 @@ const HTML = `<!DOCTYPE html>
     <section id="view-backtest" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>虾策 · 策略回验（历史 K 线 PnL）</h2>
+          <h2>虾策</h2>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
         <div class="backtest-controls">
@@ -889,7 +959,7 @@ const HTML = `<!DOCTYPE html>
     <section id="view-xsea" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>虾海 · 策略发布与交流</h2>
+          <h2>虾海</h2>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
         <div class="app-subtitle" style="margin-bottom:8px;">发布你的 AI 策略，与他人交流，并可将策略选入机器人训练参考。</div>
@@ -1048,10 +1118,37 @@ const HTML = `<!DOCTYPE html>
       const appShellEl = document.getElementById('app-shell');
       const sidebarToggle = document.getElementById('feature-sidebar-toggle');
       const sidebarEl = document.getElementById('feature-sidebar');
+      const contentPageTitleEl = document.getElementById('content-page-title');
+      const symbolSwitchWrapEl = document.getElementById('symbol-switch-wrap');
+      const symbolSwitchToggleEl = document.getElementById('symbol-switch-toggle');
+      const symbolSwitchPopoverEl = document.getElementById('symbol-switch-popover');
+      const symbolOptionEls = Array.from(document.querySelectorAll('.symbol-option[data-symbol-code]'));
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
       let sidebarOpen = false;
+      const SYMBOL_SWITCH_KEY = 'thunderclaw.activeSymbolCode';
+      const SUPPORTED_SYMBOL_CODES = ['BTC', 'ETH', 'SOL'];
+      const defaultSymbolCode = (function() {
+        const raw = String(symbol || '').trim().toUpperCase();
+        const base = raw.split(/[/:]/)[0] || '';
+        return SUPPORTED_SYMBOL_CODES.includes(base) ? base : 'BTC';
+      })();
+      function normalizeSymbolCode(codeLike) {
+        const code = String(codeLike || '').trim().toUpperCase();
+        return SUPPORTED_SYMBOL_CODES.includes(code) ? code : defaultSymbolCode;
+      }
+      function readSymbolPreference() {
+        try {
+          return normalizeSymbolCode(window.localStorage.getItem(SYMBOL_SWITCH_KEY) || defaultSymbolCode);
+        } catch (_) {
+          return defaultSymbolCode;
+        }
+      }
+      function saveSymbolPreference(code) {
+        try { window.localStorage.setItem(SYMBOL_SWITCH_KEY, code); } catch (_) {}
+      }
+      let activeSymbolCode = readSymbolPreference();
 
       function normalizeViewTarget(nameLike) {
         const raw = String(nameLike || '').trim().toLowerCase();
@@ -1087,6 +1184,58 @@ const HTML = `<!DOCTYPE html>
         sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       }
 
+      function titleForView(key) {
+        if (key === 'dashboard' || key === 'runtime') return 'ThunderClaw';
+        if (key === 'kline' || key === 'history') return '虾线';
+        if (key === 'backtest') return '虾策';
+        if (key === 'xsea') return '虾海';
+        return 'ThunderClaw';
+      }
+
+      function subtitleForView(key) {
+        if (key === 'dashboard') return 'ThunderClaw · ' + activeSymbolCode + ' 交易工作台';
+        if (key === 'runtime') return 'ThunderClaw · 当前单运行时间线';
+        if (key === 'kline') return '虾线 · K 线与历史交易联动管理';
+        if (key === 'history') return '虾线 · 历史订单明细与K线定位';
+        if (key === 'backtest') return '虾策 · 策略可视化管理与回验验证';
+        if (key === 'xsea') return '虾海 · AI 策略发布、交流与训练选择';
+        return '交易系统功能页';
+      }
+
+      function setSymbolPopoverOpen(open) {
+        if (!symbolSwitchPopoverEl || !symbolSwitchToggleEl) return;
+        const visible = Boolean(open);
+        symbolSwitchPopoverEl.classList.toggle('hidden', !visible);
+        symbolSwitchToggleEl.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      }
+
+      function syncSymbolSwitchUi() {
+        if (symbolSwitchToggleEl) {
+          symbolSwitchToggleEl.textContent = activeSymbolCode + ' ▾';
+        }
+        symbolOptionEls.forEach(function(btn) {
+          const code = normalizeSymbolCode(btn.getAttribute('data-symbol-code'));
+          btn.classList.toggle('active', code === activeSymbolCode);
+        });
+      }
+
+      function applySymbolSelection(codeLike) {
+        activeSymbolCode = normalizeSymbolCode(codeLike);
+        saveSymbolPreference(activeSymbolCode);
+        syncSymbolSwitchUi();
+        if (appSubtitle) appSubtitle.textContent = subtitleForView(activeViewName);
+        updateHeaderStatus();
+      }
+
+      function syncContentHeader(viewKey) {
+        if (contentPageTitleEl) contentPageTitleEl.textContent = titleForView(viewKey);
+        if (symbolSwitchWrapEl) {
+          const showSwitcher = viewKey === 'dashboard';
+          symbolSwitchWrapEl.classList.toggle('hidden', !showSwitcher);
+          if (!showSwitcher) setSymbolPopoverOpen(false);
+        }
+      }
+
       function switchView(name) {
         const key = normalizeViewTarget(name);
         activeViewName = key;
@@ -1097,15 +1246,8 @@ const HTML = `<!DOCTYPE html>
         featureMenuButtons.forEach(btn => {
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
-        if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = 'ThunderClaw · AI 交易交流与执行主界面';
-          else if (key === 'runtime') appSubtitle.textContent = 'ThunderClaw · 当前单运行时间线';
-          else if (key === 'kline') appSubtitle.textContent = '虾线 · K 线与历史交易联动管理';
-          else if (key === 'history') appSubtitle.textContent = '虾线 · 历史订单明细与K线定位';
-          else if (key === 'backtest') appSubtitle.textContent = '虾策 · 策略可视化管理与回验验证';
-          else if (key === 'xsea') appSubtitle.textContent = '虾海 · AI 策略发布、交流与训练选择';
-          else appSubtitle.textContent = '交易系统功能页';
-        }
+        if (appSubtitle) appSubtitle.textContent = subtitleForView(key);
+        syncContentHeader(key);
         if (globalBackBtn) {
           globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
@@ -1133,6 +1275,32 @@ const HTML = `<!DOCTYPE html>
           if (ev.key === 'Escape') setSidebarOpen(false);
         });
       }
+      if (symbolSwitchToggleEl && symbolSwitchPopoverEl) {
+        symbolSwitchToggleEl.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          setSymbolPopoverOpen(symbolSwitchPopoverEl.classList.contains('hidden'));
+        });
+        symbolOptionEls.forEach(function(btn) {
+          btn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            const code = btn.getAttribute('data-symbol-code');
+            applySymbolSelection(code);
+            setSymbolPopoverOpen(false);
+          });
+        });
+        document.addEventListener('click', function(ev) {
+          if (symbolSwitchPopoverEl.classList.contains('hidden')) return;
+          const target = ev.target;
+          if (symbolSwitchWrapEl && symbolSwitchWrapEl.contains(target)) return;
+          setSymbolPopoverOpen(false);
+        });
+        document.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Escape') setSymbolPopoverOpen(false);
+        });
+      }
+      syncSymbolSwitchUi();
+      syncContentHeader(activeViewName);
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
           switchView(normalizeViewTarget(btn.getAttribute('data-view-target')));
@@ -1368,7 +1536,7 @@ const HTML = `<!DOCTYPE html>
         const miniBars = getMiniBars();
         drawTopMiniKline(miniBars);
         if (miniKlineMainEl) {
-          miniKlineMainEl.textContent = 'BTC ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
+          miniKlineMainEl.textContent = activeSymbolCode + ' ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
         }
         const miniChange = miniChangePctFromBars(miniBars);
         if (miniKlineSubEl) {
