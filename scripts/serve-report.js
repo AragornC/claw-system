@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,7 @@ const JSON_BODY_LIMIT = 64 * 1024;
 const REPORT_DECISIONS_PATH = path.resolve(REPORT_DIR, 'decisions.json');
 const REPORT_ORDERS_PATH = path.resolve(REPORT_DIR, 'orders.json');
 const REPORT_OHLCV_PATH = path.resolve(REPORT_DIR, 'ohlcv.json');
+const TRADES_JSONL_PATH = path.resolve(WORKDIR, 'memory/bitget-perp-autotrade-trades.jsonl');
 const OPENCLAW_CONTEXT_MAX_DECISIONS = positiveInt(process.env.OPENCLAW_CONTEXT_MAX_DECISIONS, 36);
 const OPENCLAW_CONTEXT_TIMELINE_EVENTS = positiveInt(
   process.env.OPENCLAW_CONTEXT_TIMELINE_EVENTS,
@@ -101,6 +103,65 @@ if (!TELEGRAM_PUSH_EVENTS.size) {
   TELEGRAM_PUSH_EVENTS.add('close');
   TELEGRAM_PUSH_EVENTS.add('risk');
 }
+const TELEGRAM_POLL_LOCK_KEY = TELEGRAM_ENABLED
+  ? createHash('sha1').update(TELEGRAM_BOT_TOKEN, 'utf8').digest('hex').slice(0, 12)
+  : 'disabled';
+const TELEGRAM_POLL_LOCK_PATH = path.resolve(WORKDIR, 'memory/.telegram-poll.' + TELEGRAM_POLL_LOCK_KEY + '.lock');
+const TELEGRAM_POLL_LOCK_STALE_MS = Math.max(
+  20_000,
+  positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_LOCK_STALE_MS, 180_000),
+);
+
+const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
+const TRADER_SHORT_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory-short.json');
+const TRADER_PROFILE_PATH = path.resolve(WORKDIR, 'memory/trader-mid-profile.json');
+const STRATEGY_WEIGHTS_PATH = path.resolve(WORKDIR, 'memory/strategy-feedback-weights.json');
+const TRADER_MEMORY_MAX_ITEMS = Math.max(
+  200,
+  positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
+);
+const TRADER_SHORT_MEMORY_MAX_ITEMS = Math.max(
+  20,
+  positiveInt(process.env.THUNDERCLAW_MEMORY_SHORT_MAX_ITEMS, 120),
+);
+const TRADER_MEMORY_RETRIEVE_TOPK = Math.max(
+  2,
+  Math.min(20, positiveInt(process.env.THUNDERCLAW_MEMORY_RETRIEVE_TOPK, 8)),
+);
+const TRADER_MEMORY_RECENT_WINDOW = Math.max(
+  20,
+  positiveInt(process.env.THUNDERCLAW_MEMORY_RECENT_WINDOW, 200),
+);
+const TRADER_MEMORY_VECTOR_DIM = Math.max(
+  32,
+  Math.min(512, positiveInt(process.env.THUNDERCLAW_MEMORY_VECTOR_DIM, 128)),
+);
+const TRADER_MEMORY_SHORT_RETRIEVE_TOPK = Math.max(
+  2,
+  Math.min(16, positiveInt(process.env.THUNDERCLAW_MEMORY_SHORT_RETRIEVE_TOPK, 6)),
+);
+const TRADER_MID_TOP_STRATEGIES = Math.max(
+  2,
+  Math.min(12, positiveInt(process.env.THUNDERCLAW_MEMORY_MID_TOP_STRATEGIES, 6)),
+);
+const STRATEGY_FEEDBACK_LR = Math.max(
+  0.02,
+  Math.min(1, Number(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_LR || '0.16')),
+);
+const STRATEGY_FEEDBACK_MIN_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_MIN_WEIGHT || '-1.5');
+const STRATEGY_FEEDBACK_MAX_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_MAX_WEIGHT || '1.5');
+const STRATEGY_FEEDBACK_TRADE_PNL_SCALE = Math.max(
+  0.001,
+  Number(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_TRADE_PNL_SCALE || '0.01'),
+);
+const STRATEGY_FEEDBACK_SCAN_LIMIT = Math.max(
+  100,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_SCAN_LIMIT, 1200),
+);
+const STRATEGY_FEEDBACK_PROCESSED_MAX = Math.max(
+  200,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_PROCESSED_MAX, 6000),
+);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -117,9 +178,34 @@ let telegramEventSeq = 0;
 const telegramEvents = [];
 let telegramPollTimer = null;
 let telegramTradePushTimer = null;
+let telegramPollLockFd = null;
+let telegramPollLockAcquired = false;
 const telegramKnownChatIds = new Set();
 const telegramTradeKnownEventKeys = new Set();
 const telegramTradeSentAck = new Set();
+const traderMemoryState = {
+  loaded: false,
+  linesRead: 0,
+  entries: [],
+  keys: new Set(),
+  lastLoadAt: null,
+};
+const shortTermMemoryState = {
+  loaded: false,
+  items: [],
+  lastSavedAt: null,
+};
+const strategyFeedbackState = {
+  loaded: false,
+  processedTradeKeys: new Set(),
+  strategies: {},
+  lastLearnAt: null,
+  lastSavedAt: null,
+};
+const midTermMemoryState = {
+  profile: null,
+  lastBuiltAt: null,
+};
 const telegramState = {
   enabled: TELEGRAM_ENABLED,
   pollActive: false,
@@ -131,6 +217,17 @@ const telegramState = {
   lastUpdateId: null,
   droppedUpdates: 0,
   allowedChatIds: Array.from(TELEGRAM_ALLOWED_CHAT_IDS),
+  pollLock: {
+    path: TELEGRAM_POLL_LOCK_PATH,
+    acquired: false,
+    ownerPid: null,
+    reason: null,
+  },
+  conflicts: {
+    count: 0,
+    lastAt: null,
+    lastMessage: null,
+  },
   push: {
     enabled: TELEGRAM_ENABLED && TELEGRAM_PUSH_TRADES,
     events: Array.from(TELEGRAM_PUSH_EVENTS),
@@ -163,6 +260,10 @@ function nowIso() {
 function safeErrMsg(err, fallback = 'unknown error') {
   const msg = String(err?.message || err || fallback).trim();
   return truncText(msg || fallback, 320);
+}
+
+function sha1(textLike) {
+  return createHash('sha1').update(String(textLike || ''), 'utf8').digest('hex');
 }
 
 function fmtTsForMsg(tsLike) {
@@ -247,6 +348,1001 @@ function writeEnvLocal(updates) {
 function readEnvLocalPairs() {
   const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
   return parseEnvPairs(raw).pairs;
+}
+
+function isPidAlive(pidLike) {
+  const pid = Number(pidLike);
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readTelegramPollLockFile() {
+  try {
+    if (!fs.existsSync(TELEGRAM_POLL_LOCK_PATH)) return null;
+    const raw = fs.readFileSync(TELEGRAM_POLL_LOCK_PATH, 'utf8');
+    if (!String(raw || '').trim()) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function releaseTelegramPollLock() {
+  if (!telegramPollLockAcquired) return;
+  telegramPollLockAcquired = false;
+  telegramState.pollLock.acquired = false;
+  telegramState.pollLock.ownerPid = null;
+  telegramState.pollLock.reason = 'released';
+  try {
+    if (telegramPollLockFd != null) fs.closeSync(telegramPollLockFd);
+  } catch {}
+  telegramPollLockFd = null;
+  try {
+    if (fs.existsSync(TELEGRAM_POLL_LOCK_PATH)) fs.unlinkSync(TELEGRAM_POLL_LOCK_PATH);
+  } catch {}
+}
+
+function acquireTelegramPollLock() {
+  if (!TELEGRAM_ENABLED) return false;
+  const tokenHash = sha1(TELEGRAM_BOT_TOKEN).slice(0, 14);
+  fs.mkdirSync(path.dirname(TELEGRAM_POLL_LOCK_PATH), { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      const fd = fs.openSync(TELEGRAM_POLL_LOCK_PATH, 'wx', 0o600);
+      const payload = {
+        pid: process.pid,
+        tokenHash,
+        startedAt: Date.now(),
+      };
+      fs.writeFileSync(fd, JSON.stringify(payload), 'utf8');
+      telegramPollLockFd = fd;
+      telegramPollLockAcquired = true;
+      telegramState.pollLock.acquired = true;
+      telegramState.pollLock.ownerPid = process.pid;
+      telegramState.pollLock.reason = null;
+      return true;
+    } catch (err) {
+      if (String(err?.code || '') !== 'EEXIST') break;
+      const existing = readTelegramPollLockFile();
+      const ownerPid = Number(existing?.pid);
+      const ownerToken = String(existing?.tokenHash || '');
+      const startedAt = Number(existing?.startedAt || 0);
+      const staleByPid = !isPidAlive(ownerPid);
+      const staleByTime = startedAt > 0 && Date.now() - startedAt > TELEGRAM_POLL_LOCK_STALE_MS;
+      const sameToken = ownerToken && ownerToken === tokenHash;
+      if ((sameToken && (staleByPid || staleByTime)) || (!ownerToken && staleByTime)) {
+        try { fs.unlinkSync(TELEGRAM_POLL_LOCK_PATH); } catch {}
+        continue;
+      }
+      telegramState.pollLock.acquired = false;
+      telegramState.pollLock.ownerPid = Number.isFinite(ownerPid) ? ownerPid : null;
+      telegramState.pollLock.reason = 'busy';
+      return false;
+    }
+  }
+  telegramState.pollLock.acquired = false;
+  telegramState.pollLock.ownerPid = null;
+  telegramState.pollLock.reason = 'error';
+  return false;
+}
+
+function registerProcessCleanupHooks() {
+  const once = (fn) => {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+  };
+  const cleanup = once(() => {
+    releaseTelegramPollLock();
+  });
+  process.once('exit', cleanup);
+  process.once('SIGINT', () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    cleanup();
+    process.exit(143);
+  });
+}
+
+function redactSecrets(textLike) {
+  let text = String(textLike || '');
+  text = text.replace(/\bsk-[A-Za-z0-9\-_]{10,}\b/g, '[REDACTED_API_KEY]');
+  text = text.replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]');
+  text = text.replace(/\bbg_[A-Za-z0-9]{10,}\b/g, '[REDACTED_BITGET_KEY]');
+  text = text.replace(/\b[a-fA-F0-9]{48,}\b/g, '[REDACTED_SECRET]');
+  return truncText(text, 3500);
+}
+
+function tokenizeMemoryText(textLike) {
+  const text = String(textLike || '').toLowerCase();
+  const tokens = [];
+  const reWord = /[a-z0-9_/\-]{2,}/g;
+  let m;
+  while ((m = reWord.exec(text)) != null) {
+    tokens.push(m[0]);
+  }
+  const cjkSegments = text.match(/[\u4e00-\u9fa5]{2,}/g) || [];
+  for (const seg of cjkSegments) {
+    if (seg.length <= 2) {
+      tokens.push(seg);
+      continue;
+    }
+    for (let i = 0; i < seg.length - 1; i++) {
+      tokens.push(seg.slice(i, i + 2));
+    }
+  }
+  return Array.from(new Set(tokens)).slice(0, 220);
+}
+
+function inferMemoryTags(textLike) {
+  const text = String(textLike || '').toLowerCase();
+  const tags = [];
+  if (/btc|比特币|xbt/.test(text)) tags.push('btc');
+  if (/eth|以太坊/.test(text)) tags.push('eth');
+  if (/sol/.test(text)) tags.push('sol');
+  if (/风控|止损|回撤|risk|drawdown/.test(text)) tags.push('risk');
+  if (/开仓|平仓|加仓|减仓|仓位|trade|order/.test(text)) tags.push('trade');
+  if (/策略|信号|虾策|回测|backtest/.test(text)) tags.push('strategy');
+  if (/虾线|k线|kline|candl/.test(text)) tags.push('kline');
+  if (/telegram|tg/.test(text)) tags.push('telegram');
+  if (/简短|简洁|直接/.test(text)) tags.push('brief-style');
+  if (/详细|展开|解释/.test(text)) tags.push('detailed-style');
+  return Array.from(new Set(tags)).slice(0, 8);
+}
+
+function tokenVecIndex(token) {
+  const hex = sha1(token).slice(0, 8);
+  const n = Number.parseInt(hex, 16);
+  if (!Number.isFinite(n)) return 0;
+  return n % TRADER_MEMORY_VECTOR_DIM;
+}
+
+function buildSparseVector(tokensLike) {
+  const counts = new Map();
+  const tokens = Array.isArray(tokensLike) ? tokensLike : [];
+  for (const t of tokens) {
+    const idx = tokenVecIndex(String(t || ''));
+    counts.set(idx, (counts.get(idx) || 0) + 1);
+  }
+  const list = Array.from(counts.entries())
+    .map(([idx, value]) => [idx, value])
+    .sort((a, b) => a[0] - b[0]);
+  return list;
+}
+
+function sparseVecCosine(aLike, bLike) {
+  const a = Array.isArray(aLike) ? aLike : [];
+  const b = Array.isArray(bLike) ? bLike : [];
+  if (!a.length || !b.length) return 0;
+  let i = 0;
+  let j = 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (const [, v] of a) na += Number(v || 0) ** 2;
+  for (const [, v] of b) nb += Number(v || 0) ** 2;
+  while (i < a.length && j < b.length) {
+    const ai = Number(a[i]?.[0]);
+    const bi = Number(b[j]?.[0]);
+    if (ai === bi) {
+      dot += Number(a[i]?.[1] || 0) * Number(b[j]?.[1] || 0);
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (ai < bi) i += 1;
+    else j += 1;
+  }
+  if (na <= 0 || nb <= 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+function safeJsonWrite(filePath, value, pretty = true) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const tmpPath = filePath + '.tmp-' + process.pid + '-' + String(Math.random()).slice(2, 7);
+    const text = pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value);
+    fs.writeFileSync(tmpPath, text + '\n', 'utf8');
+    fs.renameSync(tmpPath, filePath);
+    try { fs.chmodSync(filePath, 0o600); } catch {}
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readJsonlFile(filePath, maxLines = 1000) {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const lines = String(raw || '').split(/\r?\n/).filter(Boolean);
+    const tail = lines.slice(-Math.max(1, maxLines));
+    const out = [];
+    for (const line of tail) {
+      try {
+        const row = JSON.parse(line);
+        if (row && typeof row === 'object') out.push(row);
+      } catch {}
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function knownStrategyNames() {
+  return ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'manual'];
+}
+
+function normalizeStrategyName(nameLike) {
+  const raw = String(nameLike || '').trim().toLowerCase();
+  if (!raw) return null;
+  const alias = {
+    hybrid: 'v5_hybrid',
+    'v5 hybrid': 'v5_hybrid',
+    'v5-hybrid': 'v5_hybrid',
+    retest: 'v5_retest',
+    'v5 retest': 'v5_retest',
+    'v5-retest': 'v5_retest',
+    reentry: 'v5_reentry',
+    'v5 reentry': 'v5_reentry',
+    'v5-reentry': 'v5_reentry',
+    breakout: 'v4_breakout',
+    'v4 breakout': 'v4_breakout',
+    'v4-breakout': 'v4_breakout',
+    手动: 'manual',
+    人工: 'manual',
+    manual: 'manual',
+  };
+  if (alias[raw]) return alias[raw];
+  if (knownStrategyNames().includes(raw)) return raw;
+  if (/^v\d+_[a-z0-9_]+$/.test(raw)) return raw;
+  return null;
+}
+
+function detectStrategyFromText(textLike, fallback = null) {
+  const text = String(textLike || '');
+  if (!text.trim()) return fallback;
+  const direct = text.match(/\b(v5_hybrid|v5_retest|v5_reentry|v4_breakout)\b/i);
+  if (direct) return normalizeStrategyName(direct[1]) || fallback;
+  const lower = text.toLowerCase();
+  if (/v5\s*retest|突破回踩|retest/.test(lower)) return 'v5_retest';
+  if (/v5\s*reentry|趋势再入|reentry/.test(lower)) return 'v5_reentry';
+  if (/v4|donchian|breakout|突破策略/.test(lower)) return 'v4_breakout';
+  if (/手动|manual/.test(lower)) return 'manual';
+  return fallback;
+}
+
+function clampStrategyWeight(value) {
+  const maxW = Number.isFinite(STRATEGY_FEEDBACK_MAX_WEIGHT) ? STRATEGY_FEEDBACK_MAX_WEIGHT : 1.5;
+  const minW = Number.isFinite(STRATEGY_FEEDBACK_MIN_WEIGHT) ? STRATEGY_FEEDBACK_MIN_WEIGHT : -1.5;
+  return clampNum(Number(value) || 0, Math.min(minW, maxW), Math.max(minW, maxW)) || 0;
+}
+
+function loadShortTermMemory() {
+  if (shortTermMemoryState.loaded) return;
+  shortTermMemoryState.loaded = true;
+  const parsed = safeJsonRead(TRADER_SHORT_MEMORY_PATH, { items: [] });
+  const items = Array.isArray(parsed?.items)
+    ? parsed.items
+    : Array.isArray(parsed)
+      ? parsed
+      : [];
+  shortTermMemoryState.items = items
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => ({
+      id: x.id || null,
+      ts: x.ts || null,
+      channel: x.channel || null,
+      role: x.role || null,
+      kind: x.kind || 'note',
+      text: truncText(redactSecrets(x.text || ''), 320),
+      tags: Array.isArray(x.tags) ? x.tags.map((t) => String(t)).slice(0, 10) : [],
+      strategy: normalizeStrategyName(x.strategy) || null,
+      tokens: Array.isArray(x.tokens)
+        ? x.tokens.map((t) => String(t)).slice(0, 180)
+        : tokenizeMemoryText(String(x.text || '')).slice(0, 180),
+    }))
+    .slice(-TRADER_SHORT_MEMORY_MAX_ITEMS);
+}
+
+function saveShortTermMemory() {
+  loadShortTermMemory();
+  const ok = safeJsonWrite(
+    TRADER_SHORT_MEMORY_PATH,
+    {
+      updatedAt: nowIso(),
+      items: shortTermMemoryState.items.slice(-TRADER_SHORT_MEMORY_MAX_ITEMS),
+    },
+    false,
+  );
+  if (ok) shortTermMemoryState.lastSavedAt = nowIso();
+}
+
+function appendShortTermMemory(itemLike) {
+  loadShortTermMemory();
+  const item = itemLike && typeof itemLike === 'object' ? itemLike : {};
+  const text = truncText(redactSecrets(item.text || ''), 320);
+  if (!text) return null;
+  const record = {
+    id: String(Date.now()) + '-' + String(Math.random()).slice(2, 8),
+    ts: item.ts || nowIso(),
+    channel: item.channel || 'system',
+    role: item.role || 'system',
+    kind: item.kind || 'note',
+    text,
+    tags: Array.isArray(item.tags) ? item.tags.map((t) => String(t)).slice(0, 10) : [],
+    strategy: normalizeStrategyName(item.strategy) || detectStrategyFromText(text, null),
+  };
+  record.tokens = tokenizeMemoryText(
+    [record.text, Array.isArray(record.tags) ? record.tags.join(' ') : '', record.strategy || ''].join(' '),
+  ).slice(0, 180);
+  shortTermMemoryState.items.push(record);
+  if (shortTermMemoryState.items.length > TRADER_SHORT_MEMORY_MAX_ITEMS) {
+    shortTermMemoryState.items = shortTermMemoryState.items.slice(-TRADER_SHORT_MEMORY_MAX_ITEMS);
+  }
+  saveShortTermMemory();
+  return record;
+}
+
+function syncShortTermFromLongRecord(recordLike) {
+  const r = recordLike && typeof recordLike === 'object' ? recordLike : null;
+  if (!r) return;
+  const tags = Array.isArray(r.tags) ? r.tags.map((x) => String(x)) : [];
+  const role = tags.includes('assistant')
+    ? 'assistant'
+    : tags.includes('user')
+      ? 'user'
+      : r.kind === 'trade_outcome' || r.kind === 'strategy_feedback'
+        ? 'system'
+        : 'system';
+  appendShortTermMemory({
+    ts: r.ts || nowIso(),
+    channel: r.channel || 'system',
+    role,
+    kind: r.kind || 'note',
+    text: String(r.content || ''),
+    tags,
+    strategy: detectStrategyFromText(r.content || '', null),
+  });
+}
+
+function retrieveShortTermMemory(query, limit = TRADER_MEMORY_SHORT_RETRIEVE_TOPK) {
+  loadShortTermMemory();
+  const qText = redactSecrets(query || '');
+  const qTokens = tokenizeMemoryText(qText);
+  const now = Date.now();
+  const maxN = Math.max(1, Math.min(24, Number(limit) || TRADER_MEMORY_SHORT_RETRIEVE_TOPK));
+  const ranked = [];
+  for (const e of shortTermMemoryState.items) {
+    const tokens = Array.isArray(e.tokens) ? e.tokens : [];
+    let score = 0;
+    if (qText && String(e.text || '').toLowerCase().includes(qText.toLowerCase())) score += 4;
+    for (const t of qTokens) {
+      if (tokens.includes(t)) score += 1;
+    }
+    const ageMs = Math.max(0, now - (toMs(e.ts) || now));
+    score += Math.max(0, 1.5 - ageMs / (6 * 3600 * 1000));
+    if (score <= 0.1) continue;
+    ranked.push({ score, e });
+  }
+  ranked.sort((a, b) => b.score - a.score || (toMs(b.e.ts) || 0) - (toMs(a.e.ts) || 0));
+  return ranked.slice(0, maxN).map((x) => ({
+    ts: x.e.ts || null,
+    channel: x.e.channel || null,
+    role: x.e.role || null,
+    kind: x.e.kind || null,
+    text: truncText(String(x.e.text || ''), 260),
+    tags: Array.isArray(x.e.tags) ? x.e.tags.slice(0, 8) : [],
+    strategy: x.e.strategy || null,
+    score: Number(x.score.toFixed(3)),
+  }));
+}
+
+function buildShortTermSnapshot(queryText) {
+  loadShortTermMemory();
+  const recent = shortTermMemoryState.items.slice(-10).map((x) => ({
+    ts: x.ts || null,
+    channel: x.channel || null,
+    role: x.role || null,
+    kind: x.kind || null,
+    text: truncText(String(x.text || ''), 220),
+    strategy: x.strategy || null,
+  }));
+  return {
+    recent,
+    relevant: retrieveShortTermMemory(queryText, TRADER_MEMORY_SHORT_RETRIEVE_TOPK),
+    totalItems: shortTermMemoryState.items.length,
+  };
+}
+
+function defaultStrategyFeedbackRecord(strategy) {
+  return {
+    strategy,
+    weight: 0,
+    scoreEma: 0,
+    tradeCount: 0,
+    feedbackCount: 0,
+    wins: 0,
+    losses: 0,
+    avgPnlUSDT: 0,
+    lastPnlUSDT: null,
+    lastReward: 0,
+    lastSource: null,
+    lastReason: null,
+    lastUpdatedAt: null,
+  };
+}
+
+function loadStrategyFeedbackState() {
+  if (strategyFeedbackState.loaded) return;
+  strategyFeedbackState.loaded = true;
+  const parsed = safeJsonRead(STRATEGY_WEIGHTS_PATH, {});
+  const processed = Array.isArray(parsed?.processedTradeKeys)
+    ? parsed.processedTradeKeys.map((x) => String(x)).filter(Boolean)
+    : [];
+  strategyFeedbackState.processedTradeKeys = new Set(processed.slice(-STRATEGY_FEEDBACK_PROCESSED_MAX));
+  const source = parsed?.strategies && typeof parsed.strategies === 'object' ? parsed.strategies : {};
+  const out = {};
+  for (const [key, value] of Object.entries(source)) {
+    const strategy = normalizeStrategyName(key);
+    if (!strategy) continue;
+    const base = defaultStrategyFeedbackRecord(strategy);
+    const v = value && typeof value === 'object' ? value : {};
+    out[strategy] = {
+      ...base,
+      weight: clampStrategyWeight(v.weight),
+      scoreEma: clampNum(v.scoreEma, -1, 1) || 0,
+      tradeCount: Math.max(0, Number(v.tradeCount) || 0),
+      feedbackCount: Math.max(0, Number(v.feedbackCount) || 0),
+      wins: Math.max(0, Number(v.wins) || 0),
+      losses: Math.max(0, Number(v.losses) || 0),
+      avgPnlUSDT: Number(v.avgPnlUSDT) || 0,
+      lastPnlUSDT: Number.isFinite(Number(v.lastPnlUSDT)) ? Number(v.lastPnlUSDT) : null,
+      lastReward: clampNum(v.lastReward, -1, 1) || 0,
+      lastSource: v.lastSource || null,
+      lastReason: v.lastReason || null,
+      lastUpdatedAt: v.lastUpdatedAt || null,
+    };
+  }
+  knownStrategyNames().forEach((name) => {
+    if (!out[name]) out[name] = defaultStrategyFeedbackRecord(name);
+  });
+  strategyFeedbackState.strategies = out;
+  strategyFeedbackState.lastLearnAt = parsed?.lastLearnAt || null;
+}
+
+function saveStrategyFeedbackState() {
+  loadStrategyFeedbackState();
+  const payload = {
+    version: 1,
+    updatedAt: nowIso(),
+    lastLearnAt: strategyFeedbackState.lastLearnAt || null,
+    processedTradeKeys: Array.from(strategyFeedbackState.processedTradeKeys).slice(-STRATEGY_FEEDBACK_PROCESSED_MAX),
+    strategies: strategyFeedbackState.strategies,
+  };
+  const ok = safeJsonWrite(STRATEGY_WEIGHTS_PATH, payload, true);
+  if (ok) strategyFeedbackState.lastSavedAt = nowIso();
+}
+
+function trimStrategyFeedbackState() {
+  const keys = Array.from(strategyFeedbackState.processedTradeKeys);
+  if (keys.length > STRATEGY_FEEDBACK_PROCESSED_MAX) {
+    strategyFeedbackState.processedTradeKeys = new Set(keys.slice(-STRATEGY_FEEDBACK_PROCESSED_MAX));
+  }
+}
+
+function ensureStrategyFeedbackRecord(strategyLike) {
+  loadStrategyFeedbackState();
+  const strategy = normalizeStrategyName(strategyLike) || 'v5_hybrid';
+  if (!strategyFeedbackState.strategies[strategy]) {
+    strategyFeedbackState.strategies[strategy] = defaultStrategyFeedbackRecord(strategy);
+  }
+  return strategyFeedbackState.strategies[strategy];
+}
+
+function strategyConfidence(rec) {
+  const tradeCount = Math.max(0, Number(rec?.tradeCount) || 0);
+  const feedbackCount = Math.max(0, Number(rec?.feedbackCount) || 0);
+  return clampNum((tradeCount + feedbackCount * 1.5) / 12, 0, 1) || 0;
+}
+
+function applyStrategyReward(updateLike) {
+  loadStrategyFeedbackState();
+  const u = updateLike && typeof updateLike === 'object' ? updateLike : {};
+  const strategy = normalizeStrategyName(u.strategy) || 'v5_hybrid';
+  const reward = clampNum(Number(u.reward), -1, 1);
+  if (!Number.isFinite(reward)) return { ok: false, reason: 'invalid_reward' };
+  const tradeKey = u.tradeKey ? String(u.tradeKey) : null;
+  if (tradeKey && strategyFeedbackState.processedTradeKeys.has(tradeKey)) {
+    return { ok: true, applied: false, strategy, reward, duplicate: true };
+  }
+  const rec = ensureStrategyFeedbackRecord(strategy);
+  const oldWeight = Number(rec.weight) || 0;
+  const nextWeight = clampStrategyWeight(oldWeight * (1 - STRATEGY_FEEDBACK_LR * 0.12) + STRATEGY_FEEDBACK_LR * reward);
+  rec.weight = nextWeight;
+  rec.scoreEma = clampNum((Number(rec.scoreEma) || 0) * 0.88 + reward * 0.12, -1, 1) || 0;
+  rec.lastReward = reward;
+  rec.lastSource = u.source || 'unknown';
+  rec.lastReason = truncText(String(u.reason || ''), 220) || null;
+  rec.lastUpdatedAt = u.ts || nowIso();
+  if (u.source === 'trade') {
+    rec.tradeCount = Math.max(0, Number(rec.tradeCount) || 0) + 1;
+    const pnl = toNum(u.pnlUSDT);
+    if (pnl != null) {
+      rec.lastPnlUSDT = pnl;
+      const n = rec.tradeCount;
+      rec.avgPnlUSDT = n <= 1 ? pnl : ((Number(rec.avgPnlUSDT) || 0) * (n - 1) + pnl) / n;
+      if (pnl >= 0) rec.wins = Math.max(0, Number(rec.wins) || 0) + 1;
+      else rec.losses = Math.max(0, Number(rec.losses) || 0) + 1;
+    }
+  } else {
+    rec.feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0) + 1;
+  }
+  if (tradeKey) strategyFeedbackState.processedTradeKeys.add(tradeKey);
+  trimStrategyFeedbackState();
+  saveStrategyFeedbackState();
+  return {
+    ok: true,
+    applied: true,
+    strategy,
+    reward,
+    oldWeight: Number(oldWeight.toFixed(4)),
+    newWeight: Number(nextWeight.toFixed(4)),
+    confidence: Number(strategyConfidence(rec).toFixed(3)),
+  };
+}
+
+function resolveStrategyFromTrade(openEvent, closeEvent) {
+  const openReason = String(openEvent?.meta?.reason || '').trim();
+  const closeReason = String(closeEvent?.reason || '').trim();
+  const level = String(openEvent?.level || closeEvent?.level || '').trim();
+  return (
+    detectStrategyFromText(openReason, null) ||
+    detectStrategyFromText(closeReason, null) ||
+    detectStrategyFromText(level, null) ||
+    'v5_hybrid'
+  );
+}
+
+function rewardFromTradeOutcome(pnlUSDT, closeReasonLike) {
+  const pnl = toNum(pnlUSDT);
+  const closeReason = String(closeReasonLike || '').toLowerCase();
+  if (pnl == null) {
+    if (/liquidat|强平|爆仓/.test(closeReason)) return -0.9;
+    return 0;
+  }
+  let reward = Math.tanh(pnl / STRATEGY_FEEDBACK_TRADE_PNL_SCALE);
+  if (/liquidat|强平|爆仓/.test(closeReason)) reward -= 0.35;
+  if (/manual|手动/.test(closeReason)) reward -= 0.08;
+  return clampNum(reward, -1, 1) || 0;
+}
+
+function learnStrategyWeightsFromTrades() {
+  loadStrategyFeedbackState();
+  const rows = readJsonlFile(TRADES_JSONL_PATH, STRATEGY_FEEDBACK_SCAN_LIMIT * 3);
+  if (!rows.length) return { applied: 0, scanned: 0, skipped: 0 };
+  const opensByOrderId = new Map();
+  for (const r of rows) {
+    if (String(r?.event || '').toLowerCase() !== 'open') continue;
+    if (r?.orderId == null) continue;
+    opensByOrderId.set(String(r.orderId), r);
+  }
+  const closes = rows
+    .filter((r) => String(r?.event || '').toLowerCase() === 'close')
+    .slice(-STRATEGY_FEEDBACK_SCAN_LIMIT);
+  let applied = 0;
+  let skipped = 0;
+  for (const close of closes) {
+    const tsMs = toMs(close?.tsUtc || close?.ts || close?.tsLocal) || 0;
+    const openOrderId = close?.openOrderId != null ? String(close.openOrderId) : '';
+    const closeOrderId = close?.closeOrderId != null ? String(close.closeOrderId) : '';
+    const tradeKey = ['trade-close', closeOrderId || '-', openOrderId || '-', String(tsMs)].join(':');
+    if (strategyFeedbackState.processedTradeKeys.has(tradeKey)) {
+      skipped += 1;
+      continue;
+    }
+    const open = openOrderId ? opensByOrderId.get(openOrderId) : null;
+    const strategy = resolveStrategyFromTrade(open, close);
+    const pnlUSDT = toNum(close?.pnlEstUSDT);
+    const reward = rewardFromTradeOutcome(pnlUSDT, close?.reason);
+    const updated = applyStrategyReward({
+      strategy,
+      reward,
+      source: 'trade',
+      reason: String(open?.meta?.reason || close?.reason || '').trim(),
+      ts: close?.tsUtc || close?.ts || nowIso(),
+      pnlUSDT,
+      tradeKey,
+    });
+    if (updated?.applied) {
+      applied += 1;
+      appendTraderMemory({
+        key: 'strategy-trade-feedback:' + tradeKey,
+        ts: close?.tsUtc || close?.ts || nowIso(),
+        kind: 'strategy_feedback',
+        channel: 'system',
+        tags: ['strategy', 'trade_feedback', strategy],
+        content: [
+          '策略反馈(交易结果)',
+          'strategy=' + strategy,
+          'reward=' + String(Number(reward).toFixed(4)),
+          'pnl=' + (pnlUSDT == null ? '-' : String(Number(pnlUSDT).toFixed(6)) + 'U'),
+          'closeReason=' + String(close?.reason || '-'),
+        ].join(' | '),
+      });
+    }
+  }
+  strategyFeedbackState.lastLearnAt = nowIso();
+  saveStrategyFeedbackState();
+  return { applied, scanned: closes.length, skipped };
+}
+
+function buildStrategyWeightsRanking(limit = TRADER_MID_TOP_STRATEGIES) {
+  loadStrategyFeedbackState();
+  const list = Object.values(strategyFeedbackState.strategies || {});
+  const rows = list.map((rec) => {
+    const tradeCount = Math.max(0, Number(rec.tradeCount) || 0);
+    const feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0);
+    const conf = strategyConfidence(rec);
+    const strength = (Number(rec.weight) || 0) * 0.75 + (Number(rec.scoreEma) || 0) * 0.25;
+    return {
+      strategy: rec.strategy,
+      weight: Number((Number(rec.weight) || 0).toFixed(4)),
+      scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+      confidence: Number(conf.toFixed(3)),
+      strength: Number(strength.toFixed(4)),
+      tradeCount,
+      feedbackCount,
+      wins: Math.max(0, Number(rec.wins) || 0),
+      losses: Math.max(0, Number(rec.losses) || 0),
+      winRate: tradeCount > 0 ? Number((Math.max(0, Number(rec.wins) || 0) / tradeCount).toFixed(3)) : null,
+      avgPnlUSDT: Number((Number(rec.avgPnlUSDT) || 0).toFixed(6)),
+      lastUpdatedAt: rec.lastUpdatedAt || null,
+      lastReason: rec.lastReason || null,
+    };
+  });
+  rows.sort((a, b) => b.strength - a.strength || b.confidence - a.confidence || b.tradeCount - a.tradeCount);
+  return rows.slice(0, Math.max(1, limit));
+}
+
+function parseStrategyFeedbackIntent(messageLike) {
+  const text = String(messageLike || '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const explicit = /^(反馈|策略反馈|strategy\s*feedback)\s*[:：]?\s*/i.test(text);
+  const hasStrategyWords = /(策略|strategy|v5_|v4_|retest|reentry|breakout|手动)/i.test(text);
+  if (!explicit && !hasStrategyWords) return null;
+
+  let strategy =
+    normalizeStrategyName((text.match(/\b(v5_hybrid|v5_retest|v5_reentry|v4_breakout|manual)\b/i) || [])[1]) ||
+    detectStrategyFromText(text, null);
+  if (!strategy) {
+    const top = buildStrategyWeightsRanking(1)[0];
+    if (top?.strategy) strategy = top.strategy;
+  }
+  strategy = strategy || 'v5_hybrid';
+
+  let reward = null;
+  const numMatch = text.match(/(?:^|[\s:：,，])([+-]?\d+(?:\.\d+)?)(?=$|[\s,，。!！])/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    if (Number.isFinite(n)) {
+      reward = Math.abs(n) > 1 ? clampNum(n / 2, -1, 1) : clampNum(n, -1, 1);
+    }
+  }
+  if (reward == null) {
+    const positive = /(看好|很好|不错|有效|有用|收益|盈利|继续|增强|加强|喜欢|稳|牛|赚|good|great|works?)/i.test(
+      lower,
+    );
+    const negative = /(不好|很差|失效|无效|亏损|回撤|太激进|风险高|停用|减弱|削弱|讨厌|bad|poor|worse|loss)/i.test(
+      lower,
+    );
+    if (positive && !negative) reward = 0.55;
+    else if (negative && !positive) reward = -0.55;
+    else if (positive && negative) reward = -0.15;
+  }
+  if (reward == null) return explicit ? { explicit, strategy, reward: null } : null;
+  return {
+    explicit,
+    strategy,
+    reward: clampNum(reward, -1, 1) || 0,
+  };
+}
+
+function applyUserStrategyFeedback(messageLike, channel = 'dashboard') {
+  const intent = parseStrategyFeedbackIntent(messageLike);
+  if (!intent) return { handled: false };
+  if (intent.reward == null) {
+    return {
+      handled: Boolean(intent.explicit),
+      applied: false,
+      strategy: intent.strategy,
+      reason: 'missing_sentiment',
+      reply: '已识别为策略反馈，但未识别到正/负方向。可发：反馈 v5_retest +0.6',
+    };
+  }
+  const updated = applyStrategyReward({
+    strategy: intent.strategy,
+    reward: intent.reward,
+    source: 'feedback',
+    reason: String(messageLike || '').slice(0, 240),
+    ts: nowIso(),
+  });
+  if (updated?.applied) {
+    appendTraderMemory({
+      key: 'strategy-user-feedback:' + sha1(String(messageLike || '') + ':' + String(Date.now())).slice(0, 20),
+      ts: nowIso(),
+      kind: 'strategy_feedback',
+      channel,
+      tags: ['strategy', 'user_feedback', intent.strategy],
+      content:
+        '策略反馈(用户) | strategy=' +
+        intent.strategy +
+        ' | reward=' +
+        String(Number(intent.reward).toFixed(4)) +
+        ' | text=' +
+        redactSecrets(messageLike),
+    });
+  }
+  const rec = buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES).find((x) => x.strategy === intent.strategy);
+  return {
+    handled: true,
+    applied: Boolean(updated?.applied),
+    explicit: Boolean(intent.explicit),
+    strategy: intent.strategy,
+    reward: intent.reward,
+    weight: rec ? rec.weight : null,
+    confidence: rec ? rec.confidence : null,
+    reply:
+      '已记录策略反馈：' +
+      intent.strategy +
+      ' ' +
+      (intent.reward >= 0 ? '+' : '') +
+      Number(intent.reward).toFixed(2) +
+      '（当前权重=' +
+      (rec ? Number(rec.weight).toFixed(3) : '-') +
+      '）',
+  };
+}
+
+function buildMidTermMemoryProfile() {
+  learnStrategyWeightsFromTrades();
+  const longProfile = buildTraderProfileSummary();
+  const ranking = buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES);
+  const topTags = Array.isArray(longProfile?.topTags) ? longProfile.topTags : [];
+  const styleTag = topTags.find((x) => x.tag === 'brief-style' || x.tag === 'detailed-style');
+  const responseStyle = styleTag?.tag === 'brief-style' ? 'brief' : styleTag?.tag === 'detailed-style' ? 'detailed' : 'balanced';
+  const profile = {
+    updatedAt: nowIso(),
+    responseStyle,
+    preferredSymbols: Array.isArray(longProfile?.symbols) ? longProfile.symbols.slice(0, 4) : [],
+    topTags: topTags.slice(0, 8),
+    strategyWeights: ranking,
+    guidance: {
+      topStrategy: ranking[0]?.strategy || null,
+      keepRiskFirst: true,
+      summaryTone: responseStyle,
+    },
+  };
+  midTermMemoryState.profile = profile;
+  midTermMemoryState.lastBuiltAt = profile.updatedAt;
+  safeJsonWrite(TRADER_PROFILE_PATH, profile, true);
+  return profile;
+}
+
+function buildLayeredMemoryBundle(queryText) {
+  const q = String(queryText || '').trim();
+  const longProfile = buildTraderProfileSummary();
+  const longRelevant = retrieveTraderMemories(q, TRADER_MEMORY_RETRIEVE_TOPK);
+  const shortSnapshot = buildShortTermSnapshot(q);
+  const midProfile = buildMidTermMemoryProfile();
+  return {
+    profile: longProfile,
+    relevant: longRelevant,
+    layers: {
+      shortTerm: shortSnapshot,
+      midTerm: midProfile,
+      longTerm: {
+        profile: longProfile,
+        relevant: longRelevant,
+      },
+    },
+  };
+}
+
+function loadTraderMemory() {
+  if (traderMemoryState.loaded) return;
+  traderMemoryState.loaded = true;
+  traderMemoryState.entries = [];
+  traderMemoryState.keys = new Set();
+  try {
+    if (!fs.existsSync(TRADER_MEMORY_PATH)) return;
+    const raw = fs.readFileSync(TRADER_MEMORY_PATH, 'utf8');
+    const lines = String(raw || '').split(/\r?\n/).filter(Boolean);
+    const parsed = [];
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (!entry || typeof entry !== 'object') continue;
+        const content = redactSecrets(entry.content || '');
+        const normalized = {
+          id: entry.id || null,
+          key: entry.key || null,
+          ts: entry.ts || null,
+          kind: entry.kind || 'note',
+          channel: entry.channel || null,
+          content,
+          tags: Array.isArray(entry.tags) ? entry.tags.map((x) => String(x)).slice(0, 12) : [],
+          tokens: Array.isArray(entry.tokens)
+            ? entry.tokens.map((x) => String(x))
+            : tokenizeMemoryText(content + ' ' + (Array.isArray(entry.tags) ? entry.tags.join(' ') : '')),
+          vec: Array.isArray(entry.vec)
+            ? entry.vec
+                .map((pair) =>
+                  Array.isArray(pair) && pair.length >= 2
+                    ? [Number(pair[0]) || 0, Number(pair[1]) || 0]
+                    : null,
+                )
+                .filter(Boolean)
+            : null,
+        };
+        if (!normalized.vec || !normalized.vec.length) {
+          normalized.vec = buildSparseVector(normalized.tokens);
+        }
+        parsed.push(normalized);
+        if (normalized.key) traderMemoryState.keys.add(normalized.key);
+      } catch {}
+    }
+    traderMemoryState.entries = parsed.slice(-TRADER_MEMORY_MAX_ITEMS);
+    traderMemoryState.linesRead = traderMemoryState.entries.length;
+    traderMemoryState.lastLoadAt = nowIso();
+  } catch {}
+}
+
+function appendTraderMemory(entryLike) {
+  loadTraderMemory();
+  const entry = entryLike && typeof entryLike === 'object' ? entryLike : {};
+  const key = entry.key ? String(entry.key) : null;
+  if (key && traderMemoryState.keys.has(key)) return null;
+  const ts = entry.ts || nowIso();
+  const content = redactSecrets(entry.content || '');
+  if (!String(content || '').trim()) return null;
+  const explicitTags = Array.isArray(entry.tags) ? entry.tags.map((x) => String(x)).slice(0, 12) : [];
+  const tags = Array.from(new Set([...explicitTags, ...inferMemoryTags(content)])).slice(0, 12);
+  const record = {
+    id: String(Date.now()) + '-' + String(Math.random()).slice(2, 8),
+    key,
+    ts,
+    kind: entry.kind || 'note',
+    channel: entry.channel || null,
+    content,
+    tags,
+    tokens: tokenizeMemoryText(content + ' ' + tags.join(' ')).slice(0, 220),
+  };
+  record.vec = buildSparseVector(record.tokens);
+  try {
+    fs.mkdirSync(path.dirname(TRADER_MEMORY_PATH), { recursive: true });
+    fs.appendFileSync(TRADER_MEMORY_PATH, JSON.stringify(record) + '\n');
+  } catch {}
+  traderMemoryState.entries.push(record);
+  if (record.key) traderMemoryState.keys.add(record.key);
+  if (traderMemoryState.entries.length > TRADER_MEMORY_MAX_ITEMS) {
+    const keep = traderMemoryState.entries.slice(-TRADER_MEMORY_MAX_ITEMS);
+    traderMemoryState.entries = keep;
+    traderMemoryState.keys = new Set(keep.map((x) => x.key).filter(Boolean));
+  }
+  syncShortTermFromLongRecord(record);
+  return record;
+}
+
+function rememberTradeOutcomesToMemory() {
+  const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
+  const orders = normalizedOrdersFromPayload(ordersRaw).filter(Boolean);
+  const closed = orders.filter((o) => o?.closeTs).slice(-180);
+  for (const o of closed) {
+    const tradeId = o?.tradeId != null ? String(o.tradeId) : '-';
+    const cycleId = o?.cycleId != null ? String(o.cycleId) : '-';
+    const key = 'trade-close:' + tradeId + ':' + cycleId + ':' + String(toMs(o?.closeTs) || 0);
+    const pnl = toNum(o?.pnlEstUSDT);
+    const pnlTxt = pnl == null ? '-' : (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + 'U';
+    const content = [
+      '交易结果记录',
+      'trade=' + tradeId + ' cycle=' + cycleId,
+      'symbol=' + String(o?.symbol || '-') + ' side=' + sideCn(o?.side),
+      'open=' + fmtPriceNum(o?.openPrice, 2) + ' close=' + fmtPriceNum(o?.closePrice, 2),
+      'pnl=' + pnlTxt + ' reason=' + String(o?.closeReason || '-'),
+      'closeTs=' + String(o?.closeTs || '-'),
+    ].join(' | ');
+    appendTraderMemory({
+      key,
+      ts: o?.closeTs || nowIso(),
+      kind: 'trade_outcome',
+      channel: 'system',
+      tags: ['trade', 'outcome', String(o?.side || 'unknown')],
+      content,
+    });
+  }
+}
+
+function buildTraderProfileSummary() {
+  loadTraderMemory();
+  const recent = traderMemoryState.entries.slice(-TRADER_MEMORY_RECENT_WINDOW);
+  const tagCount = new Map();
+  const symCount = new Map();
+  let lastActiveAt = null;
+  for (const e of recent) {
+    const ts = toMs(e?.ts);
+    if (ts != null && (lastActiveAt == null || ts > lastActiveAt)) lastActiveAt = ts;
+    (Array.isArray(e?.tags) ? e.tags : []).forEach((t) => {
+      tagCount.set(t, (tagCount.get(t) || 0) + 1);
+    });
+    const text = String(e?.content || '').toUpperCase();
+    ['BTC', 'ETH', 'SOL'].forEach((sym) => {
+      if (text.includes(sym)) symCount.set(sym, (symCount.get(sym) || 0) + 1);
+    });
+  }
+  const topTags = Array.from(tagCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([tag, cnt]) => ({ tag, count: cnt }));
+  const symbols = Array.from(symCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([symbol, count]) => ({ symbol, count }));
+  return {
+    memoryItems: traderMemoryState.entries.length,
+    recentWindow: recent.length,
+    lastActiveAt: lastActiveAt != null ? new Date(lastActiveAt).toISOString() : null,
+    topTags,
+    symbols,
+  };
+}
+
+function retrieveTraderMemories(query, limit = TRADER_MEMORY_RETRIEVE_TOPK) {
+  loadTraderMemory();
+  rememberTradeOutcomesToMemory();
+  const queryText = redactSecrets(query || '');
+  const qTokens = tokenizeMemoryText(queryText);
+  const qVec = buildSparseVector(qTokens);
+  const now = Date.now();
+  const maxN = Math.max(1, Math.min(24, Number(limit) || TRADER_MEMORY_RETRIEVE_TOPK));
+  const ranked = [];
+  const pool = traderMemoryState.entries.slice(-Math.max(400, TRADER_MEMORY_RECENT_WINDOW * 8));
+  for (const e of pool) {
+    const tokens = Array.isArray(e.tokens) ? e.tokens : [];
+    let score = 0;
+    if (queryText && String(e.content || '').toLowerCase().includes(queryText.toLowerCase())) score += 4;
+    for (const t of qTokens) {
+      if (tokens.includes(t)) score += 1;
+    }
+    const vecScore = sparseVecCosine(qVec, Array.isArray(e.vec) ? e.vec : buildSparseVector(tokens));
+    score += vecScore * 4;
+    const ageMs = Math.max(0, now - (toMs(e.ts) || now));
+    const ageH = ageMs / 3600000;
+    score += Math.max(0, 1.6 - ageH / 96);
+    if (e.kind === 'trade_outcome') score += 0.4;
+    if (score <= 0.2) continue;
+    ranked.push({ score, e });
+  }
+  ranked.sort((a, b) => b.score - a.score || (toMs(b.e?.ts) || 0) - (toMs(a.e?.ts) || 0));
+  return ranked.slice(0, maxN).map((x) => ({
+    ts: x.e.ts || null,
+    kind: x.e.kind || 'note',
+    channel: x.e.channel || null,
+    tags: Array.isArray(x.e.tags) ? x.e.tags.slice(0, 8) : [],
+    content: truncText(String(x.e.content || ''), 480),
+    score: Number(x.score.toFixed(3)),
+  }));
 }
 
 function toMs(tsLike) {
@@ -389,7 +1485,7 @@ function getCurrentTradeFromDecisions(sortedDecisions) {
   };
 }
 
-function buildTradingContext(clientContext) {
+function buildTradingContext(clientContext, memoryContext) {
   const decisionsRaw = safeJsonRead(REPORT_DECISIONS_PATH, []);
   const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
   const ohlcvRaw = safeJsonRead(REPORT_OHLCV_PATH, { symbol: 'BTC/USDT:USDT', data: {} });
@@ -432,6 +1528,17 @@ function buildTradingContext(clientContext) {
     if (filtered.length) timelineSource = filtered.slice(0, OPENCLAW_CONTEXT_TIMELINE_EVENTS);
   }
   const runtimeTimeline = timelineSource.map(buildTimelineEvent).reverse();
+  const layeredMemory =
+    memoryContext && memoryContext.layers && typeof memoryContext.layers === 'object'
+      ? memoryContext.layers
+      : null;
+  const longLayer = layeredMemory?.longTerm || {
+    profile: memoryContext?.profile || null,
+    relevant: Array.isArray(memoryContext?.relevant) ? memoryContext.relevant : [],
+  };
+  const midLayer = layeredMemory?.midTerm || null;
+  const shortLayer = layeredMemory?.shortTerm || null;
+  const topStrategy = Array.isArray(midLayer?.strategyWeights) ? midLayer.strategyWeights[0] || null : null;
 
   const digest = {
     symbol,
@@ -446,6 +1553,9 @@ function buildTradingContext(clientContext) {
     blockedCount,
     executedCount,
     dryRunOpenCount,
+    memoryItems: Number(longLayer?.profile?.memoryItems || memoryContext?.profile?.memoryItems || 0),
+    topStrategy: topStrategy?.strategy || null,
+    topStrategyWeight: toNum(topStrategy?.weight),
   };
 
   const context = {
@@ -483,6 +1593,24 @@ function buildTradingContext(clientContext) {
             userIntentHint: clientContext.userIntentHint || null,
           }
         : null,
+    shortTermMemory: shortLayer || null,
+    midTermMemory: midLayer || null,
+    longTermMemory:
+      longLayer && typeof longLayer === 'object'
+        ? {
+            profile: longLayer.profile || null,
+            relevant: Array.isArray(longLayer.relevant)
+              ? longLayer.relevant.slice(0, TRADER_MEMORY_RETRIEVE_TOPK)
+              : [],
+          }
+        : null,
+    memoryLayers: layeredMemory
+      ? {
+          shortTerm: shortLayer || null,
+          midTerm: midLayer || null,
+          longTerm: longLayer || null,
+        }
+      : null,
   };
   return { context, digest };
 }
@@ -752,13 +1880,58 @@ async function handleTelegramIncoming(incoming) {
     direction: 'inbound',
     ok: true,
   });
+  appendTraderMemory({
+    kind: 'chat',
+    channel: 'telegram',
+    tags: ['telegram', 'user'],
+    content: '用户: ' + redactSecrets(incoming.text),
+  });
+
+  const feedback = applyUserStrategyFeedback(incoming.text, 'telegram');
+  if (feedback?.handled && feedback?.explicit) {
+    const replyText = String(feedback.reply || '已记录策略反馈。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
 
   if (!TELEGRAM_AUTO_REPLY) return;
 
+  const memoryBundle = buildLayeredMemoryBundle(incoming.text);
   const trading = buildTradingContext({
     currentView: 'dashboard',
     userIntentHint: 'telegram:' + incoming.chatId,
-  });
+  }, memoryBundle);
   let reply = '';
   let ok = true;
   try {
@@ -788,20 +1961,50 @@ async function handleTelegramIncoming(incoming) {
     direction: 'outbound',
     ok,
   });
+  appendTraderMemory({
+    kind: 'chat',
+    channel: 'telegram',
+    tags: ['telegram', 'assistant'],
+    content:
+      '用户: ' +
+      redactSecrets(incoming.text) +
+      '\n助手: ' +
+      redactSecrets(reply),
+  });
 }
 
 function scheduleTelegramPoll(delayMs) {
   if (!TELEGRAM_ENABLED) return;
   if (telegramPollTimer) clearTimeout(telegramPollTimer);
-  const waitMs = Math.max(120, Number(delayMs) || 0);
+  const waitMs = Math.max(220, Number(delayMs) || 0);
   telegramPollTimer = setTimeout(() => {
     telegramPollTimer = null;
+    if (!telegramPollLockAcquired) {
+      const got = acquireTelegramPollLock();
+      if (!got) {
+        telegramState.connected = false;
+        telegramState.lastError =
+          telegramState.pollLock.ownerPid != null
+            ? 'telegram poll lock busy (pid=' + String(telegramState.pollLock.ownerPid) + ')'
+            : 'telegram poll lock busy';
+        scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+        return;
+      }
+    }
     void pollTelegramOnce();
   }, waitMs);
 }
 
 async function pollTelegramOnce() {
   if (!TELEGRAM_ENABLED) return;
+  if (!telegramPollLockAcquired) {
+    const got = acquireTelegramPollLock();
+    if (!got) {
+      telegramState.connected = false;
+      scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+      return;
+    }
+  }
   if (telegramState.pollActive) {
     scheduleTelegramPoll(300);
     return;
@@ -831,11 +2034,27 @@ async function pollTelegramOnce() {
     }
     telegramState.connected = true;
     telegramState.lastError = null;
+    telegramState.conflicts.lastMessage = null;
     scheduleTelegramPoll(140);
   } catch (err) {
+    const errMsg = safeErrMsg(err, 'poll failed');
+    const conflict = /telegram http 409|terminated by other getupdates request|can't use getupdates method/i.test(
+      String(errMsg || ''),
+    );
     telegramState.connected = false;
-    telegramState.lastError = safeErrMsg(err, 'poll failed');
-    scheduleTelegramPoll(TELEGRAM_RETRY_MS);
+    telegramState.lastError = errMsg;
+    if (conflict) {
+      telegramState.conflicts.count += 1;
+      telegramState.conflicts.lastAt = nowIso();
+      telegramState.conflicts.lastMessage = errMsg;
+      const retry = Math.min(
+        120_000,
+        Math.max(TELEGRAM_RETRY_MS, TELEGRAM_RETRY_MS * Math.pow(2, Math.min(5, telegramState.conflicts.count))),
+      );
+      scheduleTelegramPoll(retry);
+    } else {
+      scheduleTelegramPoll(TELEGRAM_RETRY_MS);
+    }
   } finally {
     telegramState.pollActive = false;
   }
@@ -1098,6 +2317,8 @@ function buildOpenClawPrompt(message, context) {
   return [
     '你是交易系统里的 AI 交易助理（OpenClaw 驱动）。',
     '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
+    '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
+    '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
     '若信息不足，请直接说明缺失项，不得编造事实。',
     '',
     '输出要求（必须严格遵守）:',
@@ -1429,14 +2650,100 @@ async function handleChatApi(req, res) {
     sendJson(res, 400, { ok: false, error: 'message is required' });
     return;
   }
+  if (/^(记忆状态|查看记忆|memory status)$/i.test(message)) {
+    const memoryBundle = buildLayeredMemoryBundle('');
+    const profile = memoryBundle?.layers?.longTerm?.profile || buildTraderProfileSummary();
+    const shortItems = Number(memoryBundle?.layers?.shortTerm?.totalItems || 0);
+    const topTags = Array.isArray(profile?.topTags)
+      ? profile.topTags.map((x) => x.tag + '(' + x.count + ')').join(', ')
+      : '';
+    const strategyRows = Array.isArray(memoryBundle?.layers?.midTerm?.strategyWeights)
+      ? memoryBundle.layers.midTerm.strategyWeights.slice(0, 3)
+      : [];
+    const strategyText = strategyRows.length
+      ? strategyRows.map((x) => x.strategy + ':' + Number(x.weight).toFixed(3)).join(', ')
+      : '-';
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: [
+        '记忆分层状态：',
+        '- 长期条目: ' + String(profile.memoryItems || 0),
+        '- 短期条目: ' + String(shortItems),
+        '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
+        '- 高频标签: ' + (topTags || '-'),
+        '- 策略权重Top: ' + strategyText,
+      ].join('\n'),
+      actions: [],
+      contextDigest: null,
+      meta: {
+        memoryItems: profile.memoryItems || 0,
+        shortItems,
+        topStrategies: strategyRows,
+      },
+    });
+    return;
+  }
+  const rememberMatch = message.match(/^(记住|remember)\s*[:：]?\s*(.+)$/i);
+  if (rememberMatch) {
+    const note = String(rememberMatch[2] || '').trim();
+    if (!note) {
+      sendJson(res, 400, { ok: false, error: '记忆内容为空' });
+      return;
+    }
+    appendTraderMemory({
+      kind: 'manual_note',
+      channel: 'dashboard',
+      tags: ['manual-note', 'user'],
+      content: note,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: '已记住：' + truncText(redactSecrets(note), 180),
+      actions: [],
+      contextDigest: null,
+      meta: { memoryItems: traderMemoryState.entries.length },
+    });
+    return;
+  }
+  const feedback = applyUserStrategyFeedback(message, 'dashboard');
+  if (feedback?.handled && feedback?.explicit) {
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: String(feedback.reply || '已记录策略反馈。'),
+      actions: [],
+      contextDigest: null,
+      meta: {
+        strategy: feedback.strategy || null,
+        reward: feedback.reward ?? null,
+        weight: feedback.weight ?? null,
+      },
+    });
+    return;
+  }
   const clientContext =
     body.value?.clientContext && typeof body.value.clientContext === 'object'
       ? body.value.clientContext
       : undefined;
-  const trading = buildTradingContext(clientContext);
+  appendTraderMemory({
+    kind: 'chat',
+    channel: 'dashboard',
+    tags: ['dashboard', 'user'],
+    content: '用户: ' + redactSecrets(message),
+  });
+  const memoryBundle = buildLayeredMemoryBundle(message);
+  const trading = buildTradingContext(clientContext, memoryBundle);
   try {
     const result = await runOpenClawChat(message, trading.context);
     const structured = parseStructuredAgentReply(result.reply);
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant'],
+      content: '助手: ' + redactSecrets(String(structured.reply || '').trim()),
+    });
     sendJson(res, 200, {
       ok: true,
       source: 'openclaw',
@@ -1451,6 +2758,12 @@ async function handleChatApi(req, res) {
       },
     });
   } catch (err) {
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'error'],
+      content: '错误: ' + safeErrMsg(err, 'openclaw error'),
+    });
     sendJson(res, 502, {
       ok: false,
       source: 'openclaw',
@@ -1540,6 +2853,17 @@ function handleTelegramHealthApi(req, res) {
     lastError: telegramState.lastError,
     droppedUpdates: telegramState.droppedUpdates,
     allowedChatIds: telegramState.allowedChatIds,
+    pollLock: {
+      path: telegramState.pollLock.path,
+      acquired: telegramState.pollLock.acquired,
+      ownerPid: telegramState.pollLock.ownerPid,
+      reason: telegramState.pollLock.reason,
+    },
+    conflicts: {
+      count: telegramState.conflicts.count,
+      lastAt: telegramState.conflicts.lastAt,
+      lastMessage: telegramState.conflicts.lastMessage,
+    },
     knownChatIds: Array.from(telegramKnownChatIds),
     push: {
       enabled: telegramState.push.enabled,
@@ -1553,6 +2877,41 @@ function handleTelegramHealthApi(req, res) {
       lastError: telegramState.push.lastError,
       sentCount: telegramState.push.sentCount,
       skippedNoTarget: telegramState.push.skippedNoTarget,
+    },
+  });
+}
+
+function handleMemoryHealthApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const q = String(url.searchParams.get('q') || '').trim();
+  loadTraderMemory();
+  loadShortTermMemory();
+  loadStrategyFeedbackState();
+  rememberTradeOutcomesToMemory();
+  const memoryBundle = buildLayeredMemoryBundle(q);
+  sendJson(res, 200, {
+    ok: true,
+    enabled: true,
+    paths: {
+      longTerm: TRADER_MEMORY_PATH,
+      shortTerm: TRADER_SHORT_MEMORY_PATH,
+      midTerm: TRADER_PROFILE_PATH,
+      strategyWeights: STRATEGY_WEIGHTS_PATH,
+    },
+    totalEntries: traderMemoryState.entries.length,
+    shortEntries: shortTermMemoryState.items.length,
+    profile: memoryBundle?.layers?.longTerm?.profile || null,
+    layers: memoryBundle?.layers || null,
+    strategyFeedback: {
+      processedTrades: strategyFeedbackState.processedTradeKeys.size,
+      lastLearnAt: strategyFeedbackState.lastLearnAt,
+      ranking: buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES),
     },
   });
 }
@@ -1588,7 +2947,8 @@ const server = http.createServer((req, res) => {
         return;
       }
       const cli = resolveOpenClawCli();
-      const trading = buildTradingContext();
+      const healthMemory = buildLayeredMemoryBundle('');
+      const trading = buildTradingContext(undefined, healthMemory);
       sendJson(res, 200, {
         ok: true,
         provider: 'openclaw',
@@ -1608,12 +2968,21 @@ const server = http.createServer((req, res) => {
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
         commandSource: cli.source,
         contextDigest: trading.digest,
+        memory: {
+          shortItems: Number(healthMemory?.layers?.shortTerm?.totalItems || 0),
+          longItems: Number(healthMemory?.layers?.longTerm?.profile?.memoryItems || 0),
+          topStrategy: healthMemory?.layers?.midTerm?.strategyWeights?.[0] || null,
+        },
         telegram: {
           enabled: TELEGRAM_ENABLED,
           autoReply: TELEGRAM_AUTO_REPLY,
           connected: telegramState.connected,
           lastError: telegramState.lastError,
           lastInboundAt: telegramState.lastInboundAt,
+          pollLockAcquired: telegramState.pollLock.acquired,
+          pollLockOwnerPid: telegramState.pollLock.ownerPid,
+          conflictCount: telegramState.conflicts.count,
+          conflictLastAt: telegramState.conflicts.lastAt,
           pushTrades: telegramState.push.enabled,
           pushTargets: resolveTelegramPushTargets().length,
           pushLastSentAt: telegramState.push.lastSentAt,
@@ -1630,6 +2999,10 @@ const server = http.createServer((req, res) => {
       handleTelegramHealthApi(req, res);
       return;
     }
+    if (url.pathname === '/api/memory/health') {
+      handleMemoryHealthApi(req, res);
+      return;
+    }
     if (url.pathname === '/api/ai/context') {
       if (String(req.method || 'GET').toUpperCase() !== 'GET') {
         res.statusCode = 405;
@@ -1637,7 +3010,8 @@ const server = http.createServer((req, res) => {
         res.end('Method Not Allowed');
         return;
       }
-      const trading = buildTradingContext();
+      const contextMemory = buildLayeredMemoryBundle('');
+      const trading = buildTradingContext(undefined, contextMemory);
       const full = url.searchParams.get('full') === '1';
       sendJson(res, 200, {
         ok: true,
@@ -1662,6 +3036,14 @@ const server = http.createServer((req, res) => {
   });
 });
 
+registerProcessCleanupHooks();
+loadTraderMemory();
+loadShortTermMemory();
+loadStrategyFeedbackState();
+rememberTradeOutcomesToMemory();
+learnStrategyWeightsFromTrades();
+buildMidTermMemoryProfile();
+
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
   console.log('Serving:', REPORT_DIR);
@@ -1677,13 +3059,34 @@ server.listen(PORT, () => {
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
   console.log('AI config channel: POST /api/config/chat');
+  console.log('Memory health: GET /api/memory/health?q=...');
+  console.log(
+    'Memory layers: short=' +
+      TRADER_SHORT_MEMORY_PATH +
+      ' | mid=' +
+      TRADER_PROFILE_PATH +
+      ' | long=' +
+      TRADER_MEMORY_PATH,
+  );
+  console.log('Strategy feedback: ' + STRATEGY_WEIGHTS_PATH);
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
       : 'ALL';
     console.log('Telegram relay: enabled (events=/api/telegram/events, autoReply=' + (TELEGRAM_AUTO_REPLY ? 'on' : 'off') + ')');
     console.log('Telegram allowlist:', allow);
-    scheduleTelegramPoll(160);
+    const lockOk = acquireTelegramPollLock();
+    if (lockOk) {
+      console.log('Telegram poll lock: acquired (pid=' + process.pid + ')');
+      scheduleTelegramPoll(160);
+    } else {
+      console.log(
+        'Telegram poll lock: busy (ownerPid=' +
+          String(telegramState.pollLock.ownerPid || '?') +
+          ', will retry)',
+      );
+      scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+    }
     if (telegramState.push.enabled) {
       const configuredTargets = TELEGRAM_PUSH_CHAT_IDS.length
         ? TELEGRAM_PUSH_CHAT_IDS.join(',')
