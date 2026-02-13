@@ -518,15 +518,6 @@ const HTML = `<!DOCTYPE html>
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
     .load-error pre { font-size: 0.75rem; margin-top: 8px; }
-    .install-pwa { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 260; border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,50,0.97); box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
-    .install-pwa.hidden { display: none; }
-    .install-pwa .ipwa-main { flex: 1; min-width: 0; }
-    .install-pwa .ipwa-title { font-size: 0.78rem; color: var(--text); font-weight: 600; margin-bottom: 2px; }
-    .install-pwa .ipwa-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.35; }
-    .install-pwa .ipwa-actions { display: flex; gap: 8px; align-items: center; }
-    .install-pwa button { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 0.74rem; cursor: pointer; }
-    .install-pwa button.primary { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.5); color: var(--green); }
-    .install-pwa button.ghost { color: var(--muted); }
     /* Chat-first layout (Telegram-like) */
     body { padding: 0; min-height: 100dvh; overflow: auto; }
     .app-shell { max-width: none; margin: 0; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: row; overflow-x: hidden; }
@@ -586,10 +577,6 @@ const HTML = `<!DOCTYPE html>
       #detail-popover .decision-tree { flex-direction: column; gap: 4px; overflow-x: hidden; }
       #detail-popover .dt-node { min-width: 0; width: 100%; }
       #detail-popover .dt-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 10px; }
-      .install-pwa { left: 8px; right: 8px; bottom: 8px; padding: 9px 10px; }
-      .install-pwa .ipwa-title { font-size: 0.76rem; }
-      .install-pwa .ipwa-desc { font-size: 0.7rem; }
-      .install-pwa button { font-size: 0.72rem; padding: 7px 9px; }
       .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
       .table-toolbar { margin-top: 0; font-size: 0.72rem; }
       .order-focus { width: 100%; justify-content: space-between; }
@@ -873,77 +860,9 @@ const HTML = `<!DOCTYPE html>
   </div>
   <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
 
-  <div id="install-pwa" class="install-pwa hidden">
-    <div class="ipwa-main">
-      <div class="ipwa-title">安装为 App（更像原生应用）</div>
-      <div class="ipwa-desc" id="install-pwa-desc">安装后可全屏打开，使用更顺手。</div>
-    </div>
-    <div class="ipwa-actions">
-      <button id="install-pwa-btn" class="primary" type="button">安装</button>
-      <button id="install-pwa-close" class="ghost" type="button">关闭</button>
-    </div>
-  </div>
   <script>
     const TF_CONFIG = ${JSON.stringify(TF_CONFIG)};
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
-
-    function setupPwaInstall() {
-      const box = document.getElementById('install-pwa');
-      const btn = document.getElementById('install-pwa-btn');
-      const closeBtn = document.getElementById('install-pwa-close');
-      const desc = document.getElementById('install-pwa-desc');
-      if (!box || !btn || !closeBtn || !desc) return;
-
-      let deferredPrompt = null;
-      const ua = navigator.userAgent || '';
-      const isIOS = /iphone|ipad|ipod/i.test(ua);
-      const inStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-      if (inStandalone) {
-        box.classList.add('hidden');
-        return;
-      }
-
-      function showHint(text, canInstall) {
-        desc.textContent = text;
-        btn.style.display = canInstall ? 'inline-block' : 'none';
-        box.classList.remove('hidden');
-      }
-      function hideHint() {
-        box.classList.add('hidden');
-      }
-
-      closeBtn.addEventListener('click', hideHint);
-
-      window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        deferredPrompt = e;
-        showHint('点击“安装”将当前页面加入桌面，像 App 一样全屏使用。', true);
-      });
-
-      btn.addEventListener('click', async function() {
-        if (!deferredPrompt) return;
-        try {
-          deferredPrompt.prompt();
-          await deferredPrompt.userChoice;
-        } catch (_) {}
-        deferredPrompt = null;
-        hideHint();
-      });
-
-      if (isIOS) {
-        showHint('iOS：请在 Safari 点“分享”→“添加到主屏幕”，即可作为 App 使用。', false);
-      } else {
-        // Android/desktop: wait for beforeinstallprompt first; keep hidden by default.
-        hideHint();
-      }
-    }
-
-    function registerPwaServiceWorker() {
-      if (!('serviceWorker' in navigator)) return;
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js').catch(function() {});
-      }, { once: true });
-    }
 
     function buildMarkersForTf(records, tfSeconds) {
       return records.filter(r => r.ts && !r.stage).map(r => {
@@ -3942,8 +3861,6 @@ const HTML = `<!DOCTYPE html>
       switchView('dashboard');
     }
 
-    registerPwaServiceWorker();
-    setupPwaInstall();
     load().catch(e => showLoadError(e && e.message));
   </script>
 </body>
