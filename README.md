@@ -194,6 +194,7 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 配置 `THUNDERCLAW_TELEGRAM_BOT_TOKEN` 后，服务端会轮询 Telegram Bot API。
 - Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
 - **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
+- 可选开启交易事件主动推送：开仓/平仓/风控拦截会自动发到 Telegram。
 
 手机/静态部署（无本地后端）可用方案：
 
@@ -330,6 +331,10 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 - `THUNDERCLAW_TELEGRAM_ALLOWED_CHAT_IDS`：可选，允许的 chat id 白名单（逗号分隔）
 - `THUNDERCLAW_TELEGRAM_AUTO_REPLY`：`1/0`，是否自动将 AI 回复发回 Telegram（默认 `1`）
 - `THUNDERCLAW_TELEGRAM_POLL_TIMEOUT_SEC` / `THUNDERCLAW_TELEGRAM_RETRY_MS`：Telegram 轮询参数
+- `THUNDERCLAW_TELEGRAM_PUSH_TRADES`：`1/0`，是否开启交易事件主动推送（默认 `1`）
+- `THUNDERCLAW_TELEGRAM_PUSH_CHAT_IDS`：主动推送目标 chat id（逗号分隔）；留空则自动从允许列表/最近会话推断
+- `THUNDERCLAW_TELEGRAM_PUSH_EVENTS`：主动推送事件类型，默认 `open,close,risk`
+- `THUNDERCLAW_TELEGRAM_PUSH_INTERVAL_MS`：交易事件扫描/推送周期（毫秒，默认 `4000`）
 
 当 OpenClaw 不可用时，聊天区会自动回退到本地兜底回复，并在界面上标记为离线状态。
 

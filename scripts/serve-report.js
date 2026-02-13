@@ -72,6 +72,34 @@ const TELEGRAM_EVENTS_MAX = Math.max(20, positiveInt(process.env.THUNDERCLAW_TEL
 const TELEGRAM_AUTO_REPLY = !/^(0|false|off|no)$/i.test(
   String(process.env.THUNDERCLAW_TELEGRAM_AUTO_REPLY || '1'),
 );
+const TELEGRAM_PUSH_TRADES = !/^(0|false|off|no)$/i.test(
+  String(process.env.THUNDERCLAW_TELEGRAM_PUSH_TRADES || '1'),
+);
+const TELEGRAM_PUSH_CHAT_IDS = String(
+  process.env.THUNDERCLAW_TELEGRAM_PUSH_CHAT_IDS || '',
+)
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+const TELEGRAM_PUSH_INTERVAL_MS = Math.max(
+  1_500,
+  positiveInt(process.env.THUNDERCLAW_TELEGRAM_PUSH_INTERVAL_MS, 4_000),
+);
+const TELEGRAM_PUSH_SCAN_LIMIT = Math.max(
+  12,
+  positiveInt(process.env.THUNDERCLAW_TELEGRAM_PUSH_SCAN_LIMIT, 80),
+);
+const TELEGRAM_PUSH_EVENTS = new Set(
+  String(process.env.THUNDERCLAW_TELEGRAM_PUSH_EVENTS || 'open,close,risk')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v === 'open' || v === 'close' || v === 'risk'),
+);
+if (!TELEGRAM_PUSH_EVENTS.size) {
+  TELEGRAM_PUSH_EVENTS.add('open');
+  TELEGRAM_PUSH_EVENTS.add('close');
+  TELEGRAM_PUSH_EVENTS.add('risk');
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -87,6 +115,10 @@ let telegramUpdateOffset = 0;
 let telegramEventSeq = 0;
 const telegramEvents = [];
 let telegramPollTimer = null;
+let telegramTradePushTimer = null;
+const telegramKnownChatIds = new Set();
+const telegramTradeKnownEventKeys = new Set();
+const telegramTradeSentAck = new Set();
 const telegramState = {
   enabled: TELEGRAM_ENABLED,
   pollActive: false,
@@ -98,6 +130,18 @@ const telegramState = {
   lastUpdateId: null,
   droppedUpdates: 0,
   allowedChatIds: Array.from(TELEGRAM_ALLOWED_CHAT_IDS),
+  push: {
+    enabled: TELEGRAM_ENABLED && TELEGRAM_PUSH_TRADES,
+    events: Array.from(TELEGRAM_PUSH_EVENTS),
+    configuredChatIds: TELEGRAM_PUSH_CHAT_IDS.slice(),
+    active: false,
+    lastRunAt: null,
+    lastSentAt: null,
+    lastError: null,
+    lastSentPreview: null,
+    sentCount: 0,
+    skippedNoTarget: 0,
+  },
 };
 
 function positiveInt(raw, fallback) {
@@ -118,6 +162,34 @@ function nowIso() {
 function safeErrMsg(err, fallback = 'unknown error') {
   const msg = String(err?.message || err || fallback).trim();
   return truncText(msg || fallback, 320);
+}
+
+function fmtTsForMsg(tsLike) {
+  const ms = toMs(tsLike);
+  if (ms == null) return '-';
+  return new Date(ms).toLocaleString('zh-CN', {
+    hour12: false,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function fmtPriceNum(v, digits = 2) {
+  const n = toNum(v);
+  return n == null ? '-' : n.toFixed(digits);
+}
+
+function eventIdentity(order, fallbackTs, suffix = '') {
+  const trade = order?.tradeId != null ? String(order.tradeId) : '';
+  const cycle = order?.cycleId != null ? String(order.cycleId) : '';
+  if (trade) return 'trade:' + trade + (suffix ? ':' + suffix : '');
+  if (cycle) return 'cycle:' + cycle + (suffix ? ':' + suffix : '');
+  const ts = toMs(fallbackTs);
+  if (ts != null) return 'ts:' + String(ts) + (suffix ? ':' + suffix : '');
+  return 'unknown:' + String(Math.random()).slice(2, 8) + (suffix ? ':' + suffix : '');
 }
 
 function sendJson(res, status, body) {
@@ -630,6 +702,7 @@ async function sendTelegramText(chatId, text) {
 async function handleTelegramIncoming(incoming) {
   if (!incoming || !incoming.text) return;
   telegramState.lastInboundAt = nowIso();
+  if (incoming.chatId) telegramKnownChatIds.add(String(incoming.chatId));
   pushTelegramEvent({
     role: 'user',
     chatId: incoming.chatId,
@@ -724,6 +797,205 @@ async function pollTelegramOnce() {
     scheduleTelegramPoll(TELEGRAM_RETRY_MS);
   } finally {
     telegramState.pollActive = false;
+  }
+}
+
+function resolveTelegramPushTargets() {
+  const out = new Set();
+  if (TELEGRAM_PUSH_CHAT_IDS.length) {
+    TELEGRAM_PUSH_CHAT_IDS.forEach((x) => out.add(x));
+    return Array.from(out);
+  }
+  if (OPENCLAW_CHANNEL.toLowerCase() === 'telegram' && OPENCLAW_TO) {
+    out.add(OPENCLAW_TO);
+  }
+  TELEGRAM_ALLOWED_CHAT_IDS.forEach((x) => out.add(x));
+  telegramKnownChatIds.forEach((x) => out.add(x));
+  return Array.from(out);
+}
+
+function buildTradePushCandidates() {
+  const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
+  const decisionsRaw = safeJsonRead(REPORT_DECISIONS_PATH, []);
+  const orders = normalizedOrdersFromPayload(ordersRaw)
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => (toMs(a?.openTs || a?.closeTs) || 0) - (toMs(b?.openTs || b?.closeTs) || 0));
+  const decisions = (Array.isArray(decisionsRaw) ? decisionsRaw : [])
+    .filter((x) => x && x.ts && !x.stage)
+    .slice()
+    .sort((a, b) => (toMs(a?.ts) || 0) - (toMs(b?.ts) || 0));
+
+  const candidates = [];
+  const recentOrders = orders.slice(-TELEGRAM_PUSH_SCAN_LIMIT);
+  for (const o of recentOrders) {
+    const side = sideCn(o?.side);
+    const symbol = String(o?.symbol || 'UNKNOWN');
+    const level = o?.level ? String(o.level) : '-';
+    if (TELEGRAM_PUSH_EVENTS.has('open') && o?.openTs) {
+      const openKey = 'open:' + eventIdentity(o, o.openTs, 'open');
+      candidates.push({
+        key: openKey,
+        type: 'open',
+        tsMs: toMs(o.openTs) || Date.now(),
+        text: [
+          '[交易开仓]',
+          symbol + ' · ' + side,
+          'trade=' + (o?.tradeId != null ? String(o.tradeId) : '-') + ' · cycle=' + (o?.cycleId != null ? String(o.cycleId) : '-'),
+          '价格=' + fmtPriceNum(o?.openPrice, 2) + ' · level=' + level,
+          '时间=' + fmtTsForMsg(o.openTs),
+        ].join('\n'),
+      });
+    }
+    if (TELEGRAM_PUSH_EVENTS.has('close') && o?.closeTs) {
+      const closeKey = 'close:' + eventIdentity(o, o.closeTs, 'close');
+      const pnl = toNum(o?.pnlEstUSDT);
+      const pnlTxt = pnl == null ? '-' : (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + 'U';
+      candidates.push({
+        key: closeKey,
+        type: 'close',
+        tsMs: toMs(o.closeTs) || Date.now(),
+        text: [
+          '[交易平仓]',
+          symbol + ' · ' + side,
+          'trade=' + (o?.tradeId != null ? String(o.tradeId) : '-') + ' · cycle=' + (o?.cycleId != null ? String(o.cycleId) : '-'),
+          '开=' + fmtPriceNum(o?.openPrice, 2) + ' · 平=' + fmtPriceNum(o?.closePrice, 2) + ' · PnL=' + pnlTxt,
+          '时间=' + fmtTsForMsg(o.closeTs),
+        ].join('\n'),
+      });
+    }
+  }
+
+  if (TELEGRAM_PUSH_EVENTS.has('risk')) {
+    const risks = decisions
+      .filter((r) => Boolean(r?.decision?.blockedByNews))
+      .slice(-TELEGRAM_PUSH_SCAN_LIMIT);
+    for (const r of risks) {
+      const reasonList = Array.isArray(r?.decision?.newsReason) ? r.decision.newsReason : [];
+      const reason =
+        reasonList.length > 0
+          ? truncText(String(reasonList[0]), 180)
+          : truncText(String(r?.executor?.reason || r?.signal?.plan?.reason || '命中风控门控'), 180);
+      const key = 'risk:' + String(r?.cycleId != null ? r.cycleId : '-') + ':' + String(toMs(r?.ts) || 0);
+      const side = sideCn(r?.signal?.plan?.side);
+      candidates.push({
+        key,
+        type: 'risk',
+        tsMs: toMs(r?.ts) || Date.now(),
+        text: [
+          '[风控拦截]',
+          '方向=' + side + ' · cycle=' + (r?.cycleId != null ? String(r.cycleId) : '-'),
+          '原因=' + reason,
+          '时间=' + fmtTsForMsg(r?.ts),
+        ].join('\n'),
+      });
+    }
+  }
+
+  return candidates
+    .filter((x) => x && x.key && x.text)
+    .sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0))
+    .slice(-Math.max(20, TELEGRAM_PUSH_SCAN_LIMIT * 3));
+}
+
+function trimTelegramTradeState() {
+  if (telegramTradeKnownEventKeys.size > 3000) {
+    const keep = Array.from(telegramTradeKnownEventKeys).slice(-2000);
+    telegramTradeKnownEventKeys.clear();
+    keep.forEach((k) => telegramTradeKnownEventKeys.add(k));
+  }
+  if (telegramTradeSentAck.size > 6000) {
+    const keep = Array.from(telegramTradeSentAck).slice(-3500);
+    telegramTradeSentAck.clear();
+    keep.forEach((k) => telegramTradeSentAck.add(k));
+  }
+}
+
+function primeTelegramTradePushBaseline() {
+  const initial = buildTradePushCandidates();
+  for (const ev of initial) {
+    telegramTradeKnownEventKeys.add(ev.key);
+  }
+  trimTelegramTradeState();
+}
+
+function scheduleTelegramTradePush(delayMs) {
+  if (!telegramState.push.enabled) return;
+  if (telegramTradePushTimer) clearTimeout(telegramTradePushTimer);
+  const waitMs = Math.max(300, Number(delayMs) || 0);
+  telegramTradePushTimer = setTimeout(() => {
+    telegramTradePushTimer = null;
+    void pollTelegramTradePushOnce();
+  }, waitMs);
+}
+
+async function pollTelegramTradePushOnce() {
+  if (!telegramState.push.enabled) return;
+  if (telegramState.push.active) {
+    scheduleTelegramTradePush(800);
+    return;
+  }
+  telegramState.push.active = true;
+  telegramState.push.lastRunAt = nowIso();
+  telegramState.push.lastError = null;
+  try {
+    const candidates = buildTradePushCandidates();
+    const targets = resolveTelegramPushTargets();
+    if (!targets.length) {
+      for (const ev of candidates) {
+        telegramTradeKnownEventKeys.add(ev.key);
+      }
+      telegramState.push.skippedNoTarget += candidates.length;
+      scheduleTelegramTradePush(TELEGRAM_PUSH_INTERVAL_MS);
+      return;
+    }
+
+    for (const ev of candidates) {
+      if (telegramTradeKnownEventKeys.has(ev.key)) continue;
+      let allOk = true;
+      for (const chatId of targets) {
+        const ackKey = ev.key + '::' + chatId;
+        if (telegramTradeSentAck.has(ackKey)) continue;
+        try {
+          await sendTelegramText(chatId, ev.text);
+          telegramTradeSentAck.add(ackKey);
+          telegramState.lastOutboundAt = nowIso();
+          telegramState.push.lastSentAt = telegramState.lastOutboundAt;
+          telegramState.push.lastSentPreview = truncText(ev.text.replace(/\s+/g, ' '), 140);
+          telegramState.push.sentCount += 1;
+          pushTelegramEvent({
+            role: 'bot',
+            chatId,
+            from: 'thunderclaw-trade',
+            text: ev.text,
+            direction: 'outbound',
+            ok: true,
+          });
+        } catch (err) {
+          allOk = false;
+          const msg = safeErrMsg(err, 'trade push failed');
+          telegramState.push.lastError = msg;
+          telegramState.lastError = msg;
+          pushTelegramEvent({
+            role: 'bot',
+            chatId,
+            from: 'thunderclaw-trade',
+            text: ev.text + '\n(推送失败: ' + msg + ')',
+            direction: 'outbound',
+            ok: false,
+          });
+        }
+      }
+      if (allOk) telegramTradeKnownEventKeys.add(ev.key);
+      trimTelegramTradeState();
+    }
+    if (!telegramState.push.lastError) telegramState.push.lastError = null;
+    scheduleTelegramTradePush(TELEGRAM_PUSH_INTERVAL_MS);
+  } catch (err) {
+    telegramState.push.lastError = safeErrMsg(err, 'trade push poll failed');
+    scheduleTelegramTradePush(Math.max(TELEGRAM_PUSH_INTERVAL_MS, TELEGRAM_RETRY_MS));
+  } finally {
+    telegramState.push.active = false;
   }
 }
 
@@ -1011,6 +1283,20 @@ function handleTelegramHealthApi(req, res) {
     lastError: telegramState.lastError,
     droppedUpdates: telegramState.droppedUpdates,
     allowedChatIds: telegramState.allowedChatIds,
+    knownChatIds: Array.from(telegramKnownChatIds),
+    push: {
+      enabled: telegramState.push.enabled,
+      events: telegramState.push.events,
+      configuredChatIds: telegramState.push.configuredChatIds,
+      resolvedTargets: resolveTelegramPushTargets(),
+      active: telegramState.push.active,
+      lastRunAt: telegramState.push.lastRunAt,
+      lastSentAt: telegramState.push.lastSentAt,
+      lastSentPreview: telegramState.push.lastSentPreview,
+      lastError: telegramState.push.lastError,
+      sentCount: telegramState.push.sentCount,
+      skippedNoTarget: telegramState.push.skippedNoTarget,
+    },
   });
 }
 
@@ -1071,6 +1357,10 @@ const server = http.createServer((req, res) => {
           connected: telegramState.connected,
           lastError: telegramState.lastError,
           lastInboundAt: telegramState.lastInboundAt,
+          pushTrades: telegramState.push.enabled,
+          pushTargets: resolveTelegramPushTargets().length,
+          pushLastSentAt: telegramState.push.lastSentAt,
+          pushLastError: telegramState.push.lastError,
         },
       });
       return;
@@ -1132,6 +1422,24 @@ server.listen(PORT, () => {
     console.log('Telegram relay: enabled (events=/api/telegram/events, autoReply=' + (TELEGRAM_AUTO_REPLY ? 'on' : 'off') + ')');
     console.log('Telegram allowlist:', allow);
     scheduleTelegramPoll(160);
+    if (telegramState.push.enabled) {
+      const configuredTargets = TELEGRAM_PUSH_CHAT_IDS.length
+        ? TELEGRAM_PUSH_CHAT_IDS.join(',')
+        : '(auto)';
+      console.log(
+        'Telegram trade push: on (events=' +
+          Array.from(TELEGRAM_PUSH_EVENTS).join(',') +
+          ', targets=' +
+          configuredTargets +
+          ', intervalMs=' +
+          TELEGRAM_PUSH_INTERVAL_MS +
+          ')',
+      );
+      primeTelegramTradePushBaseline();
+      scheduleTelegramTradePush(600);
+    } else {
+      console.log('Telegram trade push: off (set THUNDERCLAW_TELEGRAM_PUSH_TRADES=1 to enable)');
+    }
   } else {
     console.log('Telegram relay: disabled (set THUNDERCLAW_TELEGRAM_BOT_TOKEN to enable)');
   }
