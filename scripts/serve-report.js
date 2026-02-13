@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,6 +102,29 @@ if (!TELEGRAM_PUSH_EVENTS.size) {
   TELEGRAM_PUSH_EVENTS.add('close');
   TELEGRAM_PUSH_EVENTS.add('risk');
 }
+const TELEGRAM_POLL_LOCK_PATH = path.resolve(WORKDIR, 'memory/.telegram-poll.lock');
+const TELEGRAM_POLL_LOCK_STALE_MS = Math.max(
+  20_000,
+  positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_LOCK_STALE_MS, 180_000),
+);
+
+const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
+const TRADER_MEMORY_MAX_ITEMS = Math.max(
+  200,
+  positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
+);
+const TRADER_MEMORY_RETRIEVE_TOPK = Math.max(
+  2,
+  Math.min(20, positiveInt(process.env.THUNDERCLAW_MEMORY_RETRIEVE_TOPK, 8)),
+);
+const TRADER_MEMORY_RECENT_WINDOW = Math.max(
+  20,
+  positiveInt(process.env.THUNDERCLAW_MEMORY_RECENT_WINDOW, 200),
+);
+const TRADER_MEMORY_VECTOR_DIM = Math.max(
+  32,
+  Math.min(512, positiveInt(process.env.THUNDERCLAW_MEMORY_VECTOR_DIM, 128)),
+);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -117,9 +141,18 @@ let telegramEventSeq = 0;
 const telegramEvents = [];
 let telegramPollTimer = null;
 let telegramTradePushTimer = null;
+let telegramPollLockFd = null;
+let telegramPollLockAcquired = false;
 const telegramKnownChatIds = new Set();
 const telegramTradeKnownEventKeys = new Set();
 const telegramTradeSentAck = new Set();
+const traderMemoryState = {
+  loaded: false,
+  linesRead: 0,
+  entries: [],
+  keys: new Set(),
+  lastLoadAt: null,
+};
 const telegramState = {
   enabled: TELEGRAM_ENABLED,
   pollActive: false,
@@ -131,6 +164,17 @@ const telegramState = {
   lastUpdateId: null,
   droppedUpdates: 0,
   allowedChatIds: Array.from(TELEGRAM_ALLOWED_CHAT_IDS),
+  pollLock: {
+    path: TELEGRAM_POLL_LOCK_PATH,
+    acquired: false,
+    ownerPid: null,
+    reason: null,
+  },
+  conflicts: {
+    count: 0,
+    lastAt: null,
+    lastMessage: null,
+  },
   push: {
     enabled: TELEGRAM_ENABLED && TELEGRAM_PUSH_TRADES,
     events: Array.from(TELEGRAM_PUSH_EVENTS),
@@ -163,6 +207,10 @@ function nowIso() {
 function safeErrMsg(err, fallback = 'unknown error') {
   const msg = String(err?.message || err || fallback).trim();
   return truncText(msg || fallback, 320);
+}
+
+function sha1(textLike) {
+  return createHash('sha1').update(String(textLike || ''), 'utf8').digest('hex');
 }
 
 function fmtTsForMsg(tsLike) {
@@ -247,6 +295,386 @@ function writeEnvLocal(updates) {
 function readEnvLocalPairs() {
   const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
   return parseEnvPairs(raw).pairs;
+}
+
+function isPidAlive(pidLike) {
+  const pid = Number(pidLike);
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readTelegramPollLockFile() {
+  try {
+    if (!fs.existsSync(TELEGRAM_POLL_LOCK_PATH)) return null;
+    const raw = fs.readFileSync(TELEGRAM_POLL_LOCK_PATH, 'utf8');
+    if (!String(raw || '').trim()) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function releaseTelegramPollLock() {
+  if (!telegramPollLockAcquired) return;
+  telegramPollLockAcquired = false;
+  telegramState.pollLock.acquired = false;
+  telegramState.pollLock.ownerPid = null;
+  telegramState.pollLock.reason = 'released';
+  try {
+    if (telegramPollLockFd != null) fs.closeSync(telegramPollLockFd);
+  } catch {}
+  telegramPollLockFd = null;
+  try {
+    if (fs.existsSync(TELEGRAM_POLL_LOCK_PATH)) fs.unlinkSync(TELEGRAM_POLL_LOCK_PATH);
+  } catch {}
+}
+
+function acquireTelegramPollLock() {
+  if (!TELEGRAM_ENABLED) return false;
+  const tokenHash = sha1(TELEGRAM_BOT_TOKEN).slice(0, 14);
+  fs.mkdirSync(path.dirname(TELEGRAM_POLL_LOCK_PATH), { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      const fd = fs.openSync(TELEGRAM_POLL_LOCK_PATH, 'wx', 0o600);
+      const payload = {
+        pid: process.pid,
+        tokenHash,
+        startedAt: Date.now(),
+      };
+      fs.writeFileSync(fd, JSON.stringify(payload), 'utf8');
+      telegramPollLockFd = fd;
+      telegramPollLockAcquired = true;
+      telegramState.pollLock.acquired = true;
+      telegramState.pollLock.ownerPid = process.pid;
+      telegramState.pollLock.reason = null;
+      return true;
+    } catch (err) {
+      if (String(err?.code || '') !== 'EEXIST') break;
+      const existing = readTelegramPollLockFile();
+      const ownerPid = Number(existing?.pid);
+      const ownerToken = String(existing?.tokenHash || '');
+      const startedAt = Number(existing?.startedAt || 0);
+      const staleByPid = !isPidAlive(ownerPid);
+      const staleByTime = startedAt > 0 && Date.now() - startedAt > TELEGRAM_POLL_LOCK_STALE_MS;
+      const sameToken = ownerToken && ownerToken === tokenHash;
+      if ((sameToken && (staleByPid || staleByTime)) || (!ownerToken && staleByTime)) {
+        try { fs.unlinkSync(TELEGRAM_POLL_LOCK_PATH); } catch {}
+        continue;
+      }
+      telegramState.pollLock.acquired = false;
+      telegramState.pollLock.ownerPid = Number.isFinite(ownerPid) ? ownerPid : null;
+      telegramState.pollLock.reason = 'busy';
+      return false;
+    }
+  }
+  telegramState.pollLock.acquired = false;
+  telegramState.pollLock.ownerPid = null;
+  telegramState.pollLock.reason = 'error';
+  return false;
+}
+
+function registerProcessCleanupHooks() {
+  const once = (fn) => {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+  };
+  const cleanup = once(() => {
+    releaseTelegramPollLock();
+  });
+  process.once('exit', cleanup);
+  process.once('SIGINT', () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    cleanup();
+    process.exit(143);
+  });
+}
+
+function redactSecrets(textLike) {
+  let text = String(textLike || '');
+  text = text.replace(/\bsk-[A-Za-z0-9\-_]{10,}\b/g, '[REDACTED_API_KEY]');
+  text = text.replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]');
+  text = text.replace(/\bbg_[A-Za-z0-9]{10,}\b/g, '[REDACTED_BITGET_KEY]');
+  text = text.replace(/\b[a-fA-F0-9]{48,}\b/g, '[REDACTED_SECRET]');
+  return truncText(text, 3500);
+}
+
+function tokenizeMemoryText(textLike) {
+  const text = String(textLike || '').toLowerCase();
+  const tokens = [];
+  const reWord = /[a-z0-9_/\-]{2,}/g;
+  let m;
+  while ((m = reWord.exec(text)) != null) {
+    tokens.push(m[0]);
+  }
+  const cjkSegments = text.match(/[\u4e00-\u9fa5]{2,}/g) || [];
+  for (const seg of cjkSegments) {
+    if (seg.length <= 2) {
+      tokens.push(seg);
+      continue;
+    }
+    for (let i = 0; i < seg.length - 1; i++) {
+      tokens.push(seg.slice(i, i + 2));
+    }
+  }
+  return Array.from(new Set(tokens)).slice(0, 220);
+}
+
+function inferMemoryTags(textLike) {
+  const text = String(textLike || '').toLowerCase();
+  const tags = [];
+  if (/btc|比特币|xbt/.test(text)) tags.push('btc');
+  if (/eth|以太坊/.test(text)) tags.push('eth');
+  if (/sol/.test(text)) tags.push('sol');
+  if (/风控|止损|回撤|risk|drawdown/.test(text)) tags.push('risk');
+  if (/开仓|平仓|加仓|减仓|仓位|trade|order/.test(text)) tags.push('trade');
+  if (/策略|信号|虾策|回测|backtest/.test(text)) tags.push('strategy');
+  if (/虾线|k线|kline|candl/.test(text)) tags.push('kline');
+  if (/telegram|tg/.test(text)) tags.push('telegram');
+  if (/简短|简洁|直接/.test(text)) tags.push('brief-style');
+  if (/详细|展开|解释/.test(text)) tags.push('detailed-style');
+  return Array.from(new Set(tags)).slice(0, 8);
+}
+
+function tokenVecIndex(token) {
+  const hex = sha1(token).slice(0, 8);
+  const n = Number.parseInt(hex, 16);
+  if (!Number.isFinite(n)) return 0;
+  return n % TRADER_MEMORY_VECTOR_DIM;
+}
+
+function buildSparseVector(tokensLike) {
+  const counts = new Map();
+  const tokens = Array.isArray(tokensLike) ? tokensLike : [];
+  for (const t of tokens) {
+    const idx = tokenVecIndex(String(t || ''));
+    counts.set(idx, (counts.get(idx) || 0) + 1);
+  }
+  const list = Array.from(counts.entries())
+    .map(([idx, value]) => [idx, value])
+    .sort((a, b) => a[0] - b[0]);
+  return list;
+}
+
+function sparseVecCosine(aLike, bLike) {
+  const a = Array.isArray(aLike) ? aLike : [];
+  const b = Array.isArray(bLike) ? bLike : [];
+  if (!a.length || !b.length) return 0;
+  let i = 0;
+  let j = 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (const [, v] of a) na += Number(v || 0) ** 2;
+  for (const [, v] of b) nb += Number(v || 0) ** 2;
+  while (i < a.length && j < b.length) {
+    const ai = Number(a[i]?.[0]);
+    const bi = Number(b[j]?.[0]);
+    if (ai === bi) {
+      dot += Number(a[i]?.[1] || 0) * Number(b[j]?.[1] || 0);
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (ai < bi) i += 1;
+    else j += 1;
+  }
+  if (na <= 0 || nb <= 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+function loadTraderMemory() {
+  if (traderMemoryState.loaded) return;
+  traderMemoryState.loaded = true;
+  traderMemoryState.entries = [];
+  traderMemoryState.keys = new Set();
+  try {
+    if (!fs.existsSync(TRADER_MEMORY_PATH)) return;
+    const raw = fs.readFileSync(TRADER_MEMORY_PATH, 'utf8');
+    const lines = String(raw || '').split(/\r?\n/).filter(Boolean);
+    const parsed = [];
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (!entry || typeof entry !== 'object') continue;
+        const content = redactSecrets(entry.content || '');
+        const normalized = {
+          id: entry.id || null,
+          key: entry.key || null,
+          ts: entry.ts || null,
+          kind: entry.kind || 'note',
+          channel: entry.channel || null,
+          content,
+          tags: Array.isArray(entry.tags) ? entry.tags.map((x) => String(x)).slice(0, 12) : [],
+          tokens: Array.isArray(entry.tokens)
+            ? entry.tokens.map((x) => String(x))
+            : tokenizeMemoryText(content + ' ' + (Array.isArray(entry.tags) ? entry.tags.join(' ') : '')),
+          vec: Array.isArray(entry.vec)
+            ? entry.vec
+                .map((pair) =>
+                  Array.isArray(pair) && pair.length >= 2
+                    ? [Number(pair[0]) || 0, Number(pair[1]) || 0]
+                    : null,
+                )
+                .filter(Boolean)
+            : null,
+        };
+        if (!normalized.vec || !normalized.vec.length) {
+          normalized.vec = buildSparseVector(normalized.tokens);
+        }
+        parsed.push(normalized);
+        if (normalized.key) traderMemoryState.keys.add(normalized.key);
+      } catch {}
+    }
+    traderMemoryState.entries = parsed.slice(-TRADER_MEMORY_MAX_ITEMS);
+    traderMemoryState.linesRead = traderMemoryState.entries.length;
+    traderMemoryState.lastLoadAt = nowIso();
+  } catch {}
+}
+
+function appendTraderMemory(entryLike) {
+  loadTraderMemory();
+  const entry = entryLike && typeof entryLike === 'object' ? entryLike : {};
+  const key = entry.key ? String(entry.key) : null;
+  if (key && traderMemoryState.keys.has(key)) return null;
+  const ts = entry.ts || nowIso();
+  const content = redactSecrets(entry.content || '');
+  if (!String(content || '').trim()) return null;
+  const explicitTags = Array.isArray(entry.tags) ? entry.tags.map((x) => String(x)).slice(0, 12) : [];
+  const tags = Array.from(new Set([...explicitTags, ...inferMemoryTags(content)])).slice(0, 12);
+  const record = {
+    id: String(Date.now()) + '-' + String(Math.random()).slice(2, 8),
+    key,
+    ts,
+    kind: entry.kind || 'note',
+    channel: entry.channel || null,
+    content,
+    tags,
+    tokens: tokenizeMemoryText(content + ' ' + tags.join(' ')).slice(0, 220),
+  };
+  record.vec = buildSparseVector(record.tokens);
+  try {
+    fs.mkdirSync(path.dirname(TRADER_MEMORY_PATH), { recursive: true });
+    fs.appendFileSync(TRADER_MEMORY_PATH, JSON.stringify(record) + '\n');
+  } catch {}
+  traderMemoryState.entries.push(record);
+  if (record.key) traderMemoryState.keys.add(record.key);
+  if (traderMemoryState.entries.length > TRADER_MEMORY_MAX_ITEMS) {
+    const keep = traderMemoryState.entries.slice(-TRADER_MEMORY_MAX_ITEMS);
+    traderMemoryState.entries = keep;
+    traderMemoryState.keys = new Set(keep.map((x) => x.key).filter(Boolean));
+  }
+  return record;
+}
+
+function rememberTradeOutcomesToMemory() {
+  const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
+  const orders = normalizedOrdersFromPayload(ordersRaw).filter(Boolean);
+  const closed = orders.filter((o) => o?.closeTs).slice(-180);
+  for (const o of closed) {
+    const tradeId = o?.tradeId != null ? String(o.tradeId) : '-';
+    const cycleId = o?.cycleId != null ? String(o.cycleId) : '-';
+    const key = 'trade-close:' + tradeId + ':' + cycleId + ':' + String(toMs(o?.closeTs) || 0);
+    const pnl = toNum(o?.pnlEstUSDT);
+    const pnlTxt = pnl == null ? '-' : (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + 'U';
+    const content = [
+      '交易结果记录',
+      'trade=' + tradeId + ' cycle=' + cycleId,
+      'symbol=' + String(o?.symbol || '-') + ' side=' + sideCn(o?.side),
+      'open=' + fmtPriceNum(o?.openPrice, 2) + ' close=' + fmtPriceNum(o?.closePrice, 2),
+      'pnl=' + pnlTxt + ' reason=' + String(o?.closeReason || '-'),
+      'closeTs=' + String(o?.closeTs || '-'),
+    ].join(' | ');
+    appendTraderMemory({
+      key,
+      ts: o?.closeTs || nowIso(),
+      kind: 'trade_outcome',
+      channel: 'system',
+      tags: ['trade', 'outcome', String(o?.side || 'unknown')],
+      content,
+    });
+  }
+}
+
+function buildTraderProfileSummary() {
+  loadTraderMemory();
+  const recent = traderMemoryState.entries.slice(-TRADER_MEMORY_RECENT_WINDOW);
+  const tagCount = new Map();
+  const symCount = new Map();
+  let lastActiveAt = null;
+  for (const e of recent) {
+    const ts = toMs(e?.ts);
+    if (ts != null && (lastActiveAt == null || ts > lastActiveAt)) lastActiveAt = ts;
+    (Array.isArray(e?.tags) ? e.tags : []).forEach((t) => {
+      tagCount.set(t, (tagCount.get(t) || 0) + 1);
+    });
+    const text = String(e?.content || '').toUpperCase();
+    ['BTC', 'ETH', 'SOL'].forEach((sym) => {
+      if (text.includes(sym)) symCount.set(sym, (symCount.get(sym) || 0) + 1);
+    });
+  }
+  const topTags = Array.from(tagCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([tag, cnt]) => ({ tag, count: cnt }));
+  const symbols = Array.from(symCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([symbol, count]) => ({ symbol, count }));
+  return {
+    memoryItems: traderMemoryState.entries.length,
+    recentWindow: recent.length,
+    lastActiveAt: lastActiveAt != null ? new Date(lastActiveAt).toISOString() : null,
+    topTags,
+    symbols,
+  };
+}
+
+function retrieveTraderMemories(query, limit = TRADER_MEMORY_RETRIEVE_TOPK) {
+  loadTraderMemory();
+  rememberTradeOutcomesToMemory();
+  const queryText = redactSecrets(query || '');
+  const qTokens = tokenizeMemoryText(queryText);
+  const qVec = buildSparseVector(qTokens);
+  const now = Date.now();
+  const maxN = Math.max(1, Math.min(24, Number(limit) || TRADER_MEMORY_RETRIEVE_TOPK));
+  const ranked = [];
+  const pool = traderMemoryState.entries.slice(-Math.max(400, TRADER_MEMORY_RECENT_WINDOW * 8));
+  for (const e of pool) {
+    const tokens = Array.isArray(e.tokens) ? e.tokens : [];
+    let score = 0;
+    if (queryText && String(e.content || '').toLowerCase().includes(queryText.toLowerCase())) score += 4;
+    for (const t of qTokens) {
+      if (tokens.includes(t)) score += 1;
+    }
+    const vecScore = sparseVecCosine(qVec, Array.isArray(e.vec) ? e.vec : buildSparseVector(tokens));
+    score += vecScore * 4;
+    const ageMs = Math.max(0, now - (toMs(e.ts) || now));
+    const ageH = ageMs / 3600000;
+    score += Math.max(0, 1.6 - ageH / 96);
+    if (e.kind === 'trade_outcome') score += 0.4;
+    if (score <= 0.2) continue;
+    ranked.push({ score, e });
+  }
+  ranked.sort((a, b) => b.score - a.score || (toMs(b.e?.ts) || 0) - (toMs(a.e?.ts) || 0));
+  return ranked.slice(0, maxN).map((x) => ({
+    ts: x.e.ts || null,
+    kind: x.e.kind || 'note',
+    channel: x.e.channel || null,
+    tags: Array.isArray(x.e.tags) ? x.e.tags.slice(0, 8) : [],
+    content: truncText(String(x.e.content || ''), 480),
+    score: Number(x.score.toFixed(3)),
+  }));
 }
 
 function toMs(tsLike) {
@@ -389,7 +817,7 @@ function getCurrentTradeFromDecisions(sortedDecisions) {
   };
 }
 
-function buildTradingContext(clientContext) {
+function buildTradingContext(clientContext, memoryContext) {
   const decisionsRaw = safeJsonRead(REPORT_DECISIONS_PATH, []);
   const ordersRaw = safeJsonRead(REPORT_ORDERS_PATH, { orders: [] });
   const ohlcvRaw = safeJsonRead(REPORT_OHLCV_PATH, { symbol: 'BTC/USDT:USDT', data: {} });
@@ -446,6 +874,7 @@ function buildTradingContext(clientContext) {
     blockedCount,
     executedCount,
     dryRunOpenCount,
+    memoryItems: Number(memoryContext?.profile?.memoryItems || 0),
   };
 
   const context = {
@@ -481,6 +910,13 @@ function buildTradingContext(clientContext) {
             currentView: clientContext.currentView || null,
             activeTradeId: clientContext.activeTradeId || null,
             userIntentHint: clientContext.userIntentHint || null,
+          }
+        : null,
+    longTermMemory:
+      memoryContext && typeof memoryContext === 'object'
+        ? {
+            profile: memoryContext.profile || null,
+            relevant: Array.isArray(memoryContext.relevant) ? memoryContext.relevant.slice(0, TRADER_MEMORY_RETRIEVE_TOPK) : [],
           }
         : null,
   };
@@ -752,13 +1188,23 @@ async function handleTelegramIncoming(incoming) {
     direction: 'inbound',
     ok: true,
   });
+  appendTraderMemory({
+    kind: 'chat',
+    channel: 'telegram',
+    tags: ['telegram', 'user'],
+    content: '用户: ' + redactSecrets(incoming.text),
+  });
 
   if (!TELEGRAM_AUTO_REPLY) return;
 
+  const memoryBundle = {
+    profile: buildTraderProfileSummary(),
+    relevant: retrieveTraderMemories(incoming.text, TRADER_MEMORY_RETRIEVE_TOPK),
+  };
   const trading = buildTradingContext({
     currentView: 'dashboard',
     userIntentHint: 'telegram:' + incoming.chatId,
-  });
+  }, memoryBundle);
   let reply = '';
   let ok = true;
   try {
@@ -788,20 +1234,50 @@ async function handleTelegramIncoming(incoming) {
     direction: 'outbound',
     ok,
   });
+  appendTraderMemory({
+    kind: 'chat',
+    channel: 'telegram',
+    tags: ['telegram', 'assistant'],
+    content:
+      '用户: ' +
+      redactSecrets(incoming.text) +
+      '\n助手: ' +
+      redactSecrets(reply),
+  });
 }
 
 function scheduleTelegramPoll(delayMs) {
   if (!TELEGRAM_ENABLED) return;
   if (telegramPollTimer) clearTimeout(telegramPollTimer);
-  const waitMs = Math.max(120, Number(delayMs) || 0);
+  const waitMs = Math.max(220, Number(delayMs) || 0);
   telegramPollTimer = setTimeout(() => {
     telegramPollTimer = null;
+    if (!telegramPollLockAcquired) {
+      const got = acquireTelegramPollLock();
+      if (!got) {
+        telegramState.connected = false;
+        telegramState.lastError =
+          telegramState.pollLock.ownerPid != null
+            ? 'telegram poll lock busy (pid=' + String(telegramState.pollLock.ownerPid) + ')'
+            : 'telegram poll lock busy';
+        scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+        return;
+      }
+    }
     void pollTelegramOnce();
   }, waitMs);
 }
 
 async function pollTelegramOnce() {
   if (!TELEGRAM_ENABLED) return;
+  if (!telegramPollLockAcquired) {
+    const got = acquireTelegramPollLock();
+    if (!got) {
+      telegramState.connected = false;
+      scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+      return;
+    }
+  }
   if (telegramState.pollActive) {
     scheduleTelegramPoll(300);
     return;
@@ -831,11 +1307,27 @@ async function pollTelegramOnce() {
     }
     telegramState.connected = true;
     telegramState.lastError = null;
+    telegramState.conflicts.lastMessage = null;
     scheduleTelegramPoll(140);
   } catch (err) {
+    const errMsg = safeErrMsg(err, 'poll failed');
+    const conflict = /telegram http 409|terminated by other getupdates request|can't use getupdates method/i.test(
+      String(errMsg || ''),
+    );
     telegramState.connected = false;
-    telegramState.lastError = safeErrMsg(err, 'poll failed');
-    scheduleTelegramPoll(TELEGRAM_RETRY_MS);
+    telegramState.lastError = errMsg;
+    if (conflict) {
+      telegramState.conflicts.count += 1;
+      telegramState.conflicts.lastAt = nowIso();
+      telegramState.conflicts.lastMessage = errMsg;
+      const retry = Math.min(
+        120_000,
+        Math.max(TELEGRAM_RETRY_MS, TELEGRAM_RETRY_MS * Math.pow(2, Math.min(5, telegramState.conflicts.count))),
+      );
+      scheduleTelegramPoll(retry);
+    } else {
+      scheduleTelegramPoll(TELEGRAM_RETRY_MS);
+    }
   } finally {
     telegramState.pollActive = false;
   }
@@ -1098,6 +1590,7 @@ function buildOpenClawPrompt(message, context) {
   return [
     '你是交易系统里的 AI 交易助理（OpenClaw 驱动）。',
     '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
+    '上下文中的 longTermMemory 是长期记忆检索结果：优先利用其中的偏好/历史复盘结论，使回答更贴近该交易者。',
     '若信息不足，请直接说明缺失项，不得编造事实。',
     '',
     '输出要求（必须严格遵守）:',
@@ -1429,14 +1922,51 @@ async function handleChatApi(req, res) {
     sendJson(res, 400, { ok: false, error: 'message is required' });
     return;
   }
+  const rememberMatch = message.match(/^(记住|remember)\s*[:：]?\s*(.+)$/i);
+  if (rememberMatch) {
+    const note = String(rememberMatch[2] || '').trim();
+    if (!note) {
+      sendJson(res, 400, { ok: false, error: '记忆内容为空' });
+      return;
+    }
+    appendTraderMemory({
+      kind: 'manual_note',
+      channel: 'dashboard',
+      tags: ['manual-note', 'user'],
+      content: note,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: '已记住：' + truncText(redactSecrets(note), 180),
+      actions: [],
+      contextDigest: null,
+      meta: { memoryItems: traderMemoryState.entries.length },
+    });
+    return;
+  }
   const clientContext =
     body.value?.clientContext && typeof body.value.clientContext === 'object'
       ? body.value.clientContext
       : undefined;
-  const trading = buildTradingContext(clientContext);
+  const memoryBundle = {
+    profile: buildTraderProfileSummary(),
+    relevant: retrieveTraderMemories(message, TRADER_MEMORY_RETRIEVE_TOPK),
+  };
+  const trading = buildTradingContext(clientContext, memoryBundle);
   try {
     const result = await runOpenClawChat(message, trading.context);
     const structured = parseStructuredAgentReply(result.reply);
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant'],
+      content:
+        '用户: ' +
+        redactSecrets(message) +
+        '\n助手: ' +
+        redactSecrets(String(structured.reply || '').trim()),
+    });
     sendJson(res, 200, {
       ok: true,
       source: 'openclaw',
@@ -1451,6 +1981,16 @@ async function handleChatApi(req, res) {
       },
     });
   } catch (err) {
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'error'],
+      content:
+        '用户: ' +
+        redactSecrets(message) +
+        '\n错误: ' +
+        safeErrMsg(err, 'openclaw error'),
+    });
     sendJson(res, 502, {
       ok: false,
       source: 'openclaw',
@@ -1540,6 +2080,17 @@ function handleTelegramHealthApi(req, res) {
     lastError: telegramState.lastError,
     droppedUpdates: telegramState.droppedUpdates,
     allowedChatIds: telegramState.allowedChatIds,
+    pollLock: {
+      path: telegramState.pollLock.path,
+      acquired: telegramState.pollLock.acquired,
+      ownerPid: telegramState.pollLock.ownerPid,
+      reason: telegramState.pollLock.reason,
+    },
+    conflicts: {
+      count: telegramState.conflicts.count,
+      lastAt: telegramState.conflicts.lastAt,
+      lastMessage: telegramState.conflicts.lastMessage,
+    },
     knownChatIds: Array.from(telegramKnownChatIds),
     push: {
       enabled: telegramState.push.enabled,
@@ -1554,6 +2105,28 @@ function handleTelegramHealthApi(req, res) {
       sentCount: telegramState.push.sentCount,
       skippedNoTarget: telegramState.push.skippedNoTarget,
     },
+  });
+}
+
+function handleMemoryHealthApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const q = String(url.searchParams.get('q') || '').trim();
+  loadTraderMemory();
+  rememberTradeOutcomesToMemory();
+  const relevant = q ? retrieveTraderMemories(q, TRADER_MEMORY_RETRIEVE_TOPK) : [];
+  sendJson(res, 200, {
+    ok: true,
+    enabled: true,
+    path: TRADER_MEMORY_PATH,
+    totalEntries: traderMemoryState.entries.length,
+    profile: buildTraderProfileSummary(),
+    relevant,
   });
 }
 
@@ -1588,7 +2161,10 @@ const server = http.createServer((req, res) => {
         return;
       }
       const cli = resolveOpenClawCli();
-      const trading = buildTradingContext();
+      const trading = buildTradingContext(undefined, {
+        profile: buildTraderProfileSummary(),
+        relevant: [],
+      });
       sendJson(res, 200, {
         ok: true,
         provider: 'openclaw',
@@ -1614,6 +2190,10 @@ const server = http.createServer((req, res) => {
           connected: telegramState.connected,
           lastError: telegramState.lastError,
           lastInboundAt: telegramState.lastInboundAt,
+          pollLockAcquired: telegramState.pollLock.acquired,
+          pollLockOwnerPid: telegramState.pollLock.ownerPid,
+          conflictCount: telegramState.conflicts.count,
+          conflictLastAt: telegramState.conflicts.lastAt,
           pushTrades: telegramState.push.enabled,
           pushTargets: resolveTelegramPushTargets().length,
           pushLastSentAt: telegramState.push.lastSentAt,
@@ -1630,6 +2210,10 @@ const server = http.createServer((req, res) => {
       handleTelegramHealthApi(req, res);
       return;
     }
+    if (url.pathname === '/api/memory/health') {
+      handleMemoryHealthApi(req, res);
+      return;
+    }
     if (url.pathname === '/api/ai/context') {
       if (String(req.method || 'GET').toUpperCase() !== 'GET') {
         res.statusCode = 405;
@@ -1637,7 +2221,10 @@ const server = http.createServer((req, res) => {
         res.end('Method Not Allowed');
         return;
       }
-      const trading = buildTradingContext();
+      const trading = buildTradingContext(undefined, {
+        profile: buildTraderProfileSummary(),
+        relevant: [],
+      });
       const full = url.searchParams.get('full') === '1';
       sendJson(res, 200, {
         ok: true,
@@ -1662,6 +2249,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
+registerProcessCleanupHooks();
+loadTraderMemory();
+rememberTradeOutcomesToMemory();
+
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
   console.log('Serving:', REPORT_DIR);
@@ -1677,13 +2268,25 @@ server.listen(PORT, () => {
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
   console.log('AI config channel: POST /api/config/chat');
+  console.log('Memory health: GET /api/memory/health?q=...');
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
       : 'ALL';
     console.log('Telegram relay: enabled (events=/api/telegram/events, autoReply=' + (TELEGRAM_AUTO_REPLY ? 'on' : 'off') + ')');
     console.log('Telegram allowlist:', allow);
-    scheduleTelegramPoll(160);
+    const lockOk = acquireTelegramPollLock();
+    if (lockOk) {
+      console.log('Telegram poll lock: acquired (pid=' + process.pid + ')');
+      scheduleTelegramPoll(160);
+    } else {
+      console.log(
+        'Telegram poll lock: busy (ownerPid=' +
+          String(telegramState.pollLock.ownerPid || '?') +
+          ', will retry)',
+      );
+      scheduleTelegramPoll(Math.max(3_500, TELEGRAM_RETRY_MS * 2));
+    }
     if (telegramState.push.enabled) {
       const configuredTargets = TELEGRAM_PUSH_CHAT_IDS.length
         ? TELEGRAM_PUSH_CHAT_IDS.join(',')
