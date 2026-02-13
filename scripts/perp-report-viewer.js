@@ -142,8 +142,37 @@ const HTML = `<!DOCTYPE html>
       font-size: 0.88rem;
       line-height: 1;
       flex: 0 0 auto;
+      position: fixed;
+      left: 10px;
+      top: 10px;
+      z-index: 260;
     }
     .feature-sidebar-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .topbar-toggle-btn {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.2);
+      color: #79c0ff;
+      padding: 4px 10px;
+      font-size: 0.69rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .topbar-toggle-btn:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
+    .topbar-expand-btn {
+      margin: 8px 12px 0 56px;
+      align-self: flex-start;
+      border: 1px solid rgba(88,166,255,0.54);
+      border-radius: 999px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      font-size: 0.72rem;
+      padding: 6px 12px;
+      cursor: pointer;
+      z-index: 220;
+    }
+    .topbar-expand-btn:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .topbar-expand-btn.hidden { display: none; }
     .feature-sidebar {
       width: 0;
       overflow: hidden;
@@ -524,7 +553,8 @@ const HTML = `<!DOCTYPE html>
     body { padding: 0; min-height: 100dvh; overflow: auto; }
     .app-shell { max-width: none; margin: 0; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: row; }
     .app-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; backdrop-filter: blur(8px); }
+    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px 56px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; backdrop-filter: blur(8px); }
+    .app-topbar.topbar-hidden { display: none; }
     .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
     .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
     .status-chip.long, .status-chip.positive { border-color: rgba(63,185,80,0.55); color: var(--green); }
@@ -558,12 +588,14 @@ const HTML = `<!DOCTYPE html>
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .hero-title-row { margin-bottom: 0; }
-      .feature-sidebar-toggle { width: 36px; height: 32px; }
+      .feature-sidebar-toggle { width: 36px; height: 32px; left: 8px; top: 8px; }
       .feature-sidebar { position: fixed; left: 0; top: 0; bottom: 0; min-height: 0; z-index: 230; }
       .app-shell.sidebar-open .feature-sidebar { width: 228px; box-shadow: 8px 0 24px rgba(0,0,0,0.45); }
       .feature-sidebar-inner { width: 228px; }
       .feature-sidebar-backdrop { display: block; }
       .app-content { width: 100%; }
+      .app-topbar { padding-left: 50px; }
+      .topbar-expand-btn { margin-left: 50px; }
       .xsea-grid { grid-template-columns: 1fr; }
       .ai-input-row input { font-size: 16px; }
       .backtest-controls { grid-template-columns: 1fr 1fr; }
@@ -619,12 +651,13 @@ const HTML = `<!DOCTYPE html>
     </aside>
     <div id="feature-sidebar-backdrop" class="feature-sidebar-backdrop hidden"></div>
     <div class="app-content">
-    <div class="app-topbar">
+    <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开左侧功能栏">☰</button>
+    <div class="app-topbar" id="app-topbar">
       <div class="top-hero">
         <div class="top-hero-main">
           <div class="hero-title-row">
             <h1>ThunderClaw 交易中枢</h1>
-            <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开功能栏">☰</button>
+            <button id="topbar-toggle" class="topbar-toggle-btn" type="button" aria-label="收起交易中枢">收起中枢</button>
           </div>
           <div class="top-status">
             <span id="status-position" class="status-chip neutral">仓位: --</span>
@@ -645,6 +678,7 @@ const HTML = `<!DOCTYPE html>
         </div>
       </div>
     </div>
+    <button id="topbar-expand-btn" class="topbar-expand-btn hidden" type="button" aria-label="展开交易中枢">展开交易中枢</button>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
@@ -1065,13 +1099,17 @@ const HTML = `<!DOCTYPE html>
       const featureMenuButtons = Array.from(document.querySelectorAll('.feature-menu-btn[data-view-target]'));
       const appSubtitle = document.getElementById('app-subtitle');
       const appShellEl = document.getElementById('app-shell');
+      const appTopbarEl = document.getElementById('app-topbar');
       const sidebarToggle = document.getElementById('feature-sidebar-toggle');
       const sidebarEl = document.getElementById('feature-sidebar');
       const sidebarBackdropEl = document.getElementById('feature-sidebar-backdrop');
+      const topbarToggleBtn = document.getElementById('topbar-toggle');
+      const topbarExpandBtn = document.getElementById('topbar-expand-btn');
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
       let sidebarOpen = false;
+      let topbarCollapsed = false;
 
       function normalizeViewTarget(nameLike) {
         const raw = String(nameLike || '').trim().toLowerCase();
@@ -1111,6 +1149,20 @@ const HTML = `<!DOCTYPE html>
         }
       }
 
+      function syncTopbarVisibility() {
+        const isDashboardView = activeViewName === 'dashboard';
+        if (appTopbarEl) {
+          appTopbarEl.classList.toggle('topbar-hidden', !isDashboardView || topbarCollapsed);
+        }
+        if (topbarExpandBtn) {
+          topbarExpandBtn.classList.toggle('hidden', !(isDashboardView && topbarCollapsed));
+        }
+        if (topbarToggleBtn) {
+          topbarToggleBtn.textContent = topbarCollapsed ? '展开中枢' : '收起中枢';
+          topbarToggleBtn.setAttribute('aria-label', topbarCollapsed ? '展开交易中枢' : '收起交易中枢');
+        }
+      }
+
       function switchView(name) {
         const key = normalizeViewTarget(name);
         activeViewName = key;
@@ -1133,6 +1185,7 @@ const HTML = `<!DOCTYPE html>
         if (globalBackBtn) {
           globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
+        syncTopbarVisibility();
         if (isCompactViewport()) setSidebarOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
@@ -1166,6 +1219,18 @@ const HTML = `<!DOCTYPE html>
             sidebarBackdropEl.classList.add('hidden');
           }
         }, { passive: true });
+      }
+      if (topbarToggleBtn) {
+        topbarToggleBtn.addEventListener('click', function() {
+          topbarCollapsed = !topbarCollapsed;
+          syncTopbarVisibility();
+        });
+      }
+      if (topbarExpandBtn) {
+        topbarExpandBtn.addEventListener('click', function() {
+          topbarCollapsed = false;
+          syncTopbarVisibility();
+        });
       }
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
