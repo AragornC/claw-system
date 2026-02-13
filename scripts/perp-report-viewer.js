@@ -168,6 +168,25 @@ const HTML = `<!DOCTYPE html>
       padding: 8px 9px;
       line-height: 1.35;
     }
+    .feature-menu-btn.feature-thunder {
+      border-color: rgba(255,166,76,0.52);
+      background:
+        linear-gradient(90deg, rgba(6,7,18,0.78) 0%, rgba(6,7,18,0.46) 44%, rgba(6,7,18,0.2) 100%),
+        url('./thunderclaw-feature.jpg') center / cover no-repeat,
+        linear-gradient(135deg, rgba(77,17,12,0.95), rgba(18,8,27,0.95));
+    }
+    .feature-menu-btn.feature-thunder .k {
+      color: #ffdfa4;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-thunder .d {
+      color: rgba(255,236,206,0.88);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-thunder.active {
+      border-color: rgba(255,196,112,0.8);
+      box-shadow: 0 0 0 1px rgba(255,196,112,0.24) inset;
+    }
     .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
     .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
     .feature-sidebar-backdrop {
@@ -590,7 +609,7 @@ const HTML = `<!DOCTYPE html>
     <aside id="feature-sidebar" class="feature-sidebar">
       <div class="feature-sidebar-inner">
         <div class="feature-sidebar-head">功能页</div>
-        <button class="nav-btn feature-menu-btn active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
+        <button class="nav-btn feature-menu-btn feature-thunder active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
         <button class="nav-btn feature-menu-btn" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
         <button class="nav-btn feature-menu-btn" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
         <button class="nav-btn feature-menu-btn" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
