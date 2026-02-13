@@ -299,7 +299,7 @@ function buildTradingContext(clientContext) {
       runtimeTimeline,
     },
     uiActions: {
-      switchViews: ['dashboard', 'runtime', 'kline', 'backtest', 'history'],
+      switchViews: ['dashboard', 'runtime', 'kline', 'history', 'backtest', 'xsea'],
       backtest: {
         strategy: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
         tf: ['1m', '5m', '15m', '1h', '4h', '1d'],
@@ -385,6 +385,7 @@ function normalizeViewName(viewLike) {
   if (!raw) return null;
   const alias = {
     main: 'dashboard',
+    thunderclaw: 'dashboard',
     dashboard: 'dashboard',
     ai: 'dashboard',
     chat: 'dashboard',
@@ -394,6 +395,8 @@ function normalizeViewName(viewLike) {
     position: 'runtime',
     当前单: 'runtime',
     kline: 'kline',
+    xline: 'kline',
+    虾线: 'kline',
     chart: 'kline',
     k线: 'kline',
     history: 'history',
@@ -401,9 +404,14 @@ function normalizeViewName(viewLike) {
     历史: 'history',
     历史单: 'history',
     backtest: 'backtest',
+    xstrategy: 'backtest',
+    虾策: 'backtest',
     复盘: 'backtest',
     回验: 'backtest',
     回测: 'backtest',
+    xsea: 'xsea',
+    虾海: 'xsea',
+    社区策略: 'xsea',
   };
   return alias[raw] || null;
 }
@@ -523,7 +531,7 @@ function buildOpenClawPrompt(message, context) {
     '2) JSON 格式固定为：',
     '{"reply":"给用户看的中文回复","actions":[...]}',
     '3) actions 可选，最多 4 个。支持动作：',
-    '- {"type":"switch_view","view":"dashboard|runtime|kline|backtest|history"}',
+    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea"}',
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '4) 如果不需要动作，actions 返回空数组。',
