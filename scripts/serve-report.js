@@ -2025,6 +2025,34 @@ function normalizeAiActions(actionsLike) {
       if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
       if (maxHold != null) normalized.maxHold = Math.round(maxHold);
       pushUnique(normalized);
+      continue;
+    }
+    if (type === 'run_backtest_compare') {
+      const normalized = { type: 'run_backtest_compare' };
+      const tf = String(item.tf || '').trim();
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) {
+        normalized.tf = tf;
+      }
+      const rawStrategies = Array.isArray(item.strategies)
+        ? item.strategies
+        : item.strategy
+          ? [item.strategy]
+          : [];
+      const strategies = rawStrategies
+        .map((x) => String(x || '').trim())
+        .filter((x) => ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(x));
+      if (strategies.length) normalized.strategies = Array.from(new Set(strategies)).slice(0, 4);
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      pushUnique(normalized);
     }
   }
   return out.slice(0, 4);
@@ -2652,6 +2680,7 @@ function buildOpenClawPrompt(message, context) {
     '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea"}',
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
+    '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '4) 如果不需要动作，actions 返回空数组。',
     '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
     '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',

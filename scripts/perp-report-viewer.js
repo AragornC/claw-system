@@ -2147,6 +2147,25 @@ const HTML = `<!DOCTYPE html>
               if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
               if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
               pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_backtest_compare') {
+              const cfg = { type: 'run_backtest_compare' };
+              const tf = String(action.tf || '');
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const rawStrategies = Array.isArray(action.strategies)
+                ? action.strategies
+                : (action.strategy ? [action.strategy] : []);
+              const strategies = rawStrategies
+                .map(function(s) { return String(s || '').trim(); })
+                .filter(function(s) { return ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(s); });
+              if (strategies.length) cfg.strategies = Array.from(new Set(strategies)).slice(0, 4);
+              pushUnique(cfg);
             }
           });
           return out;
@@ -2237,7 +2256,8 @@ const HTML = `<!DOCTYPE html>
                 '你是交易看板中的AI交易助理。',
                 '请严格根据给出的上下文回答，不要编造。',
                 '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest。',
+                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare。',
+                '除非用户明确要求切页，否则不要使用 switch_view。',
               ].join('\\n'),
             },
             {
@@ -2282,12 +2302,10 @@ const HTML = `<!DOCTYPE html>
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
           if (/虾海|策略交流|社区策略|strategy sea|xsea/.test(ql)) {
-            switchView('xsea');
-            return '已切到「虾海」页面。你可以发布策略、交流策略，并选取策略训练机器人。';
+            return '可以基于当前策略库做策略交流、筛选与训练任务。我会优先通过动作执行返回结果，而不是强制跳页。';
           }
           if (/回验|backtest|复盘|回测/.test(ql)) {
-            switchView('backtest');
-            return 'OpenClaw 当前不可用，已切到「策略回验」页面。你可直接点“开始回验”。';
+            return '可以执行回验任务。若 AI 在线我会直接调用回验动作；若离线可在本地自动跑一轮并回传结果摘要。';
           }
           if (!ql.trim()) return '可以问我：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。';
           if (/仓位|持仓|position/.test(ql)) {
@@ -2555,6 +2573,87 @@ const HTML = `<!DOCTYPE html>
                 });
               }
               notes.push(summary + '（已同步到虾策面板）');
+              return;
+            }
+            if (type === 'run_backtest_compare') {
+              const tfEl = document.getElementById('bt-tf');
+              const barsEl = document.getElementById('bt-bars');
+              const feeEl = document.getElementById('bt-fee-bps');
+              const stopEl = document.getElementById('bt-stop-atr');
+              const tpEl = document.getElementById('bt-tp-atr');
+              const holdEl = document.getElementById('bt-max-hold');
+              const strategies = Array.isArray(action.strategies) && action.strategies.length
+                ? action.strategies
+                : ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+              const tf = String(action.tf || (tfEl ? tfEl.value : '1h') || '1h');
+              const bars = Number(action.bars || (barsEl ? barsEl.value : 900) || 900);
+              const feeBps = Number(action.feeBps || (feeEl ? feeEl.value : 5) || 5);
+              const stopAtr = Number(action.stopAtr || (stopEl ? stopEl.value : 1.8) || 1.8);
+              const tpAtr = Number(action.tpAtr || (tpEl ? tpEl.value : 3.0) || 3.0);
+              const maxHold = Number(action.maxHold || (holdEl ? holdEl.value : 72) || 72);
+              const rows = [];
+              strategies.forEach(function(strategy) {
+                if (!['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(String(strategy || ''))) return;
+                const cfg = {
+                  strategy: String(strategy),
+                  tf: tf,
+                  bars: bars,
+                  feeBps: feeBps,
+                  stopAtr: stopAtr,
+                  tpAtr: tpAtr,
+                  maxHold: maxHold,
+                };
+                const result = runBacktestByVersion(cfg);
+                if (!result || result.error) return;
+                const wr = Number(result.winRate || 0);
+                const pnl = Number(result.totalPnlPct || 0);
+                const trades = Number(result.trades || 0);
+                const score = wr * 1.0 + Math.min(trades, 160) * 0.12 + pnl * 0.06;
+                rows.push({
+                  cfg: cfg,
+                  result: result,
+                  strategy: cfg.strategy,
+                  score: score,
+                  winRate: wr,
+                  pnlPct: pnl,
+                  trades: trades,
+                });
+              });
+              if (!rows.length) {
+                notes.push('策略对比未执行（当前数据不足）');
+                return;
+              }
+              rows.sort(function(a, b) {
+                if (b.score !== a.score) return b.score - a.score;
+                if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+                if (b.trades !== a.trades) return b.trades - a.trades;
+                return b.pnlPct - a.pnlPct;
+              });
+              const best = rows[0];
+              setControlValue('bt-strategy', best.strategy);
+              setControlValue('bt-tf', best.cfg.tf);
+              setControlValue('bt-bars', best.cfg.bars);
+              setControlValue('bt-fee-bps', best.cfg.feeBps);
+              setControlValue('bt-stop-atr', best.cfg.stopAtr);
+              setControlValue('bt-tp-atr', best.cfg.tpAtr);
+              setControlValue('bt-max-hold', best.cfg.maxHold);
+              renderBacktestResult(best.result, best.cfg);
+              const topText = rows.slice(0, 3).map(function(r, idx) {
+                return (
+                  (idx + 1) +
+                  ') ' +
+                  btStrategyLabel(r.strategy) +
+                  ' 胜率' +
+                  btNum(r.winRate, 1) +
+                  '% 交易' +
+                  r.trades +
+                  ' 净收益' +
+                  (r.pnlPct >= 0 ? '+' : '') +
+                  btNum(r.pnlPct, 2) +
+                  '%'
+                );
+              }).join(' / ');
+              notes.push('策略对比完成，推荐 ' + btStrategyLabel(best.strategy) + '。' + topText);
             }
           });
           return notes.join('；');
@@ -2613,8 +2712,6 @@ const HTML = `<!DOCTYPE html>
         async function answer(q) {
           const cmd = handleLocalCmd(q);
           if (cmd) return { ...cmd, source: cmd.source || 'local_cmd' };
-          const task = runHighWinRateTask(q);
-          if (task) return task;
           if (looksLikeConfigIntentLocal(q)) {
             try {
               const cfg = await askConfigChannel(q);
@@ -2633,6 +2730,8 @@ const HTML = `<!DOCTYPE html>
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
                 setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+                const localTask = runHighWinRateTask(q);
+                if (localTask) return localTask;
                 return {
                   reply: localAnswer(q) + '\\n\\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
                   actions: [],
@@ -2640,6 +2739,8 @@ const HTML = `<!DOCTYPE html>
                 };
               }
               setAiLinkStatus('warn', 'AI离线(本地兜底)');
+              const localTask = runHighWinRateTask(q);
+              if (localTask) return localTask;
               return { reply: localAnswer(q), actions: [], source: 'local_fallback' };
             }
           }
