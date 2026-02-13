@@ -195,6 +195,8 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 配置 `THUNDERCLAW_TELEGRAM_BOT_TOKEN` 后，服务端会轮询 Telegram Bot API。
 - 轮询带本机单实例锁（`memory/.telegram-poll.<tokenHash>.lock`），可避免同机多进程并发 `getUpdates` 触发 `409 Conflict`。
 - 若出现外部冲突（例如另一台机器也在轮询同一 bot），系统会自动指数退避重试并在健康接口显示冲突计数。
+- 入站消息带去重（`memory/.telegram-inbound-dedupe.<tokenHash>/`），重复 update/message 不会重复触发回复。
+- 默认忽略 `from.is_bot=true` 的入站消息，避免机器人互相触发造成回声/重复回复。
 - Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
 - **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
 - 可选开启交易事件主动推送：开仓/平仓/风控拦截会自动发到 Telegram。

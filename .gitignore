@@ -18,6 +18,7 @@ memory/tmp-*
 memory/last-*
 memory/*.tmp
 memory/*.lock
+memory/.telegram-inbound-dedupe*
 memory/*.html
 memory/*.md
 !memory/PERP-ARCHITECTURE.md
