@@ -186,6 +186,14 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
   - `GET /api/ai/health`
   - `GET /api/ai/context`
   - `GET /api/ai/context?full=1`
+  - `GET /api/telegram/health`
+  - `GET /api/telegram/events?afterId=<id>`
+
+新增（本地直连 Telegram）：
+
+- 配置 `THUNDERCLAW_TELEGRAM_BOT_TOKEN` 后，服务端会轮询 Telegram Bot API。
+- Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
+- **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
 
 手机/静态部署（无本地后端）可用方案：
 
@@ -242,6 +250,7 @@ npm run report:start:local
 - 默认模型 ID（留空则沿用 OpenClaw 当前配置）
 - 可选 DeepSeek provider 快速写入（仅当你选择时）
 - OpenClaw 路由参数（写入 `.env.local`，不含 API key）
+- Telegram 同步参数（Bot Token、允许 chat id、是否自动回复）
 
 之后你也可以手工编辑 `.env.local`（可参考 `.env.local.example`），再执行：
 
@@ -317,6 +326,10 @@ OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 - `OPENCLAW_CONTEXT_MAX_DECISIONS`：上下文中最近决策条数（默认 `36`）
 - `OPENCLAW_CONTEXT_TIMELINE_EVENTS`：上下文时间线条数（默认 `18`）
 - `OPENCLAW_CONTEXT_MAX_ORDERS`：上下文中最近订单条数（默认 `12`）
+- `THUNDERCLAW_TELEGRAM_BOT_TOKEN`：启用 Telegram 单向同步（Telegram -> 看板）的 Bot Token
+- `THUNDERCLAW_TELEGRAM_ALLOWED_CHAT_IDS`：可选，允许的 chat id 白名单（逗号分隔）
+- `THUNDERCLAW_TELEGRAM_AUTO_REPLY`：`1/0`，是否自动将 AI 回复发回 Telegram（默认 `1`）
+- `THUNDERCLAW_TELEGRAM_POLL_TIMEOUT_SEC` / `THUNDERCLAW_TELEGRAM_RETRY_MS`：Telegram 轮询参数
 
 当 OpenClaw 不可用时，聊天区会自动回退到本地兜底回复，并在界面上标记为离线状态。
 

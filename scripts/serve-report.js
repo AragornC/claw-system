@@ -47,6 +47,31 @@ const OPENCLAW_CONTEXT_TIMELINE_EVENTS = positiveInt(
   18,
 );
 const OPENCLAW_CONTEXT_MAX_ORDERS = positiveInt(process.env.OPENCLAW_CONTEXT_MAX_ORDERS, 12);
+const TELEGRAM_BOT_TOKEN = (
+  process.env.THUNDERCLAW_TELEGRAM_BOT_TOKEN ||
+  process.env.TELEGRAM_BOT_TOKEN ||
+  process.env.OPENCLAW_TELEGRAM_BOT_TOKEN ||
+  ''
+).trim();
+const TELEGRAM_ENABLED = Boolean(TELEGRAM_BOT_TOKEN);
+const TELEGRAM_API_BASE = TELEGRAM_ENABLED
+  ? 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN
+  : '';
+const TELEGRAM_ALLOWED_CHAT_IDS = new Set(
+  String(process.env.THUNDERCLAW_TELEGRAM_ALLOWED_CHAT_IDS || process.env.TELEGRAM_ALLOWED_CHAT_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean),
+);
+const TELEGRAM_POLL_TIMEOUT_SEC = Math.max(
+  5,
+  Math.min(50, positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_TIMEOUT_SEC, 25)),
+);
+const TELEGRAM_RETRY_MS = Math.max(300, positiveInt(process.env.THUNDERCLAW_TELEGRAM_RETRY_MS, 1800));
+const TELEGRAM_EVENTS_MAX = Math.max(20, positiveInt(process.env.THUNDERCLAW_TELEGRAM_EVENTS_MAX, 240));
+const TELEGRAM_AUTO_REPLY = !/^(0|false|off|no)$/i.test(
+  String(process.env.THUNDERCLAW_TELEGRAM_AUTO_REPLY || '1'),
+);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -58,9 +83,41 @@ const MIME = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
+let telegramUpdateOffset = 0;
+let telegramEventSeq = 0;
+const telegramEvents = [];
+let telegramPollTimer = null;
+const telegramState = {
+  enabled: TELEGRAM_ENABLED,
+  pollActive: false,
+  connected: false,
+  lastPollAt: null,
+  lastInboundAt: null,
+  lastOutboundAt: null,
+  lastError: null,
+  lastUpdateId: null,
+  droppedUpdates: 0,
+  allowedChatIds: Array.from(TELEGRAM_ALLOWED_CHAT_IDS),
+};
+
 function positiveInt(raw, fallback) {
   const n = Number.parseInt(String(raw ?? ''), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function truncText(text, maxLen = 2000) {
+  const s = String(text || '');
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen - 1) + '…';
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function safeErrMsg(err, fallback = 'unknown error') {
+  const msg = String(err?.message || err || fallback).trim();
+  return truncText(msg || fallback, 320);
 }
 
 function sendJson(res, status, body) {
@@ -466,6 +523,210 @@ function normalizeAiActions(actionsLike) {
   return out.slice(0, 4);
 }
 
+function pushTelegramEvent(eventLike) {
+  const event = eventLike && typeof eventLike === 'object' ? eventLike : {};
+  telegramEventSeq += 1;
+  const item = {
+    id: telegramEventSeq,
+    ts: nowIso(),
+    source: 'telegram',
+    role: event.role === 'bot' ? 'bot' : 'user',
+    chatId: event.chatId != null ? String(event.chatId) : null,
+    from: event.from ? truncText(String(event.from), 64) : null,
+    text: truncText(String(event.text || '').trim(), 4000),
+    direction: event.direction === 'outbound' ? 'outbound' : 'inbound',
+    ok: event.ok !== false,
+  };
+  telegramEvents.push(item);
+  if (telegramEvents.length > TELEGRAM_EVENTS_MAX) {
+    telegramEvents.splice(0, telegramEvents.length - TELEGRAM_EVENTS_MAX);
+  }
+  return item;
+}
+
+function listTelegramEvents(afterId, limit = 80) {
+  const cursor = Number.isFinite(Number(afterId)) ? Number(afterId) : 0;
+  const maxN = Math.max(1, Math.min(200, Number(limit) || 80));
+  return telegramEvents.filter((e) => e.id > cursor).slice(-maxN);
+}
+
+function parseTelegramIncoming(update) {
+  const msg = update?.message || null;
+  if (!msg) return null;
+  const chatIdRaw = msg?.chat?.id;
+  const chatId = chatIdRaw != null ? String(chatIdRaw) : '';
+  if (!chatId) return null;
+  if (TELEGRAM_ALLOWED_CHAT_IDS.size && !TELEGRAM_ALLOWED_CHAT_IDS.has(chatId)) {
+    telegramState.droppedUpdates += 1;
+    return null;
+  }
+  const text = String(msg?.text || msg?.caption || '').trim();
+  if (!text) return null;
+  const fromName = [msg?.from?.first_name, msg?.from?.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const from =
+    truncText(
+      fromName ||
+        msg?.from?.username ||
+        msg?.chat?.title ||
+        msg?.chat?.username ||
+        ('chat:' + chatId),
+      64,
+    ) || 'telegram';
+  return {
+    updateId: Number(update?.update_id) || 0,
+    chatId,
+    from,
+    text,
+  };
+}
+
+async function telegramApiCall(methodPath, payload, timeoutMs = 30_000) {
+  if (!TELEGRAM_ENABLED) throw new Error('telegram disabled');
+  const url = TELEGRAM_API_BASE + '/' + String(methodPath || '');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), Math.max(2_000, timeoutMs));
+  try {
+    const opts = payload
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: ctrl.signal,
+        }
+      : { method: 'GET', signal: ctrl.signal };
+    const resp = await fetch(url, opts);
+    const text = await resp.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    if (!resp.ok) {
+      throw new Error('telegram http ' + resp.status + ': ' + truncText(text, 180));
+    }
+    if (!json || json.ok !== true) {
+      const desc = json && json.description ? String(json.description) : 'invalid telegram response';
+      throw new Error('telegram api: ' + truncText(desc, 180));
+    }
+    return json.result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendTelegramText(chatId, text) {
+  const body = {
+    chat_id: chatId,
+    text: truncText(text, 4000),
+    disable_web_page_preview: true,
+  };
+  await telegramApiCall('sendMessage', body, 20_000);
+}
+
+async function handleTelegramIncoming(incoming) {
+  if (!incoming || !incoming.text) return;
+  telegramState.lastInboundAt = nowIso();
+  pushTelegramEvent({
+    role: 'user',
+    chatId: incoming.chatId,
+    from: incoming.from,
+    text: incoming.text,
+    direction: 'inbound',
+    ok: true,
+  });
+
+  if (!TELEGRAM_AUTO_REPLY) return;
+
+  const trading = buildTradingContext({
+    currentView: 'dashboard',
+    userIntentHint: 'telegram:' + incoming.chatId,
+  });
+  let reply = '';
+  let ok = true;
+  try {
+    const result = await runOpenClawChat(incoming.text, trading.context);
+    const structured = parseStructuredAgentReply(result.reply);
+    reply = String(structured.reply || '').trim() || '收到。';
+  } catch (err) {
+    ok = false;
+    reply = '收到，但处理消息失败：' + safeErrMsg(err, 'unknown');
+  }
+
+  try {
+    await sendTelegramText(incoming.chatId, reply);
+    telegramState.lastOutboundAt = nowIso();
+  } catch (err) {
+    ok = false;
+    const errMsg = safeErrMsg(err, 'send failed');
+    telegramState.lastError = errMsg;
+    reply = reply + '\n(发送到 Telegram 失败: ' + errMsg + ')';
+  }
+
+  pushTelegramEvent({
+    role: 'bot',
+    chatId: incoming.chatId,
+    from: 'thunderclaw',
+    text: reply,
+    direction: 'outbound',
+    ok,
+  });
+}
+
+function scheduleTelegramPoll(delayMs) {
+  if (!TELEGRAM_ENABLED) return;
+  if (telegramPollTimer) clearTimeout(telegramPollTimer);
+  const waitMs = Math.max(120, Number(delayMs) || 0);
+  telegramPollTimer = setTimeout(() => {
+    telegramPollTimer = null;
+    void pollTelegramOnce();
+  }, waitMs);
+}
+
+async function pollTelegramOnce() {
+  if (!TELEGRAM_ENABLED) return;
+  if (telegramState.pollActive) {
+    scheduleTelegramPoll(300);
+    return;
+  }
+  telegramState.pollActive = true;
+  telegramState.lastPollAt = nowIso();
+  try {
+    const params = new URLSearchParams();
+    params.set('timeout', String(TELEGRAM_POLL_TIMEOUT_SEC));
+    if (telegramUpdateOffset > 0) params.set('offset', String(telegramUpdateOffset));
+    params.set('allowed_updates', JSON.stringify(['message']));
+    const updates = await telegramApiCall(
+      'getUpdates?' + params.toString(),
+      null,
+      (TELEGRAM_POLL_TIMEOUT_SEC + 8) * 1000,
+    );
+    const list = Array.isArray(updates) ? updates : [];
+    for (const update of list) {
+      const updateId = Number(update?.update_id);
+      if (Number.isFinite(updateId)) {
+        telegramUpdateOffset = Math.max(telegramUpdateOffset, updateId + 1);
+        telegramState.lastUpdateId = updateId;
+      }
+      const incoming = parseTelegramIncoming(update);
+      if (!incoming) continue;
+      await handleTelegramIncoming(incoming);
+    }
+    telegramState.connected = true;
+    telegramState.lastError = null;
+    scheduleTelegramPoll(140);
+  } catch (err) {
+    telegramState.connected = false;
+    telegramState.lastError = safeErrMsg(err, 'poll failed');
+    scheduleTelegramPoll(TELEGRAM_RETRY_MS);
+  } finally {
+    telegramState.pollActive = false;
+  }
+}
+
 function payloadToText(payload) {
   const lines = [];
   const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
@@ -710,6 +971,49 @@ async function handleChatApi(req, res) {
   }
 }
 
+function handleTelegramEventsApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const afterId = Number(url.searchParams.get('afterId') || '0');
+  const limit = Number(url.searchParams.get('limit') || '80');
+  sendJson(res, 200, {
+    ok: true,
+    enabled: TELEGRAM_ENABLED,
+    autoReply: TELEGRAM_AUTO_REPLY,
+    latestEventId: telegramEventSeq,
+    events: listTelegramEvents(afterId, limit),
+  });
+}
+
+function handleTelegramHealthApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    provider: 'telegram-bot-api',
+    enabled: TELEGRAM_ENABLED,
+    autoReply: TELEGRAM_AUTO_REPLY,
+    connected: telegramState.connected,
+    pollActive: telegramState.pollActive,
+    lastPollAt: telegramState.lastPollAt,
+    lastInboundAt: telegramState.lastInboundAt,
+    lastOutboundAt: telegramState.lastOutboundAt,
+    lastUpdateId: telegramState.lastUpdateId,
+    lastError: telegramState.lastError,
+    droppedUpdates: telegramState.droppedUpdates,
+    allowedChatIds: telegramState.allowedChatIds,
+  });
+}
+
 async function handleStatic(req, res, pathname) {
   const pagePath = pathname === '/' ? '/index.html' : pathname;
   const file = path.resolve(REPORT_DIR, '.' + pagePath);
@@ -761,7 +1065,22 @@ const server = http.createServer((req, res) => {
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
         commandSource: cli.source,
         contextDigest: trading.digest,
+        telegram: {
+          enabled: TELEGRAM_ENABLED,
+          autoReply: TELEGRAM_AUTO_REPLY,
+          connected: telegramState.connected,
+          lastError: telegramState.lastError,
+          lastInboundAt: telegramState.lastInboundAt,
+        },
       });
+      return;
+    }
+    if (url.pathname === '/api/telegram/events') {
+      handleTelegramEventsApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/telegram/health') {
+      handleTelegramHealthApi(req, res);
       return;
     }
     if (url.pathname === '/api/ai/context') {
@@ -806,4 +1125,14 @@ server.listen(PORT, () => {
   if (OPENCLAW_REPLY_ACCOUNT) routingParts.push('replyAccount=' + OPENCLAW_REPLY_ACCOUNT);
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
+  if (TELEGRAM_ENABLED) {
+    const allow = telegramState.allowedChatIds.length
+      ? telegramState.allowedChatIds.join(',')
+      : 'ALL';
+    console.log('Telegram relay: enabled (events=/api/telegram/events, autoReply=' + (TELEGRAM_AUTO_REPLY ? 'on' : 'off') + ')');
+    console.log('Telegram allowlist:', allow);
+    scheduleTelegramPoll(160);
+  } else {
+    console.log('Telegram relay: disabled (set THUNDERCLAW_TELEGRAM_BOT_TOKEN to enable)');
+  }
 });
