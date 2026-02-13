@@ -1922,6 +1922,26 @@ async function handleChatApi(req, res) {
     sendJson(res, 400, { ok: false, error: 'message is required' });
     return;
   }
+  if (/^(记忆状态|查看记忆|memory status)$/i.test(message)) {
+    const profile = buildTraderProfileSummary();
+    const topTags = Array.isArray(profile.topTags)
+      ? profile.topTags.map((x) => x.tag + '(' + x.count + ')').join(', ')
+      : '';
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: [
+        '记忆库状态：',
+        '- 条目数: ' + String(profile.memoryItems || 0),
+        '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
+        '- 高频标签: ' + (topTags || '-'),
+      ].join('\n'),
+      actions: [],
+      contextDigest: null,
+      meta: { memoryItems: profile.memoryItems || 0 },
+    });
+    return;
+  }
   const rememberMatch = message.match(/^(记住|remember)\s*[:：]?\s*(.+)$/i);
   if (rememberMatch) {
     const note = String(rememberMatch[2] || '').trim();
