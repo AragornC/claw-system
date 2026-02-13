@@ -2058,6 +2058,77 @@ function normalizeAiActions(actionsLike) {
   return out.slice(0, 4);
 }
 
+function parseTfFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const m = text.match(/\b(1m|5m|15m|1h|4h|1d)\b/);
+  if (m && m[1]) return m[1];
+  if (/1分钟|分时/.test(text)) return '1m';
+  if (/5分钟/.test(text)) return '5m';
+  if (/15分钟/.test(text)) return '15m';
+  if (/1小时/.test(text)) return '1h';
+  if (/4小时/.test(text)) return '4h';
+  if (/日线|1天/.test(text)) return '1d';
+  return null;
+}
+
+function parseBarsFromText(messageLike) {
+  const text = String(messageLike || '');
+  const m = text.match(/(\d{2,5})\s*(根|bars?|k线)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(clampNum(n, 80, 5000) || 900);
+}
+
+function parseStrategyNamesFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const out = new Set();
+  if (/\bv5_hybrid\b|v5\s*hybrid|混合/.test(text)) out.add('v5_hybrid');
+  if (/\bv5_retest\b|v5\s*retest|回踩/.test(text)) out.add('v5_retest');
+  if (/\bv5_reentry\b|v5\s*reentry|再入/.test(text)) out.add('v5_reentry');
+  if (/\bv4_breakout\b|v4\s*breakout|donchian|突破/.test(text)) out.add('v4_breakout');
+  return Array.from(out);
+}
+
+function inferTaskActionFromMessage(messageLike) {
+  const text = String(messageLike || '').trim().toLowerCase();
+  if (!text) return null;
+  const hasTaskVerb =
+    /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/i.test(
+      text,
+    );
+  const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
+  if (!hasTaskVerb || !hasStrategyDomain) return null;
+  const tf = parseTfFromText(text);
+  const bars = parseBarsFromText(text);
+  const strategies = parseStrategyNamesFromText(text);
+  const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/i.test(
+    text,
+  );
+  if (compareIntent || strategies.length >= 2 || !strategies.length) {
+    const action = { type: 'run_backtest_compare' };
+    if (strategies.length) action.strategies = strategies.slice(0, 4);
+    if (tf) action.tf = tf;
+    if (bars != null) action.bars = bars;
+    return action;
+  }
+  const action = { type: 'run_backtest', strategy: strategies[0] };
+  if (tf) action.tf = tf;
+  if (bars != null) action.bars = bars;
+  return action;
+}
+
+function augmentActionsByIntent(messageLike, actionsLike) {
+  const normalized = normalizeAiActions(actionsLike);
+  const hasTaskAction = normalized.some(
+    (a) => a?.type === 'run_backtest' || a?.type === 'run_backtest_compare',
+  );
+  if (hasTaskAction) return normalized;
+  const inferred = inferTaskActionFromMessage(messageLike);
+  if (!inferred) return normalized;
+  return normalizeAiActions([inferred, ...normalized]);
+}
+
 function pushTelegramEvent(eventLike) {
   const event = eventLike && typeof eventLike === 'object' ? eventLike : {};
   telegramEventSeq += 1;
@@ -2684,6 +2755,7 @@ function buildOpenClawPrompt(message, context) {
     '4) 如果不需要动作，actions 返回空数组。',
     '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
     '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
+    '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
     '',
     '[交易看板上下文]',
     contextJson,
@@ -3123,6 +3195,7 @@ async function handleChatApi(req, res) {
   try {
     const result = await runOpenClawChat(message, trading.context);
     const structured = parseStructuredAgentReply(result.reply);
+    const finalActions = augmentActionsByIntent(message, structured.actions);
     appendTraderMemory({
       kind: 'chat',
       channel: 'dashboard',
@@ -3134,7 +3207,7 @@ async function handleChatApi(req, res) {
       source: 'openclaw',
       binding: 'trading-context-v2',
       reply: structured.reply,
-      actions: structured.actions,
+      actions: finalActions,
       contextDigest: trading.digest,
       meta: {
         elapsedMs: result.elapsedMs,
