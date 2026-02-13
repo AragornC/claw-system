@@ -1980,6 +1980,104 @@ function clampNum(value, min, max) {
   return n;
 }
 
+function normalizeStrategyDslSpec(specLike) {
+  const src = specLike && typeof specLike === 'object' ? specLike : {};
+  const out = {};
+  const allowedKinds = new Set([
+    'price',
+    'ema',
+    'sma',
+    'rsi',
+    'atr',
+    'adx',
+    'donchian_high',
+    'donchian_low',
+    'pct_change',
+    'constant',
+  ]);
+  const allowedSources = new Set(['open', 'high', 'low', 'close', 'volume', 'hl2', 'ohlc4']);
+  const normName = (v, fallback) => {
+    const raw = String(v || '').toLowerCase();
+    const n = raw.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return /^[a-z][a-z0-9_]{0,31}$/.test(n) ? n : fallback;
+  };
+  const normExpr = (v) => {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    let s = raw
+      .replace(/（/g, '(')
+      .replace(/）/g, ')')
+      .replace(/，/g, ',')
+      .replace(/：/g, ':')
+      .replace(/并且|且/g, '&&')
+      .replace(/或者|或/g, '||')
+      .replace(/\band\b/gi, '&&')
+      .replace(/\bor\b/gi, '||')
+      .replace(/；/g, ' ')
+      .replace(/;/g, ' ')
+      .trim();
+    if (s.length > 260) s = s.slice(0, 260);
+    if (!/^[a-zA-Z0-9_\s().,+\-*/%<>=!&|?:]+$/.test(s)) return '';
+    return s;
+  };
+  const name = String(src.name || '').trim();
+  if (name) out.name = name.slice(0, 64);
+  const side = String(src.side || '').toLowerCase();
+  if (['long', 'short', 'both'].includes(side)) out.side = side;
+  const features = [];
+  const usedNames = new Set();
+  const rawFeatures = Array.isArray(src.features) ? src.features : [];
+  rawFeatures.slice(0, 24).forEach((f, idx) => {
+    if (!f || typeof f !== 'object') return;
+    const kind = String(f.kind || '').toLowerCase();
+    if (!allowedKinds.has(kind)) return;
+    const fallbackName = (kind + '_' + String(idx + 1)).replace(/[^a-z0-9_]/g, '_');
+    const nameNorm = normName(f.name, fallbackName);
+    if (!nameNorm || usedNames.has(nameNorm)) return;
+    usedNames.add(nameNorm);
+    const item = { name: nameNorm, kind };
+    const srcVal = String(f.source || '').toLowerCase();
+    if (allowedSources.has(srcVal)) item.source = srcVal;
+    const period = clampNum(f.period, 1, 500);
+    const lookback = clampNum(f.lookback, 1, 500);
+    const shift = clampNum(f.shift, -120, 120);
+    const value = clampNum(f.value, -1e9, 1e9);
+    if (period != null) item.period = Math.round(period);
+    if (lookback != null) item.lookback = Math.round(lookback);
+    if (shift != null) item.shift = Math.round(shift);
+    if (value != null) item.value = Number(value);
+    features.push(item);
+  });
+  if (features.length) out.features = features;
+  const entryLong = normExpr(src.entryLong);
+  const entryShort = normExpr(src.entryShort);
+  const exitLong = normExpr(src.exitLong);
+  const exitShort = normExpr(src.exitShort);
+  if (entryLong) out.entryLong = entryLong;
+  if (entryShort) out.entryShort = entryShort;
+  if (exitLong) out.exitLong = exitLong;
+  if (exitShort) out.exitShort = exitShort;
+  if ((!out.entryLong || !out.entryShort || !out.exitLong || !out.exitShort) && features.length) {
+    const n = features[0].name;
+    if (!out.entryLong) out.entryLong = 'close > ' + n;
+    if (!out.entryShort) out.entryShort = 'close < ' + n;
+    if (!out.exitLong) out.exitLong = 'close < ' + n;
+    if (!out.exitShort) out.exitShort = 'close > ' + n;
+  }
+  const risk = src.risk && typeof src.risk === 'object' ? src.risk : {};
+  const riskOut = {};
+  const stopAtr = clampNum(risk.stopAtr, 0.2, 20);
+  const tpAtr = clampNum(risk.tpAtr, 0.2, 40);
+  const maxHold = clampNum(risk.maxHold, 1, 3000);
+  const cooldownBars = clampNum(risk.cooldownBars, 0, 60);
+  if (stopAtr != null) riskOut.stopAtr = Number(stopAtr);
+  if (tpAtr != null) riskOut.tpAtr = Number(tpAtr);
+  if (maxHold != null) riskOut.maxHold = Math.round(maxHold);
+  if (cooldownBars != null) riskOut.cooldownBars = Math.round(cooldownBars);
+  if (Object.keys(riskOut).length) out.risk = riskOut;
+  return out;
+}
+
 function normalizeAiActions(actionsLike) {
   if (!Array.isArray(actionsLike)) return [];
   const out = [];
@@ -2073,6 +2171,27 @@ function normalizeAiActions(actionsLike) {
       if (['long', 'short', 'both'].includes(String(custom.side || ''))) customOut.side = String(custom.side);
       if (Object.keys(customOut).length) normalized.custom = customOut;
       pushUnique(normalized);
+      continue;
+    }
+    if (type === 'run_strategy_dsl') {
+      const normalized = { type: 'run_strategy_dsl' };
+      const tf = String(item.tf || '').trim();
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) normalized.tf = tf;
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      const dsl = normalizeStrategyDslSpec(item.dsl || item.spec);
+      if (Object.keys(dsl).length) {
+        normalized.dsl = dsl;
+        pushUnique(normalized);
+      }
       continue;
     }
     if (type === 'run_backtest_compare') {
@@ -2186,6 +2305,85 @@ function parseRiskAndCustomFromText(messageLike) {
   return out;
 }
 
+function parseFeatureDslSpecFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const hasFeatureHint = /(特征|因子|feature|ema|sma|ma\b|rsi|k线|均线|突破|donchian|通道)/.test(text);
+  if (!hasFeatureHint) return null;
+  const dayN = text.match(/(\d{1,3})\s*(日|天)/);
+  const baseN = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 14;
+  const hasExplicitDayFeature = Boolean(dayN) && /(k线|日线|特征|因子|feature)/.test(text);
+  const features = [];
+  const used = new Set();
+  const pushFeature = (item) => {
+    if (!item || typeof item !== 'object') return;
+    const name = String(item.name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!/^[a-z][a-z0-9_]{0,31}$/.test(name)) return;
+    if (used.has(name)) return;
+    used.add(name);
+    features.push({ ...item, name });
+  };
+  if (/ema|指数均线/.test(text)) {
+    pushFeature({ name: 'ema_' + baseN, kind: 'ema', source: 'close', period: baseN });
+  }
+  if ((/sma|均线|ma\b/.test(text) && !/ema|指数均线/.test(text)) || hasExplicitDayFeature) {
+    pushFeature({ name: 'sma_' + baseN, kind: 'sma', source: 'close', period: baseN });
+  }
+  const rsiN = text.match(/rsi[^0-9]{0,4}(\d{1,3})/);
+  if (/rsi/.test(text)) {
+    const p = rsiN && Number.isFinite(Number(rsiN[1])) ? Math.max(2, Math.min(120, Math.round(Number(rsiN[1])))) : 14;
+    pushFeature({ name: 'rsi_' + p, kind: 'rsi', source: 'close', period: p });
+  }
+  const adxN = text.match(/adx[^0-9]{0,4}(\d{1,3})/);
+  if (/adx/.test(text)) {
+    const p = adxN && Number.isFinite(Number(adxN[1])) ? Math.max(2, Math.min(120, Math.round(Number(adxN[1])))) : 14;
+    pushFeature({ name: 'adx_' + p, kind: 'adx', period: p });
+  }
+  if (/atr/.test(text)) {
+    pushFeature({ name: 'atr_14', kind: 'atr', period: 14 });
+  }
+  if (/donchian|通道|突破/.test(text)) {
+    const lb = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 20;
+    pushFeature({ name: 'dch_' + lb, kind: 'donchian_high', lookback: lb });
+    pushFeature({ name: 'dcl_' + lb, kind: 'donchian_low', lookback: lb });
+  }
+  if (!features.length) return null;
+  const primary =
+    features.find((f) => ['ema', 'sma', 'donchian_high', 'donchian_low', 'price'].includes(String(f.kind || ''))) ||
+    features[0];
+  let entryLong = 'close > ' + primary.name;
+  let entryShort = 'close < ' + primary.name;
+  let exitLong = 'close < ' + primary.name;
+  let exitShort = 'close > ' + primary.name;
+  if (primary.kind === 'donchian_high') {
+    const lowName = features.find((f) => f.kind === 'donchian_low')?.name;
+    entryLong = 'close > ' + primary.name;
+    entryShort = lowName ? 'close < ' + lowName : 'close < open';
+    exitLong = lowName ? 'close < ' + lowName : 'close < open';
+    exitShort = 'close > ' + primary.name;
+  }
+  const adxFeature = features.find((f) => f.kind === 'adx');
+  if (adxFeature) {
+    const adxFloor = text.match(/adx[^0-9]{0,4}(\d{1,2})(?:\.\d+)?/);
+    const floor = adxFloor && Number.isFinite(Number(adxFloor[1])) ? Number(adxFloor[1]) : 20;
+    entryLong = '(' + entryLong + ') && ' + adxFeature.name + ' >= ' + floor;
+    entryShort = '(' + entryShort + ') && ' + adxFeature.name + ' >= ' + floor;
+  }
+  const side = /只做多|仅做多|long only/.test(text) ? 'long' : /只做空|仅做空|short only/.test(text) ? 'short' : 'both';
+  return normalizeStrategyDslSpec({
+    name: 'feature-driven',
+    side,
+    features,
+    entryLong,
+    entryShort,
+    exitLong,
+    exitShort,
+  });
+}
+
 function inferTaskActionFromMessage(messageLike) {
   const text = String(messageLike || '').trim().toLowerCase();
   if (!text) return null;
@@ -2193,15 +2391,42 @@ function inferTaskActionFromMessage(messageLike) {
     /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/i.test(
       text,
     );
-  const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
+  const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
   if (!hasTaskVerb || !hasStrategyDomain) return null;
   const tf = parseTfFromText(text);
   const bars = parseBarsFromText(text);
   const strategies = parseStrategyNamesFromText(text);
   const riskAndCustom = parseRiskAndCustomFromText(text);
+  const dsl = parseFeatureDslSpecFromText(text);
   const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/i.test(
     text,
   );
+  if (dsl && !compareIntent) {
+    const action = { type: 'run_strategy_dsl', dsl };
+    if (tf) action.tf = tf;
+    if (bars != null) action.bars = bars;
+    if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+    if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+    if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+    if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
+    if (riskAndCustom.custom?.side && ['long', 'short', 'both'].includes(String(riskAndCustom.custom.side))) {
+      action.dsl.side = String(riskAndCustom.custom.side);
+    }
+    if (Number.isFinite(Number(riskAndCustom.custom?.biasAdxMin))) {
+      const adxMin = Number(riskAndCustom.custom.biasAdxMin);
+      const hasAdx = Array.isArray(action.dsl.features)
+        ? action.dsl.features.some((f) => f && f.kind === 'adx')
+        : false;
+      if (!hasAdx) {
+        action.dsl.features = Array.isArray(action.dsl.features) ? action.dsl.features.slice(0, 16) : [];
+        action.dsl.features.push({ name: 'adx_14', kind: 'adx', period: 14 });
+      }
+      action.dsl.entryLong = '(' + String(action.dsl.entryLong || 'true') + ') && adx_14 >= ' + adxMin;
+      action.dsl.entryShort = '(' + String(action.dsl.entryShort || 'true') + ') && adx_14 >= ' + adxMin;
+      action.dsl = normalizeStrategyDslSpec(action.dsl);
+    }
+    return action;
+  }
   const hasCustomHints = Boolean(riskAndCustom.custom && Object.keys(riskAndCustom.custom).length);
   if (hasCustomHints && !compareIntent) {
     const action = {
@@ -2240,7 +2465,8 @@ function augmentActionsByIntent(messageLike, actionsLike) {
     (a) =>
       a?.type === 'run_backtest' ||
       a?.type === 'run_backtest_compare' ||
-      a?.type === 'run_custom_backtest',
+      a?.type === 'run_custom_backtest' ||
+      a?.type === 'run_strategy_dsl',
   );
   if (hasTaskAction) return normalized;
   const inferred = inferTaskActionFromMessage(messageLike);
@@ -2872,11 +3098,13 @@ function buildOpenClawPrompt(message, context) {
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '- {"type":"run_custom_backtest","strategy":"custom|v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72,"custom":{"lookback":18,"allowRetest":true,"allowReentry":true,"allowBreakout":false,"biasAdxMin":15,"side":"both"}}',
+    '- {"type":"run_strategy_dsl","tf":"1d","bars":1200,"feeBps":5,"stopAtr":1.2,"tpAtr":2.8,"maxHold":120,"dsl":{"name":"feature-strategy","side":"both","features":[{"name":"ema_5","kind":"ema","source":"close","period":5},{"name":"adx_14","kind":"adx","period":14}],"entryLong":"close > ema_5 && adx_14 >= 20","entryShort":"close < ema_5 && adx_14 >= 20","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8,"maxHold":120}}}',
     '4) 如果不需要动作，actions 返回空数组。',
     '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
     '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
     '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
     '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
+    '9) 如果用户要求基于任意新特征/因子（如“5日K线特征、EMA/RSI/ADX组合”）构建并执行策略，优先输出 run_strategy_dsl。',
     '',
     '[交易看板上下文]',
     contextJson,

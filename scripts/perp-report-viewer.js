@@ -2182,6 +2182,22 @@ const HTML = `<!DOCTYPE html>
               const custom = normalizeCustomBacktestSpec(action.custom);
               if (Object.keys(custom).length) cfg.custom = custom;
               pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_strategy_dsl') {
+              const cfg = { type: 'run_strategy_dsl' };
+              const tf = String(action.tf || '').trim();
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const dsl = normalizeStrategyDslSpec(action.dsl || action.spec);
+              if (Object.keys(dsl).length) {
+                cfg.dsl = dsl;
+                pushUnique(cfg);
+              }
             }
           });
           return out;
@@ -2272,7 +2288,8 @@ const HTML = `<!DOCTYPE html>
                 '你是交易看板中的AI交易助理。',
                 '请严格根据给出的上下文回答，不要编造。',
                 '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest。',
+                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest/run_strategy_dsl。',
+                'run_strategy_dsl 示例：{"type":"run_strategy_dsl","tf":"1d","bars":1200,"dsl":{"name":"feature-strategy","features":[{"name":"ema_5","kind":"ema","source":"close","period":5}],"entryLong":"close > ema_5","entryShort":"close < ema_5","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8}}}',
                 '除非用户明确要求切页，否则不要使用 switch_view。',
               ].join('\\n'),
             },
@@ -2456,18 +2473,117 @@ const HTML = `<!DOCTYPE html>
           return spec;
         }
 
+        function parseFeatureDslSpecLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const hasFeatureHint = /(特征|因子|feature|ema|sma|ma\\b|rsi|k线|均线|突破|donchian|通道)/.test(t);
+          if (!hasFeatureHint) return null;
+          const features = [];
+          const used = new Set();
+          function safeName(raw, fallback) {
+            const n = String(raw || '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+            if (/^[a-z][a-z0-9_]{0,30}$/.test(n)) return n;
+            return fallback;
+          }
+          function pushFeature(def) {
+            if (!def || typeof def !== 'object') return;
+            const name = safeName(def.name, '');
+            if (!name || used.has(name)) return;
+            used.add(name);
+            features.push({ ...def, name: name });
+          }
+          const dayN = t.match(/(\\d{1,3})\\s*(日|天)/);
+          const baseN = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 14;
+          const hasExplicitDayFeature = Boolean(dayN) && /(k线|日线|特征|因子|feature)/.test(t);
+          if (/ema|指数均线/.test(t)) {
+            pushFeature({ name: 'ema_' + baseN, kind: 'ema', source: 'close', period: baseN });
+          }
+          if ((/sma|均线|ma\\b/.test(t) && !/ema|指数均线/.test(t)) || hasExplicitDayFeature) {
+            pushFeature({ name: 'sma_' + baseN, kind: 'sma', source: 'close', period: baseN });
+          }
+          const rsiN = t.match(/rsi[^0-9]{0,4}(\\d{1,3})/);
+          if (/rsi/.test(t)) {
+            const p = rsiN && Number.isFinite(Number(rsiN[1])) ? Math.max(2, Math.min(120, Math.round(Number(rsiN[1])))) : 14;
+            pushFeature({ name: 'rsi_' + p, kind: 'rsi', source: 'close', period: p });
+          }
+          const adxN = t.match(/adx[^0-9]{0,4}(\\d{1,3})/);
+          if (/adx/.test(t)) {
+            const p = adxN && Number.isFinite(Number(adxN[1])) ? Math.max(2, Math.min(120, Math.round(Number(adxN[1])))) : 14;
+            pushFeature({ name: 'adx_' + p, kind: 'adx', period: p });
+          }
+          if (/atr/.test(t)) {
+            pushFeature({ name: 'atr_14', kind: 'atr', period: 14 });
+          }
+          if (/donchian|通道|突破/.test(t)) {
+            const lb = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 20;
+            pushFeature({ name: 'dch_' + lb, kind: 'donchian_high', lookback: lb });
+            pushFeature({ name: 'dcl_' + lb, kind: 'donchian_low', lookback: lb });
+          }
+          if (!features.length) return null;
+          const primary = features.find(function(f) { return ['ema', 'sma', 'donchian_high', 'donchian_low', 'price'].includes(String(f.kind || '')); }) || features[0];
+          let entryLong = 'close > ' + primary.name;
+          let entryShort = 'close < ' + primary.name;
+          let exitLong = 'close < ' + primary.name;
+          let exitShort = 'close > ' + primary.name;
+          if (primary.kind === 'donchian_high') {
+            const lowName = features.find(function(f) { return f.kind === 'donchian_low'; })?.name;
+            entryLong = 'close > ' + primary.name;
+            entryShort = lowName ? ('close < ' + lowName) : 'close < open';
+            exitLong = lowName ? ('close < ' + lowName) : 'close < open';
+            exitShort = 'close > ' + primary.name;
+          }
+          const adxFeature = features.find(function(f) { return f.kind === 'adx'; });
+          if (adxFeature) {
+            const adxFloor = t.match(/adx[^0-9]{0,4}(\\d{1,2})(?:\\.[0-9]+)?/);
+            const floor = adxFloor && Number.isFinite(Number(adxFloor[1])) ? Number(adxFloor[1]) : 20;
+            entryLong = '(' + entryLong + ') && ' + adxFeature.name + ' >= ' + floor;
+            entryShort = '(' + entryShort + ') && ' + adxFeature.name + ' >= ' + floor;
+          }
+          const side = /只做多|仅做多|long only/.test(t) ? 'long' : (/只做空|仅做空|short only/.test(t) ? 'short' : 'both');
+          return {
+            name: 'feature-driven',
+            side: side,
+            features: features,
+            entryLong: entryLong,
+            entryShort: entryShort,
+            exitLong: exitLong,
+            exitShort: exitShort,
+          };
+        }
+
         function inferTaskActionLocal(text) {
           const q = String(text || '').trim().toLowerCase();
           if (!q) return null;
           const hasTaskVerb = /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/.test(q);
-          const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|v5_|v4_|retest|reentry|breakout|donchian)/.test(q);
+          const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/.test(q);
           if (!hasTaskVerb || !hasStrategyDomain) return null;
           const tf = parseTfLocal(q);
           const bars = parseBarsLocal(q);
           const strategies = parseStrategiesLocal(q);
           const custom = parseCustomSpecLocal(q);
+          const dsl = parseFeatureDslSpecLocal(q);
           const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/.test(q);
           const hasCustom = Object.keys(custom || {}).length > 0;
+          if (dsl && !compareIntent) {
+            const action = { type: 'run_strategy_dsl', dsl: dsl };
+            if (tf) action.tf = tf;
+            if (bars != null) action.bars = bars;
+            if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+            if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+            if (custom.custom && custom.custom.side && ['long', 'short', 'both'].includes(String(custom.custom.side))) {
+              action.dsl.side = String(custom.custom.side);
+            }
+            if (custom.custom && Number.isFinite(Number(custom.custom.biasAdxMin))) {
+              const adxNeed = Number(custom.custom.biasAdxMin);
+              const hasAdx = Array.isArray(action.dsl.features) && action.dsl.features.some(function(f) { return f && f.kind === 'adx'; });
+              if (!hasAdx) {
+                action.dsl.features = Array.isArray(action.dsl.features) ? action.dsl.features.slice(0, 16) : [];
+                action.dsl.features.push({ name: 'adx_14', kind: 'adx', period: 14 });
+              }
+              action.dsl.entryLong = '(' + String(action.dsl.entryLong || 'true') + ') && adx_14 >= ' + adxNeed;
+              action.dsl.entryShort = '(' + String(action.dsl.entryShort || 'true') + ') && adx_14 >= ' + adxNeed;
+            }
+            return action;
+          }
           if (hasCustom && !compareIntent) {
             const action = { type: 'run_custom_backtest', strategy: strategies[0] || 'custom', ...custom };
             if (tf) action.tf = tf;
@@ -2666,6 +2782,104 @@ const HTML = `<!DOCTYPE html>
           return out;
         }
 
+        function normalizeStrategyDslSpec(specLike) {
+          const src = specLike && typeof specLike === 'object' ? specLike : {};
+          const out = {};
+          const allowedKinds = ['price', 'ema', 'sma', 'rsi', 'atr', 'adx', 'donchian_high', 'donchian_low', 'pct_change', 'constant'];
+          const allowedSources = ['open', 'high', 'low', 'close', 'volume', 'hl2', 'ohlc4'];
+          function clamp(v, min, max) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (Number.isFinite(min) && n < min) return min;
+            if (Number.isFinite(max) && n > max) return max;
+            return n;
+          }
+          function normName(v, fallback) {
+            const raw = String(v || '').toLowerCase();
+            const n = raw.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+            if (/^[a-z][a-z0-9_]{0,31}$/.test(n)) return n;
+            return fallback;
+          }
+          function normExpr(v) {
+            const raw = String(v || '').trim();
+            if (!raw) return '';
+            let s = raw
+              .replace(/（/g, '(')
+              .replace(/）/g, ')')
+              .replace(/，/g, ',')
+              .replace(/：/g, ':')
+              .replace(/并且|且/g, '&&')
+              .replace(/或者|或/g, '||')
+              .replace(/\\band\\b/gi, '&&')
+              .replace(/\\bor\\b/gi, '||')
+              .replace(/；/g, ' ')
+              .replace(/;/g, ' ')
+              .trim();
+            if (s.length > 260) s = s.slice(0, 260);
+            if (!/^[a-zA-Z0-9_\\s().,+\\-*/%<>=!&|?:]+$/.test(s)) return '';
+            return s;
+          }
+          const name = String(src.name || '').trim();
+          if (name) out.name = name.slice(0, 64);
+          const side = String(src.side || '').toLowerCase();
+          if (['long', 'short', 'both'].includes(side)) out.side = side;
+          const rawFeatures = Array.isArray(src.features) ? src.features : [];
+          const features = [];
+          const usedNames = new Set();
+          rawFeatures.slice(0, 24).forEach(function(f, idx) {
+            if (!f || typeof f !== 'object') return;
+            const kind = String(f.kind || '').toLowerCase();
+            if (!allowedKinds.includes(kind)) return;
+            const fallbackName = (kind + '_' + String(idx + 1)).replace(/[^a-z0-9_]/g, '_');
+            const nameNorm = normName(f.name, fallbackName);
+            if (!nameNorm || usedNames.has(nameNorm)) return;
+            usedNames.add(nameNorm);
+            const item = { name: nameNorm, kind: kind };
+            const srcVal = String(f.source || '').toLowerCase();
+            if (allowedSources.includes(srcVal)) item.source = srcVal;
+            const period = clamp(f.period, 1, 500);
+            const lookback = clamp(f.lookback, 1, 500);
+            const shift = clamp(f.shift, -120, 120);
+            const value = clamp(f.value, -1e9, 1e9);
+            if (period != null) item.period = Math.round(period);
+            if (lookback != null) item.lookback = Math.round(lookback);
+            if (shift != null) item.shift = Math.round(shift);
+            if (value != null) item.value = Number(value);
+            features.push(item);
+          });
+          if (features.length) out.features = features;
+          const entryLong = normExpr(src.entryLong);
+          const entryShort = normExpr(src.entryShort);
+          const exitLong = normExpr(src.exitLong);
+          const exitShort = normExpr(src.exitShort);
+          if (entryLong) out.entryLong = entryLong;
+          if (entryShort) out.entryShort = entryShort;
+          if (exitLong) out.exitLong = exitLong;
+          if (exitShort) out.exitShort = exitShort;
+          if (!out.entryLong || !out.entryShort || !out.exitLong || !out.exitShort) {
+            const primary = features[0];
+            if (primary) {
+              const n = primary.name;
+              if (!out.entryLong) out.entryLong = 'close > ' + n;
+              if (!out.entryShort) out.entryShort = 'close < ' + n;
+              if (!out.exitLong) out.exitLong = 'close < ' + n;
+              if (!out.exitShort) out.exitShort = 'close > ' + n;
+            }
+          }
+          const risk = src.risk && typeof src.risk === 'object' ? src.risk : {};
+          const riskOut = {};
+          const stopAtr = clamp(risk.stopAtr, 0.2, 20);
+          const tpAtr = clamp(risk.tpAtr, 0.2, 40);
+          const maxHold = clamp(risk.maxHold, 1, 3000);
+          const cooldownBars = clamp(risk.cooldownBars, 0, 60);
+          if (stopAtr != null) riskOut.stopAtr = Number(stopAtr);
+          if (tpAtr != null) riskOut.tpAtr = Number(tpAtr);
+          if (maxHold != null) riskOut.maxHold = Math.round(maxHold);
+          if (cooldownBars != null) riskOut.cooldownBars = Math.round(cooldownBars);
+          if (Object.keys(riskOut).length) out.risk = riskOut;
+          return out;
+        }
+
         function applyAiActions(actions, userQueryText) {
           if (!Array.isArray(actions) || !actions.length) return '';
           const query = String(userQueryText || '').toLowerCase();
@@ -2856,6 +3070,47 @@ const HTML = `<!DOCTYPE html>
                 );
               } else {
                 notes.push('自定义回验失败：' + String(result?.message || result?.error || '未知原因'));
+              }
+              return;
+            }
+            if (type === 'run_strategy_dsl') {
+              setControlValue('bt-tf', action.tf);
+              setControlValue('bt-bars', action.bars);
+              setControlValue('bt-fee-bps', action.feeBps);
+              setControlValue('bt-stop-atr', action.stopAtr);
+              setControlValue('bt-tp-atr', action.tpAtr);
+              setControlValue('bt-max-hold', action.maxHold);
+              const dsl = normalizeStrategyDslSpec(action.dsl || action.spec);
+              const cfg = {
+                strategy: 'dsl',
+                tf: String(action.tf || (document.getElementById('bt-tf')?.value || '1h')),
+                bars: Number(action.bars || (document.getElementById('bt-bars')?.value || 900)),
+                feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                stopAtr: Number(action.stopAtr || dsl?.risk?.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                tpAtr: Number(action.tpAtr || dsl?.risk?.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                maxHold: Number(action.maxHold || dsl?.risk?.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                dsl: dsl,
+              };
+              const result = runBacktestByVersion(cfg);
+              if (result && !result.error) {
+                renderBacktestResult(result, cfg);
+                const featureCount = Array.isArray(dsl.features) ? dsl.features.length : 0;
+                notes.push(
+                  'DSL策略回验完成：' +
+                    (dsl.name ? (dsl.name + ' · ') : '') +
+                    '特征' +
+                    featureCount +
+                    '个，胜率 ' +
+                    btNum(result.winRate, 1) +
+                    '%，交易 ' +
+                    Number(result.tradeCount || 0) +
+                    ' 笔，净收益 ' +
+                    (Number(result.netPnlPct || 0) >= 0 ? '+' : '') +
+                    btNum(result.netPnlPct, 2) +
+                    '%',
+                );
+              } else {
+                notes.push('DSL策略回验失败：' + String(result?.message || result?.error || '未知原因'));
               }
             }
           });
@@ -3116,6 +3371,8 @@ const HTML = `<!DOCTYPE html>
       }
 
       function btStrategyLabel(v) {
+        if (String(v || '') === 'dsl') return 'DSL 自定义策略';
+        if (String(v || '').startsWith('dsl:')) return 'DSL ' + String(v || '').slice(4);
         if (v === 'custom') return '自定义策略';
         if (v === 'v5_retest') return 'v5 回踩确认';
         if (v === 'v5_reentry') return 'v5 趋势再入';
@@ -3238,6 +3495,358 @@ const HTML = `<!DOCTYPE html>
         return out;
       }
 
+      function btSmaSeries(values, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 2));
+        const out = new Array(values.length).fill(null);
+        let sum = 0;
+        let count = 0;
+        for (let i = 0; i < values.length; i++) {
+          const v = Number(values[i]);
+          if (Number.isFinite(v)) {
+            sum += v;
+            count += 1;
+          }
+          if (i >= p) {
+            const prev = Number(values[i - p]);
+            if (Number.isFinite(prev)) {
+              sum -= prev;
+              count -= 1;
+            }
+          }
+          if (i >= p - 1 && count > 0) out[i] = sum / count;
+        }
+        return out;
+      }
+
+      function btRsiSeries(values, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 14));
+        const out = new Array(values.length).fill(null);
+        if (!Array.isArray(values) || values.length < p + 1) return out;
+        let gain = 0;
+        let loss = 0;
+        for (let i = 1; i <= p; i++) {
+          const diff = Number(values[i]) - Number(values[i - 1]);
+          if (!Number.isFinite(diff)) continue;
+          if (diff >= 0) gain += diff;
+          else loss += Math.abs(diff);
+        }
+        let avgGain = gain / p;
+        let avgLoss = loss / p;
+        out[p] = avgLoss <= 1e-12 ? 100 : (100 - (100 / (1 + avgGain / avgLoss)));
+        for (let i = p + 1; i < values.length; i++) {
+          const diff = Number(values[i]) - Number(values[i - 1]);
+          const g = Number.isFinite(diff) && diff > 0 ? diff : 0;
+          const l = Number.isFinite(diff) && diff < 0 ? Math.abs(diff) : 0;
+          avgGain = ((avgGain * (p - 1)) + g) / p;
+          avgLoss = ((avgLoss * (p - 1)) + l) / p;
+          out[i] = avgLoss <= 1e-12 ? 100 : (100 - (100 / (1 + avgGain / avgLoss)));
+        }
+        return out;
+      }
+
+      function btPctChangeSeries(values, period) {
+        const p = Math.max(1, Math.floor(Number(period) || 1));
+        const out = new Array(values.length).fill(null);
+        for (let i = p; i < values.length; i++) {
+          const now = Number(values[i]);
+          const prev = Number(values[i - p]);
+          if (!Number.isFinite(now) || !Number.isFinite(prev) || prev === 0) continue;
+          out[i] = ((now - prev) / prev) * 100;
+        }
+        return out;
+      }
+
+      function btShiftSeries(values, shift) {
+        const s = Math.trunc(Number(shift) || 0);
+        if (!s) return values.slice();
+        const out = new Array(values.length).fill(null);
+        for (let i = 0; i < values.length; i++) {
+          const src = i - s;
+          if (src < 0 || src >= values.length) continue;
+          out[i] = values[src];
+        }
+        return out;
+      }
+
+      function btSourceSeries(bars, source) {
+        const src = String(source || 'close').toLowerCase();
+        if (src === 'open') return bars.map(function(b) { return Number(b.open); });
+        if (src === 'high') return bars.map(function(b) { return Number(b.high); });
+        if (src === 'low') return bars.map(function(b) { return Number(b.low); });
+        if (src === 'volume') return bars.map(function(b) { return Number(b.volume); });
+        if (src === 'hl2') return bars.map(function(b) { return (Number(b.high) + Number(b.low)) / 2; });
+        if (src === 'ohlc4') {
+          return bars.map(function(b) {
+            return (Number(b.open) + Number(b.high) + Number(b.low) + Number(b.close)) / 4;
+          });
+        }
+        return bars.map(function(b) { return Number(b.close); });
+      }
+
+      function btBuildDslFeatureMap(bars, dsl) {
+        const featureDefs = Array.isArray(dsl?.features) ? dsl.features : [];
+        const out = {};
+        featureDefs.slice(0, 24).forEach(function(def, idx) {
+          if (!def || typeof def !== 'object') return;
+          const nameRaw = String(def.name || '').trim();
+          const name = /^[a-z][a-z0-9_]{0,31}$/i.test(nameRaw) ? nameRaw : ('f_' + (idx + 1));
+          const kind = String(def.kind || '').toLowerCase();
+          const sourceValues = btSourceSeries(bars, def.source || 'close');
+          let series = null;
+          if (kind === 'price') {
+            series = sourceValues.slice();
+          } else if (kind === 'ema') {
+            series = btEmaSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'sma') {
+            series = btSmaSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'rsi') {
+            series = btRsiSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'atr') {
+            series = btAtrSeries(bars, Number(def.period || 14));
+          } else if (kind === 'adx') {
+            series = btAdxSeries(bars, Number(def.period || 14));
+          } else if (kind === 'donchian_high') {
+            const lb = Math.max(2, Math.floor(Number(def.lookback || 20)));
+            series = bars.map(function(_, i) { return btDonchianPrevHigh(bars, i, lb); });
+          } else if (kind === 'donchian_low') {
+            const lb = Math.max(2, Math.floor(Number(def.lookback || 20)));
+            series = bars.map(function(_, i) { return btDonchianPrevLow(bars, i, lb); });
+          } else if (kind === 'pct_change') {
+            series = btPctChangeSeries(sourceValues, Number(def.period || 1));
+          } else if (kind === 'constant') {
+            const v = Number.isFinite(Number(def.value)) ? Number(def.value) : 0;
+            series = new Array(bars.length).fill(v);
+          }
+          if (!Array.isArray(series) || !series.length) return;
+          const shift = Number(def.shift || 0);
+          out[name] = shift ? btShiftSeries(series, shift) : series;
+        });
+        return out;
+      }
+
+      function btCompileDslBoolExpr(expr, varNames) {
+        const sourceRaw = String(expr || '').trim();
+        if (!sourceRaw) return null;
+        const source = sourceRaw
+          .replace(/并且|且/g, '&&')
+          .replace(/或者|或/g, '||')
+          .replace(/\\band\\b/gi, '&&')
+          .replace(/\\bor\\b/gi, '||')
+          .trim();
+        if (!source || source.length > 280) return null;
+        if (!/^[a-zA-Z0-9_\\s().,+\\-*/%<>=!&|?:]+$/.test(source)) return null;
+        const ids = source.match(/\\b[a-zA-Z_][a-zA-Z0-9_]*\\b/g) || [];
+        const fnNames = ['abs', 'min', 'max', 'pow', 'sqrt', 'floor', 'ceil', 'round', 'log', 'exp'];
+        const allowed = new Set([].concat(varNames, fnNames, ['true', 'false', 'null']));
+        for (let i = 0; i < ids.length; i++) {
+          if (!allowed.has(ids[i])) return null;
+        }
+        let fn = null;
+        try {
+          fn = Function.apply(null, [].concat(varNames, fnNames, ['return (' + source + ');']));
+        } catch (_) {
+          fn = null;
+        }
+        if (!fn) return null;
+        return function(row) {
+          try {
+            const args = varNames.map(function(k) { return row[k]; });
+            const out = fn.apply(
+              null,
+              args.concat([Math.abs, Math.min, Math.max, Math.pow, Math.sqrt, Math.floor, Math.ceil, Math.round, Math.log, Math.exp]),
+            );
+            if (typeof out === 'boolean') return out;
+            const n = Number(out);
+            return Number.isFinite(n) ? n > 0 : false;
+          } catch (_) {
+            return false;
+          }
+        };
+      }
+
+      function runBacktestByDsl(opts) {
+        const tf = String(opts?.tf || '1h');
+        const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
+        const limitBars = Math.max(120, Math.floor(Number(opts?.bars || 900)));
+        const dsl = normalizeStrategyDslSpec(opts?.dsl || opts?.spec);
+        if (!dsl || typeof dsl !== 'object' || !Object.keys(dsl).length) {
+          return { ok: false, message: 'DSL 为空或格式无效。' };
+        }
+        const allBars = normalizeBars(OHLCV_BY_TF?.[tf]);
+        const bars = allBars.slice(-limitBars);
+        if (!bars.length) return { ok: false, message: '该周期没有可用 K 线数据。' };
+        if (bars.length < 120) return { ok: false, message: 'K 线样本不足（至少 120 根）。' };
+
+        const closeSeries = bars.map(function(b) { return Number(b.close); });
+        const openSeries = bars.map(function(b) { return Number(b.open); });
+        const highSeries = bars.map(function(b) { return Number(b.high); });
+        const lowSeries = bars.map(function(b) { return Number(b.low); });
+        const volumeSeries = bars.map(function(b) { return Number(b.volume); });
+        const atr14 = btAtrSeries(bars, 14);
+        const adx14 = btAdxSeries(bars, 14);
+        const featureMap = btBuildDslFeatureMap(bars, dsl);
+        const sideMode = String(dsl.side || 'both').toLowerCase();
+        const onlyLong = sideMode === 'long';
+        const onlyShort = sideMode === 'short';
+        const risk = dsl.risk && typeof dsl.risk === 'object' ? dsl.risk : {};
+        const stopAtrMult = Math.max(0.2, Number(opts?.stopAtr || risk.stopAtr || 1.8));
+        const tpAtrMult = Math.max(0.2, Number(opts?.tpAtr || risk.tpAtr || 3.0));
+        const maxHoldBars = Math.max(4, Math.floor(Number(opts?.maxHold || risk.maxHold || 72)));
+        const cooldownBars = Math.max(0, Math.floor(Number(risk.cooldownBars || 2)));
+        const varNames = ['open', 'high', 'low', 'close', 'volume', 'atr', 'adx', 'bar_index', 'prev_close'];
+        Object.keys(featureMap).forEach(function(k) { if (!varNames.includes(k)) varNames.push(k); });
+        const entryLongExpr = String(dsl.entryLong || 'close > open');
+        const entryShortExpr = String(dsl.entryShort || 'close < open');
+        const exitLongExpr = String(dsl.exitLong || 'close < open');
+        const exitShortExpr = String(dsl.exitShort || 'close > open');
+        const entryLongFn = btCompileDslBoolExpr(entryLongExpr, varNames);
+        const entryShortFn = btCompileDslBoolExpr(entryShortExpr, varNames);
+        const exitLongFn = btCompileDslBoolExpr(exitLongExpr, varNames);
+        const exitShortFn = btCompileDslBoolExpr(exitShortExpr, varNames);
+        if (!entryLongFn && !entryShortFn) {
+          return { ok: false, message: 'DSL 入场规则无效，无法编译。' };
+        }
+
+        let equity = 1;
+        let peak = 1;
+        let maxDd = 0;
+        let pos = null;
+        let cooldown = 0;
+        const trades = [];
+        const curve = [];
+
+        function buildRow(i) {
+          const row = {
+            open: openSeries[i],
+            high: highSeries[i],
+            low: lowSeries[i],
+            close: closeSeries[i],
+            volume: volumeSeries[i],
+            atr: atr14[i],
+            adx: adx14[i],
+            bar_index: i,
+            prev_close: i > 0 ? closeSeries[i - 1] : closeSeries[i],
+          };
+          for (const key in featureMap) {
+            row[key] = featureMap[key]?.[i];
+          }
+          return row;
+        }
+
+        function closePosition(i, px, reason) {
+          if (!pos) return;
+          const exitPx = Number(px);
+          if (!Number.isFinite(exitPx) || exitPx <= 0) return;
+          const gross = pos.side === 'long'
+            ? ((exitPx - pos.entryPrice) / pos.entryPrice)
+            : ((pos.entryPrice - exitPx) / pos.entryPrice);
+          const net = gross - feeRate * 2;
+          equity = Math.max(0.0001, equity * (1 + net));
+          trades.push({
+            side: pos.side,
+            signalTag: pos.signalTag,
+            entryTime: bars[pos.entryIdx].time,
+            exitTime: bars[i].time,
+            entryPrice: pos.entryPrice,
+            exitPrice: exitPx,
+            pnlPct: net * 100,
+            holdBars: Math.max(1, i - pos.entryIdx),
+            reason: reason,
+          });
+          pos = null;
+          cooldown = cooldownBars;
+        }
+
+        for (let i = 1; i < bars.length; i++) {
+          const row = buildRow(i);
+          const closeNow = Number(row.close);
+          const highNow = Number(row.high);
+          const lowNow = Number(row.low);
+          const atrNow = Number.isFinite(Number(row.atr)) ? Number(row.atr) : (closeNow * 0.0035);
+          if (!Number.isFinite(closeNow) || closeNow <= 0) continue;
+
+          if (pos) {
+            if (pos.side === 'long') {
+              if (lowNow <= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (highNow >= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            } else {
+              if (highNow >= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (lowNow <= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            }
+          }
+          if (pos && (i - pos.entryIdx) >= maxHoldBars) closePosition(i, closeNow, 'timeout');
+
+          if (pos) {
+            const shouldExit = pos.side === 'long'
+              ? (exitLongFn ? Boolean(exitLongFn(row)) : false)
+              : (exitShortFn ? Boolean(exitShortFn(row)) : false);
+            if (shouldExit) closePosition(i, closeNow, 'dsl_exit');
+          }
+
+          if (cooldown > 0) cooldown -= 1;
+          let signal = null;
+          if (cooldown === 0) {
+            const longOk = !onlyShort && (entryLongFn ? Boolean(entryLongFn(row)) : false);
+            const shortOk = !onlyLong && (entryShortFn ? Boolean(entryShortFn(row)) : false);
+            if (longOk && !shortOk) signal = { side: 'long', tag: 'dsl_entry_long' };
+            else if (shortOk && !longOk) signal = { side: 'short', tag: 'dsl_entry_short' };
+          }
+
+          if (pos && signal && signal.side !== pos.side) closePosition(i, closeNow, 'reverse');
+
+          if (!pos && signal) {
+            const stopDist = Math.max(atrNow * stopAtrMult, closeNow * 0.0012);
+            const takeDist = Math.max(atrNow * tpAtrMult, closeNow * 0.0012);
+            pos = {
+              side: signal.side,
+              signalTag: signal.tag,
+              entryIdx: i,
+              entryPrice: closeNow,
+              sl: signal.side === 'long' ? (closeNow - stopDist) : (closeNow + stopDist),
+              tp: signal.side === 'long' ? (closeNow + takeDist) : (closeNow - takeDist),
+            };
+          }
+
+          let markEq = equity;
+          if (pos) {
+            const unreal = pos.side === 'long'
+              ? ((closeNow - pos.entryPrice) / pos.entryPrice)
+              : ((pos.entryPrice - closeNow) / pos.entryPrice);
+            markEq = Math.max(0.0001, equity * (1 + unreal - feeRate * 2));
+          }
+          curve.push({ time: bars[i].time, equity: markEq });
+          if (markEq > peak) peak = markEq;
+          if (peak > 0) maxDd = Math.max(maxDd, (peak - markEq) / peak);
+        }
+
+        if (pos) closePosition(bars.length - 1, Number(bars[bars.length - 1].close), 'eod');
+        const winCount = trades.filter(function(t) { return Number(t.pnlPct) > 0; }).length;
+        const lossCount = trades.filter(function(t) { return Number(t.pnlPct) <= 0; }).length;
+        const avgPnl = trades.length
+          ? trades.reduce(function(s, t) { return s + Number(t.pnlPct || 0); }, 0) / trades.length
+          : 0;
+        return {
+          ok: true,
+          strategy: dsl.name ? ('dsl:' + dsl.name) : 'dsl',
+          tf: tf,
+          bars: bars.length,
+          tradeCount: trades.length,
+          winRate: trades.length ? (winCount / trades.length) * 100 : 0,
+          wins: winCount,
+          losses: lossCount,
+          avgPnlPct: avgPnl,
+          netPnlPct: (equity - 1) * 100,
+          maxDrawdownPct: maxDd * 100,
+          curve: curve,
+          trades: trades.slice().reverse(),
+          dslMeta: {
+            name: dsl.name || 'strategy_dsl',
+            side: sideMode,
+            featureCount: Array.isArray(dsl.features) ? dsl.features.length : 0,
+          },
+        };
+      }
+
       function btMapSeriesByTime(lowerBars, higherBars, values) {
         const out = new Array(lowerBars.length).fill(null);
         let j = 0;
@@ -3278,6 +3887,9 @@ const HTML = `<!DOCTYPE html>
       function runBacktestByVersion(opts) {
         const tf = String(opts?.tf || '1h');
         const strategy = String(opts?.strategy || 'v5_hybrid');
+        if (strategy === 'dsl' || (opts?.dsl && typeof opts.dsl === 'object')) {
+          return runBacktestByDsl({ ...opts, tf: tf });
+        }
         const custom = opts?.custom && typeof opts.custom === 'object' ? opts.custom : {};
         const isCustom = strategy === 'custom';
         const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
