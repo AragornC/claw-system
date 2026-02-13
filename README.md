@@ -180,8 +180,8 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 本次深度绑定要点：
 
 - 服务端每次请求会实时读取 `decisions.json / orders.json / ohlcv.json` 生成权威上下文（不依赖前端传参）
-- OpenClaw 按约定返回结构化动作（`switch_view / focus_trade / run_backtest`）
-- 前端自动执行动作：切页、定位交易开平区间、触发回验
+- OpenClaw 按约定返回结构化动作（`switch_view / focus_trade / run_backtest / run_backtest_compare / run_custom_backtest`）
+- 前端自动执行动作：切页、定位交易开平区间、触发回验，并支持按自然语言约束执行自定义策略回验（如“回踩优先 + 只做多 + ADX>22 + 止损/止盈 ATR”）
 - 提供调试接口：
   - `GET /api/ai/health`
   - `GET /api/ai/context`
@@ -226,7 +226,7 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 
 - 页面会自动尝试 `OpenClaw` 后端；不可达时可切到 **DeepSeek 直连模式**。
 - 在聊天框发送：`/deepseek sk-xxxx`（仅保存到当前浏览器 localStorage，不入库）。
-- 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验）。
+- 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验/多策略对比/自定义策略回验）。
 - 清除本地 key：`/deepseek clear`
 
 #### 5.6.1 最简启动（纯 npm，不用 Docker）

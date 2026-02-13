@@ -2166,6 +2166,22 @@ const HTML = `<!DOCTYPE html>
                 .filter(function(s) { return ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(s); });
               if (strategies.length) cfg.strategies = Array.from(new Set(strategies)).slice(0, 4);
               pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_custom_backtest') {
+              const cfg = { type: 'run_custom_backtest' };
+              const strategy = String(action.strategy || '').trim();
+              const tf = String(action.tf || '').trim();
+              if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'custom'].includes(strategy)) cfg.strategy = strategy;
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const custom = normalizeCustomBacktestSpec(action.custom);
+              if (Object.keys(custom).length) cfg.custom = custom;
+              pushUnique(cfg);
             }
           });
           return out;
@@ -2256,7 +2272,7 @@ const HTML = `<!DOCTYPE html>
                 '你是交易看板中的AI交易助理。',
                 '请严格根据给出的上下文回答，不要编造。',
                 '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare。',
+                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest。',
                 '除非用户明确要求切页，否则不要使用 switch_view。',
               ].join('\\n'),
             },
@@ -2386,6 +2402,95 @@ const HTML = `<!DOCTYPE html>
           return null;
         }
 
+        function parseTfLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const m = t.match(/\\b(1m|5m|15m|1h|4h|1d)\\b/);
+          if (m && m[1]) return m[1];
+          if (/1分钟|分时/.test(t)) return '1m';
+          if (/5分钟/.test(t)) return '5m';
+          if (/15分钟/.test(t)) return '15m';
+          if (/1小时/.test(t)) return '1h';
+          if (/4小时/.test(t)) return '4h';
+          if (/日线|1天/.test(t)) return '1d';
+          return null;
+        }
+
+        function parseBarsLocal(text) {
+          const m = String(text || '').match(/(\\d{2,5})\\s*(根|bars?|k线)/i);
+          if (!m) return null;
+          const n = Number(m[1]);
+          if (!Number.isFinite(n)) return null;
+          return Math.max(80, Math.min(5000, Math.round(n)));
+        }
+
+        function parseStrategiesLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const set = new Set();
+          if (/\\bv5_hybrid\\b|v5\\s*hybrid|混合/.test(t)) set.add('v5_hybrid');
+          if (/\\bv5_retest\\b|v5\\s*retest|回踩/.test(t)) set.add('v5_retest');
+          if (/\\bv5_reentry\\b|v5\\s*reentry|再入/.test(t)) set.add('v5_reentry');
+          if (/\\bv4_breakout\\b|v4\\s*breakout|donchian|突破/.test(t)) set.add('v4_breakout');
+          return Array.from(set);
+        }
+
+        function parseCustomSpecLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const spec = {};
+          const stop = t.match(/止损[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)\\s*atr/i);
+          const tp = t.match(/止盈[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)\\s*atr/i);
+          const adx = t.match(/adx[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)/i);
+          const lookback = t.match(/(lookback|窗口|通道)[^\\d]{0,6}([0-9]{1,3})/i);
+          if (stop && Number.isFinite(Number(stop[1]))) spec.stopAtr = Math.max(0.2, Math.min(10, Number(stop[1])));
+          if (tp && Number.isFinite(Number(tp[1]))) spec.tpAtr = Math.max(0.2, Math.min(20, Number(tp[1])));
+          if (adx && Number.isFinite(Number(adx[1]))) spec.custom = { ...(spec.custom || {}), biasAdxMin: Math.max(0, Math.min(80, Number(adx[1]))) };
+          if (lookback && Number.isFinite(Number(lookback[2]))) spec.custom = { ...(spec.custom || {}), lookback: Math.max(2, Math.min(300, Math.round(Number(lookback[2])))) };
+          if (/回踩/.test(t) && !/再入/.test(t) && !/突破/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: true, allowReentry: false, allowBreakout: false };
+          } else if (/再入/.test(t) && !/回踩/.test(t) && !/突破/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: false, allowReentry: true, allowBreakout: false };
+          } else if (/突破/.test(t) && !/回踩|再入/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: false, allowReentry: false, allowBreakout: true };
+          }
+          if (/只做多|仅做多|long only/.test(t)) spec.custom = { ...(spec.custom || {}), side: 'long' };
+          if (/只做空|仅做空|short only/.test(t)) spec.custom = { ...(spec.custom || {}), side: 'short' };
+          return spec;
+        }
+
+        function inferTaskActionLocal(text) {
+          const q = String(text || '').trim().toLowerCase();
+          if (!q) return null;
+          const hasTaskVerb = /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/.test(q);
+          const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|v5_|v4_|retest|reentry|breakout|donchian)/.test(q);
+          if (!hasTaskVerb || !hasStrategyDomain) return null;
+          const tf = parseTfLocal(q);
+          const bars = parseBarsLocal(q);
+          const strategies = parseStrategiesLocal(q);
+          const custom = parseCustomSpecLocal(q);
+          const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/.test(q);
+          const hasCustom = Object.keys(custom || {}).length > 0;
+          if (hasCustom && !compareIntent) {
+            const action = { type: 'run_custom_backtest', strategy: strategies[0] || 'custom', ...custom };
+            if (tf) action.tf = tf;
+            if (bars != null) action.bars = bars;
+            return action;
+          }
+          if (compareIntent || strategies.length >= 2 || !strategies.length) {
+            const action = { type: 'run_backtest_compare' };
+            if (strategies.length) action.strategies = strategies.slice(0, 4);
+            if (tf) action.tf = tf;
+            if (bars != null) action.bars = bars;
+            if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+            if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+            return action;
+          }
+          const action = { type: 'run_backtest', strategy: strategies[0] || 'v5_hybrid' };
+          if (tf) action.tf = tf;
+          if (bars != null) action.bars = bars;
+          if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+          if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+          return action;
+        }
+
         function runHighWinRateTask(q) {
           const text = String(q || '').trim();
           if (!text) return null;
@@ -2416,9 +2521,9 @@ const HTML = `<!DOCTYPE html>
             };
             const result = runBacktestByVersion(cfg);
             if (!result || result.error) return;
-            const trades = Number(result.trades || 0);
+            const trades = Number(result.tradeCount || result.trades || 0);
             const winRate = Number(result.winRate || 0);
-            const pnlPct = Number(result.totalPnlPct || 0);
+            const pnlPct = Number(result.netPnlPct || result.totalPnlPct || 0);
             const score = (winRate * 1.0) + Math.min(trades, 160) * 0.12 + pnlPct * 0.06;
             rows.push({
               strategy: strategy,
@@ -2485,6 +2590,21 @@ const HTML = `<!DOCTYPE html>
           return { reply: reply, actions: [], source: 'task_executor' };
         }
 
+        function runLocalTaskExecutor(q) {
+          const action = inferTaskActionLocal(q);
+          if (!action) return null;
+          const note = applyAiActions([action], q);
+          if (!note) return null;
+          return {
+            reply:
+              '已按你的自然语言要求直接执行任务（无需手动切换页面）。\\n\\n执行结果：' +
+              note +
+              '\\n\\n你可以继续给约束（如只做多、限制回撤、改周期/持仓时长），我会在同一任务里继续迭代。',
+            actions: [],
+            source: 'task_executor',
+          };
+        }
+
         function setControlValue(id, value) {
           if (value == null) return false;
           const el = document.getElementById(id);
@@ -2497,6 +2617,53 @@ const HTML = `<!DOCTYPE html>
           }
           el.value = String(value);
           return true;
+        }
+
+        function normalizeCustomBacktestSpec(specLike) {
+          const src = specLike && typeof specLike === 'object' ? specLike : {};
+          const out = {};
+          function toNum(v, min, max) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (Number.isFinite(min) && n < min) return min;
+            if (Number.isFinite(max) && n > max) return max;
+            return n;
+          }
+          function toBool(v) {
+            if (v === true || v === false) return v;
+            const s = String(v || '').toLowerCase();
+            if (['1', 'true', 'yes', 'on', '开启', '启用'].includes(s)) return true;
+            if (['0', 'false', 'no', 'off', '关闭', '停用'].includes(s)) return false;
+            return null;
+          }
+          const lookback = toNum(src.lookback, 2, 300);
+          const retestWindow = toNum(src.retestWindow, 1, 200);
+          const reentryWindow = toNum(src.reentryWindow, 1, 300);
+          const retestTolAtr = toNum(src.retestTolAtr, 0.01, 5);
+          const reentryTolAtr = toNum(src.reentryTolAtr, 0.01, 8);
+          const biasAdxMin = toNum(src.biasAdxMin, 0, 80);
+          const biasEmaFast = toNum(src.biasEmaFast, 2, 400);
+          const biasEmaSlow = toNum(src.biasEmaSlow, 2, 600);
+          const entryEma = toNum(src.entryEma, 2, 400);
+          const allowRetest = toBool(src.allowRetest);
+          const allowReentry = toBool(src.allowReentry);
+          const allowBreakout = toBool(src.allowBreakout);
+          const sideRaw = String(src.side || '').toLowerCase();
+          const side = ['long', 'short', 'both'].includes(sideRaw) ? sideRaw : null;
+          if (lookback != null) out.lookback = Math.round(lookback);
+          if (retestWindow != null) out.retestWindow = Math.round(retestWindow);
+          if (reentryWindow != null) out.reentryWindow = Math.round(reentryWindow);
+          if (retestTolAtr != null) out.retestTolAtr = Number(retestTolAtr);
+          if (reentryTolAtr != null) out.reentryTolAtr = Number(reentryTolAtr);
+          if (biasAdxMin != null) out.biasAdxMin = Number(biasAdxMin);
+          if (biasEmaFast != null) out.biasEmaFast = Math.round(biasEmaFast);
+          if (biasEmaSlow != null) out.biasEmaSlow = Math.round(biasEmaSlow);
+          if (entryEma != null) out.entryEma = Math.round(entryEma);
+          if (allowRetest != null) out.allowRetest = allowRetest;
+          if (allowReentry != null) out.allowReentry = allowReentry;
+          if (allowBreakout != null) out.allowBreakout = allowBreakout;
+          if (side) out.side = side;
+          return out;
         }
 
         function applyAiActions(actions, userQueryText) {
@@ -2551,8 +2718,8 @@ const HTML = `<!DOCTYPE html>
                 const result = runBacktestFromUi();
                 if (result && !result.error) {
                   const wr = Number(result.winRate || 0);
-                  const pnl = Number(result.totalPnlPct || 0);
-                  const nTrades = Number(result.trades || 0);
+                  const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
+                  const nTrades = Number(result.tradeCount || result.trades || 0);
                   summary =
                     '回验完成(' +
                     btStrategyLabel(String(result.strategy || action.strategy || 'v5_hybrid')) +
@@ -2606,8 +2773,8 @@ const HTML = `<!DOCTYPE html>
                 const result = runBacktestByVersion(cfg);
                 if (!result || result.error) return;
                 const wr = Number(result.winRate || 0);
-                const pnl = Number(result.totalPnlPct || 0);
-                const trades = Number(result.trades || 0);
+                const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
+                const trades = Number(result.tradeCount || result.trades || 0);
                 const score = wr * 1.0 + Math.min(trades, 160) * 0.12 + pnl * 0.06;
                 rows.push({
                   cfg: cfg,
@@ -2654,6 +2821,42 @@ const HTML = `<!DOCTYPE html>
                 );
               }).join(' / ');
               notes.push('策略对比完成，推荐 ' + btStrategyLabel(best.strategy) + '。' + topText);
+              return;
+            }
+            if (type === 'run_custom_backtest') {
+              setControlValue('bt-strategy', action.strategy || 'v5_hybrid');
+              setControlValue('bt-tf', action.tf);
+              setControlValue('bt-bars', action.bars);
+              setControlValue('bt-fee-bps', action.feeBps);
+              setControlValue('bt-stop-atr', action.stopAtr);
+              setControlValue('bt-tp-atr', action.tpAtr);
+              setControlValue('bt-max-hold', action.maxHold);
+              const cfg = {
+                strategy: String(action.strategy || 'custom'),
+                tf: String(action.tf || (document.getElementById('bt-tf')?.value || '1h')),
+                bars: Number(action.bars || (document.getElementById('bt-bars')?.value || 900)),
+                feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                stopAtr: Number(action.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                tpAtr: Number(action.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                maxHold: Number(action.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                custom: normalizeCustomBacktestSpec(action.custom),
+              };
+              const result = runBacktestByVersion(cfg);
+              if (result && !result.error) {
+                renderBacktestResult(result, cfg);
+                notes.push(
+                  '自定义回验完成：胜率 ' +
+                    btNum(result.winRate, 1) +
+                    '%，交易 ' +
+                    Number(result.tradeCount || 0) +
+                    ' 笔，净收益 ' +
+                    (Number(result.netPnlPct || 0) >= 0 ? '+' : '') +
+                    btNum(result.netPnlPct, 2) +
+                    '%',
+                );
+              } else {
+                notes.push('自定义回验失败：' + String(result?.message || result?.error || '未知原因'));
+              }
             }
           });
           return notes.join('；');
@@ -2730,7 +2933,7 @@ const HTML = `<!DOCTYPE html>
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
                 setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
-                const localTask = runHighWinRateTask(q);
+                const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
                 if (localTask) return localTask;
                 return {
                   reply: localAnswer(q) + '\\n\\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
@@ -2739,7 +2942,7 @@ const HTML = `<!DOCTYPE html>
                 };
               }
               setAiLinkStatus('warn', 'AI离线(本地兜底)');
-              const localTask = runHighWinRateTask(q);
+              const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
               if (localTask) return localTask;
               return { reply: localAnswer(q), actions: [], source: 'local_fallback' };
             }
@@ -2913,6 +3116,7 @@ const HTML = `<!DOCTYPE html>
       }
 
       function btStrategyLabel(v) {
+        if (v === 'custom') return '自定义策略';
         if (v === 'v5_retest') return 'v5 回踩确认';
         if (v === 'v5_reentry') return 'v5 趋势再入';
         if (v === 'v4_breakout') return 'v4 Donchian 突破';
@@ -3074,6 +3278,8 @@ const HTML = `<!DOCTYPE html>
       function runBacktestByVersion(opts) {
         const tf = String(opts?.tf || '1h');
         const strategy = String(opts?.strategy || 'v5_hybrid');
+        const custom = opts?.custom && typeof opts.custom === 'object' ? opts.custom : {};
+        const isCustom = strategy === 'custom';
         const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
         const stopAtrMult = Math.max(0.2, Number(opts?.stopAtr || 1.8));
         const tpAtrMult = Math.max(0.2, Number(opts?.tpAtr || 3.0));
@@ -3087,19 +3293,26 @@ const HTML = `<!DOCTYPE html>
 
         const close = bars.map(b => Number(b.close));
         const atr = btAtrSeries(bars, 14);
-        const entryEma = btEmaSeries(close, 20);
+        const entryEmaPeriod = Math.max(2, Math.floor(Number(custom.entryEma || 20)));
+        const entryEma = btEmaSeries(close, entryEmaPeriod);
 
-        const useV5 = /^v5_/.test(strategy);
+        const useV5 = /^v5_/.test(strategy) || isCustom;
         const biasSourceBars = (useV5 && tf === '1h' && Array.isArray(OHLCV_BY_TF?.['4h']) && OHLCV_BY_TF['4h'].length)
           ? normalizeBars(OHLCV_BY_TF['4h'])
           : bars;
         const biasClose = biasSourceBars.map(b => Number(b.close));
-        const biasEmaF = btEmaSeries(biasClose, 20);
-        const biasEmaS = btEmaSeries(biasClose, 50);
+        const biasEmaFast = Math.max(2, Math.floor(Number(custom.biasEmaFast || 20)));
+        const biasEmaSlow = Math.max(2, Math.floor(Number(custom.biasEmaSlow || 50)));
+        const biasEmaF = btEmaSeries(biasClose, biasEmaFast);
+        const biasEmaS = btEmaSeries(biasClose, biasEmaSlow);
         const biasAdx = btAdxSeries(biasSourceBars, 14);
         const mappedBiasEmaF = biasSourceBars === bars ? biasEmaF : btMapSeriesByTime(bars, biasSourceBars, biasEmaF);
         const mappedBiasEmaS = biasSourceBars === bars ? biasEmaS : btMapSeriesByTime(bars, biasSourceBars, biasEmaS);
         const mappedBiasAdx = biasSourceBars === bars ? biasAdx : btMapSeriesByTime(bars, biasSourceBars, biasAdx);
+        const biasAdxMin = Math.max(0, Number(custom.biasAdxMin || 15));
+        const sideMode = String(custom.side || 'both').toLowerCase();
+        const onlyLong = sideMode === 'long';
+        const onlyShort = sideMode === 'short';
 
         let equity = 1;
         let peak = 1;
@@ -3140,10 +3353,10 @@ const HTML = `<!DOCTYPE html>
           const b = bars[i];
           const atrNow = Number.isFinite(atr[i]) ? Number(atr[i]) : (Number(b.close) * 0.0035);
           const biasLong = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
-            ? (mappedBiasEmaF[i] > mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            ? (mappedBiasEmaF[i] > mappedBiasEmaS[i] && mappedBiasAdx[i] >= biasAdxMin)
             : false;
           const biasShort = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
-            ? (mappedBiasEmaF[i] < mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            ? (mappedBiasEmaF[i] < mappedBiasEmaS[i] && mappedBiasAdx[i] >= biasAdxMin)
             : false;
 
           // Exit check (intrabar)
@@ -3166,7 +3379,8 @@ const HTML = `<!DOCTYPE html>
           const closeNow = Number(b.close);
           const highNow = Number(b.high);
           const lowNow = Number(b.low);
-          const lookback = strategy === 'v4_breakout' ? 20 : 15;
+          const lookbackDefault = strategy === 'v4_breakout' ? 20 : 15;
+          const lookback = Math.max(2, Math.floor(Number(custom.lookback || lookbackDefault)));
           const dHigh = btDonchianPrevHigh(bars, i, lookback);
           const dLow = btDonchianPrevLow(bars, i, lookback);
 
@@ -3174,30 +3388,44 @@ const HTML = `<!DOCTYPE html>
           if (Number.isFinite(dLow) && closeNow < dLow) lastBreakShort = { idx: i, level: dLow };
 
           if (cooldown === 0) {
-            if (strategy === 'v4_breakout') {
-              if (Number.isFinite(dHigh) && closeNow > dHigh) signal = { side: 'long', tag: 'breakout' };
-              else if (Number.isFinite(dLow) && closeNow < dLow) signal = { side: 'short', tag: 'breakout' };
-            } else {
-              const allowRetest = strategy === 'v5_retest' || strategy === 'v5_hybrid';
-              const allowReentry = strategy === 'v5_reentry' || strategy === 'v5_hybrid';
-              const tolRetest = atrNow * 0.25;
-              const tolReentry = atrNow * 0.35;
+            const allowBreakout = (custom.allowBreakout === true) || (!isCustom && strategy === 'v4_breakout');
+            const allowRetest =
+              custom.allowRetest === true ||
+              (custom.allowRetest !== false && (strategy === 'v5_retest' || strategy === 'v5_hybrid' || isCustom));
+            const allowReentry =
+              custom.allowReentry === true ||
+              (custom.allowReentry !== false && (strategy === 'v5_reentry' || strategy === 'v5_hybrid' || isCustom));
+            const retestWindow = Math.max(1, Math.floor(Number(custom.retestWindow || 12)));
+            const tolRetest = atrNow * Math.max(0.01, Number(custom.retestTolAtr || 0.25));
+            const tolReentry = atrNow * Math.max(0.01, Number(custom.reentryTolAtr || 0.35));
+            if (allowBreakout) {
+              if (!onlyShort && Number.isFinite(dHigh) && closeNow > dHigh) signal = { side: 'long', tag: 'breakout' };
+              else if (!onlyLong && Number.isFinite(dLow) && closeNow < dLow) signal = { side: 'short', tag: 'breakout' };
+            }
+            if (!signal) {
               const emaNow = Number(entryEma[i]);
-              if (allowRetest && biasLong && lastBreakLong && (i - lastBreakLong.idx) <= 12) {
+              if (!onlyShort && allowRetest && biasLong && lastBreakLong && (i - lastBreakLong.idx) <= retestWindow) {
                 if (lowNow <= lastBreakLong.level + tolRetest && closeNow > lastBreakLong.level) {
                   signal = { side: 'long', tag: 'retest' };
                   lastBreakLong = null;
                 }
               }
-              if (!signal && allowRetest && biasShort && lastBreakShort && (i - lastBreakShort.idx) <= 12) {
+              if (!signal && !onlyLong && allowRetest && biasShort && lastBreakShort && (i - lastBreakShort.idx) <= retestWindow) {
                 if (highNow >= lastBreakShort.level - tolRetest && closeNow < lastBreakShort.level) {
                   signal = { side: 'short', tag: 'retest' };
                   lastBreakShort = null;
                 }
               }
               if (!signal && allowReentry && Number.isFinite(emaNow)) {
-                if (biasLong && lowNow <= emaNow + tolReentry && closeNow > emaNow) signal = { side: 'long', tag: 'reentry' };
-                else if (biasShort && highNow >= emaNow - tolReentry && closeNow < emaNow) signal = { side: 'short', tag: 'reentry' };
+                const prevClose = i > 0 ? Number(bars[i - 1]?.close) : closeNow;
+                const prevEma = i > 0 ? Number(entryEma[i - 1]) : emaNow;
+                const prevLong = Number.isFinite(prevClose) && Number.isFinite(prevEma) ? prevClose > prevEma : true;
+                const prevShort = Number.isFinite(prevClose) && Number.isFinite(prevEma) ? prevClose < prevEma : true;
+                if (!onlyShort && biasLong && prevLong && lowNow <= emaNow + tolReentry && closeNow > emaNow) {
+                  signal = { side: 'long', tag: 'reentry' };
+                } else if (!onlyLong && biasShort && prevShort && highNow >= emaNow - tolReentry && closeNow < emaNow) {
+                  signal = { side: 'short', tag: 'reentry' };
+                }
               }
             }
           }

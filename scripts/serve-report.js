@@ -2027,6 +2027,54 @@ function normalizeAiActions(actionsLike) {
       pushUnique(normalized);
       continue;
     }
+    if (type === 'run_custom_backtest') {
+      const strategy = String(item.strategy || '').trim();
+      const tf = String(item.tf || '').trim();
+      const normalized = { type: 'run_custom_backtest' };
+      if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'custom'].includes(strategy)) {
+        normalized.strategy = strategy;
+      }
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) {
+        normalized.tf = tf;
+      }
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      const custom = item.custom && typeof item.custom === 'object' ? item.custom : {};
+      const customOut = {};
+      const lookback = clampNum(custom.lookback, 2, 300);
+      const retestWindow = clampNum(custom.retestWindow, 1, 200);
+      const reentryWindow = clampNum(custom.reentryWindow, 1, 300);
+      const retestTolAtr = clampNum(custom.retestTolAtr, 0.01, 6);
+      const reentryTolAtr = clampNum(custom.reentryTolAtr, 0.01, 8);
+      const biasAdxMin = clampNum(custom.biasAdxMin, 0, 80);
+      const biasEmaFast = clampNum(custom.biasEmaFast, 2, 400);
+      const biasEmaSlow = clampNum(custom.biasEmaSlow, 2, 600);
+      const entryEma = clampNum(custom.entryEma, 2, 400);
+      if (lookback != null) customOut.lookback = Math.round(lookback);
+      if (retestWindow != null) customOut.retestWindow = Math.round(retestWindow);
+      if (reentryWindow != null) customOut.reentryWindow = Math.round(reentryWindow);
+      if (retestTolAtr != null) customOut.retestTolAtr = Number(retestTolAtr);
+      if (reentryTolAtr != null) customOut.reentryTolAtr = Number(reentryTolAtr);
+      if (biasAdxMin != null) customOut.biasAdxMin = Number(biasAdxMin);
+      if (biasEmaFast != null) customOut.biasEmaFast = Math.round(biasEmaFast);
+      if (biasEmaSlow != null) customOut.biasEmaSlow = Math.round(biasEmaSlow);
+      if (entryEma != null) customOut.entryEma = Math.round(entryEma);
+      if (typeof custom.allowRetest === 'boolean') customOut.allowRetest = custom.allowRetest;
+      if (typeof custom.allowReentry === 'boolean') customOut.allowReentry = custom.allowReentry;
+      if (typeof custom.allowBreakout === 'boolean') customOut.allowBreakout = custom.allowBreakout;
+      if (['long', 'short', 'both'].includes(String(custom.side || ''))) customOut.side = String(custom.side);
+      if (Object.keys(customOut).length) normalized.custom = customOut;
+      pushUnique(normalized);
+      continue;
+    }
     if (type === 'run_backtest_compare') {
       const normalized = { type: 'run_backtest_compare' };
       const tf = String(item.tf || '').trim();
@@ -2090,6 +2138,54 @@ function parseStrategyNamesFromText(messageLike) {
   return Array.from(out);
 }
 
+function parseNumByRegex(text, regex, min, max) {
+  const m = String(text || '').match(regex);
+  if (!m) return null;
+  const raw = m.slice(1).reverse().find((x) => x != null && String(x).trim() !== '');
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return clampNum(n, min, max);
+}
+
+function parseRiskAndCustomFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const out = { custom: {} };
+  const stopAtr = parseNumByRegex(text, /止损[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.2, 12);
+  const tpAtr = parseNumByRegex(text, /止盈[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.2, 20);
+  const feeBps = parseNumByRegex(text, /手续费[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*bps/i, 0, 100);
+  const maxHold = parseNumByRegex(text, /持仓[^\d]{0,8}([0-9]{1,4})\s*(?:根|bars?|小时|h)/i, 1, 1000);
+  const lookback = parseNumByRegex(text, /(lookback|窗口|通道)[^\d]{0,6}([0-9]{1,3})/i, 2, 300);
+  const adxMin = parseNumByRegex(text, /adx[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)/i, 0, 80);
+  const retestTol = parseNumByRegex(text, /回踩容差[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.01, 6);
+  const reentryTol = parseNumByRegex(text, /再入容差[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.01, 8);
+  if (stopAtr != null) out.stopAtr = Number(stopAtr);
+  if (tpAtr != null) out.tpAtr = Number(tpAtr);
+  if (feeBps != null) out.feeBps = Number(feeBps);
+  if (maxHold != null) out.maxHold = Math.round(maxHold);
+  if (lookback != null) out.custom.lookback = Math.round(lookback);
+  if (adxMin != null) out.custom.biasAdxMin = Number(adxMin);
+  if (retestTol != null) out.custom.retestTolAtr = Number(retestTol);
+  if (reentryTol != null) out.custom.reentryTolAtr = Number(reentryTol);
+  if (/回踩/.test(text) && !/再入/.test(text) && !/突破/.test(text)) {
+    out.custom.allowRetest = true;
+    out.custom.allowReentry = false;
+    out.custom.allowBreakout = false;
+  } else if (/再入/.test(text) && !/回踩/.test(text) && !/突破/.test(text)) {
+    out.custom.allowRetest = false;
+    out.custom.allowReentry = true;
+    out.custom.allowBreakout = false;
+  } else if (/突破/.test(text) && !/回踩|再入/.test(text)) {
+    out.custom.allowRetest = false;
+    out.custom.allowReentry = false;
+    out.custom.allowBreakout = true;
+  }
+  if (/只做多|仅做多|long only/.test(text)) out.custom.side = 'long';
+  if (/只做空|仅做空|short only/.test(text)) out.custom.side = 'short';
+  if (!Object.keys(out.custom).length) delete out.custom;
+  return out;
+}
+
 function inferTaskActionFromMessage(messageLike) {
   const text = String(messageLike || '').trim().toLowerCase();
   if (!text) return null;
@@ -2102,26 +2198,49 @@ function inferTaskActionFromMessage(messageLike) {
   const tf = parseTfFromText(text);
   const bars = parseBarsFromText(text);
   const strategies = parseStrategyNamesFromText(text);
+  const riskAndCustom = parseRiskAndCustomFromText(text);
   const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/i.test(
     text,
   );
+  const hasCustomHints = Boolean(riskAndCustom.custom && Object.keys(riskAndCustom.custom).length);
+  if (hasCustomHints && !compareIntent) {
+    const action = {
+      type: 'run_custom_backtest',
+      strategy: strategies[0] || 'custom',
+      ...riskAndCustom,
+    };
+    if (tf) action.tf = tf;
+    if (bars != null) action.bars = bars;
+    return action;
+  }
   if (compareIntent || strategies.length >= 2 || !strategies.length) {
     const action = { type: 'run_backtest_compare' };
     if (strategies.length) action.strategies = strategies.slice(0, 4);
     if (tf) action.tf = tf;
     if (bars != null) action.bars = bars;
+    if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+    if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+    if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+    if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
     return action;
   }
-  const action = { type: 'run_backtest', strategy: strategies[0] };
+  const action = { type: 'run_backtest', strategy: strategies[0] || 'v5_hybrid' };
   if (tf) action.tf = tf;
   if (bars != null) action.bars = bars;
+  if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+  if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+  if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+  if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
   return action;
 }
 
 function augmentActionsByIntent(messageLike, actionsLike) {
   const normalized = normalizeAiActions(actionsLike);
   const hasTaskAction = normalized.some(
-    (a) => a?.type === 'run_backtest' || a?.type === 'run_backtest_compare',
+    (a) =>
+      a?.type === 'run_backtest' ||
+      a?.type === 'run_backtest_compare' ||
+      a?.type === 'run_custom_backtest',
   );
   if (hasTaskAction) return normalized;
   const inferred = inferTaskActionFromMessage(messageLike);
@@ -2752,10 +2871,12 @@ function buildOpenClawPrompt(message, context) {
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
+    '- {"type":"run_custom_backtest","strategy":"custom|v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72,"custom":{"lookback":18,"allowRetest":true,"allowReentry":true,"allowBreakout":false,"biasAdxMin":15,"side":"both"}}',
     '4) 如果不需要动作，actions 返回空数组。',
     '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
     '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
     '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
+    '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
     '',
     '[交易看板上下文]',
     contextJson,
