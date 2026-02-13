@@ -209,6 +209,14 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 服务端把对话摘要与交易结果持续写入 `memory/trader-memory.jsonl`（自动脱敏关键 secret）。
 - 每次 AI 请求前会执行“相关记忆检索”（token overlap + sparse vector cosine），并注入 `context.longTermMemory`。
 - 支持手工记忆：在聊天框发送 `记住: ...`（或 `remember: ...`）。
+- 已扩展为分层记忆：
+  - `shortTermMemory`：近期会话窗口（短期）
+  - `midTermMemory`：交易者画像 + 策略权重（中期）
+  - `longTermMemory`：长期检索结果（长期）
+- 新增策略反馈学习（自动 + 人工）：
+  - 自动：读取真实成交结果（`bitget-perp-autotrade-trades.jsonl`）更新策略权重
+  - 人工：聊天发送 `反馈 v5_retest +0.6` / `策略反馈 v5_reentry 太激进`
+- 查看记忆状态：聊天发送 `记忆状态` / `查看记忆` / `memory status`
 
 手机/静态部署（无本地后端）可用方案：
 
