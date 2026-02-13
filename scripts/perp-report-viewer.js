@@ -2374,9 +2374,41 @@ const HTML = `<!DOCTYPE html>
             actions: Array.isArray(payload.actions) ? payload.actions : [],
           };
         }
+        function looksLikeConfigIntentLocal(q) {
+          const text = String(q || '').trim();
+          if (!text) return false;
+          if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+          if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
+            return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
+          }
+          return false;
+        }
+        async function askConfigChannel(q) {
+          const resp = await fetch('api/config/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({ message: q }),
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const payload = await resp.json().catch(function() { return null; });
+          if (!payload || payload.ok !== true) throw new Error('invalid payload');
+          return {
+            handled: Boolean(payload.handled),
+            reply: String(payload.reply || '').trim(),
+          };
+        }
         async function answer(q) {
           const cmd = handleLocalCmd(q);
           if (cmd) return cmd;
+          if (looksLikeConfigIntentLocal(q)) {
+            try {
+              const cfg = await askConfigChannel(q);
+              if (cfg && cfg.handled) {
+                return { reply: cfg.reply || '配置已处理。', actions: [] };
+              }
+            } catch (_) {}
+          }
           try {
             return await askOpenClaw(q);
           } catch {
@@ -2517,7 +2549,7 @@ const HTML = `<!DOCTYPE html>
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
+        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n聊天内配置示例：\\n- 设置 Telegram token 123456:ABC...\\n- 设置 DeepSeek key sk-...\\n- 连接 ChatGPT/Codex');
       }
 
       function renderDashboard() {

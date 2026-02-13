@@ -195,6 +195,11 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
 - **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
 - 可选开启交易事件主动推送：开仓/平仓/风控拦截会自动发到 Telegram。
+- 新增聊天内配置通道：`POST /api/config/chat`
+  - 例如在聊天框直接发送：
+    - `设置 Telegram token 123456:ABC...`
+    - `设置 DeepSeek key sk-...`
+    - `连接 ChatGPT/Codex`
 
 手机/静态部署（无本地后端）可用方案：
 

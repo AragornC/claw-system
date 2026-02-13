@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
 const REPORT_DIR = path.resolve(WORKDIR, 'memory/report');
+const LOCAL_ENV_PATH = path.resolve(WORKDIR, '.env.local');
 const PORT = parseInt(process.argv[2], 10) || 8765;
 const OPENCLAW_REPO_ENTRY = path.resolve(WORKDIR, 'openclaw/openclaw.mjs');
 const OPENCLAW_REPO_MODULES = path.resolve(WORKDIR, 'openclaw/node_modules');
@@ -206,6 +207,46 @@ function safeJsonRead(filePath, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function parseEnvPairs(rawText) {
+  const lines = String(rawText || '').split(/\r?\n/);
+  const pairs = {};
+  const indexByKey = new Map();
+  lines.forEach((line, idx) => {
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) return;
+    const key = m[1];
+    const val = m[2] ?? '';
+    pairs[key] = val;
+    indexByKey.set(key, idx);
+  });
+  return { lines, pairs, indexByKey };
+}
+
+function writeEnvLocal(updates) {
+  const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
+  const { lines, pairs, indexByKey } = parseEnvPairs(raw);
+  const next = { ...pairs };
+  Object.entries(updates || {}).forEach(([k, v]) => {
+    if (!k) return;
+    next[k] = v == null ? '' : String(v);
+  });
+  Object.entries(updates || {}).forEach(([k]) => {
+    if (!k) return;
+    const line = k + '=' + (next[k] ?? '');
+    if (indexByKey.has(k)) lines[indexByKey.get(k)] = line;
+    else lines.push(line);
+  });
+  const content = lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '\n');
+  fs.writeFileSync(LOCAL_ENV_PATH, content, 'utf8');
+  try { fs.chmodSync(LOCAL_ENV_PATH, 0o600); } catch {}
+  return next;
+}
+
+function readEnvLocalPairs() {
+  const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
+  return parseEnvPairs(raw).pairs;
 }
 
 function toMs(tsLike) {
@@ -1164,6 +1205,172 @@ async function runOpenClawChat(message, context) {
   };
 }
 
+async function runOpenClawAdmin(args, timeoutMs = 35_000) {
+  const cli = resolveOpenClawCli();
+  const proc = await runProcess(cli.command, [...cli.prefixArgs, ...args], timeoutMs);
+  if (proc.timedOut) {
+    throw new Error('OpenClaw 管理命令超时');
+  }
+  if (proc.code !== 0) {
+    throw new Error(String(proc.stderr || proc.stdout || '').trim() || ('exit code ' + proc.code));
+  }
+  return { stdout: String(proc.stdout || '').trim(), commandSource: cli.source };
+}
+
+function looksLikeConfigIntent(message) {
+  const text = String(message || '').trim();
+  if (!text) return false;
+  if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+  if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
+    return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
+  }
+  return false;
+}
+
+function maskMaybeSecret(value) {
+  const s = String(value || '').trim();
+  if (!s) return '(未设置)';
+  if (s.length <= 10) return '***';
+  return s.slice(0, 4) + '...' + s.slice(-3);
+}
+
+function parseConfigIntent(message) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  if (!text) return { type: 'none' };
+
+  if (/^\/config\s+status$/i.test(text) || /^\/配置\s*状态$/.test(text) || /查看配置|当前配置|配置状态/.test(text)) {
+    return { type: 'status' };
+  }
+
+  const deepseekKeyMatch = text.match(/\bsk-[A-Za-z0-9\-_]{12,}\b/);
+  if (deepseekKeyMatch && /(deepseek|模型|model|配置|设置|绑定|apikey|api key|key)/i.test(text)) {
+    const modelMatch = text.match(/deepseek[-_a-z0-9]{2,40}/i);
+    return { type: 'set_deepseek', apiKey: deepseekKeyMatch[0], model: modelMatch ? modelMatch[0] : 'deepseek-chat' };
+  }
+
+  const telegramTokenMatch = text.match(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/);
+  if (telegramTokenMatch && /(telegram|tg|机器人|bot|token|配置|设置|绑定|连接)/i.test(text)) {
+    return { type: 'set_telegram_token', token: telegramTokenMatch[0] };
+  }
+
+  if (/chatgpt|codex|openai/.test(lower) && /(登录|连接|绑定|login|auth|配置)/i.test(text)) {
+    return { type: 'connect_chatgpt' };
+  }
+
+  if (/telegram/.test(lower) && /(自动回复|auto.?reply)/i.test(lower)) {
+    if (/(关闭|停用|off|false|0)/i.test(lower)) return { type: 'set_telegram_auto_reply', value: '0' };
+    if (/(开启|启用|on|true|1)/i.test(lower)) return { type: 'set_telegram_auto_reply', value: '1' };
+  }
+
+  if (/telegram/.test(lower) && /(交易事件|推送|trade push|push)/i.test(lower)) {
+    if (/(关闭|停用|off|false|0)/i.test(lower)) return { type: 'set_trade_push', value: '0' };
+    if (/(开启|启用|on|true|1)/i.test(lower)) return { type: 'set_trade_push', value: '1' };
+  }
+
+  return { type: 'none' };
+}
+
+function buildConfigStatusReply() {
+  const envPairs = readEnvLocalPairs();
+  const tgToken = envPairs.THUNDERCLAW_TELEGRAM_BOT_TOKEN || '';
+  const tgAuto = String(envPairs.THUNDERCLAW_TELEGRAM_AUTO_REPLY || '1');
+  const tgPush = String(envPairs.THUNDERCLAW_TELEGRAM_PUSH_TRADES || '1');
+  const modelHint = String(envPairs.OPENCLAW_AGENT_ID || 'main');
+  return [
+    '当前配置状态：',
+    '- OpenClaw Agent: ' + modelHint,
+    '- Telegram Token: ' + maskMaybeSecret(tgToken),
+    '- Telegram 自动回复: ' + (/^(1|true|yes|on)$/i.test(tgAuto) ? '开启' : '关闭'),
+    '- Telegram 交易事件推送: ' + (/^(1|true|yes|on)$/i.test(tgPush) ? '开启' : '关闭'),
+    '',
+    '可直接发送：',
+    '- 设置 Telegram token 123456:ABC...',
+    '- 设置 DeepSeek key sk-xxxx',
+    '- 连接 ChatGPT/Codex',
+    '- 关闭 Telegram 自动回复',
+  ].join('\n');
+}
+
+async function handleConfigIntent(intent) {
+  if (!intent || intent.type === 'none') {
+    return { handled: false, reply: '' };
+  }
+  if (intent.type === 'status') {
+    return { handled: true, reply: buildConfigStatusReply() };
+  }
+  if (intent.type === 'set_telegram_token') {
+    const token = String(intent.token || '').trim();
+    if (!token) return { handled: true, reply: 'Telegram token 为空，未更新。' };
+    writeEnvLocal({
+      THUNDERCLAW_TELEGRAM_BOT_TOKEN: token,
+      THUNDERCLAW_TELEGRAM_AUTO_REPLY: '1',
+      THUNDERCLAW_TELEGRAM_PUSH_TRADES: '1',
+      THUNDERCLAW_TELEGRAM_PUSH_EVENTS: 'open,close,risk',
+    });
+    return {
+      handled: true,
+      reply: '已保存 Telegram token：' + maskMaybeSecret(token) + '\n请重启 thunderclaw start 使新 token 生效。',
+    };
+  }
+  if (intent.type === 'set_telegram_auto_reply') {
+    const v = intent.value === '0' ? '0' : '1';
+    writeEnvLocal({ THUNDERCLAW_TELEGRAM_AUTO_REPLY: v });
+    return { handled: true, reply: 'Telegram 自动回复已' + (v === '1' ? '开启' : '关闭') + '。重启后生效。' };
+  }
+  if (intent.type === 'set_trade_push') {
+    const v = intent.value === '0' ? '0' : '1';
+    writeEnvLocal({ THUNDERCLAW_TELEGRAM_PUSH_TRADES: v });
+    return { handled: true, reply: 'Telegram 交易事件主动推送已' + (v === '1' ? '开启' : '关闭') + '。重启后生效。' };
+  }
+  if (intent.type === 'set_deepseek') {
+    const apiKey = String(intent.apiKey || '').trim();
+    if (!apiKey.toLowerCase().startsWith('sk-')) {
+      return { handled: true, reply: 'DeepSeek key 格式不正确（需 sk- 开头）。' };
+    }
+    const modelId = String(intent.model || 'deepseek-chat').trim();
+    const providerJson = JSON.stringify({
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiKey,
+      api: 'openai-completions',
+      models: [
+        { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+        { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
+      ],
+    });
+    try {
+      await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
+      await runOpenClawAdmin(['config', 'set', '--json', 'models.providers.deepseek', providerJson]);
+      await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+      return {
+        handled: true,
+        reply:
+          'DeepSeek 已配置成功。\n- 默认模型: ' +
+          modelId +
+          '\n- key: ' +
+          maskMaybeSecret(apiKey) +
+          '\n现在可以直接在聊天中继续对话。',
+      };
+    } catch (err) {
+      return { handled: true, reply: '写入 DeepSeek 配置失败：' + safeErrMsg(err, 'unknown') };
+    }
+  }
+  if (intent.type === 'connect_chatgpt') {
+    return {
+      handled: true,
+      reply: [
+        'ChatGPT/Codex 连接需要一次交互式登录（设备授权流程）。',
+        '请在本机终端执行：',
+        '1) openclaw models auth login --set-default',
+        '2) 按终端提示打开链接并完成登录',
+        '',
+        '登录完成后回到 ThunderClaw 聊天即可使用。',
+      ].join('\n'),
+    };
+  }
+  return { handled: false, reply: '' };
+}
+
 function readJsonBody(req, limitBytes = JSON_BODY_LIMIT) {
   return new Promise((resolve) => {
     let body = '';
@@ -1239,6 +1446,45 @@ async function handleChatApi(req, res) {
       binding: 'trading-context-v2',
       error: String(err?.message || err),
       contextDigest: trading.digest,
+    });
+  }
+}
+
+async function handleConfigChatApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const message = typeof body.value?.message === 'string' ? body.value.message.trim() : '';
+  if (!message) {
+    sendJson(res, 400, { ok: false, error: 'message is required' });
+    return;
+  }
+  if (!looksLikeConfigIntent(message)) {
+    sendJson(res, 200, { ok: true, handled: false, reply: '' });
+    return;
+  }
+  try {
+    const intent = parseConfigIntent(message);
+    const result = await handleConfigIntent(intent);
+    sendJson(res, 200, {
+      ok: true,
+      handled: Boolean(result.handled),
+      reply: String(result.reply || ''),
+      intent: intent.type || 'none',
+    });
+  } catch (err) {
+    sendJson(res, 500, {
+      ok: false,
+      handled: false,
+      error: safeErrMsg(err, 'config handler failed'),
     });
   }
 }
@@ -1390,6 +1636,10 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    if (url.pathname === '/api/config/chat') {
+      await handleConfigChatApi(req, res);
+      return;
+    }
     if (url.pathname === '/api/ai/chat') {
       await handleChatApi(req, res);
       return;
@@ -1415,6 +1665,7 @@ server.listen(PORT, () => {
   if (OPENCLAW_REPLY_ACCOUNT) routingParts.push('replyAccount=' + OPENCLAW_REPLY_ACCOUNT);
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
+  console.log('AI config channel: POST /api/config/chat');
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
