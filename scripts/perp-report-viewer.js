@@ -2757,9 +2757,9 @@ const HTML = `<!DOCTYPE html>
             const reply = String(result?.reply || '').trim();
             const actionNote = applyAiActions(result?.actions, text);
             const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '');
-            thinking.textContent = finalText;
             const source = String(result?.source || '');
             if (source !== 'openclaw') {
+              thinking.textContent = finalText;
               appendLocalChatLog({
                 ts: new Date().toISOString(),
                 role: 'user',
@@ -2773,7 +2773,18 @@ const HTML = `<!DOCTYPE html>
                 text: finalText,
               });
             } else {
-              try { box.removeChild(thinking); } catch (_) {}
+              if (actionNote) {
+                const taskText = '执行结果：' + actionNote;
+                thinking.textContent = taskText;
+                appendLocalChatLog({
+                  ts: new Date().toISOString(),
+                  role: 'bot',
+                  source: 'task',
+                  text: taskText,
+                });
+              } else {
+                try { box.removeChild(thinking); } catch (_) {}
+              }
             }
           } catch {
             thinking.textContent = '本次请求失败，请稍后重试。';
