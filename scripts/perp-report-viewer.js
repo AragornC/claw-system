@@ -146,8 +146,10 @@ const HTML = `<!DOCTYPE html>
       left: 10px;
       top: 10px;
       z-index: 260;
+      transition: left 180ms ease, border-color 120ms ease, color 120ms ease;
     }
     .feature-sidebar-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .app-shell.sidebar-open .feature-sidebar-toggle { left: 258px; }
     .topbar-toggle-btn {
       border: 1px solid var(--border);
       border-radius: 999px;
@@ -589,6 +591,7 @@ const HTML = `<!DOCTYPE html>
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .hero-title-row { margin-bottom: 0; }
       .feature-sidebar-toggle { width: 36px; height: 32px; left: 8px; top: 8px; }
+      .app-shell.sidebar-open .feature-sidebar-toggle { left: 236px; }
       .feature-sidebar { position: fixed; left: 0; top: 0; bottom: 0; min-height: 0; z-index: 230; }
       .app-shell.sidebar-open .feature-sidebar { width: 228px; box-shadow: 8px 0 24px rgba(0,0,0,0.45); }
       .feature-sidebar-inner { width: 228px; }
