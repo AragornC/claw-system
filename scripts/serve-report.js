@@ -103,7 +103,10 @@ if (!TELEGRAM_PUSH_EVENTS.size) {
   TELEGRAM_PUSH_EVENTS.add('close');
   TELEGRAM_PUSH_EVENTS.add('risk');
 }
-const TELEGRAM_POLL_LOCK_PATH = path.resolve(WORKDIR, 'memory/.telegram-poll.lock');
+const TELEGRAM_POLL_LOCK_KEY = TELEGRAM_ENABLED
+  ? createHash('sha1').update(TELEGRAM_BOT_TOKEN, 'utf8').digest('hex').slice(0, 12)
+  : 'disabled';
+const TELEGRAM_POLL_LOCK_PATH = path.resolve(WORKDIR, 'memory/.telegram-poll.' + TELEGRAM_POLL_LOCK_KEY + '.lock');
 const TELEGRAM_POLL_LOCK_STALE_MS = Math.max(
   20_000,
   positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_LOCK_STALE_MS, 180_000),
@@ -1017,7 +1020,7 @@ function parseStrategyFeedbackIntent(messageLike) {
   const text = String(messageLike || '').trim();
   if (!text) return null;
   const lower = text.toLowerCase();
-  const explicit = /^(反馈|策略反馈|strategy\s*feedback)\b/i.test(text);
+  const explicit = /^(反馈|策略反馈|strategy\s*feedback)\s*[:：]?\s*/i.test(text);
   const hasStrategyWords = /(策略|strategy|v5_|v4_|retest|reentry|breakout|手动)/i.test(text);
   if (!explicit && !hasStrategyWords) return null;
 

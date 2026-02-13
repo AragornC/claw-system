@@ -193,7 +193,7 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 新增（本地直连 Telegram）：
 
 - 配置 `THUNDERCLAW_TELEGRAM_BOT_TOKEN` 后，服务端会轮询 Telegram Bot API。
-- 轮询带本机单实例锁（`memory/.telegram-poll.lock`），可避免同机多进程并发 `getUpdates` 触发 `409 Conflict`。
+- 轮询带本机单实例锁（`memory/.telegram-poll.<tokenHash>.lock`），可避免同机多进程并发 `getUpdates` 触发 `409 Conflict`。
 - 若出现外部冲突（例如另一台机器也在轮询同一 bot），系统会自动指数退避重试并在健康接口显示冲突计数。
 - Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
 - **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
