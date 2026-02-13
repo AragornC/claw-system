@@ -172,6 +172,7 @@ const HTML = `<!DOCTYPE html>
       border-color: rgba(255,166,76,0.52);
       background:
         linear-gradient(90deg, rgba(6,7,18,0.78) 0%, rgba(6,7,18,0.46) 44%, rgba(6,7,18,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ea1d9dd4f6.webp') center / cover no-repeat,
         url('./thunderclaw-feature.webp') center / cover no-repeat,
         url('./thunderclaw-feature.jpg') center / cover no-repeat,
         linear-gradient(135deg, rgba(77,17,12,0.95), rgba(18,8,27,0.95));
