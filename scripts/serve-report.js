@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -119,6 +120,22 @@ const TELEGRAM_INBOUND_DEDUPE_TTL_MS = Math.max(
   6 * 3600 * 1000,
   positiveInt(process.env.THUNDERCLAW_TELEGRAM_INBOUND_DEDUPE_TTL_MS, 7 * 24 * 3600 * 1000),
 );
+const THUNDERCLAW_RUNTIME_DIR = path.resolve(
+  process.env.THUNDERCLAW_RUNTIME_DIR || path.join(os.homedir(), '.thunderclaw', 'runtime'),
+);
+const THUNDERCLAW_SERVICE_LOCK_KEY = TELEGRAM_ENABLED ? 'tg-' + TELEGRAM_POLL_LOCK_KEY : 'port-' + String(PORT);
+const THUNDERCLAW_SERVICE_LOCK_PATH = path.resolve(
+  THUNDERCLAW_RUNTIME_DIR,
+  'serve-report.' + THUNDERCLAW_SERVICE_LOCK_KEY + '.lock',
+);
+const THUNDERCLAW_SERVICE_LOCK_STALE_MS = Math.max(
+  30_000,
+  positiveInt(process.env.THUNDERCLAW_SERVICE_LOCK_STALE_MS, 8 * 60 * 1000),
+);
+const CHAT_HISTORY_PATH = path.resolve(WORKDIR, 'memory/chat-history.jsonl');
+const CHAT_HISTORY_MAX = Math.max(200, positiveInt(process.env.THUNDERCLAW_CHAT_HISTORY_MAX, 2400));
+const TELEGRAM_EVENTS_PATH = path.resolve(WORKDIR, 'memory/telegram-events.jsonl');
+const TELEGRAM_EVENTS_LOAD = Math.max(100, positiveInt(process.env.THUNDERCLAW_TELEGRAM_EVENTS_LOAD, 1200));
 
 const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
 const TRADER_SHORT_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory-short.json');
@@ -188,10 +205,14 @@ let telegramPollTimer = null;
 let telegramTradePushTimer = null;
 let telegramPollLockFd = null;
 let telegramPollLockAcquired = false;
+let thunderclawServiceLockFd = null;
+let thunderclawServiceLockAcquired = false;
 let telegramInboundDedupeLastCleanupAt = 0;
 const telegramKnownChatIds = new Set();
 const telegramTradeKnownEventKeys = new Set();
 const telegramTradeSentAck = new Set();
+let chatHistorySeq = 0;
+const chatHistory = [];
 const traderMemoryState = {
   loaded: false,
   linesRead: 0,
@@ -214,6 +235,14 @@ const strategyFeedbackState = {
 const midTermMemoryState = {
   profile: null,
   lastBuiltAt: null,
+};
+const runtimeState = {
+  serviceLock: {
+    path: THUNDERCLAW_SERVICE_LOCK_PATH,
+    acquired: false,
+    ownerPid: null,
+    reason: null,
+  },
 };
 const telegramState = {
   enabled: TELEGRAM_ENABLED,
@@ -461,6 +490,7 @@ function registerProcessCleanupHooks() {
   };
   const cleanup = once(() => {
     releaseTelegramPollLock();
+    releaseThunderClawServiceLock();
   });
   process.once('exit', cleanup);
   process.once('SIGINT', () => {
@@ -471,6 +501,152 @@ function registerProcessCleanupHooks() {
     cleanup();
     process.exit(143);
   });
+}
+
+function readLockPayload(lockPath) {
+  try {
+    if (!fs.existsSync(lockPath)) return null;
+    const raw = fs.readFileSync(lockPath, 'utf8');
+    if (!String(raw || '').trim()) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function releaseThunderClawServiceLock() {
+  if (!thunderclawServiceLockAcquired) return;
+  thunderclawServiceLockAcquired = false;
+  runtimeState.serviceLock.acquired = false;
+  runtimeState.serviceLock.ownerPid = null;
+  runtimeState.serviceLock.reason = 'released';
+  try {
+    if (thunderclawServiceLockFd != null) fs.closeSync(thunderclawServiceLockFd);
+  } catch {}
+  thunderclawServiceLockFd = null;
+  try {
+    if (fs.existsSync(THUNDERCLAW_SERVICE_LOCK_PATH)) fs.unlinkSync(THUNDERCLAW_SERVICE_LOCK_PATH);
+  } catch {}
+}
+
+function acquireThunderClawServiceLock() {
+  fs.mkdirSync(path.dirname(THUNDERCLAW_SERVICE_LOCK_PATH), { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      const fd = fs.openSync(THUNDERCLAW_SERVICE_LOCK_PATH, 'wx', 0o600);
+      const payload = {
+        pid: process.pid,
+        key: THUNDERCLAW_SERVICE_LOCK_KEY,
+        startedAt: Date.now(),
+        cwd: WORKDIR,
+      };
+      fs.writeFileSync(fd, JSON.stringify(payload), 'utf8');
+      thunderclawServiceLockFd = fd;
+      thunderclawServiceLockAcquired = true;
+      runtimeState.serviceLock.acquired = true;
+      runtimeState.serviceLock.ownerPid = process.pid;
+      runtimeState.serviceLock.reason = null;
+      return true;
+    } catch (err) {
+      if (String(err?.code || '') !== 'EEXIST') break;
+      const existing = readLockPayload(THUNDERCLAW_SERVICE_LOCK_PATH);
+      const ownerPid = Number(existing?.pid);
+      const startedAt = Number(existing?.startedAt || 0);
+      const staleByPid = !isPidAlive(ownerPid);
+      const staleByTime = startedAt > 0 && Date.now() - startedAt > THUNDERCLAW_SERVICE_LOCK_STALE_MS;
+      if (staleByPid || staleByTime) {
+        try { fs.unlinkSync(THUNDERCLAW_SERVICE_LOCK_PATH); } catch {}
+        continue;
+      }
+      runtimeState.serviceLock.acquired = false;
+      runtimeState.serviceLock.ownerPid = Number.isFinite(ownerPid) ? ownerPid : null;
+      runtimeState.serviceLock.reason = 'busy';
+      return false;
+    }
+  }
+  runtimeState.serviceLock.acquired = false;
+  runtimeState.serviceLock.ownerPid = null;
+  runtimeState.serviceLock.reason = 'error';
+  return false;
+}
+
+function normalizeChatRole(roleLike) {
+  const role = String(roleLike || '').toLowerCase();
+  if (role === 'bot' || role === 'assistant') return 'bot';
+  if (role === 'system') return 'system';
+  return 'user';
+}
+
+function normalizeChatSource(sourceLike) {
+  const s = String(sourceLike || '').toLowerCase();
+  if (['telegram', 'dashboard', 'system'].includes(s)) return s;
+  return 'dashboard';
+}
+
+function trimChatHistoryMemory() {
+  if (chatHistory.length > CHAT_HISTORY_MAX) {
+    chatHistory.splice(0, chatHistory.length - CHAT_HISTORY_MAX);
+  }
+}
+
+function appendChatHistoryEvent(eventLike, options = {}) {
+  const ev = eventLike && typeof eventLike === 'object' ? eventLike : {};
+  const text = truncText(String(ev.text || '').trim(), 4000);
+  if (!text) return null;
+  const id =
+    Number.isFinite(Number(ev.id)) && Number(ev.id) > 0
+      ? Math.max(chatHistorySeq + 1, Number(ev.id))
+      : chatHistorySeq + 1;
+  chatHistorySeq = id;
+  const item = {
+    id,
+    ts: ev.ts || nowIso(),
+    role: normalizeChatRole(ev.role),
+    source: normalizeChatSource(ev.source),
+    chatId: ev.chatId != null ? String(ev.chatId) : null,
+    from: ev.from ? truncText(String(ev.from), 64) : null,
+    direction: ev.direction === 'outbound' ? 'outbound' : ev.direction === 'inbound' ? 'inbound' : null,
+    text,
+    meta: ev.meta && typeof ev.meta === 'object' ? ev.meta : undefined,
+  };
+  chatHistory.push(item);
+  trimChatHistoryMemory();
+  if (!options.skipPersist) {
+    try {
+      fs.mkdirSync(path.dirname(CHAT_HISTORY_PATH), { recursive: true });
+      fs.appendFileSync(CHAT_HISTORY_PATH, JSON.stringify(item) + '\n', 'utf8');
+    } catch {}
+  }
+  return item;
+}
+
+function listChatHistory(afterId, limit = 120) {
+  const cursor = Number.isFinite(Number(afterId)) ? Number(afterId) : 0;
+  const maxN = Math.max(1, Math.min(500, Number(limit) || 120));
+  return chatHistory.filter((x) => Number(x.id) > cursor).slice(-maxN);
+}
+
+function loadChatHistoryFromDisk() {
+  const rows = readJsonlFile(CHAT_HISTORY_PATH, CHAT_HISTORY_MAX * 3);
+  chatHistory.length = 0;
+  chatHistorySeq = 0;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    appendChatHistoryEvent(
+      {
+        id: row.id,
+        ts: row.ts || null,
+        role: row.role || 'user',
+        source: row.source || 'dashboard',
+        chatId: row.chatId != null ? String(row.chatId) : null,
+        from: row.from || null,
+        direction: row.direction || null,
+        text: row.text || '',
+        meta: row.meta && typeof row.meta === 'object' ? row.meta : undefined,
+      },
+      { skipPersist: true },
+    );
+  }
 }
 
 function cleanupTelegramInboundDedupe(force = false) {
@@ -1807,17 +1983,25 @@ function clampNum(value, min, max) {
 function normalizeAiActions(actionsLike) {
   if (!Array.isArray(actionsLike)) return [];
   const out = [];
+  const seen = new Set();
+  const pushUnique = (action) => {
+    if (!action || typeof action !== 'object') return;
+    const key = JSON.stringify(action);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(action);
+  };
   for (const item of actionsLike) {
     if (!item || typeof item !== 'object') continue;
     const type = String(item.type || '').trim().toLowerCase();
     if (type === 'switch_view') {
       const view = normalizeViewName(item.view);
-      if (view) out.push({ type: 'switch_view', view });
+      if (view) pushUnique({ type: 'switch_view', view });
       continue;
     }
     if (type === 'focus_trade') {
       const tradeId = String(item.tradeId || '').trim();
-      if (tradeId) out.push({ type: 'focus_trade', tradeId });
+      if (tradeId) pushUnique({ type: 'focus_trade', tradeId });
       continue;
     }
     if (type === 'run_backtest') {
@@ -1840,7 +2024,7 @@ function normalizeAiActions(actionsLike) {
       if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
       if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
       if (maxHold != null) normalized.maxHold = Math.round(maxHold);
-      out.push(normalized);
+      pushUnique(normalized);
     }
   }
   return out.slice(0, 4);
@@ -1853,7 +2037,7 @@ function pushTelegramEvent(eventLike) {
     id: telegramEventSeq,
     ts: nowIso(),
     source: 'telegram',
-    role: event.role === 'bot' ? 'bot' : 'user',
+    role: event.role === 'bot' ? 'bot' : event.role === 'system' ? 'system' : 'user',
     chatId: event.chatId != null ? String(event.chatId) : null,
     from: event.from ? truncText(String(event.from), 64) : null,
     text: truncText(String(event.text || '').trim(), 4000),
@@ -1864,6 +2048,20 @@ function pushTelegramEvent(eventLike) {
   if (telegramEvents.length > TELEGRAM_EVENTS_MAX) {
     telegramEvents.splice(0, telegramEvents.length - TELEGRAM_EVENTS_MAX);
   }
+  try {
+    fs.mkdirSync(path.dirname(TELEGRAM_EVENTS_PATH), { recursive: true });
+    fs.appendFileSync(TELEGRAM_EVENTS_PATH, JSON.stringify(item) + '\n', 'utf8');
+  } catch {}
+  appendChatHistoryEvent({
+    ts: item.ts,
+    role: item.role,
+    source: 'telegram',
+    chatId: item.chatId,
+    from: item.from,
+    direction: item.direction,
+    text: item.text,
+    meta: { ok: item.ok },
+  });
   return item;
 }
 
@@ -1871,6 +2069,33 @@ function listTelegramEvents(afterId, limit = 80) {
   const cursor = Number.isFinite(Number(afterId)) ? Number(afterId) : 0;
   const maxN = Math.max(1, Math.min(200, Number(limit) || 80));
   return telegramEvents.filter((e) => e.id > cursor).slice(-maxN);
+}
+
+function loadTelegramEventsFromDisk() {
+  const rows = readJsonlFile(TELEGRAM_EVENTS_PATH, TELEGRAM_EVENTS_LOAD);
+  telegramEvents.length = 0;
+  telegramEventSeq = 0;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const id = Number(row.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const item = {
+      id,
+      ts: row.ts || nowIso(),
+      source: 'telegram',
+      role: row.role === 'bot' ? 'bot' : row.role === 'system' ? 'system' : 'user',
+      chatId: row.chatId != null ? String(row.chatId) : null,
+      from: row.from ? truncText(String(row.from), 64) : null,
+      text: truncText(String(row.text || '').trim(), 4000),
+      direction: row.direction === 'outbound' ? 'outbound' : 'inbound',
+      ok: row.ok !== false,
+    };
+    telegramEvents.push(item);
+    telegramEventSeq = Math.max(telegramEventSeq, id);
+  }
+  if (telegramEvents.length > TELEGRAM_EVENTS_MAX) {
+    telegramEvents.splice(0, telegramEvents.length - TELEGRAM_EVENTS_MAX);
+  }
 }
 
 function parseTelegramIncoming(update) {
@@ -2428,6 +2653,8 @@ function buildOpenClawPrompt(message, context) {
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '4) 如果不需要动作，actions 返回空数组。',
+    '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
+    '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
     '',
     '[交易看板上下文]',
     contextJson,
@@ -2748,6 +2975,12 @@ async function handleChatApi(req, res) {
     sendJson(res, 400, { ok: false, error: 'message is required' });
     return;
   }
+  appendChatHistoryEvent({
+    source: 'dashboard',
+    role: 'user',
+    direction: 'inbound',
+    text: message,
+  });
   if (/^(记忆状态|查看记忆|memory status)$/i.test(message)) {
     const memoryBundle = buildLayeredMemoryBundle('');
     const profile = memoryBundle?.layers?.longTerm?.profile || buildTraderProfileSummary();
@@ -2780,6 +3013,19 @@ async function handleChatApi(req, res) {
         topStrategies: strategyRows,
       },
     });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: [
+        '记忆分层状态：',
+        '- 长期条目: ' + String(profile.memoryItems || 0),
+        '- 短期条目: ' + String(shortItems),
+        '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
+        '- 高频标签: ' + (topTags || '-'),
+        '- 策略权重Top: ' + strategyText,
+      ].join('\n'),
+    });
     return;
   }
   const rememberMatch = message.match(/^(记住|remember)\s*[:：]?\s*(.+)$/i);
@@ -2803,6 +3049,12 @@ async function handleChatApi(req, res) {
       contextDigest: null,
       meta: { memoryItems: traderMemoryState.entries.length },
     });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: '已记住：' + truncText(redactSecrets(note), 180),
+    });
     return;
   }
   const feedback = applyUserStrategyFeedback(message, 'dashboard');
@@ -2818,6 +3070,12 @@ async function handleChatApi(req, res) {
         reward: feedback.reward ?? null,
         weight: feedback.weight ?? null,
       },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: String(feedback.reply || '已记录策略反馈。'),
     });
     return;
   }
@@ -2855,6 +3113,12 @@ async function handleChatApi(req, res) {
         agentId: OPENCLAW_AGENT_ID,
       },
     });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: String(structured.reply || '').trim() || '收到。',
+    });
   } catch (err) {
     appendTraderMemory({
       kind: 'chat',
@@ -2868,6 +3132,12 @@ async function handleChatApi(req, res) {
       binding: 'trading-context-v2',
       error: String(err?.message || err),
       contextDigest: trading.digest,
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: '处理失败：' + safeErrMsg(err, 'openclaw error'),
     });
   }
 }
@@ -3024,6 +3294,23 @@ function handleMemoryHealthApi(req, res) {
   });
 }
 
+function handleChatHistoryApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const afterId = Number(url.searchParams.get('afterId') || '0');
+  const limit = Number(url.searchParams.get('limit') || '120');
+  sendJson(res, 200, {
+    ok: true,
+    latestEventId: chatHistorySeq,
+    events: listChatHistory(afterId, limit),
+  });
+}
+
 async function handleStatic(req, res, pathname) {
   const pagePath = pathname === '/' ? '/index.html' : pathname;
   const file = path.resolve(REPORT_DIR, '.' + pagePath);
@@ -3081,6 +3368,19 @@ const server = http.createServer((req, res) => {
           longItems: Number(healthMemory?.layers?.longTerm?.profile?.memoryItems || 0),
           topStrategy: healthMemory?.layers?.midTerm?.strategyWeights?.[0] || null,
         },
+        runtime: {
+          serviceLock: {
+            path: runtimeState.serviceLock.path,
+            acquired: runtimeState.serviceLock.acquired,
+            ownerPid: runtimeState.serviceLock.ownerPid,
+            reason: runtimeState.serviceLock.reason,
+          },
+          chatHistory: {
+            path: CHAT_HISTORY_PATH,
+            total: chatHistory.length,
+            latestId: chatHistorySeq,
+          },
+        },
         telegram: {
           enabled: TELEGRAM_ENABLED,
           autoReply: TELEGRAM_AUTO_REPLY,
@@ -3111,6 +3411,10 @@ const server = http.createServer((req, res) => {
     }
     if (url.pathname === '/api/memory/health') {
       handleMemoryHealthApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/chat/history') {
+      handleChatHistoryApi(req, res);
       return;
     }
     if (url.pathname === '/api/ai/context') {
@@ -3146,7 +3450,24 @@ const server = http.createServer((req, res) => {
   });
 });
 
+const serviceLockOk = acquireThunderClawServiceLock();
+if (!serviceLockOk) {
+  const ownerTxt =
+    runtimeState.serviceLock.ownerPid != null
+      ? ' (ownerPid=' + String(runtimeState.serviceLock.ownerPid) + ')'
+      : '';
+  console.error(
+    '[thunderclaw] serve-report already running for key=' +
+      THUNDERCLAW_SERVICE_LOCK_KEY +
+      ownerTxt +
+      ' ; stop old process first.',
+  );
+  process.exit(1);
+}
+
 registerProcessCleanupHooks();
+loadChatHistoryFromDisk();
+loadTelegramEventsFromDisk();
 loadTraderMemory();
 loadShortTermMemory();
 loadStrategyFeedbackState();
@@ -3158,6 +3479,15 @@ cleanupTelegramInboundDedupe(true);
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
   console.log('Serving:', REPORT_DIR);
+  console.log(
+    'Service lock: ' +
+      THUNDERCLAW_SERVICE_LOCK_PATH +
+      ' (key=' +
+      THUNDERCLAW_SERVICE_LOCK_KEY +
+      ', pid=' +
+      process.pid +
+      ')',
+  );
   console.log('AI bridge: POST /api/ai/chat (OpenClaw agent=' + OPENCLAW_AGENT_ID + ', binding=trading-context-v2)');
   const routingParts = [];
   if (OPENCLAW_CHANNEL) routingParts.push('channel=' + OPENCLAW_CHANNEL);
@@ -3170,6 +3500,7 @@ server.listen(PORT, () => {
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
   console.log('AI config channel: POST /api/config/chat');
+  console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Memory health: GET /api/memory/health?q=...');
   console.log(
     'Memory layers: short=' +

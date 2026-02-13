@@ -17,6 +17,18 @@ export OPENCLAW_AGENT_ID="${OPENCLAW_AGENT_ID:-main}"
 export OPENCLAW_TIMEOUT_SEC="${OPENCLAW_TIMEOUT_SEC:-90}"
 export OPENCLAW_CHAT_TIMEOUT_MS="${OPENCLAW_CHAT_TIMEOUT_MS:-95000}"
 
+if command -v pgrep >/dev/null 2>&1; then
+  _tc_pids="$(pgrep -f "node .*scripts/serve-report.js" 2>/dev/null || true)"
+  if [[ -n "${_tc_pids}" ]]; then
+    echo "[init] stopping old serve-report processes: ${_tc_pids}"
+    while IFS= read -r _pid; do
+      [[ -n "${_pid}" ]] || continue
+      kill "${_pid}" >/dev/null 2>&1 || true
+    done <<< "${_tc_pids}"
+    sleep 1
+  fi
+fi
+
 echo "[init] generating report data..."
 node scripts/perp-report-data.js 400
 

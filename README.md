@@ -188,6 +188,7 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
   - `GET /api/ai/context?full=1`
   - `GET /api/telegram/health`
   - `GET /api/telegram/events?afterId=<id>`
+  - `GET /api/chat/history?afterId=<id>`
   - `GET /api/memory/health?q=<query>`
 
 新增（本地直连 Telegram）：
@@ -197,6 +198,7 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 若出现外部冲突（例如另一台机器也在轮询同一 bot），系统会自动指数退避重试并在健康接口显示冲突计数。
 - 入站消息带去重（`memory/.telegram-inbound-dedupe.<tokenHash>/`），重复 update/message 不会重复触发回复。
 - 默认忽略 `from.is_bot=true` 的入站消息，避免机器人互相触发造成回声/重复回复。
+- 聊天历史持久化到 `memory/chat-history.jsonl`：页面刷新或服务重启后可继续读取历史对话。
 - Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
 - **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
 - 可选开启交易事件主动推送：开仓/平仓/风控拦截会自动发到 Telegram。
@@ -268,6 +270,8 @@ npm install
 npm run openclaw:setup:local
 npm run report:start:local
 ```
+
+`report:start:local` 启动前会尝试结束旧的 `serve-report.js` 进程，避免同机多实例导致 Telegram 重复回复。
 
 `openclaw:setup:local` 会引导你填写：
 

@@ -1980,12 +1980,87 @@ const HTML = `<!DOCTYPE html>
         const input = document.getElementById('ai-chat-input');
         const sendBtn = document.getElementById('ai-chat-send');
         if (!box || !input || !sendBtn) return;
-        function pushMsg(role, text) {
+        const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
+        const CHAT_LOG_MAX = 800;
+        const chatHistoryState = (function() {
+          const existing = window.__thunderclawChatHistoryState;
+          if (existing && typeof existing === 'object') return existing;
+          const state = {
+            started: false,
+            busy: false,
+            afterId: 0,
+            timer: null,
+            seenIds: new Set(),
+            bootRendered: false,
+          };
+          window.__thunderclawChatHistoryState = state;
+          return state;
+        })();
+        function loadLocalChatLog() {
+          try {
+            const raw = localStorage.getItem(CHAT_LOG_KEY);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        function saveLocalChatLog(rows) {
+          const arr = Array.isArray(rows) ? rows.slice(-CHAT_LOG_MAX) : [];
+          try { localStorage.setItem(CHAT_LOG_KEY, JSON.stringify(arr)); } catch (_) {}
+        }
+        function appendLocalChatLog(rowLike) {
+          const row = rowLike && typeof rowLike === 'object' ? rowLike : null;
+          if (!row) return;
+          const text = String(row.text || '').trim();
+          if (!text) return;
+          const idNum = Number(row.id);
+          const current = loadLocalChatLog();
+          current.push({
+            id: Number.isFinite(idNum) && idNum > 0 ? idNum : null,
+            ts: row.ts || new Date().toISOString(),
+            role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'bot',
+            source: String(row.source || 'dashboard'),
+            text: text,
+          });
+          saveLocalChatLog(current);
+        }
+        function renderStoredChatLog() {
+          const rows = loadLocalChatLog();
+          box.innerHTML = '';
+          if (!rows.length) return;
+          rows.slice(-CHAT_LOG_MAX).forEach(function(r) {
+            const idNum = Number(r?.id);
+            if (Number.isFinite(idNum) && idNum > 0) {
+              chatHistoryState.seenIds.add(idNum);
+              chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+            }
+            const div = document.createElement('div');
+            const role = r.role === 'user' ? 'user' : 'bot';
+            div.className = 'ai-msg ' + role;
+            div.textContent = String(r.text || '');
+            box.appendChild(div);
+          });
+          box.scrollTop = box.scrollHeight;
+        }
+        function pushMsg(role, text, opts) {
+          const options = opts && typeof opts === 'object' ? opts : {};
           const div = document.createElement('div');
-          div.className = 'ai-msg ' + role;
-          div.textContent = text;
+          const roleClass = role === 'user' ? 'user' : 'bot';
+          const t = String(text || '').trim();
+          if (!t) return;
+          div.className = 'ai-msg ' + roleClass;
+          div.textContent = t;
           box.appendChild(div);
           box.scrollTop = box.scrollHeight;
+          appendLocalChatLog({
+            id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
+            ts: options.ts || new Date().toISOString(),
+            role: roleClass,
+            source: String(options.source || 'dashboard'),
+            text: t,
+          });
         }
         function setAiLinkStatus(state, text) {
           if (!aiLinkStatusEl) return;
@@ -2039,17 +2114,25 @@ const HTML = `<!DOCTYPE html>
         function normalizeActionArray(actionsLike) {
           if (!Array.isArray(actionsLike)) return [];
           const out = [];
+          const seen = new Set();
+          function pushUnique(action) {
+            if (!action || typeof action !== 'object') return;
+            const key = JSON.stringify(action);
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(action);
+          }
           actionsLike.slice(0, 4).forEach(function(action) {
             if (!action || typeof action !== 'object') return;
             const type = String(action.type || '').toLowerCase();
             if (type === 'switch_view') {
               const view = normalizeViewTarget(action.view);
-              if (viewMap[view]) out.push({ type: 'switch_view', view: view });
+              if (viewMap[view]) pushUnique({ type: 'switch_view', view: view });
               return;
             }
             if (type === 'focus_trade') {
               const tradeId = String(action.tradeId || '').trim();
-              if (tradeId) out.push({ type: 'focus_trade', tradeId: tradeId });
+              if (tradeId) pushUnique({ type: 'focus_trade', tradeId: tradeId });
               return;
             }
             if (type === 'run_backtest') {
@@ -2063,7 +2146,7 @@ const HTML = `<!DOCTYPE html>
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
               if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
               if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
-              out.push(cfg);
+              pushUnique(cfg);
             }
           });
           return out;
@@ -2285,6 +2368,105 @@ const HTML = `<!DOCTYPE html>
           return null;
         }
 
+        function runHighWinRateTask(q) {
+          const text = String(q || '').trim();
+          if (!text) return null;
+          if (!/(高胜率|胜率最高|策略对比|帮我跑.*策略|筛选.*策略|优化策略)/i.test(text)) return null;
+          const tfEl = document.getElementById('bt-tf');
+          const barsEl = document.getElementById('bt-bars');
+          const feeEl = document.getElementById('bt-fee-bps');
+          const stopEl = document.getElementById('bt-stop-atr');
+          const tpEl = document.getElementById('bt-tp-atr');
+          const holdEl = document.getElementById('bt-max-hold');
+          const tf = tfEl ? String(tfEl.value || '1h') : '1h';
+          const bars = barsEl ? Number(barsEl.value || 900) : 900;
+          const feeBps = feeEl ? Number(feeEl.value || 5) : 5;
+          const stopAtr = stopEl ? Number(stopEl.value || 1.8) : 1.8;
+          const tpAtr = tpEl ? Number(tpEl.value || 3.0) : 3.0;
+          const maxHold = holdEl ? Number(holdEl.value || 72) : 72;
+          const strategies = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          const rows = [];
+          strategies.forEach(function(strategy) {
+            const cfg = {
+              strategy: strategy,
+              tf: tf,
+              bars: bars,
+              feeBps: feeBps,
+              stopAtr: stopAtr,
+              tpAtr: tpAtr,
+              maxHold: maxHold,
+            };
+            const result = runBacktestByVersion(cfg);
+            if (!result || result.error) return;
+            const trades = Number(result.trades || 0);
+            const winRate = Number(result.winRate || 0);
+            const pnlPct = Number(result.totalPnlPct || 0);
+            const score = (winRate * 1.0) + Math.min(trades, 160) * 0.12 + pnlPct * 0.06;
+            rows.push({
+              strategy: strategy,
+              cfg: cfg,
+              result: result,
+              score: score,
+              trades: trades,
+              winRate: winRate,
+              pnlPct: pnlPct,
+              maxDrawdownPct: Number(result.maxDrawdownPct || 0),
+            });
+          });
+          if (!rows.length) {
+            return {
+              reply: '未能执行策略对比（缺少回测数据）。请先确认虾线数据已加载。',
+              actions: [],
+              source: 'task_executor',
+            };
+          }
+          rows.sort(function(a, b) {
+            if (b.score !== a.score) return b.score - a.score;
+            if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+            if (b.trades !== a.trades) return b.trades - a.trades;
+            return b.pnlPct - a.pnlPct;
+          });
+          const best = rows[0];
+          setControlValue('bt-strategy', best.strategy);
+          setControlValue('bt-tf', best.cfg.tf);
+          setControlValue('bt-bars', best.cfg.bars);
+          setControlValue('bt-fee-bps', best.cfg.feeBps);
+          setControlValue('bt-stop-atr', best.cfg.stopAtr);
+          setControlValue('bt-tp-atr', best.cfg.tpAtr);
+          setControlValue('bt-max-hold', best.cfg.maxHold);
+          if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+          const top = rows.slice(0, 3).map(function(r, idx) {
+            return (
+              (idx + 1) +
+              '. ' +
+              btStrategyLabel(r.strategy) +
+              '：胜率 ' +
+              btNum(r.winRate, 1) +
+              '%，交易 ' +
+              r.trades +
+              ' 笔，净收益 ' +
+              (r.pnlPct >= 0 ? '+' : '') +
+              btNum(r.pnlPct, 2) +
+              '%，回撤 ' +
+              btNum(r.maxDrawdownPct, 2) +
+              '%'
+            );
+          }).join('\\n');
+          const reply = [
+            '已完成“高胜率优先”策略对比（自动执行，无需跳页操作）。',
+            '参数：tf=' + tf + '，bars=' + bars + '，fee=' + feeBps + 'bps。',
+            '',
+            '推荐策略：' + btStrategyLabel(best.strategy),
+            '胜率 ' + btNum(best.winRate, 1) + '%，交易 ' + best.trades + ' 笔，净收益 ' + (best.pnlPct >= 0 ? '+' : '') + btNum(best.pnlPct, 2) + '%。',
+            '',
+            'TOP3：',
+            top,
+            '',
+            '已把最佳参数应用到「虾策」回验面板，你现在只需看结果即可。',
+          ].join('\\n');
+          return { reply: reply, actions: [], source: 'task_executor' };
+        }
+
         function setControlValue(id, value) {
           if (value == null) return false;
           const el = document.getElementById(id);
@@ -2299,8 +2481,10 @@ const HTML = `<!DOCTYPE html>
           return true;
         }
 
-        function applyAiActions(actions) {
+        function applyAiActions(actions, userQueryText) {
           if (!Array.isArray(actions) || !actions.length) return '';
+          const query = String(userQueryText || '').toLowerCase();
+          const allowNavigation = /切换|跳转|打开|进入|转到|去到|go to|switch|打开页面|查看页面/.test(query);
           const notes = [];
           actions.slice(0, 4).forEach(function(action) {
             if (!action || typeof action !== 'object') return;
@@ -2308,14 +2492,18 @@ const HTML = `<!DOCTYPE html>
             if (type === 'switch_view') {
               const view = normalizeViewTarget(action.view);
               if (view && viewMap[view]) {
-                switchView(view);
-                notes.push('已切换到「' + (
-                  view === 'dashboard' ? 'ThunderClaw' :
-                  view === 'runtime' ? '当前单' :
-                  view === 'kline' ? '虾线(K线)' :
-                  view === 'history' ? '虾线(历史交易)' :
-                  view === 'backtest' ? '虾策' : '虾海'
-                ) + '」');
+                if (allowNavigation) {
+                  switchView(view);
+                  notes.push('已切换到「' + (
+                    view === 'dashboard' ? 'ThunderClaw' :
+                    view === 'runtime' ? '当前单' :
+                    view === 'kline' ? '虾线(K线)' :
+                    view === 'history' ? '虾线(历史交易)' :
+                    view === 'backtest' ? '虾策' : '虾海'
+                  ) + '」');
+                } else {
+                  notes.push('已在后台准备「' + view + '」相关任务（未强制跳页）');
+                }
               }
               return;
             }
@@ -2340,18 +2528,40 @@ const HTML = `<!DOCTYPE html>
               setControlValue('bt-stop-atr', action.stopAtr);
               setControlValue('bt-tp-atr', action.tpAtr);
               setControlValue('bt-max-hold', action.maxHold);
-              switchView('backtest');
-              window.requestAnimationFrame(function() {
-                if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
-              });
-              notes.push('已执行策略回验并刷新结果');
+              let summary = '已执行策略回验并刷新结果';
+              if (typeof runBacktestFromUi === 'function') {
+                const result = runBacktestFromUi();
+                if (result && !result.error) {
+                  const wr = Number(result.winRate || 0);
+                  const pnl = Number(result.totalPnlPct || 0);
+                  const nTrades = Number(result.trades || 0);
+                  summary =
+                    '回验完成(' +
+                    btStrategyLabel(String(result.strategy || action.strategy || 'v5_hybrid')) +
+                    ' @ ' +
+                    String(result.tf || action.tf || '-') +
+                    '): 胜率 ' +
+                    btNum(wr, 1) +
+                    '%，交易 ' +
+                    nTrades +
+                    ' 笔，净收益 ' +
+                    (pnl >= 0 ? '+' : '') +
+                    btNum(pnl, 2) +
+                    '%';
+                }
+              } else {
+                window.requestAnimationFrame(function() {
+                  if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+                });
+              }
+              notes.push(summary + '（已同步到虾策面板）');
             }
           });
           return notes.join('；');
         }
 
         async function askOpenClaw(q) {
-          const resp = await fetch('api/ai/chat', {
+          const resp = await fetch('/api/ai/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
@@ -2372,6 +2582,7 @@ const HTML = `<!DOCTYPE html>
           return {
             reply: String(payload.reply || '').trim(),
             actions: Array.isArray(payload.actions) ? payload.actions : [],
+            source: 'openclaw',
           };
         }
         function looksLikeConfigIntentLocal(q) {
@@ -2385,7 +2596,7 @@ const HTML = `<!DOCTYPE html>
           return false;
         }
         async function askConfigChannel(q) {
-          const resp = await fetch('api/config/chat', {
+          const resp = await fetch('/api/config/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
@@ -2401,12 +2612,14 @@ const HTML = `<!DOCTYPE html>
         }
         async function answer(q) {
           const cmd = handleLocalCmd(q);
-          if (cmd) return cmd;
+          if (cmd) return { ...cmd, source: cmd.source || 'local_cmd' };
+          const task = runHighWinRateTask(q);
+          if (task) return task;
           if (looksLikeConfigIntentLocal(q)) {
             try {
               const cfg = await askConfigChannel(q);
               if (cfg && cfg.handled) {
-                return { reply: cfg.reply || '配置已处理。', actions: [] };
+                return { reply: cfg.reply || '配置已处理。', actions: [], source: 'config' };
               }
             } catch (_) {}
           }
@@ -2414,7 +2627,8 @@ const HTML = `<!DOCTYPE html>
             return await askOpenClaw(q);
           } catch {
             try {
-              return await askDeepSeekDirect(q);
+              const out = await askDeepSeekDirect(q);
+              return { ...out, source: 'deepseek' };
             } catch (deepseekErr) {
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
@@ -2422,30 +2636,60 @@ const HTML = `<!DOCTYPE html>
                 return {
                   reply: localAnswer(q) + '\\n\\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
                   actions: [],
+                  source: 'local_fallback',
                 };
               }
               setAiLinkStatus('warn', 'AI离线(本地兜底)');
-              return { reply: localAnswer(q), actions: [] };
+              return { reply: localAnswer(q), actions: [], source: 'local_fallback' };
             }
           }
         }
         let inFlight = false;
         async function runTurn(text) {
-          pushMsg('user', text);
           const thinking = document.createElement('div');
           thinking.className = 'ai-msg bot';
-          thinking.textContent = 'OpenClaw 思考中...';
+          thinking.textContent = '处理中...';
           box.appendChild(thinking);
           box.scrollTop = box.scrollHeight;
           try {
             const result = await answer(text);
             const reply = String(result?.reply || '').trim();
-            const actionNote = applyAiActions(result?.actions);
-            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n' + actionNote) : '');
+            const actionNote = applyAiActions(result?.actions, text);
+            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '');
             thinking.textContent = finalText;
+            const source = String(result?.source || '');
+            if (source !== 'openclaw') {
+              appendLocalChatLog({
+                ts: new Date().toISOString(),
+                role: 'user',
+                source: 'dashboard',
+                text: text,
+              });
+              appendLocalChatLog({
+                ts: new Date().toISOString(),
+                role: 'bot',
+                source: 'dashboard',
+                text: finalText,
+              });
+            } else {
+              try { box.removeChild(thinking); } catch (_) {}
+            }
           } catch {
             thinking.textContent = '本次请求失败，请稍后重试。';
+            appendLocalChatLog({
+              ts: new Date().toISOString(),
+              role: 'user',
+              source: 'dashboard',
+              text: text,
+            });
+            appendLocalChatLog({
+              ts: new Date().toISOString(),
+              role: 'bot',
+              source: 'dashboard',
+              text: thinking.textContent,
+            });
           }
+          try { await pollChatHistory(); } catch (_) {}
           box.scrollTop = box.scrollHeight;
         }
         async function send() {
@@ -2468,78 +2712,70 @@ const HTML = `<!DOCTYPE html>
             void send();
           }
         });
-        const tgRelay = (function() {
-          const existing = window.__thunderclawTelegramRelayState;
-          if (existing && typeof existing === 'object') return existing;
-          const state = {
-            started: false,
-            busy: false,
-            afterId: 0,
-            timer: null,
-            seenIds: new Set(),
-            available: true,
-          };
-          window.__thunderclawTelegramRelayState = state;
-          return state;
-        })();
-
-        function appendTelegramEvent(ev) {
+        function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
-          if (Number.isFinite(idNum) && tgRelay.seenIds.has(idNum)) return;
+          if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
           if (Number.isFinite(idNum)) {
-            tgRelay.seenIds.add(idNum);
-            if (tgRelay.seenIds.size > 1200) {
-              const sorted = Array.from(tgRelay.seenIds).sort((a, b) => b - a);
-              tgRelay.seenIds = new Set(sorted.slice(0, 800));
+            chatHistoryState.seenIds.add(idNum);
+            chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+            if (chatHistoryState.seenIds.size > 3000) {
+              const sorted = Array.from(chatHistoryState.seenIds).sort((a, b) => b - a);
+              chatHistoryState.seenIds = new Set(sorted.slice(0, 1800));
             }
           }
           const text = String(ev?.text || '').trim();
           if (!text) return;
-          const role = ev?.role === 'bot' ? 'bot' : 'user';
+          const role = ev?.role === 'user' ? 'user' : 'bot';
+          const source = String(ev?.source || 'dashboard');
           const from = String(ev?.from || '').trim();
           const chatId = ev?.chatId != null ? String(ev.chatId) : '';
-          const head = role === 'user'
-            ? '[TG ' + (from || chatId || 'message') + '] '
-            : '[TG 回执] ';
-          pushMsg(role, head + text);
+          let finalText = text;
+          if (source === 'telegram') {
+            finalText = role === 'user'
+              ? '[TG ' + (from || chatId || 'message') + '] ' + text
+              : '[TG 回执] ' + text;
+          } else if (source === 'system') {
+            finalText = '[系统] ' + text;
+          }
+          pushMsg(role, finalText, {
+            source: source,
+            ts: ev?.ts || null,
+            id: Number.isFinite(idNum) ? idNum : null,
+          });
         }
 
-        async function pollTelegramEvents() {
-          if (!tgRelay.available || tgRelay.busy) return;
-          tgRelay.busy = true;
+        async function pollChatHistory() {
+          if (chatHistoryState.busy) return;
+          chatHistoryState.busy = true;
           try {
-            const resp = await fetch('api/telegram/events?afterId=' + encodeURIComponent(String(tgRelay.afterId)), {
+            const resp = await fetch('/api/chat/history?afterId=' + encodeURIComponent(String(chatHistoryState.afterId)) + '&limit=220', {
               cache: 'no-store',
             });
             if (!resp.ok) return;
-            const payload = await resp.json();
-            if (!payload || payload.enabled === false) {
-              tgRelay.available = false;
-              return;
-            }
+            const payload = await resp.json().catch(function() { return null; });
+            if (!payload || payload.ok !== true) return;
             const events = Array.isArray(payload.events) ? payload.events : [];
             events.forEach(function(ev) {
-              const idNum = Number(ev?.id);
-              if (Number.isFinite(idNum)) tgRelay.afterId = Math.max(tgRelay.afterId, idNum);
-              appendTelegramEvent(ev);
+              appendHistoryEvent(ev);
             });
           } catch (_) {
           } finally {
-            tgRelay.busy = false;
+            chatHistoryState.busy = false;
           }
         }
 
-        function startTelegramRelayPolling() {
-          if (tgRelay.started) return;
-          tgRelay.started = true;
-          void pollTelegramEvents();
-          tgRelay.timer = window.setInterval(function() {
-            void pollTelegramEvents();
-          }, 2400);
+        function startChatHistoryPolling() {
+          if (chatHistoryState.started) return;
+          chatHistoryState.started = true;
+          renderStoredChatLog();
+          void pollChatHistory();
+          chatHistoryState.timer = window.setInterval(function() {
+            void pollChatHistory();
+          }, 1200);
         }
-        startTelegramRelayPolling();
+        startChatHistoryPolling();
         setAiLinkStatus('warn', 'OpenClaw: 检测中');
-        void fetch('api/ai/health', { cache: 'no-store' })
+        void fetch('/api/ai/health', { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
             if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
@@ -2550,7 +2786,10 @@ const HTML = `<!DOCTYPE html>
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n聊天内配置示例：\\n- 设置 Telegram token 123456:ABC...\\n- 设置 DeepSeek key sk-...\\n- 连接 ChatGPT/Codex');
+        if (!chatHistoryState.bootRendered && box.children.length === 0) {
+          chatHistoryState.bootRendered = true;
+          pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n聊天内配置示例：\\n- 设置 Telegram token 123456:ABC...\\n- 设置 DeepSeek key sk-...\\n- 连接 ChatGPT/Codex');
+        }
       }
 
       function renderDashboard() {
@@ -3030,7 +3269,7 @@ const HTML = `<!DOCTYPE html>
         const stopEl = document.getElementById('bt-stop-atr');
         const tpEl = document.getElementById('bt-tp-atr');
         const holdEl = document.getElementById('bt-max-hold');
-        if (!strategyEl || !tfEl || !barsEl || !feeEl || !stopEl || !tpEl || !holdEl) return;
+        if (!strategyEl || !tfEl || !barsEl || !feeEl || !stopEl || !tpEl || !holdEl) return null;
         const cfg = {
           strategy: strategyEl.value || 'v5_hybrid',
           tf: tfEl.value || '1h',
@@ -3042,6 +3281,7 @@ const HTML = `<!DOCTYPE html>
         };
         const result = runBacktestByVersion(cfg);
         renderBacktestResult(result, cfg);
+        return result;
       }
 
       function setupBacktestPanel() {
