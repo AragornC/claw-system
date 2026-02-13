@@ -127,53 +127,62 @@ const HTML = `<!DOCTYPE html>
     }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
-    .feature-hub { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; position: relative; }
-    .feature-hub-toggle {
-      border: 1px solid rgba(88,166,255,0.5);
-      border-radius: 999px;
+    .hero-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+    .feature-sidebar-toggle {
+      border: 1px solid rgba(88,166,255,0.52);
+      border-radius: 10px;
       background: rgba(88,166,255,0.14);
       color: #79c0ff;
-      padding: 4px 12px;
-      font-size: 0.72rem;
+      width: 34px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      font-weight: 600;
-      letter-spacing: 0.2px;
+      font-size: 0.88rem;
+      line-height: 1;
+      flex: 0 0 auto;
     }
-    .feature-hub-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
-    .feature-hub-menu {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      min-width: 210px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: rgba(22,30,43,0.98);
-      box-shadow: 0 10px 26px rgba(0,0,0,0.45);
-      padding: 8px;
+    .feature-sidebar-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .feature-sidebar {
+      width: 0;
+      overflow: hidden;
+      border-right: 1px solid transparent;
+      background: rgba(15,20,25,0.98);
+      transition: width 180ms ease;
+      flex: 0 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      z-index: 280;
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      transform-origin: left top;
-      transition: opacity 140ms ease, transform 140ms ease;
+      min-height: 100dvh;
+      position: relative;
+      z-index: 230;
     }
-    .feature-hub-menu.hidden {
-      opacity: 0;
-      transform: translateY(6px) scale(0.98);
-      pointer-events: none;
-    }
+    .app-shell.sidebar-open .feature-sidebar { width: 248px; border-right-color: var(--border); }
+    .feature-sidebar-inner { width: 248px; padding: 10px 9px; display: flex; flex-direction: column; gap: 7px; }
+    .feature-sidebar-head { font-size: 0.71rem; color: var(--muted); padding: 2px 6px 4px; letter-spacing: 0.2px; }
     .feature-menu-btn {
       border-radius: 10px;
       text-align: left;
       width: 100%;
       font-size: 0.74rem;
-      padding: 7px 9px;
+      padding: 8px 9px;
       line-height: 1.35;
     }
     .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
     .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
+    .feature-sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.34);
+      z-index: 225;
+      opacity: 1;
+      transition: opacity 160ms ease;
+    }
+    .feature-sidebar-backdrop.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
     .global-back-btn {
       position: fixed;
       right: 12px;
@@ -492,7 +501,8 @@ const HTML = `<!DOCTYPE html>
     .install-pwa button.ghost { color: var(--muted); }
     /* Chat-first layout (Telegram-like) */
     body { padding: 0; min-height: 100dvh; overflow: auto; }
-    .app-shell { max-width: none; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; }
+    .app-shell { max-width: none; margin: 0; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: row; }
+    .app-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; backdrop-filter: blur(8px); }
     .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
     .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
@@ -526,8 +536,13 @@ const HTML = `<!DOCTYPE html>
       #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
-      .feature-hub { margin-bottom: 7px; }
-      .feature-hub-menu { min-width: 184px; }
+      .hero-title-row { margin-bottom: 0; }
+      .feature-sidebar-toggle { width: 36px; height: 32px; }
+      .feature-sidebar { position: fixed; left: 0; top: 0; bottom: 0; min-height: 0; z-index: 230; }
+      .app-shell.sidebar-open .feature-sidebar { width: 228px; box-shadow: 8px 0 24px rgba(0,0,0,0.45); }
+      .feature-sidebar-inner { width: 228px; }
+      .feature-sidebar-backdrop { display: block; }
+      .app-content { width: 100%; }
       .xsea-grid { grid-template-columns: 1fr; }
       .ai-input-row input { font-size: 16px; }
       .backtest-controls { grid-template-columns: 1fr 1fr; }
@@ -571,20 +586,25 @@ const HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell" id="app-shell">
+    <aside id="feature-sidebar" class="feature-sidebar">
+      <div class="feature-sidebar-inner">
+        <div class="feature-sidebar-head">功能页</div>
+        <button class="nav-btn feature-menu-btn active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
+        <button class="nav-btn feature-menu-btn" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
+        <button class="nav-btn feature-menu-btn" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
+        <button class="nav-btn feature-menu-btn" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
+      </div>
+    </aside>
+    <div id="feature-sidebar-backdrop" class="feature-sidebar-backdrop hidden"></div>
+    <div class="app-content">
     <div class="app-topbar">
       <div class="top-hero">
         <div class="top-hero-main">
-          <div class="feature-hub">
-            <button id="feature-hub-toggle" class="feature-hub-toggle" type="button" aria-expanded="false" aria-controls="feature-hub-menu">功能页</button>
-            <div id="feature-hub-menu" class="feature-hub-menu hidden">
-              <button class="nav-btn feature-menu-btn active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
-              <button class="nav-btn feature-menu-btn" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
-              <button class="nav-btn feature-menu-btn" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
-              <button class="nav-btn feature-menu-btn" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
-            </div>
+          <div class="hero-title-row">
+            <h1>ThunderClaw 交易中枢</h1>
+            <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开功能栏">☰</button>
           </div>
-          <h1>ThunderClaw 交易中枢</h1>
           <div class="top-status">
             <span id="status-position" class="status-chip neutral">仓位: --</span>
             <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
@@ -823,6 +843,7 @@ const HTML = `<!DOCTYPE html>
       </div>
     </section>
 
+    </div>
   </div>
   <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
 
@@ -1022,11 +1043,14 @@ const HTML = `<!DOCTYPE html>
       const navButtons = Array.from(document.querySelectorAll('[data-view-target]'));
       const featureMenuButtons = Array.from(document.querySelectorAll('.feature-menu-btn[data-view-target]'));
       const appSubtitle = document.getElementById('app-subtitle');
-      const featureHubToggle = document.getElementById('feature-hub-toggle');
-      const featureHubMenu = document.getElementById('feature-hub-menu');
+      const appShellEl = document.getElementById('app-shell');
+      const sidebarToggle = document.getElementById('feature-sidebar-toggle');
+      const sidebarEl = document.getElementById('feature-sidebar');
+      const sidebarBackdropEl = document.getElementById('feature-sidebar-backdrop');
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
+      let sidebarOpen = false;
 
       function normalizeViewTarget(nameLike) {
         const raw = String(nameLike || '').trim().toLowerCase();
@@ -1050,11 +1074,20 @@ const HTML = `<!DOCTYPE html>
         return alias[raw] || 'dashboard';
       }
 
-      function setFeatureMenuOpen(open) {
-        if (!featureHubMenu || !featureHubToggle) return;
+      function isCompactViewport() {
+        return window.matchMedia('(max-width: 768px)').matches;
+      }
+
+      function setSidebarOpen(open) {
+        if (!appShellEl || !sidebarToggle || !sidebarEl) return;
         const isOpen = Boolean(open);
-        featureHubMenu.classList.toggle('hidden', !isOpen);
-        featureHubToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        sidebarOpen = isOpen;
+        appShellEl.classList.toggle('sidebar-open', isOpen);
+        sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (sidebarBackdropEl) {
+          const showBackdrop = isOpen && isCompactViewport();
+          sidebarBackdropEl.classList.toggle('hidden', !showBackdrop);
+        }
       }
 
       function switchView(name) {
@@ -1079,7 +1112,7 @@ const HTML = `<!DOCTYPE html>
         if (globalBackBtn) {
           globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
-        setFeatureMenuOpen(false);
+        if (isCompactViewport()) setSidebarOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
         }
@@ -1087,25 +1120,31 @@ const HTML = `<!DOCTYPE html>
           window.requestAnimationFrame(runBacktestFromUi);
         }
       }
-      if (featureHubToggle && featureHubMenu) {
-        featureHubToggle.addEventListener('click', function(ev) {
+      if (sidebarToggle && sidebarEl) {
+        sidebarToggle.addEventListener('click', function(ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          const open = featureHubToggle.getAttribute('aria-expanded') === 'true';
-          setFeatureMenuOpen(!open);
+          setSidebarOpen(!sidebarOpen);
         });
-        featureHubMenu.addEventListener('click', function(ev) {
-          const btn = ev.target.closest('[data-view-target]');
-          if (btn) setFeatureMenuOpen(false);
-        });
+        if (sidebarBackdropEl) {
+          sidebarBackdropEl.addEventListener('click', function() {
+            setSidebarOpen(false);
+          });
+        }
         document.addEventListener('click', function(ev) {
-          if (featureHubMenu.classList.contains('hidden')) return;
-          if (featureHubMenu.contains(ev.target) || featureHubToggle.contains(ev.target)) return;
-          setFeatureMenuOpen(false);
+          if (!sidebarOpen || !isCompactViewport()) return;
+          const target = ev.target;
+          if (sidebarEl.contains(target) || sidebarToggle.contains(target)) return;
+          setSidebarOpen(false);
         });
         document.addEventListener('keydown', function(ev) {
-          if (ev.key === 'Escape') setFeatureMenuOpen(false);
+          if (ev.key === 'Escape') setSidebarOpen(false);
         });
+        window.addEventListener('resize', function() {
+          if (!isCompactViewport() && sidebarBackdropEl) {
+            sidebarBackdropEl.classList.add('hidden');
+          }
+        }, { passive: true });
       }
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
@@ -2271,7 +2310,7 @@ const HTML = `<!DOCTYPE html>
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n功能页在左上角：ThunderClaw / 虾线 / 虾策 / 虾海。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
+        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击右上角 ☰ 图标可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
       }
 
       function renderDashboard() {
