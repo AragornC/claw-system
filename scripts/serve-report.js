@@ -1246,7 +1246,10 @@ function parseConfigIntent(message) {
 
   const deepseekKeyMatch = text.match(/\bsk-[A-Za-z0-9\-_]{12,}\b/);
   if (deepseekKeyMatch && /(deepseek|模型|model|配置|设置|绑定|apikey|api key|key)/i.test(text)) {
-    const modelMatch = text.match(/deepseek[-_a-z0-9]{2,40}/i);
+    const modelMatch =
+      text.match(/\bdeepseek\/[a-z0-9._-]+\b/i) ||
+      text.match(/\bdeepseek(?:-chat|-reasoner)\b/i) ||
+      text.match(/\bdeepseek[-_][a-z0-9._-]+\b/i);
     return { type: 'set_deepseek', apiKey: deepseekKeyMatch[0], model: modelMatch ? modelMatch[0] : 'deepseek-chat' };
   }
 
@@ -1293,6 +1296,13 @@ function buildConfigStatusReply() {
   ].join('\n');
 }
 
+function normalizeDeepSeekModelId(modelLike) {
+  const raw = String(modelLike || '').trim();
+  if (!raw) return 'deepseek/deepseek-chat';
+  if (raw.includes('/')) return raw;
+  return 'deepseek/' + raw;
+}
+
 async function handleConfigIntent(intent) {
   if (!intent || intent.type === 'none') {
     return { handled: false, reply: '' };
@@ -1329,7 +1339,7 @@ async function handleConfigIntent(intent) {
     if (!apiKey.toLowerCase().startsWith('sk-')) {
       return { handled: true, reply: 'DeepSeek key 格式不正确（需 sk- 开头）。' };
     }
-    const modelId = String(intent.model || 'deepseek-chat').trim();
+    const modelId = normalizeDeepSeekModelId(intent.model || 'deepseek-chat');
     const providerJson = JSON.stringify({
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey,

@@ -55,6 +55,9 @@ case "${MODEL_SETUP_MODE}" in
     fi
     if [[ -n "${DEEPSEEK_API_KEY}" ]]; then
       DEEPSEEK_MODEL_ID="$(prompt_default "DeepSeek 主模型ID" "deepseek-chat")"
+    if [[ "${DEEPSEEK_MODEL_ID}" != */* ]]; then
+      DEEPSEEK_MODEL_ID="deepseek/${DEEPSEEK_MODEL_ID}"
+    fi
       echo "[init] 写入 DeepSeek 模型配置..."
       "${OPENCLAW_BIN}" config set "models.mode" "merge" >/dev/null 2>&1 || true
       DEEPSEEK_PROVIDER_JSON="$(
@@ -70,6 +73,7 @@ case "${MODEL_SETUP_MODE}" in
       )"
       "${OPENCLAW_BIN}" config set --json "models.providers.deepseek" "${DEEPSEEK_PROVIDER_JSON}" >/dev/null 2>&1 || true
       "${OPENCLAW_BIN}" config set "agents.defaults.model.primary" "${DEEPSEEK_MODEL_ID}" >/dev/null 2>&1 || true
+    echo "[ok] DeepSeek 默认模型已设置为: ${DEEPSEEK_MODEL_ID}"
     else
       echo "[warn] 未提供 DeepSeek key，跳过模型写入。"
     fi

@@ -255,6 +255,11 @@ npm run report:start:local
 - 模型连接方式（DeepSeek API Key / ChatGPT-Codex 登录链接）
 - Telegram Bot Token（其余参数走默认）
 
+补充说明：
+
+- DeepSeek 模型 ID 输入 `deepseek-chat` / `deepseek-reasoner` 即可，脚本会自动规范为 `deepseek/deepseek-chat` 这类 provider 前缀形式，避免 OpenClaw fallback 报错。
+- `openclaw models auth login --set-default` 是终端发起的登录授权流程：会给出登录链接，完成授权后自动把该 provider 推荐模型设为默认。
+
 之后你也可以手工编辑 `.env.local`（可参考 `.env.local.example`），再执行：
 
 ```bash
