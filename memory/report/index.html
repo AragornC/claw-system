@@ -168,6 +168,63 @@
       border-color: rgba(255,196,112,0.8);
       box-shadow: 0 0 0 1px rgba(255,196,112,0.24) inset;
     }
+    .feature-menu-btn.feature-xline {
+      border-color: rgba(111,192,255,0.56);
+      background:
+        linear-gradient(90deg, rgba(6,10,20,0.8) 0%, rgba(6,10,20,0.48) 46%, rgba(6,10,20,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ec6c765e93.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(9,31,58,0.95), rgba(8,19,36,0.95));
+    }
+    .feature-menu-btn.feature-xline .k {
+      color: #d9f1ff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xline .d {
+      color: rgba(220,241,255,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xline.active {
+      border-color: rgba(143,211,255,0.82);
+      box-shadow: 0 0 0 1px rgba(143,211,255,0.26) inset;
+    }
+    .feature-menu-btn.feature-xstrategy {
+      border-color: rgba(197,142,255,0.56);
+      background:
+        linear-gradient(90deg, rgba(11,8,24,0.8) 0%, rgba(11,8,24,0.46) 46%, rgba(11,8,24,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ec74137192.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(37,13,61,0.95), rgba(20,8,36,0.95));
+    }
+    .feature-menu-btn.feature-xstrategy .k {
+      color: #f1ddff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xstrategy .d {
+      color: rgba(243,224,255,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xstrategy.active {
+      border-color: rgba(212,170,255,0.84);
+      box-shadow: 0 0 0 1px rgba(212,170,255,0.26) inset;
+    }
+    .feature-menu-btn.feature-xsea {
+      border-color: rgba(123,235,183,0.56);
+      background:
+        linear-gradient(90deg, rgba(6,18,18,0.8) 0%, rgba(6,18,18,0.46) 46%, rgba(6,18,18,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698eca2038a29.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(8,42,34,0.95), rgba(8,22,24,0.95));
+    }
+    .feature-menu-btn.feature-xsea .k {
+      color: #ddffef;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xsea .d {
+      color: rgba(224,255,240,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xsea.active {
+      border-color: rgba(148,245,202,0.84);
+      box-shadow: 0 0 0 1px rgba(148,245,202,0.26) inset;
+    }
     .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
     .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
     .sidebar-trade-hub { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
@@ -571,9 +628,9 @@
       <div class="feature-sidebar-inner">
         <div class="feature-sidebar-head">功能页</div>
         <button class="nav-btn feature-menu-btn feature-thunder active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
-        <button class="nav-btn feature-menu-btn" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
-        <button class="nav-btn feature-menu-btn" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
-        <button class="nav-btn feature-menu-btn" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
+        <button class="nav-btn feature-menu-btn feature-xline" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
+        <button class="nav-btn feature-menu-btn feature-xstrategy" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
+        <button class="nav-btn feature-menu-btn feature-xsea" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
         <div class="sidebar-trade-hub">
           <div class="feature-sidebar-head">交易中枢</div>
           <div class="top-hero">
