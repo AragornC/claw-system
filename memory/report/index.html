@@ -94,6 +94,53 @@
     }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
+    .feature-hub { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; position: relative; }
+    .feature-hub-toggle {
+      border: 1px solid rgba(88,166,255,0.5);
+      border-radius: 999px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      padding: 4px 12px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    .feature-hub-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .feature-hub-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      min-width: 210px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(22,30,43,0.98);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 280;
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      transform-origin: left top;
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+    .feature-hub-menu.hidden {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+      pointer-events: none;
+    }
+    .feature-menu-btn {
+      border-radius: 10px;
+      text-align: left;
+      width: 100%;
+      font-size: 0.74rem;
+      padding: 7px 9px;
+      line-height: 1.35;
+    }
+    .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
+    .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
     .global-back-btn {
       position: fixed;
       right: 12px;
@@ -190,50 +237,6 @@
     .ai-msg.user { align-self: flex-end; background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
     .ai-msg.bot { align-self: flex-start; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
     .ai-input-row { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; position: relative; }
-    .input-func-wrap { position: relative; flex: 0 0 auto; }
-    .input-func-toggle {
-      border: 1px solid rgba(88,166,255,0.45);
-      border-radius: 10px;
-      background: rgba(88,166,255,0.14);
-      color: #58a6ff;
-      padding: 8px 9px;
-      font-size: 0.8rem;
-      line-height: 1;
-      cursor: pointer;
-      min-width: 40px;
-    }
-    .input-func-toggle:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
-    .input-func-menu {
-      position: absolute;
-      left: 0;
-      bottom: calc(100% + 8px);
-      min-width: 132px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: rgba(22,30,43,0.98);
-      box-shadow: 0 8px 26px rgba(0,0,0,0.45);
-      padding: 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      transform-origin: left bottom;
-      transition: opacity 140ms ease, transform 140ms ease;
-      z-index: 260;
-    }
-    .input-func-menu.hidden {
-      opacity: 0;
-      transform: translateY(6px) scale(0.98);
-      pointer-events: none;
-    }
-    .input-func-menu .nav-btn {
-      border-radius: 8px;
-      text-align: left;
-      width: 100%;
-      font-size: 0.72rem;
-      padding: 6px 8px;
-    }
     .ai-input-row input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); padding: 8px 10px; font-size: 0.78rem; }
     .ai-input-row .send-btn { border: 1px solid rgba(88,166,255,0.55); border-radius: 8px; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 8px 12px; font-size: 0.76rem; cursor: pointer; }
     .history-summary { margin-bottom: 8px; color: var(--muted); font-size: 0.76rem; }
@@ -241,6 +244,41 @@
     #orders-table-wrap th, #orders-table-wrap td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     #orders-table-wrap th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
     #orders-table-wrap tr:hover { background: rgba(255,255,255,0.03); }
+    .xsea-grid { display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); gap: 10px; }
+    .xsea-card { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 9px; }
+    .xsea-card h3 { margin: 0 0 8px; font-size: 0.82rem; }
+    .xsea-form { display: flex; flex-direction: column; gap: 7px; }
+    .xsea-form input, .xsea-form textarea, .xsea-form select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      padding: 7px 8px;
+      font-size: 0.75rem;
+    }
+    .xsea-form textarea { min-height: 92px; resize: vertical; }
+    .xsea-form .xsea-publish-btn {
+      border: 1px solid rgba(88,166,255,0.6);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.16);
+      color: #58a6ff;
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .xsea-feed { display: flex; flex-direction: column; gap: 8px; }
+    .xsea-item { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.14); padding: 9px; }
+    .xsea-item-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+    .xsea-item-title { font-size: 0.8rem; font-weight: 600; }
+    .xsea-item-meta { font-size: 0.68rem; color: var(--muted); }
+    .xsea-item-summary { font-size: 0.73rem; color: var(--text); margin-bottom: 5px; white-space: pre-wrap; word-break: break-word; }
+    .xsea-item-plan { font-size: 0.7rem; color: var(--muted); background: rgba(0,0,0,0.2); border-radius: 8px; padding: 6px 7px; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; max-height: 130px; overflow: auto; }
+    .xsea-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .xsea-actions button { border: 1px solid var(--border); border-radius: 999px; background: rgba(0,0,0,0.2); color: var(--text); font-size: 0.69rem; padding: 4px 9px; cursor: pointer; }
+    .xsea-actions button.primary { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
+    .xsea-selected { font-size: 0.72rem; color: var(--muted); margin-bottom: 7px; }
+    .xsea-selected strong { color: #58a6ff; }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
     .chart-header .meta.ok { color: var(--green); }
@@ -440,7 +478,7 @@
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
     #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
-    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
+    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active, #view-xsea.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
     .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
@@ -455,8 +493,9 @@
       #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
-      .input-func-toggle { min-width: 44px; font-size: 0.86rem; padding: 9px 10px; }
-      .input-func-menu { min-width: 136px; }
+      .feature-hub { margin-bottom: 7px; }
+      .feature-hub-menu { min-width: 184px; }
+      .xsea-grid { grid-template-columns: 1fr; }
       .ai-input-row input { font-size: 16px; }
       .backtest-controls { grid-template-columns: 1fr 1fr; }
       .backtest-controls .run-btn { grid-column: 1 / -1; width: 100%; }
@@ -503,7 +542,16 @@
     <div class="app-topbar">
       <div class="top-hero">
         <div class="top-hero-main">
-          <h1>AI 交易机器人</h1>
+          <div class="feature-hub">
+            <button id="feature-hub-toggle" class="feature-hub-toggle" type="button" aria-expanded="false" aria-controls="feature-hub-menu">功能页</button>
+            <div id="feature-hub-menu" class="feature-hub-menu hidden">
+              <button class="nav-btn feature-menu-btn active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
+              <button class="nav-btn feature-menu-btn" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
+              <button class="nav-btn feature-menu-btn" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
+              <button class="nav-btn feature-menu-btn" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
+            </div>
+          </div>
+          <h1>ThunderClaw 交易中枢</h1>
           <div class="top-status">
             <span id="status-position" class="status-chip neutral">仓位: --</span>
             <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
@@ -511,7 +559,7 @@
             <span id="status-trade" class="status-chip trade">交易: --</span>
             <span id="status-runtime" class="status-chip runtime">运行: --</span>
           </div>
-          <div class="app-subtitle" id="app-subtitle">聊天优先 · 功能入口在输入框左侧</div>
+          <div class="app-subtitle" id="app-subtitle">ThunderClaw · AI 交易交流与执行主界面</div>
         </div>
         <div class="top-mini-kline">
           <canvas id="top-mini-kline-canvas"></canvas>
@@ -534,22 +582,14 @@
           <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
           <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
           <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
-          <button class="ai-quick-btn" type="button" data-view-target="backtest">策略回验</button>
+          <button class="ai-quick-btn" type="button" data-view-target="kline">进入虾线</button>
+          <button class="ai-quick-btn" type="button" data-view-target="backtest">进入虾策</button>
+          <button class="ai-quick-btn" type="button" data-view-target="xsea">进入虾海</button>
         </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
         </div>
         <div class="ai-input-row">
-          <div class="input-func-wrap">
-            <button id="input-func-toggle" class="input-func-toggle" type="button" aria-expanded="false" aria-controls="input-func-menu">☰</button>
-            <div id="input-func-menu" class="input-func-menu hidden">
-              <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">AI聊天</button>
-              <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
-              <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线图</button>
-              <button class="nav-btn" id="nav-backtest" data-view-target="backtest" type="button">策略回验</button>
-              <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史单</button>
-            </div>
-          </div>
           <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
           <button id="ai-chat-send" class="send-btn" type="button">发送</button>
         </div>
@@ -562,7 +602,7 @@
           <h2>当前交易运行时间线</h2>
           <span style="display:inline-flex;align-items:center;gap:8px;">
             <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
-            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+            <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
           </span>
         </div>
         <div id="runtime-timeline" class="timeline-list"></div>
@@ -571,9 +611,13 @@
 
     <section id="view-kline" class="view-panel">
       <div class="card-title-row" style="margin-bottom:6px">
-        <h2>K线决策视图</h2>
-        <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+        <h2>虾线 · K线决策视图</h2>
+        <span>
+          <button class="nav-btn" data-view-target="history" type="button">历史交易</button>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </span>
       </div>
+      <div class="app-subtitle" style="margin-bottom:8px;">聚焦历史交易轨迹、K 线决策点与开平区间管理。</div>
       <div class="chart-header">
         <select id="tf-select"><option value="1m" selected>分时(1分钟)</option><option value="5m">5分钟</option><option value="15m">15分钟</option><option value="1h">1小时</option><option value="4h">4小时</option><option value="1d">日线</option></select>
         <button id="live-toggle" class="live-toggle on" type="button">实时: 开</button>
@@ -619,10 +663,10 @@
     <section id="view-history" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>历史订单详情</h2>
+          <h2>虾线 · 历史订单详情</h2>
           <span>
             <span class="app-subtitle" id="history-total">共 0 条</span>
-            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+            <button class="nav-btn" data-view-target="kline" type="button">返回虾线K线页</button>
           </span>
         </div>
         <div class="table-toolbar">
@@ -653,11 +697,12 @@
         </table>
       </div>
     </section>
+
     <section id="view-backtest" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>策略回验（历史 K 线 PnL）</h2>
-          <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+          <h2>虾策 · 策略回验（历史 K 线 PnL）</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
         <div class="backtest-controls">
           <label>策略版本
@@ -717,8 +762,36 @@
         </div>
       </div>
     </section>
+
+    <section id="view-xsea" class="view-panel">
+      <div class="panel-card">
+        <div class="card-title-row">
+          <h2>虾海 · 策略发布与交流</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </div>
+        <div class="app-subtitle" style="margin-bottom:8px;">发布你的 AI 策略，与他人交流，并可将策略选入机器人训练参考。</div>
+        <div class="xsea-grid">
+          <div class="xsea-card">
+            <h3>发布策略</h3>
+            <form id="xsea-form" class="xsea-form">
+              <input id="xsea-title" type="text" maxlength="60" placeholder="策略标题（例：回踩确认 + 动量过滤）" required />
+              <input id="xsea-author" type="text" maxlength="32" placeholder="作者（例：Aragorn）" required />
+              <input id="xsea-summary" type="text" maxlength="120" placeholder="一句话摘要（例：趋势延续优先，逆势过滤）" required />
+              <textarea id="xsea-plan" placeholder="策略描述：入场、风控、退出、适配周期..." required></textarea>
+              <button class="xsea-publish-btn" type="submit">发布到虾海</button>
+            </form>
+          </div>
+          <div class="xsea-card">
+            <h3>策略广场</h3>
+            <div class="xsea-selected" id="xsea-selected"></div>
+            <div class="xsea-feed" id="xsea-feed"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </div>
-  <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回主界面</button>
+  <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
 
   <div id="install-pwa" class="install-pwa hidden">
     <div class="ipwa-main">
@@ -911,43 +984,69 @@
         kline: document.getElementById('view-kline'),
         backtest: document.getElementById('view-backtest'),
         history: document.getElementById('view-history'),
+        xsea: document.getElementById('view-xsea'),
       };
-      const navButtons = Array.from(document.querySelectorAll('.nav-btn[data-view-target]'));
+      const navButtons = Array.from(document.querySelectorAll('[data-view-target]'));
+      const featureMenuButtons = Array.from(document.querySelectorAll('.feature-menu-btn[data-view-target]'));
       const appSubtitle = document.getElementById('app-subtitle');
-      const inputFuncToggle = document.getElementById('input-func-toggle');
-      const inputFuncMenu = document.getElementById('input-func-menu');
+      const featureHubToggle = document.getElementById('feature-hub-toggle');
+      const featureHubMenu = document.getElementById('feature-hub-menu');
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
 
-      function setInputMenuOpen(open) {
-        if (!inputFuncMenu || !inputFuncToggle) return;
+      function normalizeViewTarget(nameLike) {
+        const raw = String(nameLike || '').trim().toLowerCase();
+        if (!raw) return 'dashboard';
+        if (viewMap[raw]) return raw;
+        const alias = {
+          thunderclaw: 'dashboard',
+          main: 'dashboard',
+          ai: 'dashboard',
+          chat: 'dashboard',
+          xline: 'kline',
+          '虾线': 'kline',
+          chart: 'kline',
+          xstrategy: 'backtest',
+          '虾策': 'backtest',
+          strategy: 'backtest',
+          xsea: 'xsea',
+          '虾海': 'xsea',
+          community: 'xsea',
+        };
+        return alias[raw] || 'dashboard';
+      }
+
+      function setFeatureMenuOpen(open) {
+        if (!featureHubMenu || !featureHubToggle) return;
         const isOpen = Boolean(open);
-        inputFuncMenu.classList.toggle('hidden', !isOpen);
-        inputFuncToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        featureHubMenu.classList.toggle('hidden', !isOpen);
+        featureHubToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       }
 
       function switchView(name) {
-        const key = viewMap[name] ? name : 'dashboard';
+        const key = normalizeViewTarget(name);
         activeViewName = key;
         Object.entries(viewMap).forEach(([k, el]) => {
           if (!el) return;
           el.classList.toggle('active', k === key);
         });
-        navButtons.forEach(btn => {
+        featureMenuButtons.forEach(btn => {
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
         if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能入口在输入框左侧';
-          else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
-          else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
-          else if (key === 'backtest') appSubtitle.textContent = '策略版本回验 · 历史 K 线 PnL 估算';
-          else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
+          if (key === 'dashboard') appSubtitle.textContent = 'ThunderClaw · AI 交易交流与执行主界面';
+          else if (key === 'runtime') appSubtitle.textContent = 'ThunderClaw · 当前单运行时间线';
+          else if (key === 'kline') appSubtitle.textContent = '虾线 · K 线与历史交易联动管理';
+          else if (key === 'history') appSubtitle.textContent = '虾线 · 历史订单明细与K线定位';
+          else if (key === 'backtest') appSubtitle.textContent = '虾策 · 策略可视化管理与回验验证';
+          else if (key === 'xsea') appSubtitle.textContent = '虾海 · AI 策略发布、交流与训练选择';
+          else appSubtitle.textContent = '交易系统功能页';
         }
         if (globalBackBtn) {
           globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
-        setInputMenuOpen(false);
+        setFeatureMenuOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
         }
@@ -955,29 +1054,29 @@
           window.requestAnimationFrame(runBacktestFromUi);
         }
       }
-      if (inputFuncToggle && inputFuncMenu) {
-        inputFuncToggle.addEventListener('click', function(ev) {
+      if (featureHubToggle && featureHubMenu) {
+        featureHubToggle.addEventListener('click', function(ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          const open = inputFuncToggle.getAttribute('aria-expanded') === 'true';
-          setInputMenuOpen(!open);
+          const open = featureHubToggle.getAttribute('aria-expanded') === 'true';
+          setFeatureMenuOpen(!open);
         });
-        inputFuncMenu.addEventListener('click', function(ev) {
-          const btn = ev.target.closest('.nav-btn[data-view-target]');
-          if (btn) setInputMenuOpen(false);
+        featureHubMenu.addEventListener('click', function(ev) {
+          const btn = ev.target.closest('[data-view-target]');
+          if (btn) setFeatureMenuOpen(false);
         });
         document.addEventListener('click', function(ev) {
-          if (inputFuncMenu.classList.contains('hidden')) return;
-          if (inputFuncMenu.contains(ev.target) || inputFuncToggle.contains(ev.target)) return;
-          setInputMenuOpen(false);
+          if (featureHubMenu.classList.contains('hidden')) return;
+          if (featureHubMenu.contains(ev.target) || featureHubToggle.contains(ev.target)) return;
+          setFeatureMenuOpen(false);
         });
         document.addEventListener('keydown', function(ev) {
-          if (ev.key === 'Escape') setInputMenuOpen(false);
+          if (ev.key === 'Escape') setFeatureMenuOpen(false);
         });
       }
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
-          switchView(btn.getAttribute('data-view-target'));
+          switchView(normalizeViewTarget(btn.getAttribute('data-view-target')));
         });
       });
       if (globalBackBtn) {
@@ -996,10 +1095,10 @@
       const miniKlineMainEl = document.getElementById('mini-kline-main');
       const miniKlineSubEl = document.getElementById('mini-kline-sub');
       const aiLinkStatusEl = document.getElementById('ai-link-status');
-      const navRuntimeBtn = document.getElementById('nav-runtime');
-      const navHistoryBtn = document.getElementById('nav-history');
+      const navMainBtn = document.getElementById('nav-main');
       const navKlineBtn = document.getElementById('nav-kline');
       const navBacktestBtn = document.getElementById('nav-backtest');
+      const navXseaBtn = document.getElementById('nav-xsea');
 
       function getCurrentTradeOrder() {
         if (activeOrder) return activeOrder;
@@ -1223,15 +1322,15 @@
           }
         }
 
-        clearBtnState(navRuntimeBtn);
-        clearBtnState(navHistoryBtn);
+        clearBtnState(navMainBtn);
         clearBtnState(navKlineBtn);
         clearBtnState(navBacktestBtn);
-        if (navRuntimeBtn && cur?.side === 'long') navRuntimeBtn.classList.add('state-long');
-        if (navRuntimeBtn && cur?.side === 'short') navRuntimeBtn.classList.add('state-short');
-        if (navHistoryBtn && Number.isFinite(shownPnl)) navHistoryBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
+        clearBtnState(navXseaBtn);
+        if (navMainBtn && cur?.side === 'long') navMainBtn.classList.add('state-long');
+        if (navMainBtn && cur?.side === 'short') navMainBtn.classList.add('state-short');
         if (navKlineBtn && Number.isFinite(miniChange)) navKlineBtn.classList.add(miniChange >= 0 ? 'state-pos' : 'state-neg');
         if (navBacktestBtn && Number.isFinite(shownPnl)) navBacktestBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
+        if (navXseaBtn && SORTED_ORDERS.length > 0) navXseaBtn.classList.add('state-pos');
       }
 
       function renderCurrentPositions() {
@@ -1448,6 +1547,207 @@
         };
       }
 
+      const XSEA_POSTS_KEY = 'thunderclaw.xsea.posts.v1';
+      const XSEA_SELECTED_KEY = 'thunderclaw.xsea.selected.v1';
+      const XSEA_SEED = [
+        {
+          id: 'seed-v5-retest',
+          title: 'BTC 回踩确认 + 成交量过滤',
+          author: '虾策实验室',
+          summary: '顺趋势优先，回踩结构确认后再入场，降低假突破。',
+          plan: '入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\n风控：1.8 ATR 止损 + 新闻门控\n退出：3.0 ATR 止盈或趋势破坏',
+          createdAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+        },
+        {
+          id: 'seed-v5-reentry',
+          title: '趋势再入 + 分批加仓',
+          author: 'Aragorn',
+          summary: '主趋势确认后等待二次发力，再入场并限制最大持仓时间。',
+          plan: '入场：1h 趋势方向一致 + 5m 动量二次放量\n风控：固定 notional + 2.0 ATR 止损\n退出：时间止盈 + 结构反转强制离场',
+          createdAt: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
+        },
+      ];
+      let xseaPosts = [];
+      let selectedXseaStrategy = null;
+
+      function safeLocalJsonRead(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return fallback;
+          const parsed = JSON.parse(raw);
+          return parsed == null ? fallback : parsed;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function safeLocalJsonWrite(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function loadXseaPosts() {
+        const list = safeLocalJsonRead(XSEA_POSTS_KEY, []);
+        if (!Array.isArray(list)) return [];
+        return list
+          .filter(function(item) {
+            return item && typeof item === 'object' && item.id && item.title && item.plan;
+          })
+          .slice()
+          .sort(function(a, b) {
+            return (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0);
+          });
+      }
+
+      function saveXseaPosts(posts) {
+        xseaPosts = Array.isArray(posts) ? posts.slice() : [];
+        safeLocalJsonWrite(XSEA_POSTS_KEY, xseaPosts);
+      }
+
+      function loadSelectedXsea() {
+        const one = safeLocalJsonRead(XSEA_SELECTED_KEY, null);
+        if (!one || typeof one !== 'object') return null;
+        if (!one.id || !one.title || !one.plan) return null;
+        return one;
+      }
+
+      function saveSelectedXsea(one) {
+        selectedXseaStrategy = one && typeof one === 'object' ? one : null;
+        if (selectedXseaStrategy) safeLocalJsonWrite(XSEA_SELECTED_KEY, selectedXseaStrategy);
+        else {
+          try { localStorage.removeItem(XSEA_SELECTED_KEY); } catch {}
+        }
+      }
+
+      function buildXseaPrompt(item, mode) {
+        const header = mode === 'train'
+          ? '请将这条虾海策略作为本轮机器人训练参考，输出可执行建议。'
+          : '请评估这条虾海策略，并给出可执行建议。';
+        return [
+          header,
+          '策略标题：' + (item.title || '-'),
+          '作者：' + (item.author || '-'),
+          '摘要：' + (item.summary || '-'),
+          '详细策略：',
+          String(item.plan || '-'),
+          '',
+          '请给出：1) 适配市场条件 2) 参数建议 3) 主要风险 4) 可落地执行步骤',
+        ].join('\n');
+      }
+
+      function askAiFromXsea(item, mode) {
+        const input = document.getElementById('ai-chat-input');
+        const sendBtn = document.getElementById('ai-chat-send');
+        if (!input || !sendBtn || !item) return;
+        switchView('dashboard');
+        input.value = buildXseaPrompt(item, mode);
+        sendBtn.click();
+      }
+
+      function renderXseaPanel() {
+        const feed = document.getElementById('xsea-feed');
+        const selectedEl = document.getElementById('xsea-selected');
+        if (!feed || !selectedEl) return;
+        if (selectedXseaStrategy) {
+          selectedEl.innerHTML = '当前训练参考：<strong>' + escapeHtml(selectedXseaStrategy.title) + '</strong> · ' + escapeHtml(selectedXseaStrategy.author || '-') + '。';
+        } else {
+          selectedEl.textContent = '当前未选择训练参考策略。';
+        }
+        if (!xseaPosts.length) {
+          feed.innerHTML = '<div class="xsea-item"><div class="xsea-item-summary">暂无策略，先发布第一条策略吧。</div></div>';
+          return;
+        }
+        feed.innerHTML = xseaPosts.map(function(item) {
+          const id = String(item.id || '');
+          return '<div class="xsea-item">' +
+            '<div class="xsea-item-head">' +
+              '<div class="xsea-item-title">' + escapeHtml(item.title || '-') + '</div>' +
+              '<div class="xsea-item-meta">' + escapeHtml(fmtTsShort(item.createdAt)) + '</div>' +
+            '</div>' +
+            '<div class="xsea-item-meta">作者：' + escapeHtml(item.author || '-') + '</div>' +
+            '<div class="xsea-item-summary">' + escapeHtml(item.summary || '-') + '</div>' +
+            '<div class="xsea-item-plan">' + escapeHtml(item.plan || '-') + '</div>' +
+            '<div class="xsea-actions">' +
+              '<button class="primary" type="button" data-xsea-action="pick" data-xsea-id="' + escapeHtml(id) + '">选取训练机器人</button>' +
+              '<button type="button" data-xsea-action="chat" data-xsea-id="' + escapeHtml(id) + '">与 ThunderClaw 讨论</button>' +
+              '<button type="button" data-xsea-action="remove" data-xsea-id="' + escapeHtml(id) + '">移除</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      function setupXseaPanel() {
+        const form = document.getElementById('xsea-form');
+        const titleInput = document.getElementById('xsea-title');
+        const authorInput = document.getElementById('xsea-author');
+        const summaryInput = document.getElementById('xsea-summary');
+        const planInput = document.getElementById('xsea-plan');
+        const feed = document.getElementById('xsea-feed');
+
+        xseaPosts = loadXseaPosts();
+        if (!xseaPosts.length) saveXseaPosts(XSEA_SEED);
+        xseaPosts = loadXseaPosts();
+        selectedXseaStrategy = loadSelectedXsea();
+        renderXseaPanel();
+
+        if (form && titleInput && authorInput && summaryInput && planInput) {
+          form.addEventListener('submit', function(ev) {
+            ev.preventDefault();
+            const title = String(titleInput.value || '').trim();
+            const author = String(authorInput.value || '').trim();
+            const summary = String(summaryInput.value || '').trim();
+            const plan = String(planInput.value || '').trim();
+            if (!title || !author || !summary || !plan) return;
+            const post = {
+              id: 'xsea-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+              title,
+              author,
+              summary,
+              plan,
+              createdAt: new Date().toISOString(),
+            };
+            saveXseaPosts([post].concat(xseaPosts));
+            xseaPosts = loadXseaPosts();
+            form.reset();
+            renderXseaPanel();
+          });
+        }
+
+        if (feed) {
+          feed.addEventListener('click', function(ev) {
+            const btn = ev.target.closest('button[data-xsea-action][data-xsea-id]');
+            if (!btn) return;
+            const action = String(btn.getAttribute('data-xsea-action') || '');
+            const id = String(btn.getAttribute('data-xsea-id') || '');
+            const item = xseaPosts.find(function(x) { return String(x.id || '') === id; }) || null;
+            if (!item) return;
+            if (action === 'pick') {
+              saveSelectedXsea(item);
+              renderXseaPanel();
+              askAiFromXsea(item, 'train');
+              return;
+            }
+            if (action === 'chat') {
+              askAiFromXsea(item, 'chat');
+              return;
+            }
+            if (action === 'remove') {
+              const next = xseaPosts.filter(function(x) { return String(x.id || '') !== id; });
+              saveXseaPosts(next);
+              xseaPosts = loadXseaPosts();
+              if (selectedXseaStrategy && String(selectedXseaStrategy.id || '') === id) {
+                saveSelectedXsea(null);
+              }
+              renderXseaPanel();
+            }
+          });
+        }
+      }
+
       function renderAiChat() {
         const box = document.getElementById('ai-chat-box');
         const input = document.getElementById('ai-chat-input');
@@ -1516,7 +1816,7 @@
             if (!action || typeof action !== 'object') return;
             const type = String(action.type || '').toLowerCase();
             if (type === 'switch_view') {
-              const view = String(action.view || '');
+              const view = normalizeViewTarget(action.view);
               if (viewMap[view]) out.push({ type: 'switch_view', view: view });
               return;
             }
@@ -1608,6 +1908,14 @@
                 pnlEstUSDT: Number(o?.pnlEstUSDT),
               };
             }),
+            communityStrategy: selectedXseaStrategy
+              ? {
+                  id: selectedXseaStrategy.id || null,
+                  title: selectedXseaStrategy.title || null,
+                  author: selectedXseaStrategy.author || null,
+                  summary: selectedXseaStrategy.summary || null,
+                }
+              : null,
           };
         }
         function buildDeepSeekMessages(question) {
@@ -1663,6 +1971,10 @@
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
+          if (/虾海|策略交流|社区策略|strategy sea|xsea/.test(ql)) {
+            switchView('xsea');
+            return '已切到「虾海」页面。你可以发布策略、交流策略，并选取策略训练机器人。';
+          }
           if (/回验|backtest|复盘|回测/.test(ql)) {
             switchView('backtest');
             return 'OpenClaw 当前不可用，已切到「策略回验」页面。你可直接点“开始回验”。';
@@ -1703,6 +2015,14 @@
             userIntentHint: 'trade_dashboard_assistant',
             directModeBound: Boolean(readDeepSeekKey()),
             snapshot: aiSnapshot(),
+            communityStrategy: selectedXseaStrategy
+              ? {
+                  id: selectedXseaStrategy.id || null,
+                  title: selectedXseaStrategy.title || null,
+                  author: selectedXseaStrategy.author || null,
+                  summary: selectedXseaStrategy.summary || null,
+                }
+              : null,
           };
         }
 
@@ -1759,14 +2079,15 @@
             if (!action || typeof action !== 'object') return;
             const type = String(action.type || '').toLowerCase();
             if (type === 'switch_view') {
-              const view = String(action.view || '');
+              const view = normalizeViewTarget(action.view);
               if (view && viewMap[view]) {
                 switchView(view);
                 notes.push('已切换到「' + (
-                  view === 'dashboard' ? 'AI聊天' :
+                  view === 'dashboard' ? 'ThunderClaw' :
                   view === 'runtime' ? '当前单' :
-                  view === 'kline' ? 'K线图' :
-                  view === 'backtest' ? '策略回验' : '历史单'
+                  view === 'kline' ? '虾线(K线)' :
+                  view === 'history' ? '虾线(历史交易)' :
+                  view === 'backtest' ? '虾策' : '虾海'
                 ) + '」');
               }
               return;
@@ -1917,7 +2238,7 @@
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
+        pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\n功能页在左上角：ThunderClaw / 虾线 / 虾策 / 虾海。\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
       }
 
       function renderDashboard() {
@@ -3534,6 +3855,7 @@
       renderHistoryOrders();
       renderDashboard();
       setupBacktestPanel();
+      setupXseaPanel();
       switchView('dashboard');
     }
 
