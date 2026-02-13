@@ -186,6 +186,20 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
   - `GET /api/ai/health`
   - `GET /api/ai/context`
   - `GET /api/ai/context?full=1`
+  - `GET /api/telegram/health`
+  - `GET /api/telegram/events?afterId=<id>`
+
+新增（本地直连 Telegram）：
+
+- 配置 `THUNDERCLAW_TELEGRAM_BOT_TOKEN` 后，服务端会轮询 Telegram Bot API。
+- Telegram 来信会进入 ThunderClaw 聊天面板，并可由本地 AI 自动回复回 Telegram。
+- **本地看板里用户输入的消息不会反向同步到 Telegram**（按单向同步设计）。
+- 可选开启交易事件主动推送：开仓/平仓/风控拦截会自动发到 Telegram。
+- 新增聊天内配置通道：`POST /api/config/chat`
+  - 例如在聊天框直接发送：
+    - `设置 Telegram token 123456:ABC...`
+    - `设置 DeepSeek key sk-...`
+    - `连接 ChatGPT/Codex`
 
 手机/静态部署（无本地后端）可用方案：
 
@@ -238,10 +252,8 @@ npm run report:start:local
 
 `openclaw:setup:local` 会引导你填写：
 
-- 是否运行 OpenClaw 官方 `configure` 向导
-- 默认模型 ID（留空则沿用 OpenClaw 当前配置）
-- 可选 DeepSeek provider 快速写入（仅当你选择时）
-- OpenClaw 路由参数（写入 `.env.local`，不含 API key）
+- 模型连接方式（DeepSeek API Key / ChatGPT-Codex 登录链接）
+- Telegram Bot Token（其余参数走默认）
 
 之后你也可以手工编辑 `.env.local`（可参考 `.env.local.example`），再执行：
 
@@ -300,23 +312,15 @@ node scripts/perp-report.js viewer
 OPENCLAW_AGENT_ID=main node scripts/perp-report.js serve
 ```
 
-可选环境变量：
+最小环境变量（推荐只看这几个）：
 
-- `OPENCLAW_CLI_BIN`：指定 OpenClaw 命令入口（可设 `openclaw` 或 `thunderclaw`；未设置时优先用 `openclaw`，若检测到 `./openclaw/` 且依赖已安装则会自动使用仓库版本）
+- `THUNDERCLAW_TELEGRAM_BOT_TOKEN`：Telegram 机器人 token（最核心）
+- `THUNDERCLAW_TELEGRAM_AUTO_REPLY`：来信是否自动回复（默认 `1`）
+- `THUNDERCLAW_TELEGRAM_PUSH_TRADES`：是否主动推送交易事件（默认 `1`）
+- `THUNDERCLAW_TELEGRAM_PUSH_EVENTS`：推送事件类型（默认 `open,close,risk`）
 - `OPENCLAW_AGENT_ID`：默认 `main`
-- `OPENCLAW_CHANNEL`：会话路由频道（如 `telegram` / `whatsapp`），透传到 `openclaw agent --channel`
-- `OPENCLAW_TO`：会话目标（如手机号、`@username`、chat_id），透传到 `openclaw agent --to`
-- `OPENCLAW_SESSION_ID`：指定会话 ID，透传到 `openclaw agent --session-id`
-- `OPENCLAW_AGENT_LOCAL`：`1/true` 时强制 `openclaw agent --local`（无需先跑 Gateway，推荐本地直连模型时开启）
-- `OPENCLAW_DELIVER`：`1/true` 时在执行 agent 后投递回复到频道（`--deliver`）
-- `OPENCLAW_REPLY_CHANNEL` / `OPENCLAW_REPLY_TO` / `OPENCLAW_REPLY_ACCOUNT`：投递覆盖参数（`--reply-channel` / `--reply-to` / `--reply-account`）
-- `OPENCLAW_THINKING`：如 `low | medium | high`
-- `OPENCLAW_VERBOSE`：如 `on | off`
-- `OPENCLAW_TIMEOUT_SEC`：OpenClaw `agent` 超时秒数（默认 `90`）
-- `OPENCLAW_CHAT_TIMEOUT_MS`：服务端桥接超时毫秒（默认 `95000`）
-- `OPENCLAW_CONTEXT_MAX_DECISIONS`：上下文中最近决策条数（默认 `36`）
-- `OPENCLAW_CONTEXT_TIMELINE_EVENTS`：上下文时间线条数（默认 `18`）
-- `OPENCLAW_CONTEXT_MAX_ORDERS`：上下文中最近订单条数（默认 `12`）
+
+其余高级参数（白名单、轮询周期、路由覆盖等）都有默认值，只有特殊场景才需要改，见 `.env.local.example`。
 
 当 OpenClaw 不可用时，聊天区会自动回退到本地兜底回复，并在界面上标记为离线状态。
 
