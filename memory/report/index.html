@@ -290,6 +290,25 @@
       border-color: rgba(148,245,202,0.84);
       box-shadow: 0 0 0 1px rgba(148,245,202,0.26) inset;
     }
+    .feature-menu-btn.feature-xbrain {
+      border-color: rgba(255,214,92,0.56);
+      background:
+        linear-gradient(90deg, rgba(22,17,6,0.82) 0%, rgba(22,17,6,0.5) 46%, rgba(22,17,6,0.2) 100%),
+        url('https://imgloc.com/image/ymJJ29') center / cover no-repeat,
+        linear-gradient(135deg, rgba(66,46,8,0.95), rgba(27,18,8,0.95));
+    }
+    .feature-menu-btn.feature-xbrain .k {
+      color: #fff3cd;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xbrain .d {
+      color: rgba(255,244,214,0.92);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xbrain.active {
+      border-color: rgba(255,225,132,0.84);
+      box-shadow: 0 0 0 1px rgba(255,225,132,0.24) inset;
+    }
     .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
     .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
     .sidebar-trade-hub { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
@@ -438,6 +457,43 @@
     .xsea-actions button.primary { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
     .xsea-selected { font-size: 0.72rem; color: var(--muted); margin-bottom: 7px; }
     .xsea-selected strong { color: #58a6ff; }
+    .xbrain-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .xbrain-card { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 10px; }
+    .xbrain-card h3 { margin: 0; font-size: 0.82rem; }
+    .xbrain-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    .xbrain-lock-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.66rem; color: var(--muted); background: rgba(0,0,0,0.22); }
+    .xbrain-lock-tag.on { border-color: rgba(248,81,73,0.42); color: #ffaba8; }
+    .xbrain-lock-tag.off { border-color: rgba(63,185,80,0.42); color: #7ee787; }
+    .xbrain-hint { font-size: 0.69rem; color: var(--muted); margin-bottom: 8px; }
+    .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
+    .xbrain-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.71rem; color: var(--muted); }
+    .xbrain-form input, .xbrain-form textarea, .xbrain-form select {
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font: inherit;
+      outline: none;
+    }
+    .xbrain-form input:focus, .xbrain-form textarea:focus, .xbrain-form select:focus { border-color: rgba(88,166,255,0.72); }
+    .xbrain-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .xbrain-row > * { flex: 1 1 120px; }
+    .xbrain-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .xbrain-actions button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.24);
+      color: var(--text);
+      font-size: 0.69rem;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .xbrain-actions button.primary { border-color: rgba(88,166,255,0.62); color: #79c0ff; }
+    .xbrain-actions button.warn { border-color: rgba(248,81,73,0.48); color: #ffaba8; }
+    .xbrain-status { margin-top: 8px; font-size: 0.68rem; color: var(--muted); min-height: 18px; }
+    .xbrain-status.ok { color: #7ee787; }
+    .xbrain-status.err { color: #ffaba8; }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
     .chart-header .meta.ok { color: var(--green); }
@@ -629,7 +685,7 @@
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
     #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
-    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active, #view-xsea.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
+    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active, #view-xsea.active, #view-xbrain.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
     .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
@@ -699,6 +755,7 @@
         <button class="nav-btn feature-menu-btn feature-xline" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
         <button class="nav-btn feature-menu-btn feature-xstrategy" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
         <button class="nav-btn feature-menu-btn feature-xsea" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
+        <button class="nav-btn feature-menu-btn feature-xbrain" id="nav-xbrain" data-view-target="xbrain" type="button"><span class="k">虾脑</span><span class="d">配置中枢：模型、交易、策略参数联动</span></button>
         <div class="sidebar-trade-hub">
           <div class="feature-sidebar-head">交易中枢</div>
           <div class="top-hero">
@@ -950,6 +1007,139 @@
       </div>
     </section>
 
+    <section id="view-xbrain" class="view-panel">
+      <div class="panel-card">
+        <div class="card-title-row">
+          <h2>虾脑</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </div>
+        <div class="app-subtitle" style="margin-bottom:8px;">统一配置中枢：基础配置、交易配置、策略与运行配置。所有改动会同步到模型上下文。</div>
+        <div class="xbrain-grid">
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>一、基础配置</h3>
+              <span id="xbrain-lock-base" class="xbrain-lock-tag on">已锁定</span>
+            </div>
+            <div class="xbrain-hint">模型选择、聊天 channel。该区支持锁定/解锁与密码管理。</div>
+            <form id="xbrain-base-form" class="xbrain-form">
+              <label>模型提供方
+                <select id="xbrain-base-provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="chatgpt">ChatGPT</option>
+                  <option value="codex">Codex</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>模型 ID
+                <input id="xbrain-base-model" type="text" placeholder="例如 deepseek-chat" />
+              </label>
+              <label>聊天 Channel
+                <select id="xbrain-base-channel">
+                  <option value="dashboard">仅本地看板</option>
+                  <option value="telegram">仅 Telegram</option>
+                  <option value="both">本地 + Telegram</option>
+                </select>
+              </label>
+              <label>密码（用于解锁/设密码）
+                <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存基础配置</button>
+                <button type="button" data-xbrain-lock="base" data-xbrain-action="unlock">解锁</button>
+                <button class="warn" type="button" data-xbrain-lock="base" data-xbrain-action="lock">锁定</button>
+                <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置密码</button>
+              </div>
+              <div id="xbrain-status-base" class="xbrain-status"></div>
+            </form>
+          </div>
+
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>二、交易配置</h3>
+              <span id="xbrain-lock-exchange" class="xbrain-lock-tag on">已锁定</span>
+            </div>
+            <div class="xbrain-hint">Bitget API 管理（密钥掩码显示）。该区支持锁定/解锁与密码管理。</div>
+            <form id="xbrain-exchange-form" class="xbrain-form">
+              <label>Bitget API Key
+                <input id="xbrain-exchange-api-key" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>Bitget API Secret
+                <input id="xbrain-exchange-api-secret" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>Bitget Passphrase
+                <input id="xbrain-exchange-passphrase" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>密码（用于解锁/设密码）
+                <input id="xbrain-exchange-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存交易配置</button>
+                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="unlock">解锁</button>
+                <button class="warn" type="button" data-xbrain-lock="exchange" data-xbrain-action="lock">锁定</button>
+                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="set_password">设置密码</button>
+              </div>
+              <div id="xbrain-status-exchange" class="xbrain-status"></div>
+            </form>
+          </div>
+
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>三、策略与运行配置</h3>
+              <span class="xbrain-lock-tag off">实时联动</span>
+            </div>
+            <div class="xbrain-hint">策略参数会与模型上下文双向同步：可对话改参数，也可改参数后让模型理解并执行。</div>
+            <form id="xbrain-strategy-form" class="xbrain-form">
+              <div class="xbrain-row">
+                <label>策略档案名
+                  <input id="xbrain-strategy-profile" type="text" placeholder="default" />
+                </label>
+                <label>交易符号
+                  <input id="xbrain-strategy-symbol" type="text" placeholder="BTC/USDT:USDT" />
+                </label>
+              </div>
+              <div class="xbrain-row">
+                <label>杠杆倍率
+                  <input id="xbrain-strategy-leverage" type="number" min="1" max="125" step="1" />
+                </label>
+                <label>仓位模式
+                  <select id="xbrain-strategy-size-mode">
+                    <option value="risk">Risk</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                </label>
+                <label>单次大小（USDT）
+                  <input id="xbrain-strategy-order-size" type="number" min="1" step="0.1" />
+                </label>
+              </div>
+              <div class="xbrain-row">
+                <label>风险比例（0-1）
+                  <input id="xbrain-strategy-risk-pct" type="number" min="0.001" max="0.4" step="0.001" />
+                </label>
+                <label>最小下单（USDT）
+                  <input id="xbrain-strategy-min-notional" type="number" min="1" step="0.1" />
+                </label>
+                <label>最大下单（USDT）
+                  <input id="xbrain-strategy-max-notional" type="number" min="1" step="0.1" />
+                </label>
+              </div>
+              <label>运行状态
+                <select id="xbrain-strategy-runtime-mode">
+                  <option value="dryrun">dryrun（模拟）</option>
+                  <option value="live">live（实盘）</option>
+                </select>
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存策略与运行配置</button>
+                <button type="button" id="xbrain-refresh-btn">刷新配置</button>
+              </div>
+              <div id="xbrain-status-strategy" class="xbrain-status"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
     </div>
   </div>
   <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
@@ -1078,6 +1268,7 @@
         backtest: document.getElementById('view-backtest'),
         history: document.getElementById('view-history'),
         xsea: document.getElementById('view-xsea'),
+        xbrain: document.getElementById('view-xbrain'),
       };
       const navButtons = Array.from(document.querySelectorAll('[data-view-target]'));
       const featureMenuButtons = Array.from(document.querySelectorAll('.feature-menu-btn[data-view-target]'));
@@ -1135,6 +1326,11 @@
           xsea: 'xsea',
           '虾海': 'xsea',
           community: 'xsea',
+          xbrain: 'xbrain',
+          '虾脑': 'xbrain',
+          brain: 'xbrain',
+          config: 'xbrain',
+          '配置': 'xbrain',
         };
         return alias[raw] || 'dashboard';
       }
@@ -1156,6 +1352,7 @@
         if (key === 'kline' || key === 'history') return '虾线';
         if (key === 'backtest') return '虾策';
         if (key === 'xsea') return '虾海';
+        if (key === 'xbrain') return '虾脑';
         return 'ThunderClaw';
       }
 
@@ -1166,6 +1363,7 @@
         if (key === 'history') return '虾线 · 历史订单明细与K线定位';
         if (key === 'backtest') return '虾策 · 策略可视化管理与回验验证';
         if (key === 'xsea') return '虾海 · AI 策略发布、交流与训练选择';
+        if (key === 'xbrain') return '虾脑 · 配置中枢与模型参数联动';
         return '交易系统功能页';
       }
 
@@ -1763,6 +1961,11 @@
       ];
       let xseaPosts = [];
       let selectedXseaStrategy = null;
+      const xbrainClientState = {
+        loading: false,
+        loaded: false,
+        data: null,
+      };
 
       function safeLocalJsonRead(key, fallback) {
         try {
@@ -1938,6 +2141,305 @@
               }
               renderXseaPanel();
             }
+          });
+        }
+      }
+
+      function xbrainSnapshotForContext() {
+        const x = xbrainClientState.data;
+        if (!x || typeof x !== 'object') return null;
+        return {
+          base: x.base
+            ? {
+                modelProvider: x.base.modelProvider || null,
+                modelId: x.base.modelId || null,
+                chatChannel: x.base.chatChannel || null,
+              }
+            : null,
+          exchange: x.exchange
+            ? {
+                bitgetConfigured: Boolean(x.exchange.bitgetConfigured),
+              }
+            : null,
+          strategy: x.strategy
+            ? {
+                profileName: x.strategy.profileName || null,
+                symbol: x.strategy.symbol || null,
+                leverage: Number(x.strategy.leverage),
+                sizeMode: x.strategy.sizeMode || null,
+                orderSize: Number(x.strategy.orderSize),
+                riskPct: Number(x.strategy.riskPct),
+                minNotional: Number(x.strategy.minNotional),
+                maxNotional: Number(x.strategy.maxNotional),
+                runtimeMode: x.strategy.runtimeMode || null,
+              }
+            : null,
+          locks: x.locks
+            ? {
+                baseLocked: Boolean(x.locks.base && x.locks.base.locked),
+                exchangeLocked: Boolean(x.locks.exchange && x.locks.exchange.locked),
+              }
+            : null,
+          updatedAt: x.updatedAt || null,
+        };
+      }
+
+      function setXbrainStatus(section, text, type) {
+        const el = document.getElementById('xbrain-status-' + section);
+        if (!el) return;
+        const msg = String(text || '').trim();
+        el.textContent = msg;
+        el.classList.remove('ok', 'err');
+        if (!msg) return;
+        if (type === 'ok') el.classList.add('ok');
+        if (type === 'err') el.classList.add('err');
+      }
+
+      function setXbrainLockTag(section, lockLike) {
+        const el = document.getElementById('xbrain-lock-' + section);
+        if (!el) return;
+        const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
+        const locked = lock.locked !== false;
+        const hasPassword = Boolean(lock.hasPassword);
+        el.classList.toggle('on', locked);
+        el.classList.toggle('off', !locked);
+        el.textContent = locked
+          ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
+          : '已解锁';
+      }
+
+      function setXbrainSectionDisabled(section, locked) {
+        const disabled = Boolean(locked);
+        if (section === 'base') {
+          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+        if (section === 'exchange') {
+          ['xbrain-exchange-api-key', 'xbrain-exchange-api-secret', 'xbrain-exchange-passphrase'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+      }
+
+      function renderXbrainState() {
+        const state = xbrainClientState.data;
+        if (!state || typeof state !== 'object') return;
+        const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const exchange = state.exchange && typeof state.exchange === 'object' ? state.exchange : {};
+        const strategy = state.strategy && typeof state.strategy === 'object' ? state.strategy : {};
+        const locks = state.locks && typeof state.locks === 'object' ? state.locks : {};
+
+        const baseProvider = document.getElementById('xbrain-base-provider');
+        const baseModel = document.getElementById('xbrain-base-model');
+        const baseChannel = document.getElementById('xbrain-base-channel');
+        if (baseProvider) baseProvider.value = String(base.modelProvider || 'deepseek');
+        if (baseModel) baseModel.value = String(base.modelId || 'deepseek-chat');
+        if (baseChannel) baseChannel.value = String(base.chatChannel || 'dashboard');
+
+        const apiKey = document.getElementById('xbrain-exchange-api-key');
+        const apiSecret = document.getElementById('xbrain-exchange-api-secret');
+        const passphrase = document.getElementById('xbrain-exchange-passphrase');
+        if (apiKey) {
+          apiKey.value = '';
+          apiKey.placeholder = String(exchange.apiKeyMasked || '(未设置)');
+        }
+        if (apiSecret) {
+          apiSecret.value = '';
+          apiSecret.placeholder = String(exchange.apiSecretMasked || '(未设置)');
+        }
+        if (passphrase) {
+          passphrase.value = '';
+          passphrase.placeholder = String(exchange.passphraseMasked || '(未设置)');
+        }
+
+        const profile = document.getElementById('xbrain-strategy-profile');
+        const symbolInput = document.getElementById('xbrain-strategy-symbol');
+        const leverage = document.getElementById('xbrain-strategy-leverage');
+        const sizeMode = document.getElementById('xbrain-strategy-size-mode');
+        const orderSize = document.getElementById('xbrain-strategy-order-size');
+        const riskPct = document.getElementById('xbrain-strategy-risk-pct');
+        const minNotional = document.getElementById('xbrain-strategy-min-notional');
+        const maxNotional = document.getElementById('xbrain-strategy-max-notional');
+        const runtimeMode = document.getElementById('xbrain-strategy-runtime-mode');
+        if (profile) profile.value = String(strategy.profileName || 'default');
+        if (symbolInput) symbolInput.value = String(strategy.symbol || 'BTC/USDT:USDT');
+        if (leverage) leverage.value = Number.isFinite(Number(strategy.leverage)) ? String(strategy.leverage) : '10';
+        if (sizeMode) sizeMode.value = String(strategy.sizeMode || 'risk');
+        if (orderSize) orderSize.value = Number.isFinite(Number(strategy.orderSize)) ? String(strategy.orderSize) : '8';
+        if (riskPct) riskPct.value = Number.isFinite(Number(strategy.riskPct)) ? String(strategy.riskPct) : '0.015';
+        if (minNotional) minNotional.value = Number.isFinite(Number(strategy.minNotional)) ? String(strategy.minNotional) : '5';
+        if (maxNotional) maxNotional.value = Number.isFinite(Number(strategy.maxNotional)) ? String(strategy.maxNotional) : '80';
+        if (runtimeMode) runtimeMode.value = String(strategy.runtimeMode || 'dryrun');
+
+        setXbrainLockTag('base', locks.base);
+        setXbrainLockTag('exchange', locks.exchange);
+        setXbrainSectionDisabled('base', Boolean(locks.base && locks.base.locked));
+        setXbrainSectionDisabled('exchange', Boolean(locks.exchange && locks.exchange.locked));
+      }
+
+      async function fetchXbrainState() {
+        if (xbrainClientState.loading) return xbrainClientState.data;
+        xbrainClientState.loading = true;
+        try {
+          const resp = await fetch('/api/xbrain/state', { cache: 'no-store' });
+          const payload = await resp.json().catch(function() { return null; });
+          if (!resp.ok || !payload || payload.ok !== true || !payload.state) {
+            const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
+            throw new Error(reason);
+          }
+          xbrainClientState.loaded = true;
+          xbrainClientState.data = payload.state;
+          renderXbrainState();
+          return payload.state;
+        } finally {
+          xbrainClientState.loading = false;
+        }
+      }
+
+      async function postXbrain(pathname, body) {
+        const resp = await fetch(pathname, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(body || {}),
+        });
+        const payload = await resp.json().catch(function() { return null; });
+        if (!resp.ok || !payload || payload.ok !== true) {
+          const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
+          throw new Error(reason);
+        }
+        if (payload.state) {
+          xbrainClientState.data = payload.state;
+          xbrainClientState.loaded = true;
+          renderXbrainState();
+        }
+        return payload;
+      }
+
+      function setupXbrainPanel() {
+        const baseForm = document.getElementById('xbrain-base-form');
+        const exchangeForm = document.getElementById('xbrain-exchange-form');
+        const strategyForm = document.getElementById('xbrain-strategy-form');
+        if (!baseForm || !exchangeForm || !strategyForm) return;
+
+        void fetchXbrainState().catch(function(err) {
+          setXbrainStatus('strategy', '加载虾脑配置失败：' + String(err?.message || err), 'err');
+        });
+
+        baseForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {
+            modelProvider: String(document.getElementById('xbrain-base-provider')?.value || 'deepseek'),
+            modelId: String(document.getElementById('xbrain-base-model')?.value || '').trim() || 'deepseek-chat',
+            chatChannel: String(document.getElementById('xbrain-base-channel')?.value || 'dashboard'),
+          };
+          const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
+          void postXbrain('/api/xbrain/update', { section: 'base', values, password })
+            .then(function() {
+              setXbrainStatus('base', '基础配置已保存，并同步给模型。', 'ok');
+            })
+            .catch(function(err) {
+              setXbrainStatus('base', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        exchangeForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {};
+          const key = String(document.getElementById('xbrain-exchange-api-key')?.value || '').trim();
+          const secret = String(document.getElementById('xbrain-exchange-api-secret')?.value || '').trim();
+          const passphrase = String(document.getElementById('xbrain-exchange-passphrase')?.value || '').trim();
+          if (key) values.apiKey = key;
+          if (secret) values.apiSecret = secret;
+          if (passphrase) values.apiPassphrase = passphrase;
+          const password = String(document.getElementById('xbrain-exchange-password')?.value || '').trim();
+          if (!Object.keys(values).length) {
+            setXbrainStatus('exchange', '未检测到新密钥输入；如需改动，请填写后保存。', 'err');
+            return;
+          }
+          void postXbrain('/api/xbrain/update', { section: 'exchange', values, password })
+            .then(function() {
+              setXbrainStatus('exchange', '交易配置已保存（掩码显示），并同步给模型。', 'ok');
+              const keyEl = document.getElementById('xbrain-exchange-api-key');
+              const secEl = document.getElementById('xbrain-exchange-api-secret');
+              const passEl = document.getElementById('xbrain-exchange-passphrase');
+              if (keyEl) keyEl.value = '';
+              if (secEl) secEl.value = '';
+              if (passEl) passEl.value = '';
+            })
+            .catch(function(err) {
+              setXbrainStatus('exchange', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        strategyForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {
+            profileName: String(document.getElementById('xbrain-strategy-profile')?.value || '').trim() || 'default',
+            symbol: String(document.getElementById('xbrain-strategy-symbol')?.value || '').trim() || 'BTC/USDT:USDT',
+            leverage: Number(document.getElementById('xbrain-strategy-leverage')?.value || 10),
+            sizeMode: String(document.getElementById('xbrain-strategy-size-mode')?.value || 'risk'),
+            orderSize: Number(document.getElementById('xbrain-strategy-order-size')?.value || 8),
+            riskPct: Number(document.getElementById('xbrain-strategy-risk-pct')?.value || 0.015),
+            minNotional: Number(document.getElementById('xbrain-strategy-min-notional')?.value || 5),
+            maxNotional: Number(document.getElementById('xbrain-strategy-max-notional')?.value || 80),
+            runtimeMode: String(document.getElementById('xbrain-strategy-runtime-mode')?.value || 'dryrun'),
+          };
+          void postXbrain('/api/xbrain/update', { section: 'strategy', values })
+            .then(function() {
+              const mode = String(xbrainClientState.data?.strategy?.runtimeMode || values.runtimeMode);
+              const modeText = mode === 'live' ? '实盘' : 'dryrun';
+              setXbrainStatus('strategy', '策略/运行配置已保存：当前模式 ' + modeText + '。', 'ok');
+            })
+            .catch(function(err) {
+              setXbrainStatus('strategy', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        document
+          .querySelectorAll('button[data-xbrain-lock][data-xbrain-action]')
+          .forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+              ev.preventDefault();
+              const section = String(btn.getAttribute('data-xbrain-lock') || '').trim();
+              const action = String(btn.getAttribute('data-xbrain-action') || '').trim();
+              const passInput = document.getElementById('xbrain-' + section + '-password');
+              const password = String(passInput?.value || '').trim();
+              if ((action === 'unlock' || action === 'set_password') && !password) {
+                setXbrainStatus(section, '请先输入密码。', 'err');
+                return;
+              }
+              void postXbrain('/api/xbrain/lock', {
+                section: section,
+                action: action,
+                password: password,
+                currentPassword: password,
+              })
+                .then(function() {
+                  if (action === 'unlock') setXbrainStatus(section, '已解锁，可修改该配置区。', 'ok');
+                  else if (action === 'lock') setXbrainStatus(section, '已锁定该配置区。', 'ok');
+                  else if (action === 'set_password') setXbrainStatus(section, '密码已更新，并自动锁定。', 'ok');
+                })
+                .catch(function(err) {
+                  setXbrainStatus(section, '操作失败：' + String(err?.message || err), 'err');
+                });
+            });
+          });
+
+        const refreshBtn = document.getElementById('xbrain-refresh-btn');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            void fetchXbrainState()
+              .then(function() {
+                setXbrainStatus('strategy', '配置已刷新。', 'ok');
+              })
+              .catch(function(err) {
+                setXbrainStatus('strategy', '刷新失败：' + String(err?.message || err), 'err');
+              });
           });
         }
       }
@@ -2244,6 +2746,7 @@
                   summary: selectedXseaStrategy.summary || null,
                 }
               : null,
+            xbrain: xbrainSnapshotForContext(),
           };
         }
         function buildDeepSeekMessages(question) {
@@ -2302,6 +2805,9 @@
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
+          if (/虾脑|配置中枢|模型配置|交易配置|xbrain/.test(ql)) {
+            return '可以通过「虾脑」统一管理模型/聊天通道、Bitget API、策略参数与 dryrun/live 运行状态，改动会同步给模型感知。';
+          }
           if (/虾海|策略交流|社区策略|strategy sea|xsea/.test(ql)) {
             return '可以基于当前策略库做策略交流、筛选与训练任务。我会优先通过动作执行返回结果，而不是强制跳页。';
           }
@@ -2352,6 +2858,7 @@
                   summary: selectedXseaStrategy.summary || null,
                 }
               : null,
+            xbrain: xbrainSnapshotForContext(),
           };
         }
 
@@ -3315,6 +3822,9 @@
           if (!text) return false;
           if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
           if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+          if (/(杠杆|leverage|单次|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|聊天通道|channel)/i.test(text)) {
+            return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|模式|运行|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
+          }
           if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
             return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
           }
@@ -5534,6 +6044,7 @@
       renderDashboard();
       setupBacktestPanel();
       setupXseaPanel();
+      setupXbrainPanel();
       switchView('dashboard');
     }
 

@@ -143,6 +143,11 @@ const TRADER_PROFILE_PATH = path.resolve(WORKDIR, 'memory/trader-mid-profile.jso
 const STRATEGY_WEIGHTS_PATH = path.resolve(WORKDIR, 'memory/strategy-feedback-weights.json');
 const STRATEGY_ARTIFACTS_JSONL_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts.jsonl');
 const STRATEGY_ARTIFACTS_STATE_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts-state.json');
+const XBRAIN_STATE_PATH = path.resolve(WORKDIR, 'memory/xbrain-state.json');
+const XBRAIN_PASSWORD_MIN_LEN = Math.max(
+  4,
+  Math.min(24, positiveInt(process.env.THUNDERCLAW_XBRAIN_PASSWORD_MIN_LEN, 6)),
+);
 const TRADER_MEMORY_MAX_ITEMS = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
@@ -262,6 +267,11 @@ const strategyArtifactState = {
 const midTermMemoryState = {
   profile: null,
   lastBuiltAt: null,
+};
+const xbrainState = {
+  loaded: false,
+  value: null,
+  lastSavedAt: null,
 };
 const runtimeState = {
   serviceLock: {
@@ -423,6 +433,504 @@ function writeEnvLocal(updates) {
 function readEnvLocalPairs() {
   const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
   return parseEnvPairs(raw).pairs;
+}
+
+function hasOwn(objLike, key) {
+  return Boolean(objLike) && Object.prototype.hasOwnProperty.call(objLike, key);
+}
+
+function xbrainNum(value, fallback, min, max) {
+  let n = Number(value);
+  if (!Number.isFinite(n)) n = Number(fallback);
+  if (!Number.isFinite(n)) n = 0;
+  if (Number.isFinite(min)) n = Math.max(min, n);
+  if (Number.isFinite(max)) n = Math.min(max, n);
+  return Number(n);
+}
+
+function envPairsWithFallback() {
+  const local = readEnvLocalPairs();
+  return { ...process.env, ...local };
+}
+
+function normalizeXbrainChatChannel(channelLike) {
+  const raw = String(channelLike || '').trim().toLowerCase();
+  if (raw === 'telegram' || raw === 'tg' || raw === '电报') return 'telegram';
+  if (raw === 'both' || raw === 'all' || raw === '双向' || raw === '同步') return 'both';
+  return 'dashboard';
+}
+
+function normalizeXbrainRuntimeMode(modeLike) {
+  const raw = String(modeLike || '').trim().toLowerCase();
+  if (raw === 'live' || raw === '实盘') return 'live';
+  return 'dryrun';
+}
+
+function normalizeXbrainModelProvider(providerLike) {
+  const raw = String(providerLike || '').trim().toLowerCase();
+  if (!raw) return 'deepseek';
+  if (raw === 'openai' || raw === 'chatgpt') return 'chatgpt';
+  if (raw === 'codex') return 'codex';
+  if (raw === 'anthropic') return 'anthropic';
+  if (raw === 'deepseek') return 'deepseek';
+  return raw;
+}
+
+function normalizeXbrainSizeMode(modeLike) {
+  const raw = String(modeLike || '').trim().toLowerCase();
+  return raw === 'fixed' ? 'fixed' : 'risk';
+}
+
+function inferXbrainProviderFromModelId(modelIdLike) {
+  const modelId = String(modelIdLike || '').trim().toLowerCase();
+  if (!modelId) return 'deepseek';
+  if (modelId.startsWith('deepseek/')) return 'deepseek';
+  if (modelId.startsWith('openai/') || modelId.startsWith('gpt-')) return 'chatgpt';
+  if (modelId.startsWith('anthropic/')) return 'anthropic';
+  if (modelId.startsWith('codex/')) return 'codex';
+  return 'deepseek';
+}
+
+function defaultXbrainState() {
+  const env = envPairsWithFallback();
+  const now = nowIso();
+  const modelId = String(env.OPENCLAW_MODEL_ID || 'deepseek-chat').trim() || 'deepseek-chat';
+  const chatChannelHint = String(env.THUNDERCLAW_CHAT_CHANNEL || '').trim();
+  const openclawChannel = String(env.OPENCLAW_CHANNEL || '').trim();
+  const chatChannel =
+    chatChannelHint ||
+    (/(telegram|tg)/i.test(openclawChannel) ? 'telegram' : (TELEGRAM_ENABLED ? 'both' : 'dashboard'));
+  const runtimeMode = /^(1|true|yes|on)$/i.test(String(env.DRY_RUN || ''))
+    ? 'dryrun'
+    : 'live';
+  return {
+    version: 1,
+    updatedAt: now,
+    base: {
+      modelProvider: normalizeXbrainModelProvider(
+        String(env.OPENCLAW_MODEL_PROVIDER || inferXbrainProviderFromModelId(modelId)),
+      ),
+      modelId,
+      chatChannel: normalizeXbrainChatChannel(chatChannel),
+      updatedAt: now,
+    },
+    exchange: {
+      enabled: Boolean(env.BITGET_API_KEY && env.BITGET_API_SECRET && env.BITGET_API_PASSPHRASE),
+      updatedAt: now,
+    },
+    strategy: {
+      profileName: 'default',
+      symbol: 'BTC/USDT:USDT',
+      leverage: xbrainNum(env.MAX_LEVERAGE, 10, 1, 125),
+      sizeMode: normalizeXbrainSizeMode(env.SIZE_MODE || 'risk'),
+      orderSize: xbrainNum(env.NOTIONAL, 8, 1, 200000),
+      riskPct: xbrainNum(env.RISK_PCT, 0.015, 0.001, 0.4),
+      minNotional: xbrainNum(env.MIN_NOTIONAL, 5, 1, 200000),
+      maxNotional: xbrainNum(env.MAX_NOTIONAL, 80, 1, 500000),
+      runtimeMode: normalizeXbrainRuntimeMode(runtimeMode),
+      updatedAt: now,
+    },
+    locks: {
+      base: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
+      exchange: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
+    },
+  };
+}
+
+function normalizeXbrainState(rawLike) {
+  const fallback = defaultXbrainState();
+  const raw = rawLike && typeof rawLike === 'object' ? rawLike : {};
+  const out = {
+    ...fallback,
+    ...(raw || {}),
+    base: {
+      ...fallback.base,
+      ...((raw.base && typeof raw.base === 'object') ? raw.base : {}),
+    },
+    exchange: {
+      ...fallback.exchange,
+      ...((raw.exchange && typeof raw.exchange === 'object') ? raw.exchange : {}),
+    },
+    strategy: {
+      ...fallback.strategy,
+      ...((raw.strategy && typeof raw.strategy === 'object') ? raw.strategy : {}),
+    },
+    locks: {
+      base: {
+        ...fallback.locks.base,
+        ...((raw.locks && raw.locks.base && typeof raw.locks.base === 'object')
+          ? raw.locks.base
+          : {}),
+      },
+      exchange: {
+        ...fallback.locks.exchange,
+        ...((raw.locks && raw.locks.exchange && typeof raw.locks.exchange === 'object')
+          ? raw.locks.exchange
+          : {}),
+      },
+    },
+  };
+  out.base.modelProvider = normalizeXbrainModelProvider(out.base.modelProvider);
+  out.base.modelId = String(out.base.modelId || fallback.base.modelId || 'deepseek-chat').trim() || 'deepseek-chat';
+  out.base.chatChannel = normalizeXbrainChatChannel(out.base.chatChannel);
+  out.exchange.enabled = Boolean(out.exchange.enabled);
+  out.strategy.profileName = String(out.strategy.profileName || 'default').trim() || 'default';
+  out.strategy.symbol = String(out.strategy.symbol || 'BTC/USDT:USDT').trim() || 'BTC/USDT:USDT';
+  out.strategy.leverage = xbrainNum(out.strategy.leverage, fallback.strategy.leverage, 1, 125);
+  out.strategy.sizeMode = normalizeXbrainSizeMode(out.strategy.sizeMode);
+  out.strategy.orderSize = xbrainNum(out.strategy.orderSize, fallback.strategy.orderSize, 1, 200000);
+  out.strategy.riskPct = xbrainNum(out.strategy.riskPct, fallback.strategy.riskPct, 0.001, 0.4);
+  out.strategy.minNotional = xbrainNum(out.strategy.minNotional, fallback.strategy.minNotional, 1, 200000);
+  out.strategy.maxNotional = xbrainNum(
+    out.strategy.maxNotional,
+    fallback.strategy.maxNotional,
+    out.strategy.minNotional,
+    500000,
+  );
+  out.strategy.runtimeMode = normalizeXbrainRuntimeMode(out.strategy.runtimeMode);
+  out.locks.base.locked = out.locks.base.locked !== false;
+  out.locks.exchange.locked = out.locks.exchange.locked !== false;
+  out.locks.base.passwordHash = String(out.locks.base.passwordHash || '').trim();
+  out.locks.exchange.passwordHash = String(out.locks.exchange.passwordHash || '').trim();
+  out.locks.base.updatedAt = out.locks.base.updatedAt || out.updatedAt || nowIso();
+  out.locks.exchange.updatedAt = out.locks.exchange.updatedAt || out.updatedAt || nowIso();
+  out.updatedAt = out.updatedAt || nowIso();
+  return out;
+}
+
+function loadXbrainState() {
+  const parsed = safeJsonRead(XBRAIN_STATE_PATH, null);
+  xbrainState.value = normalizeXbrainState(parsed);
+  xbrainState.loaded = true;
+  return xbrainState.value;
+}
+
+function saveXbrainState() {
+  if (!xbrainState.loaded || !xbrainState.value) loadXbrainState();
+  if (!xbrainState.value) return false;
+  xbrainState.value.updatedAt = nowIso();
+  const ok = safeJsonWrite(XBRAIN_STATE_PATH, xbrainState.value, true);
+  if (ok) xbrainState.lastSavedAt = nowIso();
+  return ok;
+}
+
+function ensureXbrainState() {
+  if (!xbrainState.loaded || !xbrainState.value) loadXbrainState();
+  return xbrainState.value;
+}
+
+function xbrainLockView(lockLike) {
+  const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
+  return {
+    locked: lock.locked !== false,
+    hasPassword: Boolean(String(lock.passwordHash || '').trim()),
+    updatedAt: lock.updatedAt || null,
+  };
+}
+
+function buildXbrainPublicState() {
+  const state = ensureXbrainState();
+  const env = envPairsWithFallback();
+  const apiKey = String(env.BITGET_API_KEY || '').trim();
+  const apiSecret = String(env.BITGET_API_SECRET || '').trim();
+  const apiPassphrase = String(env.BITGET_API_PASSPHRASE || '').trim();
+  const configured = Boolean(apiKey && apiSecret && apiPassphrase);
+  const runtimeMode = normalizeXbrainRuntimeMode(
+    state?.strategy?.runtimeMode ||
+      (/^(1|true|yes|on)$/i.test(String(env.DRY_RUN || '')) ? 'dryrun' : 'live'),
+  );
+  const modelId = String(state?.base?.modelId || env.OPENCLAW_MODEL_ID || 'deepseek-chat').trim() || 'deepseek-chat';
+  const modelProvider = normalizeXbrainModelProvider(
+    state?.base?.modelProvider ||
+      env.OPENCLAW_MODEL_PROVIDER ||
+      inferXbrainProviderFromModelId(modelId),
+  );
+  const chatChannel = normalizeXbrainChatChannel(
+    state?.base?.chatChannel || env.THUNDERCLAW_CHAT_CHANNEL || 'dashboard',
+  );
+  const leverage = xbrainNum(state?.strategy?.leverage ?? env.MAX_LEVERAGE, 10, 1, 125);
+  const sizeMode = normalizeXbrainSizeMode(state?.strategy?.sizeMode ?? env.SIZE_MODE ?? 'risk');
+  const orderSize = xbrainNum(state?.strategy?.orderSize ?? env.NOTIONAL, 8, 1, 200000);
+  const riskPct = xbrainNum(state?.strategy?.riskPct ?? env.RISK_PCT, 0.015, 0.001, 0.4);
+  const minNotional = xbrainNum(state?.strategy?.minNotional ?? env.MIN_NOTIONAL, 5, 1, 200000);
+  const maxNotional = xbrainNum(
+    state?.strategy?.maxNotional ?? env.MAX_NOTIONAL,
+    80,
+    minNotional,
+    500000,
+  );
+  return {
+    updatedAt: state?.updatedAt || nowIso(),
+    base: {
+      modelProvider,
+      modelId,
+      chatChannel,
+      updatedAt: state?.base?.updatedAt || null,
+    },
+    exchange: {
+      bitgetConfigured: configured,
+      apiKeyMasked: maskMaybeSecret(apiKey),
+      apiSecretMasked: maskMaybeSecret(apiSecret),
+      passphraseMasked: maskMaybeSecret(apiPassphrase),
+      updatedAt: state?.exchange?.updatedAt || null,
+    },
+    strategy: {
+      profileName: String(state?.strategy?.profileName || 'default'),
+      symbol: String(state?.strategy?.symbol || 'BTC/USDT:USDT'),
+      leverage,
+      sizeMode,
+      orderSize,
+      riskPct,
+      minNotional,
+      maxNotional,
+      runtimeMode,
+      updatedAt: state?.strategy?.updatedAt || null,
+    },
+    locks: {
+      base: xbrainLockView(state?.locks?.base),
+      exchange: xbrainLockView(state?.locks?.exchange),
+    },
+  };
+}
+
+function buildXbrainModelContext() {
+  const pub = buildXbrainPublicState();
+  return {
+    base: {
+      modelProvider: pub.base.modelProvider,
+      modelId: pub.base.modelId,
+      chatChannel: pub.base.chatChannel,
+      locked: pub.locks.base.locked,
+    },
+    exchange: {
+      bitgetConfigured: pub.exchange.bitgetConfigured,
+      locked: pub.locks.exchange.locked,
+    },
+    strategy: {
+      profileName: pub.strategy.profileName,
+      symbol: pub.strategy.symbol,
+      leverage: pub.strategy.leverage,
+      sizeMode: pub.strategy.sizeMode,
+      orderSize: pub.strategy.orderSize,
+      riskPct: pub.strategy.riskPct,
+      minNotional: pub.strategy.minNotional,
+      maxNotional: pub.strategy.maxNotional,
+      runtimeMode: pub.strategy.runtimeMode,
+    },
+    updatedAt: pub.updatedAt,
+  };
+}
+
+function xbrainSectionLock(sectionLike) {
+  const section = String(sectionLike || '').trim().toLowerCase();
+  const state = ensureXbrainState();
+  if (section === 'base') return state.locks.base;
+  if (section === 'exchange') return state.locks.exchange;
+  return null;
+}
+
+function xbrainIsLocked(sectionLike) {
+  const lock = xbrainSectionLock(sectionLike);
+  return lock ? lock.locked !== false : false;
+}
+
+function xbrainVerifyPassword(sectionLike, passwordLike) {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return false;
+  const stored = String(lock.passwordHash || '').trim();
+  if (!stored) return true;
+  const password = String(passwordLike || '').trim();
+  if (!password) return false;
+  return sha1(password) === stored;
+}
+
+function applyXbrainBasePatch(patchLike, opts = {}) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const password = String(opts.password || '').trim();
+  if (xbrainIsLocked('base') && !xbrainVerifyPassword('base', password)) {
+    return { ok: false, status: 423, error: '基础配置已锁定，请输入密码后解锁。' };
+  }
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const updates = {};
+  const changed = {};
+  if (hasOwn(patch, 'modelProvider')) {
+    const v = normalizeXbrainModelProvider(patch.modelProvider);
+    state.base.modelProvider = v;
+    updates.OPENCLAW_MODEL_PROVIDER = v;
+    changed.modelProvider = v;
+  }
+  if (hasOwn(patch, 'modelId')) {
+    const v = String(patch.modelId || '').trim() || 'deepseek-chat';
+    state.base.modelId = v;
+    updates.OPENCLAW_MODEL_ID = v;
+    changed.modelId = v;
+  }
+  if (hasOwn(patch, 'chatChannel')) {
+    const v = normalizeXbrainChatChannel(patch.chatChannel);
+    state.base.chatChannel = v;
+    updates.THUNDERCLAW_CHAT_CHANNEL = v;
+    changed.chatChannel = v;
+  }
+  state.base.updatedAt = now;
+  state.updatedAt = now;
+  if (Object.keys(updates).length) writeEnvLocal(updates);
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function applyXbrainExchangePatch(patchLike, opts = {}) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const password = String(opts.password || '').trim();
+  if (xbrainIsLocked('exchange') && !xbrainVerifyPassword('exchange', password)) {
+    return { ok: false, status: 423, error: '交易配置已锁定，请输入密码后解锁。' };
+  }
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const envUpdates = {};
+  const changed = {};
+  if (hasOwn(patch, 'apiKey')) {
+    const v = String(patch.apiKey || '').trim();
+    envUpdates.BITGET_API_KEY = v;
+    changed.apiKey = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (hasOwn(patch, 'apiSecret')) {
+    const v = String(patch.apiSecret || '').trim();
+    envUpdates.BITGET_API_SECRET = v;
+    changed.apiSecret = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (hasOwn(patch, 'apiPassphrase')) {
+    const v = String(patch.apiPassphrase || '').trim();
+    envUpdates.BITGET_API_PASSPHRASE = v;
+    changed.apiPassphrase = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (Object.keys(envUpdates).length) writeEnvLocal(envUpdates);
+  const env = envPairsWithFallback();
+  state.exchange.enabled = Boolean(env.BITGET_API_KEY && env.BITGET_API_SECRET && env.BITGET_API_PASSPHRASE);
+  state.exchange.updatedAt = now;
+  state.updatedAt = now;
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function applyXbrainStrategyPatch(patchLike) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const changed = {};
+  const envUpdates = {};
+
+  if (hasOwn(patch, 'profileName')) {
+    const v = String(patch.profileName || '').trim() || 'default';
+    state.strategy.profileName = v;
+    changed.profileName = v;
+  }
+  if (hasOwn(patch, 'symbol')) {
+    const v = String(patch.symbol || '').trim() || 'BTC/USDT:USDT';
+    state.strategy.symbol = v;
+    changed.symbol = v;
+  }
+  if (hasOwn(patch, 'leverage')) {
+    const v = xbrainNum(patch.leverage, state.strategy.leverage, 1, 125);
+    state.strategy.leverage = v;
+    envUpdates.MAX_LEVERAGE = String(v);
+    changed.leverage = v;
+  }
+  if (hasOwn(patch, 'sizeMode')) {
+    const v = normalizeXbrainSizeMode(patch.sizeMode);
+    state.strategy.sizeMode = v;
+    envUpdates.SIZE_MODE = v;
+    changed.sizeMode = v;
+  }
+  if (hasOwn(patch, 'orderSize')) {
+    const v = xbrainNum(patch.orderSize, state.strategy.orderSize, 1, 200000);
+    state.strategy.orderSize = v;
+    envUpdates.NOTIONAL = String(v);
+    changed.orderSize = v;
+  }
+  if (hasOwn(patch, 'riskPct')) {
+    const v = xbrainNum(patch.riskPct, state.strategy.riskPct, 0.001, 0.4);
+    state.strategy.riskPct = v;
+    envUpdates.RISK_PCT = String(v);
+    changed.riskPct = v;
+  }
+  if (hasOwn(patch, 'minNotional')) {
+    const v = xbrainNum(patch.minNotional, state.strategy.minNotional, 1, 200000);
+    state.strategy.minNotional = v;
+    envUpdates.MIN_NOTIONAL = String(v);
+    changed.minNotional = v;
+  }
+  if (hasOwn(patch, 'maxNotional')) {
+    const floor = xbrainNum(
+      hasOwn(patch, 'minNotional') ? patch.minNotional : state.strategy.minNotional,
+      state.strategy.minNotional,
+      1,
+      200000,
+    );
+    const v = xbrainNum(patch.maxNotional, state.strategy.maxNotional, floor, 500000);
+    state.strategy.maxNotional = v;
+    envUpdates.MAX_NOTIONAL = String(v);
+    changed.maxNotional = v;
+  }
+  if (hasOwn(patch, 'runtimeMode')) {
+    const v = normalizeXbrainRuntimeMode(patch.runtimeMode);
+    state.strategy.runtimeMode = v;
+    envUpdates.DRY_RUN = v === 'dryrun' ? '1' : '0';
+    envUpdates.DRY_RUN_FORCE = v === 'dryrun' ? '1' : '0';
+    changed.runtimeMode = v;
+  }
+
+  state.strategy.updatedAt = now;
+  state.updatedAt = now;
+  if (Object.keys(envUpdates).length) writeEnvLocal(envUpdates);
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function setXbrainSectionLock(sectionLike, locked) {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return false;
+  lock.locked = Boolean(locked);
+  lock.updatedAt = nowIso();
+  const state = ensureXbrainState();
+  state.updatedAt = nowIso();
+  saveXbrainState();
+  return true;
+}
+
+function setXbrainSectionPassword(sectionLike, nextPasswordLike, currentPasswordLike = '') {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return { ok: false, status: 400, error: '不支持该配置区。' };
+  const nextPassword = String(nextPasswordLike || '').trim();
+  if (nextPassword.length < XBRAIN_PASSWORD_MIN_LEN) {
+    return {
+      ok: false,
+      status: 400,
+      error: '密码长度至少 ' + XBRAIN_PASSWORD_MIN_LEN + ' 位。',
+    };
+  }
+  const currentHash = String(lock.passwordHash || '').trim();
+  if (currentHash) {
+    const currentPassword = String(currentPasswordLike || '').trim();
+    if (!currentPassword || sha1(currentPassword) !== currentHash) {
+      return { ok: false, status: 403, error: '当前密码不正确。' };
+    }
+  }
+  lock.passwordHash = sha1(nextPassword);
+  lock.locked = true;
+  lock.updatedAt = nowIso();
+  const state = ensureXbrainState();
+  state.updatedAt = nowIso();
+  saveXbrainState();
+  return { ok: true, state: buildXbrainPublicState() };
 }
 
 function isPidAlive(pidLike) {
@@ -2544,6 +3052,7 @@ function buildTradingContext(clientContext, memoryContext) {
   const shortLayer = layeredMemory?.shortTerm || null;
   const topStrategy = Array.isArray(midLayer?.strategyWeights) ? midLayer.strategyWeights[0] || null : null;
   const topArtifact = Array.isArray(midLayer?.strategyArtifacts) ? midLayer.strategyArtifacts[0] || null : null;
+  const xbrain = buildXbrainModelContext();
 
   const digest = {
     symbol,
@@ -2563,6 +3072,8 @@ function buildTradingContext(clientContext, memoryContext) {
     topStrategyWeight: toNum(topStrategy?.weight),
     topArtifactId: topArtifact?.artifactId || null,
     topArtifactWeight: toNum(topArtifact?.learningWeight),
+    xbrainRuntimeMode: xbrain?.strategy?.runtimeMode || null,
+    xbrainChatChannel: xbrain?.base?.chatChannel || null,
   };
 
   const context = {
@@ -2588,13 +3099,19 @@ function buildTradingContext(clientContext, memoryContext) {
       currentTrade: currentOrder ? summarizeOrder(currentOrder) : null,
       runtimeTimeline,
     },
+    xbrain,
     uiActions: {
-      switchViews: ['dashboard', 'runtime', 'kline', 'history', 'backtest', 'xsea'],
+      switchViews: ['dashboard', 'runtime', 'kline', 'history', 'backtest', 'xsea', 'xbrain'],
       backtest: {
         strategy: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
         tf: ['1m', '5m', '15m', '1h', '4h', '1d'],
         artifactApi: '/api/strategy/artifacts',
         reportApi: '/api/strategy/artifacts/report',
+      },
+      xbrain: {
+        stateApi: '/api/xbrain/state',
+        updateApi: '/api/xbrain/update',
+        lockApi: '/api/xbrain/lock',
       },
     },
     clientContext:
@@ -2722,6 +3239,11 @@ function normalizeViewName(viewLike) {
     xsea: 'xsea',
     虾海: 'xsea',
     社区策略: 'xsea',
+    xbrain: 'xbrain',
+    虾脑: 'xbrain',
+    脑: 'xbrain',
+    config: 'xbrain',
+    配置: 'xbrain',
   };
   return alias[raw] || null;
 }
@@ -4022,6 +4544,7 @@ function buildOpenClawPrompt(message, context) {
     '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
     '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
     '上下文 strategy.artifacts 为已沉淀策略工件（含权重/表现）；可优先复用高权重工件并继续迭代。',
+    '上下文 xbrain 为当前配置中枢（模型/通道/交易参数/运行模式），生成动作时必须遵守这些约束。',
     '若信息不足，请直接说明缺失项，不得编造事实。',
     '',
     '输出要求（必须严格遵守）:',
@@ -4029,7 +4552,7 @@ function buildOpenClawPrompt(message, context) {
     '2) JSON 格式固定为：',
     '{"reply":"给用户看的中文回复","actions":[...]}',
     '3) actions 可选，最多 4 个。支持动作：',
-    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea"}',
+    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea|xbrain"}',
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
@@ -4157,6 +4680,9 @@ function looksLikeConfigIntent(message) {
   if (!text) return false;
   if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
   if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+  if (/(杠杆|leverage|单次|下单|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|chat.?channel|聊天通道)/i.test(text)) {
+    return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|运行|模式|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
+  }
   if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
     return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
   }
@@ -4207,6 +4733,61 @@ function parseConfigIntent(message) {
     if (/(开启|启用|on|true|1)/i.test(lower)) return { type: 'set_trade_push', value: '1' };
   }
 
+  if (
+    /(聊天|chat|channel|通道|渠道)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|同步)/i.test(text)
+  ) {
+    const hasTg = /(telegram|tg|电报)/i.test(text);
+    const hasLocal = /(本地|网页|dashboard|站内|页面)/i.test(text);
+    const hasBoth = /(双向|同步|both|都|一起)/i.test(text);
+    let channel = 'dashboard';
+    if ((hasTg && hasLocal) || hasBoth) channel = 'both';
+    else if (hasTg) channel = 'telegram';
+    return { type: 'set_chat_channel', channel };
+  }
+
+  if (
+    /(运行模式|模式|运行|dryrun|dry-run|live|实盘|模拟|仿真)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|调整)/i.test(text)
+  ) {
+    if (/(dryrun|dry-run|模拟|仿真)/i.test(text)) return { type: 'set_runtime_mode', mode: 'dryrun' };
+    if (/(实盘|live)/i.test(text)) return { type: 'set_runtime_mode', mode: 'live' };
+  }
+
+  const leverageMatch =
+    text.match(/(?:杠杆|leverage)[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i) ||
+    text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:倍|x|X)\s*(?:杠杆|leverage)?/i);
+  if (
+    leverageMatch &&
+    /(杠杆|leverage)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    return { type: 'set_strategy_leverage', leverage: Number(leverageMatch[1]) };
+  }
+
+  const orderSizeMatch =
+    text.match(/(?:单次|每次|单笔|下单|仓位|notional|size)[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i) ||
+    text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:u|usdt|刀)\s*(?:单次|每次|下单|仓位|notional|size)?/i);
+  if (
+    orderSizeMatch &&
+    /(单次|每次|单笔|下单|仓位|notional|size|金额|资金)/i.test(text) &&
+    /(配置|设置|修改|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    return { type: 'set_strategy_order_size', orderSize: Number(orderSizeMatch[1]) };
+  }
+
+  const riskMatch = text.match(/(?:风险|risk)(?:比例|百分比|pct|%|仓位)?[^0-9]{0,8}([0-9]+(?:\.[0-9]+)?)(\s*%?)/i);
+  if (
+    riskMatch &&
+    /(风险|risk|仓位)/i.test(text) &&
+    /(配置|设置|修改|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    let riskPct = Number(riskMatch[1]);
+    const maybePercent = String(riskMatch[2] || '').includes('%') || riskPct > 1;
+    if (maybePercent) riskPct = riskPct / 100;
+    return { type: 'set_strategy_risk_pct', riskPct };
+  }
+
   return { type: 'none' };
 }
 
@@ -4216,16 +4797,25 @@ function buildConfigStatusReply() {
   const tgAuto = String(envPairs.THUNDERCLAW_TELEGRAM_AUTO_REPLY || '1');
   const tgPush = String(envPairs.THUNDERCLAW_TELEGRAM_PUSH_TRADES || '1');
   const modelHint = String(envPairs.OPENCLAW_AGENT_ID || 'main');
+  const xbrain = buildXbrainPublicState();
   return [
     '当前配置状态：',
     '- OpenClaw Agent: ' + modelHint,
     '- Telegram Token: ' + maskMaybeSecret(tgToken),
     '- Telegram 自动回复: ' + (/^(1|true|yes|on)$/i.test(tgAuto) ? '开启' : '关闭'),
     '- Telegram 交易事件推送: ' + (/^(1|true|yes|on)$/i.test(tgPush) ? '开启' : '关闭'),
+    '- 虾脑基础配置锁: ' + (xbrain?.locks?.base?.locked ? '已锁定' : '已解锁'),
+    '- 虾脑交易配置锁: ' + (xbrain?.locks?.exchange?.locked ? '已锁定' : '已解锁'),
+    '- 虾脑运行模式: ' + (xbrain?.strategy?.runtimeMode === 'live' ? '实盘' : 'dryrun'),
+    '- 虾脑杠杆: ' + String(xbrain?.strategy?.leverage ?? '-'),
     '',
     '可直接发送：',
     '- 设置 Telegram token 123456:ABC...',
     '- 设置 DeepSeek key sk-xxxx',
+    '- 设置杠杆 12',
+    '- 设置单次下单 10u',
+    '- 设置风险比例 1.5%',
+    '- 切换运行模式为 dryrun / 实盘',
     '- 连接 ChatGPT/Codex',
     '- 关闭 Telegram 自动回复',
   ].join('\n');
@@ -4246,6 +4836,9 @@ async function handleConfigIntent(intent) {
     return { handled: true, reply: buildConfigStatusReply() };
   }
   if (intent.type === 'set_telegram_token') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再更新 Telegram token。' };
+    }
     const token = String(intent.token || '').trim();
     if (!token) return { handled: true, reply: 'Telegram token 为空，未更新。' };
     writeEnvLocal({
@@ -4270,6 +4863,9 @@ async function handleConfigIntent(intent) {
     return { handled: true, reply: 'Telegram 交易事件主动推送已' + (v === '1' ? '开启' : '关闭') + '。重启后生效。' };
   }
   if (intent.type === 'set_deepseek') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再更新模型。' };
+    }
     const apiKey = String(intent.apiKey || '').trim();
     if (!apiKey.toLowerCase().startsWith('sk-')) {
       return { handled: true, reply: 'DeepSeek key 格式不正确（需 sk- 开头）。' };
@@ -4288,6 +4884,7 @@ async function handleConfigIntent(intent) {
       await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
       await runOpenClawAdmin(['config', 'set', '--json', 'models.providers.deepseek', providerJson]);
       await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+      applyXbrainBasePatch({ modelProvider: 'deepseek', modelId }, { password: '' });
       return {
         handled: true,
         reply:
@@ -4301,7 +4898,55 @@ async function handleConfigIntent(intent) {
       return { handled: true, reply: '写入 DeepSeek 配置失败：' + safeErrMsg(err, 'unknown') };
     }
   }
+  if (intent.type === 'set_chat_channel') {
+    const out = applyXbrainBasePatch({ chatChannel: intent.channel }, { password: String(intent.password || '') });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新聊天通道失败。') };
+    return {
+      handled: true,
+      reply:
+        '聊天通道已更新为：' +
+        String(out.state?.base?.chatChannel || 'dashboard') +
+        '。该设置会同步给模型作为当前系统约束。',
+    };
+  }
+  if (intent.type === 'set_runtime_mode') {
+    const out = applyXbrainStrategyPatch({ runtimeMode: intent.mode });
+    return {
+      handled: true,
+      reply:
+        '运行模式已切换为：' +
+        (String(out.state?.strategy?.runtimeMode || '') === 'live' ? '实盘' : 'dryrun') +
+        '（已同步到策略参数与模型上下文）。',
+    };
+  }
+  if (intent.type === 'set_strategy_leverage') {
+    const out = applyXbrainStrategyPatch({ leverage: intent.leverage });
+    return {
+      handled: true,
+      reply: '杠杆已更新为 ' + String(out.state?.strategy?.leverage ?? '-') + ' 倍（已同步）。',
+    };
+  }
+  if (intent.type === 'set_strategy_order_size') {
+    const out = applyXbrainStrategyPatch({ orderSize: intent.orderSize });
+    return {
+      handled: true,
+      reply: '单次下单大小已更新为 ' + String(out.state?.strategy?.orderSize ?? '-') + ' USDT（已同步）。',
+    };
+  }
+  if (intent.type === 'set_strategy_risk_pct') {
+    const out = applyXbrainStrategyPatch({ riskPct: intent.riskPct });
+    return {
+      handled: true,
+      reply:
+        '风险比例已更新为 ' +
+        (Number(out.state?.strategy?.riskPct || 0) * 100).toFixed(2) +
+        '%（已同步）。',
+    };
+  }
   if (intent.type === 'connect_chatgpt') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再进行模型连接。' };
+    }
     return {
       handled: true,
       reply: [
@@ -4688,6 +5333,151 @@ async function handleConfigChatApi(req, res) {
   }
 }
 
+function handleXbrainStateApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    state: buildXbrainPublicState(),
+  });
+}
+
+async function handleXbrainUpdateApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const section = String(body.value?.section || '').trim().toLowerCase();
+  const values = body.value?.values && typeof body.value.values === 'object' ? body.value.values : {};
+  const password = String(body.value?.password || '').trim();
+  let out = null;
+  if (section === 'base') out = applyXbrainBasePatch(values, { password });
+  else if (section === 'exchange') out = applyXbrainExchangePatch(values, { password });
+  else if (section === 'strategy') out = applyXbrainStrategyPatch(values);
+  else {
+    sendJson(res, 400, { ok: false, error: 'section 必须是 base/exchange/strategy' });
+    return;
+  }
+  if (!out || out.ok !== true) {
+    sendJson(res, Number(out?.status || 400), {
+      ok: false,
+      error: String(out?.error || '更新失败'),
+      state: buildXbrainPublicState(),
+    });
+    return;
+  }
+  appendTraderMemory({
+    kind: 'config',
+    channel: 'dashboard',
+    tags: ['xbrain', section, 'update'],
+    content: '虾脑配置更新: section=' + section + ' keys=' + Object.keys(out.updated || {}).join(','),
+  });
+  sendJson(res, 200, {
+    ok: true,
+    section,
+    updated: out.updated || {},
+    state: out.state || buildXbrainPublicState(),
+  });
+}
+
+async function handleXbrainLockApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const section = String(body.value?.section || '').trim().toLowerCase();
+  const action = String(body.value?.action || '').trim().toLowerCase();
+  const password = String(body.value?.password || '').trim();
+  const currentPassword = String(body.value?.currentPassword || '').trim();
+  const lock = xbrainSectionLock(section);
+  if (!lock) {
+    sendJson(res, 400, { ok: false, error: '仅支持 base/exchange 的锁管理。' });
+    return;
+  }
+
+  if (action === 'unlock') {
+    if (!xbrainVerifyPassword(section, password)) {
+      sendJson(res, 403, { ok: false, error: '密码错误，无法解锁。', state: buildXbrainPublicState() });
+      return;
+    }
+    setXbrainSectionLock(section, false);
+    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'unlock'],
+      content: '虾脑配置区已解锁: ' + section,
+    });
+    return;
+  }
+  if (action === 'lock') {
+    if (password) {
+      const setPwd = setXbrainSectionPassword(section, password, currentPassword);
+      if (!setPwd.ok) {
+        sendJson(res, Number(setPwd.status || 400), {
+          ok: false,
+          error: String(setPwd.error || '设置密码失败'),
+          state: buildXbrainPublicState(),
+        });
+        return;
+      }
+    } else {
+      setXbrainSectionLock(section, true);
+    }
+    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'lock'],
+      content: '虾脑配置区已锁定: ' + section,
+    });
+    return;
+  }
+  if (action === 'set_password') {
+    const setPwd = setXbrainSectionPassword(section, password, currentPassword);
+    if (!setPwd.ok) {
+      sendJson(res, Number(setPwd.status || 400), {
+        ok: false,
+        error: String(setPwd.error || '设置密码失败'),
+        state: buildXbrainPublicState(),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      section,
+      action,
+      state: setPwd.state || buildXbrainPublicState(),
+    });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'password'],
+      content: '虾脑配置区密码已更新: ' + section,
+    });
+    return;
+  }
+  sendJson(res, 400, { ok: false, error: 'action 必须是 lock/unlock/set_password' });
+}
+
 function handleTelegramEventsApi(req, res) {
   if (String(req.method || 'GET').toUpperCase() !== 'GET') {
     res.statusCode = 405;
@@ -4790,6 +5580,7 @@ function handleMemoryHealthApi(req, res) {
       strategyWeights: STRATEGY_WEIGHTS_PATH,
       strategyArtifactsJsonl: STRATEGY_ARTIFACTS_JSONL_PATH,
       strategyArtifactsState: STRATEGY_ARTIFACTS_STATE_PATH,
+      xbrainState: XBRAIN_STATE_PATH,
     },
     totalEntries: traderMemoryState.entries.length,
     shortEntries: shortTermMemoryState.items.length,
@@ -4805,6 +5596,7 @@ function handleMemoryHealthApi(req, res) {
       lastUpdatedAt: strategyArtifactState.lastUpdatedAt,
       ranking: listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK),
     },
+    xbrain: buildXbrainPublicState(),
   });
 }
 
@@ -4941,6 +5733,7 @@ const server = http.createServer((req, res) => {
           topStrategy: healthMemory?.layers?.midTerm?.strategyWeights?.[0] || null,
           topArtifact: healthMemory?.layers?.midTerm?.strategyArtifacts?.[0] || null,
         },
+        xbrain: buildXbrainPublicState(),
         runtime: {
           serviceLock: {
             path: runtimeState.serviceLock.path,
@@ -4980,6 +5773,18 @@ const server = http.createServer((req, res) => {
     }
     if (url.pathname === '/api/telegram/health') {
       handleTelegramHealthApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/xbrain/state') {
+      handleXbrainStateApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/xbrain/update') {
+      await handleXbrainUpdateApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/xbrain/lock') {
+      await handleXbrainLockApi(req, res);
       return;
     }
     if (url.pathname === '/api/memory/health') {
@@ -5053,6 +5858,7 @@ loadTraderMemory();
 loadShortTermMemory();
 loadStrategyFeedbackState();
 loadStrategyArtifactState();
+loadXbrainState();
 rememberTradeOutcomesToMemory();
 learnStrategyWeightsFromTrades();
 buildMidTermMemoryProfile();
@@ -5082,6 +5888,7 @@ server.listen(PORT, () => {
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
   console.log('AI config channel: POST /api/config/chat');
+  console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Memory health: GET /api/memory/health?q=...');
   console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
@@ -5095,6 +5902,7 @@ server.listen(PORT, () => {
   );
   console.log('Strategy feedback: ' + STRATEGY_WEIGHTS_PATH);
   console.log('Strategy artifacts state: ' + STRATEGY_ARTIFACTS_STATE_PATH);
+  console.log('XBrain state: ' + XBRAIN_STATE_PATH);
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
