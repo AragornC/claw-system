@@ -3009,7 +3009,7 @@ function parseTradingGoalIntent(messageLike) {
     /我想|想要|希望|我要|帮我|请你|给我|来个|整一个|搞个|安排|run|execute|做一个|执行|开始|开跑/,
   ];
   const tradingDomain = [
-    /交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场/,
+    /交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场|快进快出|短线|长线|高频|激进|保守|稳一点|低回撤/,
     /\bbtc\b|\beth\b|\bsol\b|币/,
   ];
   const hasGoalVerb = goalVerbs.some((re) => re.test(lower));
