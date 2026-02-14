@@ -3015,8 +3015,11 @@ function parseTradingGoalIntent(messageLike) {
   const hasGoalVerb = goalVerbs.some((re) => re.test(lower));
   const hasTradingDomain = tradingDomain.some((re) => re.test(lower));
   const hasMoneyGoal = /(赚钱|挣钱|盈利|收益|赚点|盈利能力)/.test(lower);
+  const hasDirectiveGoal = /(稳一点|保守|激进|低回撤|高胜率|风险小|快进快出|短线|长线|降低风险|提高胜率)/.test(
+    lower,
+  );
   if (!hasTradingDomain && !hasMoneyGoal) return null;
-  if (!hasGoalVerb && !hasMoneyGoal) return null;
+  if (!hasGoalVerb && !hasMoneyGoal && !hasDirectiveGoal) return null;
   let goal = 'general';
   if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(lower)) goal = 'stability';
   else if (/(赚钱|挣钱|盈利|收益|多赚|利润|回报|翻倍)/.test(lower)) goal = 'profit';
