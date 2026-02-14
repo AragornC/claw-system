@@ -141,6 +141,8 @@ const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
 const TRADER_SHORT_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory-short.json');
 const TRADER_PROFILE_PATH = path.resolve(WORKDIR, 'memory/trader-mid-profile.json');
 const STRATEGY_WEIGHTS_PATH = path.resolve(WORKDIR, 'memory/strategy-feedback-weights.json');
+const STRATEGY_ARTIFACTS_JSONL_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts.jsonl');
+const STRATEGY_ARTIFACTS_STATE_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts-state.json');
 const TRADER_MEMORY_MAX_ITEMS = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
@@ -187,6 +189,24 @@ const STRATEGY_FEEDBACK_PROCESSED_MAX = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_PROCESSED_MAX, 6000),
 );
+const STRATEGY_ARTIFACTS_MAX_ITEMS = Math.max(
+  80,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_MAX_ITEMS, 1200),
+);
+const STRATEGY_ARTIFACTS_REPORT_KEYS_MAX = Math.max(
+  200,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_REPORT_KEYS_MAX, 6000),
+);
+const STRATEGY_ARTIFACTS_TOPK = Math.max(
+  3,
+  Math.min(24, positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_TOPK, 8)),
+);
+const STRATEGY_ARTIFACT_LR = Math.max(
+  0.02,
+  Math.min(1, Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_LR || '0.18')),
+);
+const STRATEGY_ARTIFACT_MIN_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_MIN_WEIGHT || '-2');
+const STRATEGY_ARTIFACT_MAX_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_MAX_WEIGHT || '2');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -230,6 +250,13 @@ const strategyFeedbackState = {
   processedTradeKeys: new Set(),
   strategies: {},
   lastLearnAt: null,
+  lastSavedAt: null,
+};
+const strategyArtifactState = {
+  loaded: false,
+  artifacts: {},
+  reportKeys: new Set(),
+  lastUpdatedAt: null,
   lastSavedAt: null,
 };
 const midTermMemoryState = {
@@ -1374,10 +1401,726 @@ function applyUserStrategyFeedback(messageLike, channel = 'dashboard') {
   };
 }
 
+function clampArtifactWeight(value) {
+  const maxW = Number.isFinite(STRATEGY_ARTIFACT_MAX_WEIGHT) ? STRATEGY_ARTIFACT_MAX_WEIGHT : 2;
+  const minW = Number.isFinite(STRATEGY_ARTIFACT_MIN_WEIGHT) ? STRATEGY_ARTIFACT_MIN_WEIGHT : -2;
+  return clampNum(Number(value) || 0, Math.min(minW, maxW), Math.max(minW, maxW)) || 0;
+}
+
+function strategyArtifactStrength(recordLike) {
+  const rec = recordLike && typeof recordLike === 'object' ? recordLike : {};
+  const reports = Math.max(0, Number(rec?.stats?.reports) || 0);
+  const avgPnl = Number(rec?.stats?.avgNetPnlPct) || 0;
+  const conf = Math.max(0, Math.min(1, Math.log1p(reports) / Math.log(16)));
+  return (
+    (Number(rec.learningWeight) || 0) * 0.5 +
+    (Number(rec.scoreEma) || 0) * 0.35 +
+    conf * 0.1 +
+    Math.max(-0.3, Math.min(0.4, avgPnl / 80))
+  );
+}
+
+function defaultStrategyArtifactRecord(initLike = {}) {
+  const init = initLike && typeof initLike === 'object' ? initLike : {};
+  return {
+    artifactId: String(init.artifactId || ''),
+    configHash: String(init.configHash || ''),
+    label: truncText(String(init.label || ''), 80) || 'strategy-artifact',
+    strategyType: String(init.strategyType || 'custom'),
+    source: String(init.source || 'dashboard'),
+    query: truncText(String(init.query || ''), 260) || null,
+    config: init.config && typeof init.config === 'object' ? init.config : {},
+    version: 0,
+    createdAt: init.createdAt || nowIso(),
+    updatedAt: init.updatedAt || nowIso(),
+    lastUsedAt: init.lastUsedAt || nowIso(),
+    lastResult: null,
+    scoreEma: 0,
+    learningWeight: 0,
+    feedbackCount: 0,
+    positiveFeedback: 0,
+    negativeFeedback: 0,
+    stats: {
+      reports: 0,
+      totalTrades: 0,
+      avgWinRate: 0,
+      avgNetPnlPct: 0,
+      avgDrawdownPct: 0,
+      bestNetPnlPct: null,
+      worstDrawdownPct: null,
+      lastReward: 0,
+      lastSource: null,
+      lastReason: null,
+      lastUpdatedAt: null,
+    },
+  };
+}
+
+function normalizeArtifactConfig(configLike) {
+  const cfg = configLike && typeof configLike === 'object' ? configLike : {};
+  const out = {};
+  const strategy = String(cfg.strategy || '').trim();
+  const tf = String(cfg.tf || '').trim();
+  if (strategy) out.strategy = strategy.slice(0, 64);
+  if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) out.tf = tf;
+  const bars = clampNum(cfg.bars, 80, 20000);
+  const feeBps = clampNum(cfg.feeBps, 0, 100);
+  const stopAtr = clampNum(cfg.stopAtr, 0.2, 20);
+  const tpAtr = clampNum(cfg.tpAtr, 0.2, 40);
+  const maxHold = clampNum(cfg.maxHold, 1, 3000);
+  if (bars != null) out.bars = Math.round(bars);
+  if (feeBps != null) out.feeBps = Number(feeBps);
+  if (stopAtr != null) out.stopAtr = Number(stopAtr);
+  if (tpAtr != null) out.tpAtr = Number(tpAtr);
+  if (maxHold != null) out.maxHold = Math.round(maxHold);
+  const custom = cfg.custom && typeof cfg.custom === 'object' ? cfg.custom : {};
+  const customOut = {};
+  const lookback = clampNum(custom.lookback, 2, 500);
+  const retestWindow = clampNum(custom.retestWindow, 1, 300);
+  const reentryWindow = clampNum(custom.reentryWindow, 1, 500);
+  const retestTolAtr = clampNum(custom.retestTolAtr, 0.01, 8);
+  const reentryTolAtr = clampNum(custom.reentryTolAtr, 0.01, 12);
+  const biasAdxMin = clampNum(custom.biasAdxMin, 0, 100);
+  const biasEmaFast = clampNum(custom.biasEmaFast, 2, 600);
+  const biasEmaSlow = clampNum(custom.biasEmaSlow, 2, 800);
+  const entryEma = clampNum(custom.entryEma, 2, 600);
+  if (lookback != null) customOut.lookback = Math.round(lookback);
+  if (retestWindow != null) customOut.retestWindow = Math.round(retestWindow);
+  if (reentryWindow != null) customOut.reentryWindow = Math.round(reentryWindow);
+  if (retestTolAtr != null) customOut.retestTolAtr = Number(retestTolAtr);
+  if (reentryTolAtr != null) customOut.reentryTolAtr = Number(reentryTolAtr);
+  if (biasAdxMin != null) customOut.biasAdxMin = Number(biasAdxMin);
+  if (biasEmaFast != null) customOut.biasEmaFast = Math.round(biasEmaFast);
+  if (biasEmaSlow != null) customOut.biasEmaSlow = Math.round(biasEmaSlow);
+  if (entryEma != null) customOut.entryEma = Math.round(entryEma);
+  if (typeof custom.allowRetest === 'boolean') customOut.allowRetest = custom.allowRetest;
+  if (typeof custom.allowReentry === 'boolean') customOut.allowReentry = custom.allowReentry;
+  if (typeof custom.allowBreakout === 'boolean') customOut.allowBreakout = custom.allowBreakout;
+  if (['long', 'short', 'both'].includes(String(custom.side || ''))) customOut.side = String(custom.side);
+  if (Object.keys(customOut).length) out.custom = customOut;
+  const dsl = normalizeStrategyDslSpec(cfg.dsl || cfg.spec);
+  if (Object.keys(dsl).length) out.dsl = dsl;
+  return out;
+}
+
+function normalizeArtifactResult(resultLike) {
+  const src = resultLike && typeof resultLike === 'object' ? resultLike : {};
+  const strategy = String(src.strategy || '').trim();
+  const tf = String(src.tf || '').trim();
+  const bars = clampNum(src.bars, 0, 20000);
+  const tradeCount = clampNum(src.tradeCount != null ? src.tradeCount : src.trades, 0, 50000);
+  const winRate = clampNum(src.winRate, 0, 100);
+  const netPnlPct = clampNum(src.netPnlPct != null ? src.netPnlPct : src.totalPnlPct, -1000, 2000);
+  const maxDrawdownPct = clampNum(src.maxDrawdownPct, 0, 1000);
+  const avgPnlPct = clampNum(src.avgPnlPct, -100, 100);
+  return {
+    strategy: strategy || null,
+    tf: tf || null,
+    bars: bars != null ? Math.round(bars) : null,
+    tradeCount: tradeCount != null ? Math.round(tradeCount) : 0,
+    winRate: winRate != null ? Number(winRate) : 0,
+    netPnlPct: netPnlPct != null ? Number(netPnlPct) : 0,
+    maxDrawdownPct: maxDrawdownPct != null ? Number(maxDrawdownPct) : 0,
+    avgPnlPct: avgPnlPct != null ? Number(avgPnlPct) : 0,
+  };
+}
+
+function normalizeStrategyArtifactReport(reportLike) {
+  const src = reportLike && typeof reportLike === 'object' ? reportLike : {};
+  const ts = src.ts || nowIso();
+  const source = truncText(String(src.source || 'dashboard'), 32);
+  const query = truncText(redactSecrets(src.query || src.userQuery || ''), 320) || null;
+  const config = normalizeArtifactConfig(src.config);
+  const result = normalizeArtifactResult(src.result);
+  const configHash = sha1(JSON.stringify(config));
+  const strategyType = config.dsl
+    ? 'dsl'
+    : config.custom
+      ? 'custom'
+      : String(config.strategy || result.strategy || 'preset').toLowerCase();
+  const label =
+    truncText(
+      String(
+        src.label ||
+          config.dsl?.name ||
+          (strategyType === 'dsl' ? (config.strategy || result.strategy || 'dsl') : config.strategy || result.strategy || 'custom'),
+      ),
+      80,
+    ) || 'strategy-artifact';
+  const artifactId = /^art-[a-f0-9]{8,20}$/i.test(String(src.artifactId || ''))
+    ? String(src.artifactId).toLowerCase()
+    : 'art-' + configHash.slice(0, 12);
+  const reportKey =
+    String(src.reportKey || '').trim() ||
+    sha1(
+      [
+        artifactId,
+        configHash,
+        String(result.tradeCount),
+        String(result.winRate),
+        String(result.netPnlPct),
+        String(result.maxDrawdownPct),
+        String(toMs(ts) || Date.now()),
+      ].join('|'),
+    ).slice(0, 32);
+  return {
+    ts,
+    source,
+    query,
+    artifactId,
+    reportKey,
+    label,
+    strategyType,
+    configHash,
+    config,
+    result,
+  };
+}
+
+function scoreArtifactFromResultMetrics(metricsLike) {
+  const m = metricsLike && typeof metricsLike === 'object' ? metricsLike : {};
+  const trades = Math.max(0, Number(m.tradeCount) || 0);
+  const winRate = Math.max(0, Math.min(100, Number(m.winRate) || 0)) / 100;
+  const pnl = Math.tanh((Number(m.netPnlPct) || 0) / 16);
+  const dd = Math.max(0, Number(m.maxDrawdownPct) || 0);
+  const ddPenalty = Math.tanh(dd / 28);
+  const tradeScore = Math.min(1, trades / 180);
+  return clampNum(winRate * 0.45 + pnl * 0.35 + tradeScore * 0.15 - ddPenalty * 0.25, -1, 1) || 0;
+}
+
+function loadStrategyArtifactState() {
+  if (strategyArtifactState.loaded) return;
+  strategyArtifactState.loaded = true;
+  strategyArtifactState.artifacts = {};
+  strategyArtifactState.reportKeys = new Set();
+  const parsed = safeJsonRead(STRATEGY_ARTIFACTS_STATE_PATH, {});
+  if (parsed && typeof parsed === 'object') {
+    const source = parsed.artifacts && typeof parsed.artifacts === 'object' ? parsed.artifacts : {};
+    for (const [id, raw] of Object.entries(source)) {
+      if (!/^art-[a-f0-9]{8,20}$/i.test(id)) continue;
+      const rec = raw && typeof raw === 'object' ? raw : {};
+      const base = defaultStrategyArtifactRecord({
+        artifactId: String(id).toLowerCase(),
+        configHash: String(rec.configHash || ''),
+        label: String(rec.label || ''),
+        strategyType: String(rec.strategyType || 'custom'),
+        source: String(rec.source || 'dashboard'),
+        query: rec.query || null,
+        config: normalizeArtifactConfig(rec.config),
+        createdAt: rec.createdAt || nowIso(),
+        updatedAt: rec.updatedAt || nowIso(),
+        lastUsedAt: rec.lastUsedAt || rec.updatedAt || nowIso(),
+      });
+      base.version = Math.max(0, Number(rec.version) || 0);
+      base.lastResult = normalizeArtifactResult(rec.lastResult);
+      base.scoreEma = clampNum(rec.scoreEma, -1, 1) || 0;
+      base.learningWeight = clampArtifactWeight(rec.learningWeight);
+      base.feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0);
+      base.positiveFeedback = Math.max(0, Number(rec.positiveFeedback) || 0);
+      base.negativeFeedback = Math.max(0, Number(rec.negativeFeedback) || 0);
+      const stats = rec.stats && typeof rec.stats === 'object' ? rec.stats : {};
+      base.stats = {
+        reports: Math.max(0, Number(stats.reports) || 0),
+        totalTrades: Math.max(0, Number(stats.totalTrades) || 0),
+        avgWinRate: Number(stats.avgWinRate) || 0,
+        avgNetPnlPct: Number(stats.avgNetPnlPct) || 0,
+        avgDrawdownPct: Number(stats.avgDrawdownPct) || 0,
+        bestNetPnlPct:
+          Number.isFinite(Number(stats.bestNetPnlPct)) ? Number(stats.bestNetPnlPct) : null,
+        worstDrawdownPct:
+          Number.isFinite(Number(stats.worstDrawdownPct)) ? Number(stats.worstDrawdownPct) : null,
+        lastReward: clampNum(stats.lastReward, -1, 1) || 0,
+        lastSource: stats.lastSource || null,
+        lastReason: stats.lastReason || null,
+        lastUpdatedAt: stats.lastUpdatedAt || null,
+      };
+      strategyArtifactState.artifacts[base.artifactId] = base;
+    }
+    const reportKeys = Array.isArray(parsed.reportKeys)
+      ? parsed.reportKeys.map((x) => String(x)).filter(Boolean)
+      : [];
+    strategyArtifactState.reportKeys = new Set(reportKeys.slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX));
+    strategyArtifactState.lastUpdatedAt = parsed.lastUpdatedAt || null;
+    return;
+  }
+  const rows = readJsonlFile(STRATEGY_ARTIFACTS_JSONL_PATH, STRATEGY_ARTIFACTS_MAX_ITEMS * 2);
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    registerStrategyArtifactReport(row, { skipPersist: true, source: 'rebuild' });
+  }
+}
+
+function trimStrategyArtifactState() {
+  const entries = Object.values(strategyArtifactState.artifacts || {});
+  if (entries.length > STRATEGY_ARTIFACTS_MAX_ITEMS) {
+    entries.sort((a, b) => (toMs(b.updatedAt) || 0) - (toMs(a.updatedAt) || 0));
+    const keep = entries.slice(0, STRATEGY_ARTIFACTS_MAX_ITEMS);
+    strategyArtifactState.artifacts = {};
+    keep.forEach((r) => {
+      strategyArtifactState.artifacts[r.artifactId] = r;
+    });
+  }
+  const keys = Array.from(strategyArtifactState.reportKeys);
+  if (keys.length > STRATEGY_ARTIFACTS_REPORT_KEYS_MAX) {
+    strategyArtifactState.reportKeys = new Set(keys.slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX));
+  }
+}
+
+function saveStrategyArtifactState() {
+  loadStrategyArtifactState();
+  trimStrategyArtifactState();
+  const payload = {
+    version: 1,
+    updatedAt: nowIso(),
+    reportKeys: Array.from(strategyArtifactState.reportKeys).slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX),
+    artifacts: strategyArtifactState.artifacts,
+  };
+  const ok = safeJsonWrite(STRATEGY_ARTIFACTS_STATE_PATH, payload, true);
+  if (ok) strategyArtifactState.lastSavedAt = nowIso();
+}
+
+function applyArtifactLearning(updateLike) {
+  loadStrategyArtifactState();
+  const u = updateLike && typeof updateLike === 'object' ? updateLike : {};
+  const artifactId = /^art-[a-f0-9]{8,20}$/i.test(String(u.artifactId || ''))
+    ? String(u.artifactId).toLowerCase()
+    : null;
+  if (!artifactId) return { ok: false, reason: 'invalid_artifact_id' };
+  const reward = clampNum(Number(u.reward), -1, 1);
+  if (!Number.isFinite(reward)) return { ok: false, reason: 'invalid_reward' };
+  const rec = strategyArtifactState.artifacts[artifactId];
+  if (!rec) return { ok: false, reason: 'not_found', artifactId };
+  const oldWeight = Number(rec.learningWeight) || 0;
+  const nextWeight = clampArtifactWeight(oldWeight * (1 - STRATEGY_ARTIFACT_LR * 0.1) + STRATEGY_ARTIFACT_LR * reward);
+  rec.learningWeight = nextWeight;
+  rec.scoreEma = clampNum((Number(rec.scoreEma) || 0) * 0.86 + reward * 0.14, -1, 1) || 0;
+  rec.updatedAt = u.ts || nowIso();
+  rec.lastUsedAt = rec.updatedAt;
+  rec.stats.lastReward = reward;
+  rec.stats.lastSource = u.source || 'feedback';
+  rec.stats.lastReason = truncText(String(u.reason || ''), 220) || null;
+  rec.stats.lastUpdatedAt = rec.updatedAt;
+  if (u.source === 'feedback') {
+    rec.feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0) + 1;
+    if (reward >= 0) rec.positiveFeedback = Math.max(0, Number(rec.positiveFeedback) || 0) + 1;
+    else rec.negativeFeedback = Math.max(0, Number(rec.negativeFeedback) || 0) + 1;
+  }
+  saveStrategyArtifactState();
+  return {
+    ok: true,
+    artifactId,
+    oldWeight: Number(oldWeight.toFixed(4)),
+    newWeight: Number(nextWeight.toFixed(4)),
+    scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+    reward: Number(reward.toFixed(4)),
+  };
+}
+
+function registerStrategyArtifactReport(reportLike, options = {}) {
+  loadStrategyArtifactState();
+  const skipPersist = Boolean(options.skipPersist);
+  const normalized = normalizeStrategyArtifactReport(reportLike);
+  const existingKey = strategyArtifactState.reportKeys.has(normalized.reportKey);
+  if (existingKey) {
+    const rec = strategyArtifactState.artifacts[normalized.artifactId];
+    return {
+      ok: true,
+      duplicate: true,
+      artifactId: normalized.artifactId,
+      version: rec ? rec.version : null,
+      record: rec || null,
+    };
+  }
+  const now = normalized.ts || nowIso();
+  const artifactId = normalized.artifactId;
+  const rec =
+    strategyArtifactState.artifacts[artifactId] ||
+    defaultStrategyArtifactRecord({
+      artifactId,
+      configHash: normalized.configHash,
+      label: normalized.label,
+      strategyType: normalized.strategyType,
+      source: normalized.source,
+      query: normalized.query,
+      config: normalized.config,
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+    });
+  if (!strategyArtifactState.artifacts[artifactId]) {
+    strategyArtifactState.artifacts[artifactId] = rec;
+  }
+  rec.version = Math.max(0, Number(rec.version) || 0) + 1;
+  rec.updatedAt = now;
+  rec.lastUsedAt = now;
+  rec.label = normalized.label || rec.label;
+  rec.source = normalized.source || rec.source;
+  rec.query = normalized.query || rec.query;
+  rec.strategyType = normalized.strategyType || rec.strategyType;
+  rec.configHash = normalized.configHash || rec.configHash;
+  rec.config = normalized.config;
+  rec.lastResult = normalized.result;
+  rec.stats.reports = Math.max(0, Number(rec.stats.reports) || 0) + 1;
+  rec.stats.totalTrades = Math.max(0, Number(rec.stats.totalTrades) || 0) + Math.max(0, Number(normalized.result.tradeCount) || 0);
+  const n = rec.stats.reports;
+  rec.stats.avgWinRate =
+    n <= 1
+      ? Number(normalized.result.winRate) || 0
+      : ((Number(rec.stats.avgWinRate) || 0) * (n - 1) + (Number(normalized.result.winRate) || 0)) / n;
+  rec.stats.avgNetPnlPct =
+    n <= 1
+      ? Number(normalized.result.netPnlPct) || 0
+      : ((Number(rec.stats.avgNetPnlPct) || 0) * (n - 1) + (Number(normalized.result.netPnlPct) || 0)) / n;
+  rec.stats.avgDrawdownPct =
+    n <= 1
+      ? Number(normalized.result.maxDrawdownPct) || 0
+      : ((Number(rec.stats.avgDrawdownPct) || 0) * (n - 1) + (Number(normalized.result.maxDrawdownPct) || 0)) / n;
+  if (rec.stats.bestNetPnlPct == null || Number(normalized.result.netPnlPct) > Number(rec.stats.bestNetPnlPct)) {
+    rec.stats.bestNetPnlPct = Number(normalized.result.netPnlPct) || 0;
+  }
+  if (
+    rec.stats.worstDrawdownPct == null ||
+    Number(normalized.result.maxDrawdownPct) > Number(rec.stats.worstDrawdownPct)
+  ) {
+    rec.stats.worstDrawdownPct = Number(normalized.result.maxDrawdownPct) || 0;
+  }
+  const reward = scoreArtifactFromResultMetrics(normalized.result);
+  applyArtifactLearning({
+    artifactId,
+    reward,
+    source: 'backtest',
+    reason:
+      'report:' +
+      (normalized.result.strategy || '-') +
+      ' wr=' +
+      Number(normalized.result.winRate || 0).toFixed(2) +
+      ' pnl=' +
+      Number(normalized.result.netPnlPct || 0).toFixed(2),
+    ts: now,
+  });
+  strategyArtifactState.reportKeys.add(normalized.reportKey);
+  strategyArtifactState.lastUpdatedAt = nowIso();
+  trimStrategyArtifactState();
+  if (!skipPersist) {
+    try {
+      fs.mkdirSync(path.dirname(STRATEGY_ARTIFACTS_JSONL_PATH), { recursive: true });
+      fs.appendFileSync(
+        STRATEGY_ARTIFACTS_JSONL_PATH,
+        JSON.stringify({
+          ts: now,
+          source: normalized.source,
+          artifactId,
+          reportKey: normalized.reportKey,
+          version: rec.version,
+          label: rec.label,
+          strategyType: rec.strategyType,
+          configHash: rec.configHash,
+          config: rec.config,
+          result: normalized.result,
+          reward: Number(reward.toFixed(4)),
+          learningWeight: Number(rec.learningWeight || 0),
+          scoreEma: Number(rec.scoreEma || 0),
+          query: normalized.query || null,
+        }) + '\n',
+        'utf8',
+      );
+    } catch {}
+    appendTraderMemory({
+      key: 'strategy-artifact:' + normalized.reportKey,
+      ts: now,
+      kind: 'strategy_artifact',
+      channel: normalized.source || 'dashboard',
+      tags: ['strategy', 'artifact', rec.strategyType || 'custom'],
+      content: [
+        '策略工件更新',
+        'id=' + artifactId + ' v' + String(rec.version),
+        'type=' + String(rec.strategyType || '-'),
+        'label=' + String(rec.label || '-'),
+        'wr=' + String(Number(normalized.result.winRate || 0).toFixed(2)) + '%',
+        'trades=' + String(Math.max(0, Number(normalized.result.tradeCount) || 0)),
+        'pnl=' + String(Number(normalized.result.netPnlPct || 0).toFixed(2)) + '%',
+        'dd=' + String(Number(normalized.result.maxDrawdownPct || 0).toFixed(2)) + '%',
+        'weight=' + String(Number(rec.learningWeight || 0).toFixed(4)),
+      ].join(' | '),
+    });
+  }
+  saveStrategyArtifactState();
+  return {
+    ok: true,
+    duplicate: false,
+    artifactId,
+    version: rec.version,
+    reward: Number(reward.toFixed(4)),
+    learningWeight: Number((Number(rec.learningWeight) || 0).toFixed(4)),
+    scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+    strength: Number(strategyArtifactStrength(rec).toFixed(4)),
+    record: rec,
+  };
+}
+
+function listStrategyArtifacts(limit = STRATEGY_ARTIFACTS_TOPK, query = '') {
+  loadStrategyArtifactState();
+  const q = String(query || '').trim().toLowerCase();
+  const rows = Object.values(strategyArtifactState.artifacts || {}).map((rec) => {
+    const strength = strategyArtifactStrength(rec);
+    return {
+      artifactId: rec.artifactId,
+      label: rec.label || null,
+      strategyType: rec.strategyType || null,
+      source: rec.source || null,
+      version: Math.max(0, Number(rec.version) || 0),
+      configHash: rec.configHash || null,
+      tf: rec?.config?.tf || rec?.lastResult?.tf || null,
+      bars: Number(rec?.config?.bars || rec?.lastResult?.bars || 0) || null,
+      learningWeight: Number((Number(rec.learningWeight) || 0).toFixed(4)),
+      scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+      strength: Number(strength.toFixed(4)),
+      feedbackCount: Math.max(0, Number(rec.feedbackCount) || 0),
+      reports: Math.max(0, Number(rec?.stats?.reports) || 0),
+      totalTrades: Math.max(0, Number(rec?.stats?.totalTrades) || 0),
+      avgWinRate: Number((Number(rec?.stats?.avgWinRate) || 0).toFixed(2)),
+      avgNetPnlPct: Number((Number(rec?.stats?.avgNetPnlPct) || 0).toFixed(3)),
+      avgDrawdownPct: Number((Number(rec?.stats?.avgDrawdownPct) || 0).toFixed(3)),
+      bestNetPnlPct:
+        rec?.stats?.bestNetPnlPct == null ? null : Number(Number(rec.stats.bestNetPnlPct).toFixed(3)),
+      worstDrawdownPct:
+        rec?.stats?.worstDrawdownPct == null ? null : Number(Number(rec.stats.worstDrawdownPct).toFixed(3)),
+      lastResult: rec.lastResult || null,
+      config: rec.config || null,
+      updatedAt: rec.updatedAt || null,
+      createdAt: rec.createdAt || null,
+      query: rec.query || null,
+    };
+  });
+  const filtered = q
+    ? rows.filter((r) => {
+        const text = [
+          r.artifactId,
+          r.label,
+          r.strategyType,
+          r.source,
+          r.tf,
+          r.query,
+          r?.config?.strategy,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return text.includes(q);
+      })
+    : rows;
+  filtered.sort(
+    (a, b) =>
+      Number(b.strength || 0) - Number(a.strength || 0) ||
+      (toMs(b.updatedAt) || 0) - (toMs(a.updatedAt) || 0) ||
+      Number(b.reports || 0) - Number(a.reports || 0),
+  );
+  return filtered.slice(0, Math.max(1, Math.min(100, Number(limit) || STRATEGY_ARTIFACTS_TOPK)));
+}
+
+function strategyArtifactToAction(recordLike) {
+  const rec = recordLike && typeof recordLike === 'object' ? recordLike : null;
+  if (!rec) return null;
+  const cfg = rec.config && typeof rec.config === 'object' ? rec.config : {};
+  const base = {};
+  if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(String(cfg.tf || ''))) base.tf = String(cfg.tf);
+  if (Number.isFinite(Number(cfg.bars))) base.bars = Number(cfg.bars);
+  if (Number.isFinite(Number(cfg.feeBps))) base.feeBps = Number(cfg.feeBps);
+  if (Number.isFinite(Number(cfg.stopAtr))) base.stopAtr = Number(cfg.stopAtr);
+  if (Number.isFinite(Number(cfg.tpAtr))) base.tpAtr = Number(cfg.tpAtr);
+  if (Number.isFinite(Number(cfg.maxHold))) base.maxHold = Number(cfg.maxHold);
+  if (cfg.dsl && typeof cfg.dsl === 'object') {
+    return {
+      type: 'run_strategy_dsl',
+      artifactId: rec.artifactId,
+      ...base,
+      dsl: normalizeStrategyDslSpec(cfg.dsl),
+    };
+  }
+  if (cfg.custom && typeof cfg.custom === 'object') {
+    return {
+      type: 'run_custom_backtest',
+      artifactId: rec.artifactId,
+      strategy: String(cfg.strategy || 'custom'),
+      ...base,
+      custom: cfg.custom,
+    };
+  }
+  return {
+    type: 'run_backtest',
+    artifactId: rec.artifactId,
+    strategy: String(cfg.strategy || rec?.lastResult?.strategy || 'v5_hybrid'),
+    ...base,
+  };
+}
+
+function parseStrategyArtifactFeedbackIntent(messageLike) {
+  const text = String(messageLike || '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const explicit = /^(反馈工件|工件反馈|artifact\s*feedback|strategy\s*artifact\s*feedback)\s*[:：]?\s*/i.test(
+    text,
+  );
+  const hasArtifactWord = /(工件|artifact|art-[a-f0-9]{8,20})/i.test(text);
+  if (!explicit && !hasArtifactWord) return null;
+  const idMatch = text.match(/\b(art-[a-f0-9]{8,20})\b/i);
+  let artifactId = idMatch ? String(idMatch[1]).toLowerCase() : null;
+  if (!artifactId) {
+    artifactId = listStrategyArtifacts(1)[0]?.artifactId || null;
+  }
+  if (!artifactId) {
+    return {
+      explicit: true,
+      artifactId: null,
+      reward: null,
+      handled: true,
+      reason: 'no_artifact',
+    };
+  }
+  let reward = null;
+  const numMatch = text.match(/(?:^|[\s:：,，])([+-]?\d+(?:\.\d+)?)(?=$|[\s,，。!！])/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    if (Number.isFinite(n)) reward = Math.abs(n) > 1 ? clampNum(n / 2, -1, 1) : clampNum(n, -1, 1);
+  }
+  if (reward == null) {
+    const positive = /(看好|很好|不错|有效|有用|收益|盈利|继续|增强|加强|喜欢|稳|牛|赚|good|great|works?)/i.test(
+      lower,
+    );
+    const negative = /(不好|很差|失效|无效|亏损|回撤|太激进|风险高|停用|减弱|削弱|讨厌|bad|poor|worse|loss)/i.test(
+      lower,
+    );
+    if (positive && !negative) reward = 0.55;
+    else if (negative && !positive) reward = -0.55;
+    else if (positive && negative) reward = -0.15;
+  }
+  if (reward == null && explicit) {
+    return { explicit, artifactId, reward: null, handled: true, reason: 'missing_sentiment' };
+  }
+  if (reward == null) return null;
+  return {
+    explicit: Boolean(explicit),
+    artifactId,
+    reward: clampNum(reward, -1, 1) || 0,
+  };
+}
+
+function applyUserStrategyArtifactFeedback(messageLike, channel = 'dashboard') {
+  const intent = parseStrategyArtifactFeedbackIntent(messageLike);
+  if (!intent) return { handled: false };
+  if (!intent.artifactId) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: true,
+      reply: '未找到可反馈的策略工件。先运行一次策略回验，系统会自动沉淀工件。',
+    };
+  }
+  if (intent.reward == null) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: true,
+      artifactId: intent.artifactId,
+      reply: '已识别为工件反馈，但未识别到正/负方向。示例：反馈工件 ' + intent.artifactId + ' +0.6',
+    };
+  }
+  const updated = applyArtifactLearning({
+    artifactId: intent.artifactId,
+    reward: intent.reward,
+    source: 'feedback',
+    reason: truncText(String(messageLike || ''), 220),
+    ts: nowIso(),
+  });
+  if (!updated?.ok) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: Boolean(intent.explicit),
+      artifactId: intent.artifactId,
+      reply: '工件反馈失败：' + String(updated?.reason || 'unknown'),
+    };
+  }
+  const top = listStrategyArtifacts(12).find((x) => x.artifactId === intent.artifactId) || null;
+  appendTraderMemory({
+    key: 'strategy-artifact-feedback:' + sha1(String(messageLike || '') + ':' + nowIso()).slice(0, 24),
+    ts: nowIso(),
+    kind: 'strategy_artifact_feedback',
+    channel,
+    tags: ['strategy', 'artifact', 'user_feedback', intent.artifactId],
+    content:
+      '工件反馈(用户) | artifact=' +
+      intent.artifactId +
+      ' | reward=' +
+      String(Number(intent.reward).toFixed(4)) +
+      ' | text=' +
+      redactSecrets(messageLike),
+  });
+  return {
+    handled: true,
+    applied: true,
+    explicit: Boolean(intent.explicit),
+    artifactId: intent.artifactId,
+    reward: intent.reward,
+    learningWeight: top?.learningWeight ?? null,
+    strength: top?.strength ?? null,
+    reply:
+      '已记录工件反馈：' +
+      intent.artifactId +
+      ' ' +
+      (intent.reward >= 0 ? '+' : '') +
+      Number(intent.reward).toFixed(2) +
+      '（当前权重=' +
+      (top ? Number(top.learningWeight).toFixed(3) : Number(updated.newWeight || 0).toFixed(3)) +
+      '）',
+  };
+}
+
+function buildStrategyArtifactStatusReply(limit = 6) {
+  const rows = listStrategyArtifacts(limit);
+  if (!rows.length) {
+    return [
+      '策略工件：暂无记录。',
+      '提示：运行策略回验后，系统会自动沉淀工件并进入闭环学习。',
+    ].join('\n');
+  }
+  const list = rows.map((r, idx) => {
+    const pnl = Number(r.avgNetPnlPct || 0);
+    return (
+      String(idx + 1) +
+      '. ' +
+      r.artifactId +
+      ' · ' +
+      (r.label || '-') +
+      ' · type=' +
+      (r.strategyType || '-') +
+      ' · v' +
+      String(r.version || 0) +
+      ' · 权重=' +
+      Number(r.learningWeight || 0).toFixed(3) +
+      ' · 胜率=' +
+      Number(r.avgWinRate || 0).toFixed(1) +
+      '% · PnL=' +
+      (pnl >= 0 ? '+' : '') +
+      pnl.toFixed(2) +
+      '%'
+    );
+  });
+  return [
+    '策略工件状态（Top ' + rows.length + '）：',
+    ...list,
+    '',
+    '使用方式：发送「使用工件 art-xxxxxx」即可直接执行该工件策略。',
+    '反馈方式：发送「反馈工件 art-xxxxxx +0.6」可强化闭环学习。',
+  ].join('\n');
+}
+
 function buildMidTermMemoryProfile() {
   learnStrategyWeightsFromTrades();
+  loadStrategyArtifactState();
   const longProfile = buildTraderProfileSummary();
   const ranking = buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES);
+  const artifactRanking = listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK);
   const topTags = Array.isArray(longProfile?.topTags) ? longProfile.topTags : [];
   const styleTag = topTags.find((x) => x.tag === 'brief-style' || x.tag === 'detailed-style');
   const responseStyle = styleTag?.tag === 'brief-style' ? 'brief' : styleTag?.tag === 'detailed-style' ? 'detailed' : 'balanced';
@@ -1387,8 +2130,11 @@ function buildMidTermMemoryProfile() {
     preferredSymbols: Array.isArray(longProfile?.symbols) ? longProfile.symbols.slice(0, 4) : [],
     topTags: topTags.slice(0, 8),
     strategyWeights: ranking,
+    strategyArtifacts: artifactRanking,
     guidance: {
       topStrategy: ranking[0]?.strategy || null,
+      topArtifactId: artifactRanking[0]?.artifactId || null,
+      topArtifactType: artifactRanking[0]?.strategyType || null,
       keepRiskFirst: true,
       summaryTone: responseStyle,
     },
@@ -1797,6 +2543,7 @@ function buildTradingContext(clientContext, memoryContext) {
   const midLayer = layeredMemory?.midTerm || null;
   const shortLayer = layeredMemory?.shortTerm || null;
   const topStrategy = Array.isArray(midLayer?.strategyWeights) ? midLayer.strategyWeights[0] || null : null;
+  const topArtifact = Array.isArray(midLayer?.strategyArtifacts) ? midLayer.strategyArtifacts[0] || null : null;
 
   const digest = {
     symbol,
@@ -1814,6 +2561,8 @@ function buildTradingContext(clientContext, memoryContext) {
     memoryItems: Number(longLayer?.profile?.memoryItems || memoryContext?.profile?.memoryItems || 0),
     topStrategy: topStrategy?.strategy || null,
     topStrategyWeight: toNum(topStrategy?.weight),
+    topArtifactId: topArtifact?.artifactId || null,
+    topArtifactWeight: toNum(topArtifact?.learningWeight),
   };
 
   const context = {
@@ -1829,6 +2578,9 @@ function buildTradingContext(clientContext, memoryContext) {
       executedCount,
       dryRunOpenCount,
       recentDecisions,
+      artifacts: Array.isArray(midLayer?.strategyArtifacts)
+        ? midLayer.strategyArtifacts.slice(0, STRATEGY_ARTIFACTS_TOPK)
+        : [],
     },
     trades: {
       openOrders: openOrders.slice(0, 6).map(summarizeOrder),
@@ -1841,6 +2593,8 @@ function buildTradingContext(clientContext, memoryContext) {
       backtest: {
         strategy: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
         tf: ['1m', '5m', '15m', '1h', '4h', '1d'],
+        artifactApi: '/api/strategy/artifacts',
+        reportApi: '/api/strategy/artifacts/report',
       },
     },
     clientContext:
@@ -2654,6 +3408,43 @@ async function handleTelegramIncoming(incoming) {
     content: '用户: ' + redactSecrets(incoming.text),
   });
 
+  const artifactFeedback = applyUserStrategyArtifactFeedback(incoming.text, 'telegram');
+  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
+    const replyText = String(artifactFeedback.reply || '已记录工件反馈。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
   const feedback = applyUserStrategyFeedback(incoming.text, 'telegram');
   if (feedback?.handled && feedback?.explicit) {
     const replyText = String(feedback.reply || '已记录策略反馈。');
@@ -3086,6 +3877,7 @@ function buildOpenClawPrompt(message, context) {
     '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
     '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
     '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
+    '上下文 strategy.artifacts 为已沉淀策略工件（含权重/表现）；可优先复用高权重工件并继续迭代。',
     '若信息不足，请直接说明缺失项，不得编造事实。',
     '',
     '输出要求（必须严格遵守）:',
@@ -3105,6 +3897,7 @@ function buildOpenClawPrompt(message, context) {
     '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
     '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
     '9) 如果用户要求基于任意新特征/因子（如“5日K线特征、EMA/RSI/ADX组合”）构建并执行策略，优先输出 run_strategy_dsl。',
+    '10) 若上下文已有可复用工件，请在 reply 中点明“复用了哪个工件”，并在动作里带上相应 dsl/custom 配置继续执行。',
     '',
     '[交易看板上下文]',
     contextJson,
@@ -3444,6 +4237,14 @@ async function handleChatApi(req, res) {
     const strategyText = strategyRows.length
       ? strategyRows.map((x) => x.strategy + ':' + Number(x.weight).toFixed(3)).join(', ')
       : '-';
+    const artifactRows = Array.isArray(memoryBundle?.layers?.midTerm?.strategyArtifacts)
+      ? memoryBundle.layers.midTerm.strategyArtifacts.slice(0, 3)
+      : [];
+    const artifactText = artifactRows.length
+      ? artifactRows
+          .map((x) => String(x.artifactId || '-') + ':' + Number(x.learningWeight || 0).toFixed(3))
+          .join(', ')
+      : '-';
     sendJson(res, 200, {
       ok: true,
       source: 'memory',
@@ -3454,6 +4255,7 @@ async function handleChatApi(req, res) {
         '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
         '- 高频标签: ' + (topTags || '-'),
         '- 策略权重Top: ' + strategyText,
+        '- 策略工件Top: ' + artifactText,
       ].join('\n'),
       actions: [],
       contextDigest: null,
@@ -3461,6 +4263,7 @@ async function handleChatApi(req, res) {
         memoryItems: profile.memoryItems || 0,
         shortItems,
         topStrategies: strategyRows,
+        topArtifacts: artifactRows,
       },
     });
     appendChatHistoryEvent({
@@ -3474,7 +4277,91 @@ async function handleChatApi(req, res) {
         '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
         '- 高频标签: ' + (topTags || '-'),
         '- 策略权重Top: ' + strategyText,
+        '- 策略工件Top: ' + artifactText,
       ].join('\n'),
+    });
+    return;
+  }
+  if (/^(工件状态|策略工件|artifact status)$/i.test(message)) {
+    const reply = buildStrategyArtifactStatusReply(8);
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply,
+      actions: [],
+      contextDigest: null,
+      meta: {
+        artifacts: listStrategyArtifacts(8),
+      },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    return;
+  }
+  const useArtifactMatch = message.match(/(?:使用|启用|执行|回测|运行|use)\s*(?:工件|artifact)?\s*[:：]?\s*(art-[a-f0-9]{8,20})/i);
+  if (useArtifactMatch && useArtifactMatch[1]) {
+    const artifactId = String(useArtifactMatch[1]).toLowerCase();
+    const artifact = listStrategyArtifacts(200).find((x) => x.artifactId === artifactId) || null;
+    if (!artifact) {
+      sendJson(res, 200, {
+        ok: true,
+        source: 'memory',
+        reply: '未找到工件 ' + artifactId + '。可先发送「工件状态」查看可用工件列表。',
+        actions: [],
+        contextDigest: null,
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: '未找到工件 ' + artifactId + '。可先发送「工件状态」查看可用工件列表。',
+      });
+      return;
+    }
+    const action = strategyArtifactToAction(artifact);
+    if (!action) {
+      sendJson(res, 200, {
+        ok: true,
+        source: 'memory',
+        reply: '工件 ' + artifactId + ' 存在，但配置不完整，暂时无法执行。',
+        actions: [],
+        contextDigest: null,
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: '工件 ' + artifactId + ' 存在，但配置不完整，暂时无法执行。',
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply:
+        '已加载工件 ' +
+        artifactId +
+        '（' +
+        String(artifact.label || artifact.strategyType || '-') +
+        '），现在执行一轮回验并返回结果。',
+      actions: [action],
+      contextDigest: null,
+      meta: { artifactId, artifact },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text:
+        '已加载工件 ' +
+        artifactId +
+        '（' +
+        String(artifact.label || artifact.strategyType || '-') +
+        '），现在执行一轮回验并返回结果。',
     });
     return;
   }
@@ -3504,6 +4391,29 @@ async function handleChatApi(req, res) {
       role: 'bot',
       direction: 'outbound',
       text: '已记住：' + truncText(redactSecrets(note), 180),
+    });
+    return;
+  }
+  const artifactFeedback = applyUserStrategyArtifactFeedback(message, 'dashboard');
+  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: String(artifactFeedback.reply || '已记录工件反馈。'),
+      actions: [],
+      contextDigest: null,
+      meta: {
+        artifactId: artifactFeedback.artifactId || null,
+        reward: artifactFeedback.reward ?? null,
+        learningWeight: artifactFeedback.learningWeight ?? null,
+        strength: artifactFeedback.strength ?? null,
+      },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: String(artifactFeedback.reply || '已记录工件反馈。'),
     });
     return;
   }
@@ -3732,6 +4642,8 @@ function handleMemoryHealthApi(req, res) {
       shortTerm: TRADER_SHORT_MEMORY_PATH,
       midTerm: TRADER_PROFILE_PATH,
       strategyWeights: STRATEGY_WEIGHTS_PATH,
+      strategyArtifactsJsonl: STRATEGY_ARTIFACTS_JSONL_PATH,
+      strategyArtifactsState: STRATEGY_ARTIFACTS_STATE_PATH,
     },
     totalEntries: traderMemoryState.entries.length,
     shortEntries: shortTermMemoryState.items.length,
@@ -3742,6 +4654,69 @@ function handleMemoryHealthApi(req, res) {
       lastLearnAt: strategyFeedbackState.lastLearnAt,
       ranking: buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES),
     },
+    strategyArtifacts: {
+      total: Object.keys(strategyArtifactState.artifacts || {}).length,
+      lastUpdatedAt: strategyArtifactState.lastUpdatedAt,
+      ranking: listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK),
+    },
+  });
+}
+
+function handleStrategyArtifactsApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const q = String(url.searchParams.get('q') || '').trim();
+  const limit = Number(url.searchParams.get('limit') || String(STRATEGY_ARTIFACTS_TOPK));
+  const artifactId = String(url.searchParams.get('artifactId') || '').trim().toLowerCase();
+  const list = listStrategyArtifacts(limit, q);
+  const item = artifactId ? listStrategyArtifacts(1000).find((x) => x.artifactId === artifactId) || null : null;
+  sendJson(res, 200, {
+    ok: true,
+    total: Object.keys(strategyArtifactState.artifacts || {}).length,
+    latestUpdatedAt: strategyArtifactState.lastUpdatedAt,
+    artifactId: artifactId || null,
+    artifact: item,
+    artifacts: list,
+  });
+}
+
+async function handleStrategyArtifactReportApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req, Math.max(JSON_BODY_LIMIT, 256 * 1024));
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const payload =
+    body.value?.report && typeof body.value.report === 'object'
+      ? body.value.report
+      : body.value && typeof body.value === 'object'
+        ? body.value
+        : {};
+  const result = registerStrategyArtifactReport(payload);
+  if (!result?.ok) {
+    sendJson(res, 400, { ok: false, error: String(result?.reason || 'invalid report') });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    duplicate: Boolean(result.duplicate),
+    artifactId: result.artifactId || null,
+    version: result.version || null,
+    reward: result.reward ?? null,
+    learningWeight: result.learningWeight ?? null,
+    scoreEma: result.scoreEma ?? null,
+    strength: result.strength ?? null,
   });
 }
 
@@ -3818,6 +4793,7 @@ const server = http.createServer((req, res) => {
           shortItems: Number(healthMemory?.layers?.shortTerm?.totalItems || 0),
           longItems: Number(healthMemory?.layers?.longTerm?.profile?.memoryItems || 0),
           topStrategy: healthMemory?.layers?.midTerm?.strategyWeights?.[0] || null,
+          topArtifact: healthMemory?.layers?.midTerm?.strategyArtifacts?.[0] || null,
         },
         runtime: {
           serviceLock: {
@@ -3862,6 +4838,14 @@ const server = http.createServer((req, res) => {
     }
     if (url.pathname === '/api/memory/health') {
       handleMemoryHealthApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/strategy/artifacts') {
+      handleStrategyArtifactsApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/strategy/artifacts/report') {
+      await handleStrategyArtifactReportApi(req, res);
       return;
     }
     if (url.pathname === '/api/chat/history') {
@@ -3922,6 +4906,7 @@ loadTelegramEventsFromDisk();
 loadTraderMemory();
 loadShortTermMemory();
 loadStrategyFeedbackState();
+loadStrategyArtifactState();
 rememberTradeOutcomesToMemory();
 learnStrategyWeightsFromTrades();
 buildMidTermMemoryProfile();
@@ -3953,6 +4938,7 @@ server.listen(PORT, () => {
   console.log('AI config channel: POST /api/config/chat');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Memory health: GET /api/memory/health?q=...');
+  console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
   console.log(
     'Memory layers: short=' +
       TRADER_SHORT_MEMORY_PATH +
@@ -3962,6 +4948,7 @@ server.listen(PORT, () => {
       TRADER_MEMORY_PATH,
   );
   console.log('Strategy feedback: ' + STRATEGY_WEIGHTS_PATH);
+  console.log('Strategy artifacts state: ' + STRATEGY_ARTIFACTS_STATE_PATH);
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')

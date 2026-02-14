@@ -220,6 +220,17 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 新增策略反馈学习（自动 + 人工）：
   - 自动：读取真实成交结果（`bitget-perp-autotrade-trades.jsonl`）更新策略权重
   - 人工：聊天发送 `反馈 v5_retest +0.6` / `策略反馈 v5_reentry 太激进`
+- 新增策略工件化（artifactization）：
+  - 每次回验会自动沉淀策略工件到：
+    - `memory/strategy-artifacts.jsonl`（事件流）
+    - `memory/strategy-artifacts-state.json`（最新状态）
+  - 工件包含：策略配置、特征定义（DSL）、版本号、回验指标、学习权重、来源上下文
+  - 可在聊天中查看：`工件状态` / `策略工件`
+  - 可在聊天中复用：`使用工件 art-xxxxxx`
+- 新增工件闭环学习（closed-loop）：
+  - 自动：回验结果会转化为 reward 并更新工件权重（learningWeight）
+  - 人工：聊天发送 `反馈工件 art-xxxxxx +0.6` / `工件反馈 art-xxxxxx -0.4`
+  - 工件权重会回注到 `midTermMemory.strategyArtifacts`，供 AI 优先复用高质量工件
 - 查看记忆状态：聊天发送 `记忆状态` / `查看记忆` / `memory status`
 
 手机/静态部署（无本地后端）可用方案：
@@ -228,6 +239,11 @@ node scripts/perp-report.js serve [port]        # 仅启动服务
 - 在聊天框发送：`/deepseek sk-xxxx`（仅保存到当前浏览器 localStorage，不入库）。
 - 之后聊天将直接调用 DeepSeek API（支持动作：切页/定位/回验/多策略对比/自定义策略回验）。
 - 现在也支持 `run_strategy_dsl`：例如 AI 可给出 `5日EMA + ADX过滤` 这类新特征组合，ThunderClaw 直接回验并返回结果。
+
+新增 API：
+
+- `GET /api/strategy/artifacts?limit=8&q=...`：查询策略工件列表
+- `POST /api/strategy/artifacts/report`：上报回验结果并更新工件学习权重
 - 清除本地 key：`/deepseek clear`
 
 #### 5.6.1 最简启动（纯 npm，不用 Docker）
