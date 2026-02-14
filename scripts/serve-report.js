@@ -491,6 +491,35 @@ function inferXbrainProviderFromModelId(modelIdLike) {
   return 'deepseek';
 }
 
+function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
+  const provider = normalizeXbrainModelProvider(providerLike);
+  const raw = String(modelIdLike || '').trim();
+  if (!raw) {
+    if (provider === 'deepseek') return 'deepseek/deepseek-chat';
+    if (provider === 'anthropic') return 'anthropic/claude-3-5-sonnet';
+    return 'openai/gpt-4o-mini';
+  }
+  if (raw.includes('/')) return raw;
+  if (provider === 'deepseek') return normalizeDeepSeekModelId(raw);
+  if (provider === 'anthropic') return 'anthropic/' + raw;
+  return 'openai/' + raw;
+}
+
+function detectXbrainActiveStrategy(maxItems = 220) {
+  const rows = safeJsonRead(REPORT_DECISIONS_PATH, []);
+  const list = Array.isArray(rows) ? rows.slice(-Math.max(20, maxItems)).reverse() : [];
+  for (const row of list) {
+    const reason = String(row?.signal?.plan?.reason || '').toLowerCase();
+    const note = String(row?.signal?.algorithm?.note || '').trim();
+    if (/\bv5\b/.test(reason) || /hybrid/.test(reason)) return 'v5_hybrid';
+    if (/retest|回踩/.test(reason)) return 'v5_retest';
+    if (/reentry|再入/.test(reason)) return 'v5_reentry';
+    if (/donchian|breakout|突破/.test(reason)) return 'v4_breakout';
+    if (note && !/^(no_setup|none|null|-)$/.test(note.toLowerCase())) return note;
+  }
+  return null;
+}
+
 function defaultXbrainState() {
   const env = envPairsWithFallback();
   const now = nowIso();
@@ -639,10 +668,12 @@ function xbrainLockView(lockLike) {
 function buildXbrainPublicState() {
   const state = ensureXbrainState();
   const env = envPairsWithFallback();
+  const telegramToken = String(env.THUNDERCLAW_TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || '').trim();
   const apiKey = String(env.BITGET_API_KEY || '').trim();
   const apiSecret = String(env.BITGET_API_SECRET || '').trim();
   const apiPassphrase = String(env.BITGET_API_PASSPHRASE || '').trim();
   const configured = Boolean(apiKey && apiSecret && apiPassphrase);
+  const activeStrategy = detectXbrainActiveStrategy();
   const runtimeMode = normalizeXbrainRuntimeMode(
     state?.strategy?.runtimeMode ||
       (/^(1|true|yes|on)$/i.test(String(env.DRY_RUN || '')) ? 'dryrun' : 'live'),
@@ -673,6 +704,8 @@ function buildXbrainPublicState() {
       modelProvider,
       modelId,
       chatChannel,
+      telegramTokenMasked: maskMaybeSecret(telegramToken),
+      telegramConfigured: Boolean(telegramToken),
       updatedAt: state?.base?.updatedAt || null,
     },
     exchange: {
@@ -683,7 +716,8 @@ function buildXbrainPublicState() {
       updatedAt: state?.exchange?.updatedAt || null,
     },
     strategy: {
-      profileName: String(state?.strategy?.profileName || 'default'),
+      profileName: String(state?.strategy?.profileName || (activeStrategy || 'default')),
+      activeStrategy: activeStrategy || null,
       symbol: String(state?.strategy?.symbol || 'BTC/USDT:USDT'),
       leverage,
       sizeMode,
@@ -708,6 +742,7 @@ function buildXbrainModelContext() {
       modelProvider: pub.base.modelProvider,
       modelId: pub.base.modelId,
       chatChannel: pub.base.chatChannel,
+      telegramConfigured: Boolean(pub.base.telegramConfigured),
       locked: pub.locks.base.locked,
     },
     exchange: {
@@ -716,6 +751,7 @@ function buildXbrainModelContext() {
     },
     strategy: {
       profileName: pub.strategy.profileName,
+      activeStrategy: pub.strategy.activeStrategy || null,
       symbol: pub.strategy.symbol,
       leverage: pub.strategy.leverage,
       sizeMode: pub.strategy.sizeMode,
@@ -762,17 +798,22 @@ function applyXbrainBasePatch(patchLike, opts = {}) {
   const now = nowIso();
   const updates = {};
   const changed = {};
+  const providerNext = hasOwn(patch, 'modelProvider')
+    ? normalizeXbrainModelProvider(patch.modelProvider)
+    : state.base.modelProvider;
+  const rawModelNext = hasOwn(patch, 'modelId')
+    ? (String(patch.modelId || '').trim() || 'deepseek-chat')
+    : state.base.modelId;
+  const modelNext = normalizeXbrainModelIdForProvider(providerNext, rawModelNext);
   if (hasOwn(patch, 'modelProvider')) {
-    const v = normalizeXbrainModelProvider(patch.modelProvider);
-    state.base.modelProvider = v;
-    updates.OPENCLAW_MODEL_PROVIDER = v;
-    changed.modelProvider = v;
+    state.base.modelProvider = providerNext;
+    updates.OPENCLAW_MODEL_PROVIDER = providerNext;
+    changed.modelProvider = providerNext;
   }
-  if (hasOwn(patch, 'modelId')) {
-    const v = String(patch.modelId || '').trim() || 'deepseek-chat';
-    state.base.modelId = v;
-    updates.OPENCLAW_MODEL_ID = v;
-    changed.modelId = v;
+  if (hasOwn(patch, 'modelId') || hasOwn(patch, 'modelProvider')) {
+    state.base.modelId = modelNext;
+    updates.OPENCLAW_MODEL_ID = modelNext;
+    changed.modelId = modelNext;
   }
   if (hasOwn(patch, 'chatChannel')) {
     const v = normalizeXbrainChatChannel(patch.chatChannel);
@@ -780,11 +821,34 @@ function applyXbrainBasePatch(patchLike, opts = {}) {
     updates.THUNDERCLAW_CHAT_CHANNEL = v;
     changed.chatChannel = v;
   }
+  if (hasOwn(patch, 'telegramToken')) {
+    const token = String(patch.telegramToken || '').trim();
+    updates.THUNDERCLAW_TELEGRAM_BOT_TOKEN = token;
+    if (token) {
+      updates.THUNDERCLAW_TELEGRAM_AUTO_REPLY = '1';
+      updates.THUNDERCLAW_TELEGRAM_PUSH_TRADES = '1';
+      updates.THUNDERCLAW_TELEGRAM_PUSH_EVENTS = 'open,close,risk';
+    }
+    changed.telegramToken = token ? maskMaybeSecret(token) : '(未设置)';
+  }
   state.base.updatedAt = now;
   state.updatedAt = now;
   if (Object.keys(updates).length) writeEnvLocal(updates);
   saveXbrainState();
   return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+async function syncXbrainBaseToOpenClaw(baseLike) {
+  const base = baseLike && typeof baseLike === 'object' ? baseLike : {};
+  const provider = normalizeXbrainModelProvider(base.modelProvider || 'deepseek');
+  const modelId = normalizeXbrainModelIdForProvider(provider, base.modelId || '');
+  try {
+    await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
+    await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+    return { ok: true, modelId };
+  } catch (err) {
+    return { ok: false, modelId, error: safeErrMsg(err, 'openclaw config sync failed') };
+  }
 }
 
 function applyXbrainExchangePatch(patchLike, opts = {}) {
@@ -4841,12 +4905,7 @@ async function handleConfigIntent(intent) {
     }
     const token = String(intent.token || '').trim();
     if (!token) return { handled: true, reply: 'Telegram token 为空，未更新。' };
-    writeEnvLocal({
-      THUNDERCLAW_TELEGRAM_BOT_TOKEN: token,
-      THUNDERCLAW_TELEGRAM_AUTO_REPLY: '1',
-      THUNDERCLAW_TELEGRAM_PUSH_TRADES: '1',
-      THUNDERCLAW_TELEGRAM_PUSH_EVENTS: 'open,close,risk',
-    });
+    applyXbrainBasePatch({ telegramToken: token }, { password: '' });
     return {
       handled: true,
       reply: '已保存 Telegram token：' + maskMaybeSecret(token) + '\n请重启 thunderclaw start 使新 token 生效。',
@@ -5377,6 +5436,10 @@ async function handleXbrainUpdateApi(req, res) {
     });
     return;
   }
+  let openclawModelSync = null;
+  if (section === 'base' && (hasOwn(values, 'modelProvider') || hasOwn(values, 'modelId'))) {
+    openclawModelSync = await syncXbrainBaseToOpenClaw(out.state?.base || values);
+  }
   appendTraderMemory({
     kind: 'config',
     channel: 'dashboard',
@@ -5388,6 +5451,7 @@ async function handleXbrainUpdateApi(req, res) {
     section,
     updated: out.updated || {},
     state: out.state || buildXbrainPublicState(),
+    openclawModelSync,
   });
 }
 
@@ -5689,6 +5753,17 @@ async function handleStatic(req, res, pathname) {
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
     res.end(data);
   } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      if (pagePath === '/decisions.json') {
+        return sendJson(res, 200, []);
+      }
+      if (pagePath === '/orders.json') {
+        return sendJson(res, 200, { generatedAt: nowIso(), source: 'fallback-empty', orders: [] });
+      }
+      if (pagePath === '/ohlcv.json') {
+        return sendJson(res, 200, { symbol: 'BTC/USDT:USDT', data: {}, fetchedAt: nowIso() });
+      }
+    }
     const code = err && err.code === 'ENOENT' ? 404 : 500;
     res.writeHead(code);
     res.end(code === 404 ? 'Not Found' : 'Error');

@@ -1074,6 +1074,9 @@ const HTML = `<!DOCTYPE html>
                   <option value="both">本地 + Telegram</option>
                 </select>
               </label>
+              <label>Telegram Token（可留空不改）
+                <input id="xbrain-base-telegram-token" type="password" autocomplete="off" placeholder="******" />
+              </label>
               <label>密码（用于解锁/设密码）
                 <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
               </label>
@@ -1203,20 +1206,39 @@ const HTML = `<!DOCTYPE html>
       if (pos) pos.innerHTML = '<div class="position-item"><div class="position-meta">加载失败：' + (msg || 'unknown') + '</div></div>';
     }
 
+    async function fetchJsonWithFallback(url, fallback, opts) {
+      const options = opts && typeof opts === 'object' ? opts : {};
+      try {
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) {
+          if (options.strict) throw new Error(String(url) + ' -> HTTP ' + String(resp.status));
+          return fallback;
+        }
+        const json = await resp.json().catch(function() { return fallback; });
+        return json == null ? fallback : json;
+      } catch (err) {
+        if (options.strict) throw err;
+        return fallback;
+      }
+    }
+
     async function load() {
       const [decisions, ohlcvPayload, ordersPayload] = await Promise.all([
-        fetch('decisions.json').then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
-        fetch('ohlcv.json').then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
-        fetch('orders.json')
-          .then(r => (r.ok ? r.json() : { orders: [] }))
-          .catch(() => ({ orders: [] })),
+        fetchJsonWithFallback('decisions.json', []),
+        fetchJsonWithFallback('ohlcv.json', { symbol: 'BTC/USDT:USDT', data: {} }),
+        fetchJsonWithFallback('orders.json', { orders: [] }),
       ]);
       const RECORDS = Array.isArray(decisions) ? decisions : [];
       const OHLCV_BY_TF = (ohlcvPayload && ohlcvPayload.data) ? ohlcvPayload.data : (ohlcvPayload || {});
       const symbol = (ohlcvPayload && ohlcvPayload.symbol) ? ohlcvPayload.symbol : 'BTC/USDT:USDT';
       const MARKERS_BY_TF = {};
       (TF_CONFIG || []).forEach(({ key, seconds }) => { MARKERS_BY_TF[key] = buildMarkersForTf(RECORDS, seconds); });
-      init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload);
+      try {
+        init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload);
+      } catch (err) {
+        console.error('[thunderclaw] init failed:', err);
+        throw new Error(String(err?.message || err || 'init_failed'));
+      }
     }
 
     function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload) {
@@ -2187,6 +2209,7 @@ const HTML = `<!DOCTYPE html>
                 modelProvider: x.base.modelProvider || null,
                 modelId: x.base.modelId || null,
                 chatChannel: x.base.chatChannel || null,
+                telegramConfigured: Boolean(x.base.telegramConfigured),
               }
             : null,
           exchange: x.exchange
@@ -2197,6 +2220,7 @@ const HTML = `<!DOCTYPE html>
           strategy: x.strategy
             ? {
                 profileName: x.strategy.profileName || null,
+                activeStrategy: x.strategy.activeStrategy || null,
                 symbol: x.strategy.symbol || null,
                 leverage: Number(x.strategy.leverage),
                 sizeMode: x.strategy.sizeMode || null,
@@ -2244,7 +2268,7 @@ const HTML = `<!DOCTYPE html>
       function setXbrainSectionDisabled(section, locked) {
         const disabled = Boolean(locked);
         if (section === 'base') {
-          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel'].forEach(function(id) {
+          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel', 'xbrain-base-telegram-token'].forEach(function(id) {
             const el = document.getElementById(id);
             if (el) el.disabled = disabled;
           });
@@ -2268,9 +2292,14 @@ const HTML = `<!DOCTYPE html>
         const baseProvider = document.getElementById('xbrain-base-provider');
         const baseModel = document.getElementById('xbrain-base-model');
         const baseChannel = document.getElementById('xbrain-base-channel');
+        const baseTelegramToken = document.getElementById('xbrain-base-telegram-token');
         if (baseProvider) baseProvider.value = String(base.modelProvider || 'deepseek');
         if (baseModel) baseModel.value = String(base.modelId || 'deepseek-chat');
         if (baseChannel) baseChannel.value = String(base.chatChannel || 'dashboard');
+        if (baseTelegramToken) {
+          baseTelegramToken.value = '';
+          baseTelegramToken.placeholder = String(base.telegramTokenMasked || '(未设置)');
+        }
 
         const apiKey = document.getElementById('xbrain-exchange-api-key');
         const apiSecret = document.getElementById('xbrain-exchange-api-secret');
@@ -2297,7 +2326,9 @@ const HTML = `<!DOCTYPE html>
         const minNotional = document.getElementById('xbrain-strategy-min-notional');
         const maxNotional = document.getElementById('xbrain-strategy-max-notional');
         const runtimeMode = document.getElementById('xbrain-strategy-runtime-mode');
-        if (profile) profile.value = String(strategy.profileName || 'default');
+        const profileVal = String(strategy.profileName || '').trim();
+        const activeStrategy = String(strategy.activeStrategy || '').trim();
+        if (profile) profile.value = profileVal || activeStrategy || 'default';
         if (symbolInput) symbolInput.value = String(strategy.symbol || 'BTC/USDT:USDT');
         if (leverage) leverage.value = Number.isFinite(Number(strategy.leverage)) ? String(strategy.leverage) : '10';
         if (sizeMode) sizeMode.value = String(strategy.sizeMode || 'risk');
@@ -2364,15 +2395,21 @@ const HTML = `<!DOCTYPE html>
 
         baseForm.addEventListener('submit', function(ev) {
           ev.preventDefault();
+          const tgToken = String(document.getElementById('xbrain-base-telegram-token')?.value || '').trim();
           const values = {
             modelProvider: String(document.getElementById('xbrain-base-provider')?.value || 'deepseek'),
             modelId: String(document.getElementById('xbrain-base-model')?.value || '').trim() || 'deepseek-chat',
             chatChannel: String(document.getElementById('xbrain-base-channel')?.value || 'dashboard'),
           };
+          if (tgToken) values.telegramToken = tgToken;
           const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
           void postXbrain('/api/xbrain/update', { section: 'base', values, password })
-            .then(function() {
-              setXbrainStatus('base', '基础配置已保存，并同步给模型。', 'ok');
+            .then(function(payload) {
+              const syncOk = payload?.openclawModelSync == null || payload?.openclawModelSync?.ok === true;
+              const syncMsg = syncOk ? '模型同步正常。' : ('模型同步提示：' + String(payload?.openclawModelSync?.error || '请检查 OpenClaw'));
+              setXbrainStatus('base', '基础配置已保存，并同步给模型。' + syncMsg, syncOk ? 'ok' : 'err');
+              const tEl = document.getElementById('xbrain-base-telegram-token');
+              if (tEl) tEl.value = '';
             })
             .catch(function(err) {
               setXbrainStatus('base', '保存失败：' + String(err?.message || err), 'err');
@@ -2441,7 +2478,9 @@ const HTML = `<!DOCTYPE html>
               const action = String(btn.getAttribute('data-xbrain-action') || '').trim();
               const passInput = document.getElementById('xbrain-' + section + '-password');
               const password = String(passInput?.value || '').trim();
-              if ((action === 'unlock' || action === 'set_password') && !password) {
+              const hasPassword = Boolean(xbrainClientState.data?.locks?.[section]?.hasPassword);
+              const needsPassword = action === 'set_password' || (action === 'unlock' && hasPassword);
+              if (needsPassword && !password) {
                 setXbrainStatus(section, '请先输入密码。', 'err');
                 return;
               }
@@ -3578,7 +3617,8 @@ const HTML = `<!DOCTYPE html>
                     view === 'runtime' ? '当前单' :
                     view === 'kline' ? '虾线(K线)' :
                     view === 'history' ? '虾线(历史交易)' :
-                    view === 'backtest' ? '虾策' : '虾海'
+                    view === 'backtest' ? '虾策' :
+                    view === 'xbrain' ? '虾脑' : '虾海'
                   ) + '」');
                 } else {
                   notes.push('已在后台准备「' + view + '」相关任务（未强制跳页）');
@@ -3931,12 +3971,6 @@ const HTML = `<!DOCTYPE html>
               thinking.textContent = finalText;
               appendLocalChatLog({
                 ts: new Date().toISOString(),
-                role: 'user',
-                source: 'dashboard',
-                text: text,
-              });
-              appendLocalChatLog({
-                ts: new Date().toISOString(),
                 role: 'bot',
                 source: 'dashboard',
                 text: finalText,
@@ -3959,12 +3993,6 @@ const HTML = `<!DOCTYPE html>
             thinking.textContent = '本次请求失败，请稍后重试。';
             appendLocalChatLog({
               ts: new Date().toISOString(),
-              role: 'user',
-              source: 'dashboard',
-              text: text,
-            });
-            appendLocalChatLog({
-              ts: new Date().toISOString(),
               role: 'bot',
               source: 'dashboard',
               text: thinking.textContent,
@@ -3978,6 +4006,10 @@ const HTML = `<!DOCTYPE html>
           if (!text || inFlight) return;
           inFlight = true;
           sendBtn.disabled = true;
+          pushMsg('user', text, {
+            ts: new Date().toISOString(),
+            source: 'dashboard',
+          });
           input.value = '';
           try {
             await runTurn(text);
@@ -4017,6 +4049,25 @@ const HTML = `<!DOCTYPE html>
               : '[TG 回执] ' + text;
           } else if (source === 'system') {
             finalText = '[系统] ' + text;
+          }
+          if (source === 'dashboard' && role === 'user') {
+            const lastEl = box.lastElementChild;
+            if (
+              lastEl &&
+              lastEl.classList &&
+              lastEl.classList.contains('ai-msg') &&
+              lastEl.classList.contains('user') &&
+              String(lastEl.textContent || '').trim() === finalText
+            ) {
+              appendLocalChatLog({
+                source: source,
+                ts: ev?.ts || null,
+                id: Number.isFinite(idNum) ? idNum : null,
+                role: 'user',
+                text: finalText,
+              });
+              return;
+            }
           }
           pushMsg(role, finalText, {
             source: source,
@@ -5016,13 +5067,46 @@ const HTML = `<!DOCTYPE html>
       const liveStatusEl = document.getElementById('live-status');
       const TF_VIEW_WINDOW = { '1m': 120, '5m': 160, '15m': 170, '1h': 180, '4h': 140, '1d': 90 };
       const TF_LIVE_LIMIT = { '1m': 500, '5m': 420, '15m': 320, '1h': 300, '4h': 220, '1d': 120 };
-
-      const chart = LightweightCharts.createChart(chartEl, {
-        layout: { background: { type: 'solid', color: '#0f1419' }, textColor: '#8b949e' },
-        grid: { vertLines: { color: '#1a2332' }, horzLines: { color: '#1a2332' } },
-        rightPriceScale: { borderColor: '#2d3a4f', scaleMargins: { top: 0.1, bottom: 0.2 } },
-        timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false, barSpacing: 7, minBarSpacing: 2, rightOffset: 6 },
-      });
+      function createNoopSeries() {
+        return {
+          setData: function() {},
+          setMarkers: function() {},
+          createPriceLine: function() { return {}; },
+          removePriceLine: function() {},
+          priceScale: function() { return { applyOptions: function() {} }; },
+        };
+      }
+      function createNoopChart() {
+        return {
+          addCandlestickSeries: function() { return createNoopSeries(); },
+          addHistogramSeries: function() { return createNoopSeries(); },
+          applyOptions: function() {},
+          subscribeCrosshairMove: function() {},
+          subscribeClick: function() {},
+          timeScale: function() {
+            return {
+              setVisibleLogicalRange: function() {},
+              fitContent: function() {},
+              coordinateToTime: function() { return null; },
+            };
+          },
+        };
+      }
+      const hasChartLib = typeof LightweightCharts !== 'undefined' && typeof LightweightCharts.createChart === 'function';
+      if (!hasChartLib && chartWrap) {
+        const warn = document.createElement('div');
+        warn.className = 'load-error';
+        warn.textContent = '图表库加载失败：已降级为无图模式（聊天与配置可正常使用）。';
+        chartWrap.appendChild(warn);
+      }
+      const chart = hasChartLib
+        ? LightweightCharts.createChart(chartEl, {
+            layout: { background: { type: 'solid', color: '#0f1419' }, textColor: '#8b949e' },
+            grid: { vertLines: { color: '#1a2332' }, horzLines: { color: '#1a2332' } },
+            rightPriceScale: { borderColor: '#2d3a4f', scaleMargins: { top: 0.1, bottom: 0.2 } },
+            timeScale: { borderColor: '#2d3a4f', timeVisible: true, secondsVisible: false, barSpacing: 7, minBarSpacing: 2, rightOffset: 6 },
+          })
+        : createNoopChart();
       const candleSeries = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false });
       const orderBandSeries = chart.addHistogramSeries({
         priceScaleId: '',
