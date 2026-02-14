@@ -3018,7 +3018,12 @@ function parseTradingGoalIntent(messageLike) {
   const hasDirectiveGoal = /(稳一点|保守|激进|低回撤|高胜率|风险小|快进快出|短线|长线|降低风险|提高胜率)/.test(
     lower,
   );
-  if (!hasTradingDomain && !hasMoneyGoal) return null;
+  const looksLikeConfig = /(config|配置|设置|telegram|token|apikey|api key|deepseek|chatgpt|codex|登录|login)/.test(
+    lower,
+  );
+  if (!hasTradingDomain && !hasMoneyGoal) {
+    if (!(hasGoalVerb && !looksLikeConfig)) return null;
+  }
   if (!hasGoalVerb && !hasMoneyGoal && !hasDirectiveGoal) return null;
   let goal = 'general';
   if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(lower)) goal = 'stability';
