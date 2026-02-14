@@ -457,13 +457,29 @@
     .xsea-actions button.primary { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
     .xsea-selected { font-size: 0.72rem; color: var(--muted); margin-bottom: 7px; }
     .xsea-selected strong { color: #58a6ff; }
-    .xbrain-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
-    .xbrain-card { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 10px; }
+    .xbrain-stack { display: flex; flex-direction: column; gap: 10px; }
+    .xbrain-section { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 10px; }
+    .xbrain-section.locked { border-color: rgba(248,81,73,0.38); }
+    .xbrain-section.unlocked { border-color: rgba(63,185,80,0.38); }
     .xbrain-card h3 { margin: 0; font-size: 0.82rem; }
-    .xbrain-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
-    .xbrain-lock-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.66rem; color: var(--muted); background: rgba(0,0,0,0.22); }
-    .xbrain-lock-tag.on { border-color: rgba(248,81,73,0.42); color: #ffaba8; }
-    .xbrain-lock-tag.off { border-color: rgba(63,185,80,0.42); color: #7ee787; }
+    .xbrain-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    .xbrain-head-title { display: flex; flex-direction: column; gap: 2px; }
+    .xbrain-head-title .main { font-size: 0.82rem; font-weight: 700; color: var(--text); }
+    .xbrain-head-title .sub { font-size: 0.68rem; color: var(--muted); }
+    .xbrain-lock-wrap { display: inline-flex; align-items: center; gap: 5px; }
+    .xbrain-lock-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.22);
+      color: var(--muted);
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .xbrain-lock-btn.locked { border-color: rgba(248,81,73,0.52); color: #ffaba8; }
+    .xbrain-lock-btn.unlocked { border-color: rgba(63,185,80,0.52); color: #7ee787; }
+    .xbrain-lock-text { font-size: 0.66rem; color: var(--muted); }
     .xbrain-hint { font-size: 0.69rem; color: var(--muted); margin-bottom: 8px; }
     .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
     .xbrain-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.71rem; color: var(--muted); }
@@ -491,6 +507,7 @@
     }
     .xbrain-actions button.primary { border-color: rgba(88,166,255,0.62); color: #79c0ff; }
     .xbrain-actions button.warn { border-color: rgba(248,81,73,0.48); color: #ffaba8; }
+    .xbrain-actions button.neutral { border-color: rgba(139,148,158,0.52); color: #c9d1d9; }
     .xbrain-status { margin-top: 8px; font-size: 0.68rem; color: var(--muted); min-height: 18px; }
     .xbrain-status.ok { color: #7ee787; }
     .xbrain-status.err { color: #ffaba8; }
@@ -1013,14 +1030,20 @@
           <h2>虾脑</h2>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
-        <div class="app-subtitle" style="margin-bottom:8px;">统一配置中枢：基础配置、交易配置、策略与运行配置。所有改动会同步到模型上下文。</div>
-        <div class="xbrain-grid">
-          <div class="xbrain-card">
+        <div class="app-subtitle" style="margin-bottom:8px;">核心功能：托管 ThunderClaw 整体配置。编辑前请先点击每个模块右上角锁图标解锁。</div>
+        <div class="xbrain-stack">
+          <div id="xbrain-section-base" class="xbrain-section locked">
             <div class="xbrain-card-head">
-              <h3>一、基础配置</h3>
-              <span id="xbrain-lock-base" class="xbrain-lock-tag on">已锁定</span>
+              <div class="xbrain-head-title">
+                <span class="main">A-基础配置</span>
+                <span class="sub">模型管理 + 交流渠道</span>
+              </div>
+              <div class="xbrain-lock-wrap">
+                <span id="xbrain-lock-text-base" class="xbrain-lock-text">已锁定</span>
+                <button id="xbrain-lock-btn-base" class="xbrain-lock-btn locked" type="button" data-xbrain-toggle-lock="base" aria-label="切换基础配置锁">🔒</button>
+              </div>
             </div>
-            <div class="xbrain-hint">模型选择、聊天 channel。该区支持锁定/解锁与密码管理。</div>
+            <div class="xbrain-hint">用于查看当前会话真实模型，并管理模型切换与交流渠道。</div>
             <div id="xbrain-base-runtime-meta" class="xbrain-hint">当前会话模型：加载中...</div>
             <form id="xbrain-base-form" class="xbrain-form">
               <label>模型提供方
@@ -1033,9 +1056,9 @@
                 </select>
               </label>
               <label>模型 ID
-                <input id="xbrain-base-model" type="text" placeholder="例如 deepseek-chat" />
+                <input id="xbrain-base-model" type="text" placeholder="例如 deepseek/deepseek-chat" />
               </label>
-              <label>聊天 Channel
+              <label>交流渠道
                 <select id="xbrain-base-channel">
                   <option value="dashboard">仅本地看板</option>
                   <option value="telegram">仅 Telegram</option>
@@ -1045,26 +1068,30 @@
               <label>Telegram Token（可留空不改）
                 <input id="xbrain-base-telegram-token" type="password" autocomplete="off" placeholder="******" />
               </label>
-              <label>密码（用于解锁/设密码）
-                <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              <label>模块密码（解锁/改密）
+                <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入后可解锁或更新密码" />
               </label>
               <div class="xbrain-actions">
-                <button class="primary" type="submit">保存基础配置</button>
-                <button type="button" id="xbrain-base-probe-btn">检测当前模型</button>
-                <button type="button" data-xbrain-lock="base" data-xbrain-action="unlock">解锁</button>
-                <button class="warn" type="button" data-xbrain-lock="base" data-xbrain-action="lock">锁定</button>
-                <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置密码</button>
+                <button id="xbrain-save-base" class="primary" type="submit">保存基础配置</button>
+                <button class="neutral" type="button" id="xbrain-base-probe-btn">检测当前模型</button>
+                <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置/更新密码</button>
               </div>
               <div id="xbrain-status-base" class="xbrain-status"></div>
             </form>
           </div>
 
-          <div class="xbrain-card">
+          <div id="xbrain-section-exchange" class="xbrain-section locked">
             <div class="xbrain-card-head">
-              <h3>二、交易配置</h3>
-              <span id="xbrain-lock-exchange" class="xbrain-lock-tag on">已锁定</span>
+              <div class="xbrain-head-title">
+                <span class="main">B-交易配置</span>
+                <span class="sub">交易 API 管理</span>
+              </div>
+              <div class="xbrain-lock-wrap">
+                <span id="xbrain-lock-text-exchange" class="xbrain-lock-text">已锁定</span>
+                <button id="xbrain-lock-btn-exchange" class="xbrain-lock-btn locked" type="button" data-xbrain-toggle-lock="exchange" aria-label="切换交易配置锁">🔒</button>
+              </div>
             </div>
-            <div class="xbrain-hint">Bitget API 管理（密钥掩码显示）。该区支持锁定/解锁与密码管理。</div>
+            <div class="xbrain-hint">用于管理 Bitget API 信息（密钥只显示掩码）。</div>
             <form id="xbrain-exchange-form" class="xbrain-form">
               <label>Bitget API Key
                 <input id="xbrain-exchange-api-key" type="password" autocomplete="off" placeholder="******" />
@@ -1075,28 +1102,32 @@
               <label>Bitget Passphrase
                 <input id="xbrain-exchange-passphrase" type="password" autocomplete="off" placeholder="******" />
               </label>
-              <label>密码（用于解锁/设密码）
-                <input id="xbrain-exchange-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              <label>模块密码（解锁/改密）
+                <input id="xbrain-exchange-password" type="password" autocomplete="new-password" placeholder="输入后可解锁或更新密码" />
               </label>
               <div class="xbrain-actions">
-                <button class="primary" type="submit">保存交易配置</button>
-                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="unlock">解锁</button>
-                <button class="warn" type="button" data-xbrain-lock="exchange" data-xbrain-action="lock">锁定</button>
-                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="set_password">设置密码</button>
+                <button id="xbrain-save-exchange" class="primary" type="submit">保存交易配置</button>
+                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="set_password">设置/更新密码</button>
               </div>
               <div id="xbrain-status-exchange" class="xbrain-status"></div>
             </form>
           </div>
 
-          <div class="xbrain-card">
+          <div id="xbrain-section-strategy" class="xbrain-section locked">
             <div class="xbrain-card-head">
-              <h3>三、策略与运行配置</h3>
-              <span class="xbrain-lock-tag off">实时联动</span>
+              <div class="xbrain-head-title">
+                <span class="main">C-策略管理</span>
+                <span class="sub">当前 ThunderClaw 使用策略管理</span>
+              </div>
+              <div class="xbrain-lock-wrap">
+                <span id="xbrain-lock-text-strategy" class="xbrain-lock-text">已锁定</span>
+                <button id="xbrain-lock-btn-strategy" class="xbrain-lock-btn locked" type="button" data-xbrain-toggle-lock="strategy" aria-label="切换策略配置锁">🔒</button>
+              </div>
             </div>
-            <div class="xbrain-hint">策略参数会与模型上下文双向同步：可对话改参数，也可改参数后让模型理解并执行。</div>
+            <div class="xbrain-hint">管理当前策略参数与运行模式；变更会同步到模型上下文。</div>
             <form id="xbrain-strategy-form" class="xbrain-form">
               <div class="xbrain-row">
-                <label>策略档案名
+                <label>当前策略（可编辑）
                   <input id="xbrain-strategy-profile" type="text" placeholder="default" />
                 </label>
                 <label>交易符号
@@ -1134,9 +1165,13 @@
                   <option value="live">live（实盘）</option>
                 </select>
               </label>
+              <label>模块密码（解锁/改密）
+                <input id="xbrain-strategy-password" type="password" autocomplete="new-password" placeholder="输入后可解锁或更新密码" />
+              </label>
               <div class="xbrain-actions">
-                <button class="primary" type="submit">保存策略与运行配置</button>
-                <button type="button" id="xbrain-refresh-btn">刷新配置</button>
+                <button id="xbrain-save-strategy" class="primary" type="submit">保存策略配置</button>
+                <button class="neutral" type="button" id="xbrain-refresh-btn">刷新配置</button>
+                <button type="button" data-xbrain-lock="strategy" data-xbrain-action="set_password">设置/更新密码</button>
               </div>
               <div id="xbrain-status-strategy" class="xbrain-status"></div>
             </form>
@@ -2207,6 +2242,7 @@
             ? {
                 baseLocked: Boolean(x.locks.base && x.locks.base.locked),
                 exchangeLocked: Boolean(x.locks.exchange && x.locks.exchange.locked),
+                strategyLocked: Boolean(x.locks.strategy && x.locks.strategy.locked),
               }
             : null,
           updatedAt: x.updatedAt || null,
@@ -2225,28 +2261,59 @@
       }
 
       function setXbrainLockTag(section, lockLike) {
-        const el = document.getElementById('xbrain-lock-' + section);
-        if (!el) return;
         const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
         const locked = lock.locked !== false;
         const hasPassword = Boolean(lock.hasPassword);
-        el.classList.toggle('on', locked);
-        el.classList.toggle('off', !locked);
-        el.textContent = locked
-          ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
-          : '已解锁';
+        const sectionEl = document.getElementById('xbrain-section-' + section);
+        const textEl = document.getElementById('xbrain-lock-text-' + section);
+        const btnEl = document.getElementById('xbrain-lock-btn-' + section);
+        if (sectionEl) {
+          sectionEl.classList.toggle('locked', locked);
+          sectionEl.classList.toggle('unlocked', !locked);
+        }
+        if (textEl) {
+          textEl.textContent = locked
+            ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
+            : '已解锁';
+        }
+        if (btnEl) {
+          btnEl.classList.toggle('locked', locked);
+          btnEl.classList.toggle('unlocked', !locked);
+          btnEl.textContent = locked ? '🔒' : '🔓';
+          btnEl.title = locked
+            ? (hasPassword ? '已锁定，输入密码后点击解锁' : '已锁定，点击可解锁')
+            : '已解锁，点击可锁定';
+          btnEl.setAttribute('aria-label', btnEl.title);
+        }
       }
 
       function setXbrainSectionDisabled(section, locked) {
         const disabled = Boolean(locked);
         if (section === 'base') {
-          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel', 'xbrain-base-telegram-token'].forEach(function(id) {
+          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel', 'xbrain-base-telegram-token', 'xbrain-save-base'].forEach(function(id) {
             const el = document.getElementById(id);
             if (el) el.disabled = disabled;
           });
         }
         if (section === 'exchange') {
-          ['xbrain-exchange-api-key', 'xbrain-exchange-api-secret', 'xbrain-exchange-passphrase'].forEach(function(id) {
+          ['xbrain-exchange-api-key', 'xbrain-exchange-api-secret', 'xbrain-exchange-passphrase', 'xbrain-save-exchange'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+        if (section === 'strategy') {
+          [
+            'xbrain-strategy-profile',
+            'xbrain-strategy-symbol',
+            'xbrain-strategy-leverage',
+            'xbrain-strategy-size-mode',
+            'xbrain-strategy-order-size',
+            'xbrain-strategy-risk-pct',
+            'xbrain-strategy-min-notional',
+            'xbrain-strategy-max-notional',
+            'xbrain-strategy-runtime-mode',
+            'xbrain-save-strategy',
+          ].forEach(function(id) {
             const el = document.getElementById(id);
             if (el) el.disabled = disabled;
           });
@@ -2328,8 +2395,10 @@
 
         setXbrainLockTag('base', locks.base);
         setXbrainLockTag('exchange', locks.exchange);
+        setXbrainLockTag('strategy', locks.strategy);
         setXbrainSectionDisabled('base', Boolean(locks.base && locks.base.locked));
         setXbrainSectionDisabled('exchange', Boolean(locks.exchange && locks.exchange.locked));
+        setXbrainSectionDisabled('strategy', Boolean(locks.strategy && locks.strategy.locked));
       }
 
       async function fetchXbrainState(forceRefresh) {
@@ -2379,7 +2448,7 @@
         const strategyForm = document.getElementById('xbrain-strategy-form');
         if (!baseForm || !exchangeForm || !strategyForm) return;
 
-        void fetchXbrainState().catch(function(err) {
+        void fetchXbrainState(true).catch(function(err) {
           setXbrainStatus('strategy', '加载虾脑配置失败：' + String(err?.message || err), 'err');
         });
 
@@ -2449,7 +2518,8 @@
             maxNotional: Number(document.getElementById('xbrain-strategy-max-notional')?.value || 80),
             runtimeMode: String(document.getElementById('xbrain-strategy-runtime-mode')?.value || 'dryrun'),
           };
-          void postXbrain('/api/xbrain/update', { section: 'strategy', values })
+          const password = String(document.getElementById('xbrain-strategy-password')?.value || '').trim();
+          void postXbrain('/api/xbrain/update', { section: 'strategy', values, password })
             .then(function() {
               const mode = String(xbrainClientState.data?.strategy?.runtimeMode || values.runtimeMode);
               const modeText = mode === 'live' ? '实盘' : 'dryrun';
@@ -2469,8 +2539,7 @@
               const action = String(btn.getAttribute('data-xbrain-action') || '').trim();
               const passInput = document.getElementById('xbrain-' + section + '-password');
               const password = String(passInput?.value || '').trim();
-              const hasPassword = Boolean(xbrainClientState.data?.locks?.[section]?.hasPassword);
-              const needsPassword = action === 'set_password' || (action === 'unlock' && hasPassword);
+              const needsPassword = action === 'set_password';
               if (needsPassword && !password) {
                 setXbrainStatus(section, '请先输入密码。', 'err');
                 return;
@@ -2482,12 +2551,47 @@
                 currentPassword: password,
               })
                 .then(function() {
-                  if (action === 'unlock') setXbrainStatus(section, '已解锁，可修改该配置区。', 'ok');
-                  else if (action === 'lock') setXbrainStatus(section, '已锁定该配置区。', 'ok');
-                  else if (action === 'set_password') setXbrainStatus(section, '密码已更新，并自动锁定。', 'ok');
+                  if (action === 'set_password') {
+                    setXbrainStatus(section, '密码已更新，并自动锁定。', 'ok');
+                  }
                 })
                 .catch(function(err) {
                   setXbrainStatus(section, '操作失败：' + String(err?.message || err), 'err');
+                });
+            });
+          });
+
+        document
+          .querySelectorAll('button[data-xbrain-toggle-lock]')
+          .forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+              ev.preventDefault();
+              const section = String(btn.getAttribute('data-xbrain-toggle-lock') || '').trim();
+              const lockInfo = xbrainClientState.data?.locks?.[section] || {};
+              const locked = lockInfo.locked !== false;
+              const hasPassword = Boolean(lockInfo.hasPassword);
+              const passInput = document.getElementById('xbrain-' + section + '-password');
+              const password = String(passInput?.value || '').trim();
+              const action = locked ? 'unlock' : 'lock';
+              if (action === 'unlock' && hasPassword && !password) {
+                setXbrainStatus(section, '该模块已设置密码，请先输入密码再解锁。', 'err');
+                return;
+              }
+              void postXbrain('/api/xbrain/lock', {
+                section: section,
+                action: action,
+                password: password,
+                currentPassword: password,
+              })
+                .then(function() {
+                  if (action === 'unlock') {
+                    setXbrainStatus(section, '已解锁，可编辑该模块配置。', 'ok');
+                  } else {
+                    setXbrainStatus(section, '已锁定该模块。', 'ok');
+                  }
+                })
+                .catch(function(err) {
+                  setXbrainStatus(section, '锁操作失败：' + String(err?.message || err), 'err');
                 });
             });
           });

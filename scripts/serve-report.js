@@ -658,6 +658,11 @@ function defaultXbrainState() {
         passwordHash: '',
         updatedAt: now,
       },
+      strategy: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
     },
   };
 }
@@ -693,6 +698,12 @@ function normalizeXbrainState(rawLike) {
           ? raw.locks.exchange
           : {}),
       },
+      strategy: {
+        ...fallback.locks.strategy,
+        ...((raw.locks && raw.locks.strategy && typeof raw.locks.strategy === 'object')
+          ? raw.locks.strategy
+          : {}),
+      },
     },
   };
   out.base.modelProvider = normalizeXbrainModelProvider(out.base.modelProvider);
@@ -715,10 +726,13 @@ function normalizeXbrainState(rawLike) {
   out.strategy.runtimeMode = normalizeXbrainRuntimeMode(out.strategy.runtimeMode);
   out.locks.base.locked = out.locks.base.locked !== false;
   out.locks.exchange.locked = out.locks.exchange.locked !== false;
+  out.locks.strategy.locked = out.locks.strategy.locked !== false;
   out.locks.base.passwordHash = String(out.locks.base.passwordHash || '').trim();
   out.locks.exchange.passwordHash = String(out.locks.exchange.passwordHash || '').trim();
+  out.locks.strategy.passwordHash = String(out.locks.strategy.passwordHash || '').trim();
   out.locks.base.updatedAt = out.locks.base.updatedAt || out.updatedAt || nowIso();
   out.locks.exchange.updatedAt = out.locks.exchange.updatedAt || out.updatedAt || nowIso();
+  out.locks.strategy.updatedAt = out.locks.strategy.updatedAt || out.updatedAt || nowIso();
   out.updatedAt = out.updatedAt || nowIso();
   return out;
 }
@@ -831,6 +845,7 @@ function buildXbrainPublicState(runtimeModelLike = null) {
     locks: {
       base: xbrainLockView(state?.locks?.base),
       exchange: xbrainLockView(state?.locks?.exchange),
+      strategy: xbrainLockView(state?.locks?.strategy),
     },
   };
 }
@@ -863,6 +878,7 @@ function buildXbrainModelContext() {
       minNotional: pub.strategy.minNotional,
       maxNotional: pub.strategy.maxNotional,
       runtimeMode: pub.strategy.runtimeMode,
+      locked: pub.locks.strategy.locked,
     },
     updatedAt: pub.updatedAt,
   };
@@ -873,6 +889,7 @@ function xbrainSectionLock(sectionLike) {
   const state = ensureXbrainState();
   if (section === 'base') return state.locks.base;
   if (section === 'exchange') return state.locks.exchange;
+  if (section === 'strategy') return state.locks.strategy;
   return null;
 }
 
@@ -893,9 +910,8 @@ function xbrainVerifyPassword(sectionLike, passwordLike) {
 
 function applyXbrainBasePatch(patchLike, opts = {}) {
   const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
-  const password = String(opts.password || '').trim();
-  if (xbrainIsLocked('base') && !xbrainVerifyPassword('base', password)) {
-    return { ok: false, status: 423, error: '基础配置已锁定，请输入密码后解锁。' };
+  if (xbrainIsLocked('base')) {
+    return { ok: false, status: 423, error: '基础配置已锁定，请先点击锁图标解锁后再编辑。' };
   }
   const state = ensureXbrainState();
   const now = nowIso();
@@ -963,9 +979,8 @@ async function syncXbrainBaseToOpenClaw(baseLike) {
 
 function applyXbrainExchangePatch(patchLike, opts = {}) {
   const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
-  const password = String(opts.password || '').trim();
-  if (xbrainIsLocked('exchange') && !xbrainVerifyPassword('exchange', password)) {
-    return { ok: false, status: 423, error: '交易配置已锁定，请输入密码后解锁。' };
+  if (xbrainIsLocked('exchange')) {
+    return { ok: false, status: 423, error: '交易配置已锁定，请先点击锁图标解锁后再编辑。' };
   }
   const state = ensureXbrainState();
   const now = nowIso();
@@ -995,8 +1010,11 @@ function applyXbrainExchangePatch(patchLike, opts = {}) {
   return { ok: true, updated: changed, state: buildXbrainPublicState() };
 }
 
-function applyXbrainStrategyPatch(patchLike) {
+function applyXbrainStrategyPatch(patchLike, opts = {}) {
   const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  if (xbrainIsLocked('strategy')) {
+    return { ok: false, status: 423, error: '策略配置已锁定，请先点击锁图标解锁后再编辑。' };
+  }
   const state = ensureXbrainState();
   const now = nowIso();
   const changed = {};
@@ -5080,6 +5098,7 @@ async function handleConfigIntent(intent) {
   }
   if (intent.type === 'set_runtime_mode') {
     const out = applyXbrainStrategyPatch({ runtimeMode: intent.mode });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新失败') };
     return {
       handled: true,
       reply:
@@ -5090,6 +5109,7 @@ async function handleConfigIntent(intent) {
   }
   if (intent.type === 'set_strategy_leverage') {
     const out = applyXbrainStrategyPatch({ leverage: intent.leverage });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新失败') };
     return {
       handled: true,
       reply: '杠杆已更新为 ' + String(out.state?.strategy?.leverage ?? '-') + ' 倍（已同步）。',
@@ -5097,6 +5117,7 @@ async function handleConfigIntent(intent) {
   }
   if (intent.type === 'set_strategy_order_size') {
     const out = applyXbrainStrategyPatch({ orderSize: intent.orderSize });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新失败') };
     return {
       handled: true,
       reply: '单次下单大小已更新为 ' + String(out.state?.strategy?.orderSize ?? '-') + ' USDT（已同步）。',
@@ -5104,6 +5125,7 @@ async function handleConfigIntent(intent) {
   }
   if (intent.type === 'set_strategy_risk_pct') {
     const out = applyXbrainStrategyPatch({ riskPct: intent.riskPct });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新失败') };
     return {
       handled: true,
       reply:
@@ -5536,7 +5558,7 @@ async function handleXbrainUpdateApi(req, res) {
   let out = null;
   if (section === 'base') out = applyXbrainBasePatch(values, { password });
   else if (section === 'exchange') out = applyXbrainExchangePatch(values, { password });
-  else if (section === 'strategy') out = applyXbrainStrategyPatch(values);
+  else if (section === 'strategy') out = applyXbrainStrategyPatch(values, { password });
   else {
     sendJson(res, 400, { ok: false, error: 'section 必须是 base/exchange/strategy' });
     return;
@@ -5590,7 +5612,7 @@ async function handleXbrainLockApi(req, res) {
   const currentPassword = String(body.value?.currentPassword || '').trim();
   const lock = xbrainSectionLock(section);
   if (!lock) {
-    sendJson(res, 400, { ok: false, error: '仅支持 base/exchange 的锁管理。' });
+    sendJson(res, 400, { ok: false, error: '仅支持 base/exchange/strategy 的锁管理。' });
     return;
   }
 
