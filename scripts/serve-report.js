@@ -141,6 +141,13 @@ const TRADER_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory.jsonl');
 const TRADER_SHORT_MEMORY_PATH = path.resolve(WORKDIR, 'memory/trader-memory-short.json');
 const TRADER_PROFILE_PATH = path.resolve(WORKDIR, 'memory/trader-mid-profile.json');
 const STRATEGY_WEIGHTS_PATH = path.resolve(WORKDIR, 'memory/strategy-feedback-weights.json');
+const STRATEGY_ARTIFACTS_JSONL_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts.jsonl');
+const STRATEGY_ARTIFACTS_STATE_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts-state.json');
+const XBRAIN_STATE_PATH = path.resolve(WORKDIR, 'memory/xbrain-state.json');
+const XBRAIN_PASSWORD_MIN_LEN = Math.max(
+  4,
+  Math.min(24, positiveInt(process.env.THUNDERCLAW_XBRAIN_PASSWORD_MIN_LEN, 6)),
+);
 const TRADER_MEMORY_MAX_ITEMS = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
@@ -187,6 +194,24 @@ const STRATEGY_FEEDBACK_PROCESSED_MAX = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_STRATEGY_FEEDBACK_PROCESSED_MAX, 6000),
 );
+const STRATEGY_ARTIFACTS_MAX_ITEMS = Math.max(
+  80,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_MAX_ITEMS, 1200),
+);
+const STRATEGY_ARTIFACTS_REPORT_KEYS_MAX = Math.max(
+  200,
+  positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_REPORT_KEYS_MAX, 6000),
+);
+const STRATEGY_ARTIFACTS_TOPK = Math.max(
+  3,
+  Math.min(24, positiveInt(process.env.THUNDERCLAW_STRATEGY_ARTIFACTS_TOPK, 8)),
+);
+const STRATEGY_ARTIFACT_LR = Math.max(
+  0.02,
+  Math.min(1, Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_LR || '0.18')),
+);
+const STRATEGY_ARTIFACT_MIN_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_MIN_WEIGHT || '-2');
+const STRATEGY_ARTIFACT_MAX_WEIGHT = Number(process.env.THUNDERCLAW_STRATEGY_ARTIFACT_MAX_WEIGHT || '2');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -232,9 +257,21 @@ const strategyFeedbackState = {
   lastLearnAt: null,
   lastSavedAt: null,
 };
+const strategyArtifactState = {
+  loaded: false,
+  artifacts: {},
+  reportKeys: new Set(),
+  lastUpdatedAt: null,
+  lastSavedAt: null,
+};
 const midTermMemoryState = {
   profile: null,
   lastBuiltAt: null,
+};
+const xbrainState = {
+  loaded: false,
+  value: null,
+  lastSavedAt: null,
 };
 const runtimeState = {
   serviceLock: {
@@ -396,6 +433,504 @@ function writeEnvLocal(updates) {
 function readEnvLocalPairs() {
   const raw = fs.existsSync(LOCAL_ENV_PATH) ? fs.readFileSync(LOCAL_ENV_PATH, 'utf8') : '';
   return parseEnvPairs(raw).pairs;
+}
+
+function hasOwn(objLike, key) {
+  return Boolean(objLike) && Object.prototype.hasOwnProperty.call(objLike, key);
+}
+
+function xbrainNum(value, fallback, min, max) {
+  let n = Number(value);
+  if (!Number.isFinite(n)) n = Number(fallback);
+  if (!Number.isFinite(n)) n = 0;
+  if (Number.isFinite(min)) n = Math.max(min, n);
+  if (Number.isFinite(max)) n = Math.min(max, n);
+  return Number(n);
+}
+
+function envPairsWithFallback() {
+  const local = readEnvLocalPairs();
+  return { ...process.env, ...local };
+}
+
+function normalizeXbrainChatChannel(channelLike) {
+  const raw = String(channelLike || '').trim().toLowerCase();
+  if (raw === 'telegram' || raw === 'tg' || raw === '电报') return 'telegram';
+  if (raw === 'both' || raw === 'all' || raw === '双向' || raw === '同步') return 'both';
+  return 'dashboard';
+}
+
+function normalizeXbrainRuntimeMode(modeLike) {
+  const raw = String(modeLike || '').trim().toLowerCase();
+  if (raw === 'live' || raw === '实盘') return 'live';
+  return 'dryrun';
+}
+
+function normalizeXbrainModelProvider(providerLike) {
+  const raw = String(providerLike || '').trim().toLowerCase();
+  if (!raw) return 'deepseek';
+  if (raw === 'openai' || raw === 'chatgpt') return 'chatgpt';
+  if (raw === 'codex') return 'codex';
+  if (raw === 'anthropic') return 'anthropic';
+  if (raw === 'deepseek') return 'deepseek';
+  return raw;
+}
+
+function normalizeXbrainSizeMode(modeLike) {
+  const raw = String(modeLike || '').trim().toLowerCase();
+  return raw === 'fixed' ? 'fixed' : 'risk';
+}
+
+function inferXbrainProviderFromModelId(modelIdLike) {
+  const modelId = String(modelIdLike || '').trim().toLowerCase();
+  if (!modelId) return 'deepseek';
+  if (modelId.startsWith('deepseek/')) return 'deepseek';
+  if (modelId.startsWith('openai/') || modelId.startsWith('gpt-')) return 'chatgpt';
+  if (modelId.startsWith('anthropic/')) return 'anthropic';
+  if (modelId.startsWith('codex/')) return 'codex';
+  return 'deepseek';
+}
+
+function defaultXbrainState() {
+  const env = envPairsWithFallback();
+  const now = nowIso();
+  const modelId = String(env.OPENCLAW_MODEL_ID || 'deepseek-chat').trim() || 'deepseek-chat';
+  const chatChannelHint = String(env.THUNDERCLAW_CHAT_CHANNEL || '').trim();
+  const openclawChannel = String(env.OPENCLAW_CHANNEL || '').trim();
+  const chatChannel =
+    chatChannelHint ||
+    (/(telegram|tg)/i.test(openclawChannel) ? 'telegram' : (TELEGRAM_ENABLED ? 'both' : 'dashboard'));
+  const runtimeMode = /^(1|true|yes|on)$/i.test(String(env.DRY_RUN || ''))
+    ? 'dryrun'
+    : 'live';
+  return {
+    version: 1,
+    updatedAt: now,
+    base: {
+      modelProvider: normalizeXbrainModelProvider(
+        String(env.OPENCLAW_MODEL_PROVIDER || inferXbrainProviderFromModelId(modelId)),
+      ),
+      modelId,
+      chatChannel: normalizeXbrainChatChannel(chatChannel),
+      updatedAt: now,
+    },
+    exchange: {
+      enabled: Boolean(env.BITGET_API_KEY && env.BITGET_API_SECRET && env.BITGET_API_PASSPHRASE),
+      updatedAt: now,
+    },
+    strategy: {
+      profileName: 'default',
+      symbol: 'BTC/USDT:USDT',
+      leverage: xbrainNum(env.MAX_LEVERAGE, 10, 1, 125),
+      sizeMode: normalizeXbrainSizeMode(env.SIZE_MODE || 'risk'),
+      orderSize: xbrainNum(env.NOTIONAL, 8, 1, 200000),
+      riskPct: xbrainNum(env.RISK_PCT, 0.015, 0.001, 0.4),
+      minNotional: xbrainNum(env.MIN_NOTIONAL, 5, 1, 200000),
+      maxNotional: xbrainNum(env.MAX_NOTIONAL, 80, 1, 500000),
+      runtimeMode: normalizeXbrainRuntimeMode(runtimeMode),
+      updatedAt: now,
+    },
+    locks: {
+      base: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
+      exchange: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
+    },
+  };
+}
+
+function normalizeXbrainState(rawLike) {
+  const fallback = defaultXbrainState();
+  const raw = rawLike && typeof rawLike === 'object' ? rawLike : {};
+  const out = {
+    ...fallback,
+    ...(raw || {}),
+    base: {
+      ...fallback.base,
+      ...((raw.base && typeof raw.base === 'object') ? raw.base : {}),
+    },
+    exchange: {
+      ...fallback.exchange,
+      ...((raw.exchange && typeof raw.exchange === 'object') ? raw.exchange : {}),
+    },
+    strategy: {
+      ...fallback.strategy,
+      ...((raw.strategy && typeof raw.strategy === 'object') ? raw.strategy : {}),
+    },
+    locks: {
+      base: {
+        ...fallback.locks.base,
+        ...((raw.locks && raw.locks.base && typeof raw.locks.base === 'object')
+          ? raw.locks.base
+          : {}),
+      },
+      exchange: {
+        ...fallback.locks.exchange,
+        ...((raw.locks && raw.locks.exchange && typeof raw.locks.exchange === 'object')
+          ? raw.locks.exchange
+          : {}),
+      },
+    },
+  };
+  out.base.modelProvider = normalizeXbrainModelProvider(out.base.modelProvider);
+  out.base.modelId = String(out.base.modelId || fallback.base.modelId || 'deepseek-chat').trim() || 'deepseek-chat';
+  out.base.chatChannel = normalizeXbrainChatChannel(out.base.chatChannel);
+  out.exchange.enabled = Boolean(out.exchange.enabled);
+  out.strategy.profileName = String(out.strategy.profileName || 'default').trim() || 'default';
+  out.strategy.symbol = String(out.strategy.symbol || 'BTC/USDT:USDT').trim() || 'BTC/USDT:USDT';
+  out.strategy.leverage = xbrainNum(out.strategy.leverage, fallback.strategy.leverage, 1, 125);
+  out.strategy.sizeMode = normalizeXbrainSizeMode(out.strategy.sizeMode);
+  out.strategy.orderSize = xbrainNum(out.strategy.orderSize, fallback.strategy.orderSize, 1, 200000);
+  out.strategy.riskPct = xbrainNum(out.strategy.riskPct, fallback.strategy.riskPct, 0.001, 0.4);
+  out.strategy.minNotional = xbrainNum(out.strategy.minNotional, fallback.strategy.minNotional, 1, 200000);
+  out.strategy.maxNotional = xbrainNum(
+    out.strategy.maxNotional,
+    fallback.strategy.maxNotional,
+    out.strategy.minNotional,
+    500000,
+  );
+  out.strategy.runtimeMode = normalizeXbrainRuntimeMode(out.strategy.runtimeMode);
+  out.locks.base.locked = out.locks.base.locked !== false;
+  out.locks.exchange.locked = out.locks.exchange.locked !== false;
+  out.locks.base.passwordHash = String(out.locks.base.passwordHash || '').trim();
+  out.locks.exchange.passwordHash = String(out.locks.exchange.passwordHash || '').trim();
+  out.locks.base.updatedAt = out.locks.base.updatedAt || out.updatedAt || nowIso();
+  out.locks.exchange.updatedAt = out.locks.exchange.updatedAt || out.updatedAt || nowIso();
+  out.updatedAt = out.updatedAt || nowIso();
+  return out;
+}
+
+function loadXbrainState() {
+  const parsed = safeJsonRead(XBRAIN_STATE_PATH, null);
+  xbrainState.value = normalizeXbrainState(parsed);
+  xbrainState.loaded = true;
+  return xbrainState.value;
+}
+
+function saveXbrainState() {
+  if (!xbrainState.loaded || !xbrainState.value) loadXbrainState();
+  if (!xbrainState.value) return false;
+  xbrainState.value.updatedAt = nowIso();
+  const ok = safeJsonWrite(XBRAIN_STATE_PATH, xbrainState.value, true);
+  if (ok) xbrainState.lastSavedAt = nowIso();
+  return ok;
+}
+
+function ensureXbrainState() {
+  if (!xbrainState.loaded || !xbrainState.value) loadXbrainState();
+  return xbrainState.value;
+}
+
+function xbrainLockView(lockLike) {
+  const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
+  return {
+    locked: lock.locked !== false,
+    hasPassword: Boolean(String(lock.passwordHash || '').trim()),
+    updatedAt: lock.updatedAt || null,
+  };
+}
+
+function buildXbrainPublicState() {
+  const state = ensureXbrainState();
+  const env = envPairsWithFallback();
+  const apiKey = String(env.BITGET_API_KEY || '').trim();
+  const apiSecret = String(env.BITGET_API_SECRET || '').trim();
+  const apiPassphrase = String(env.BITGET_API_PASSPHRASE || '').trim();
+  const configured = Boolean(apiKey && apiSecret && apiPassphrase);
+  const runtimeMode = normalizeXbrainRuntimeMode(
+    state?.strategy?.runtimeMode ||
+      (/^(1|true|yes|on)$/i.test(String(env.DRY_RUN || '')) ? 'dryrun' : 'live'),
+  );
+  const modelId = String(state?.base?.modelId || env.OPENCLAW_MODEL_ID || 'deepseek-chat').trim() || 'deepseek-chat';
+  const modelProvider = normalizeXbrainModelProvider(
+    state?.base?.modelProvider ||
+      env.OPENCLAW_MODEL_PROVIDER ||
+      inferXbrainProviderFromModelId(modelId),
+  );
+  const chatChannel = normalizeXbrainChatChannel(
+    state?.base?.chatChannel || env.THUNDERCLAW_CHAT_CHANNEL || 'dashboard',
+  );
+  const leverage = xbrainNum(state?.strategy?.leverage ?? env.MAX_LEVERAGE, 10, 1, 125);
+  const sizeMode = normalizeXbrainSizeMode(state?.strategy?.sizeMode ?? env.SIZE_MODE ?? 'risk');
+  const orderSize = xbrainNum(state?.strategy?.orderSize ?? env.NOTIONAL, 8, 1, 200000);
+  const riskPct = xbrainNum(state?.strategy?.riskPct ?? env.RISK_PCT, 0.015, 0.001, 0.4);
+  const minNotional = xbrainNum(state?.strategy?.minNotional ?? env.MIN_NOTIONAL, 5, 1, 200000);
+  const maxNotional = xbrainNum(
+    state?.strategy?.maxNotional ?? env.MAX_NOTIONAL,
+    80,
+    minNotional,
+    500000,
+  );
+  return {
+    updatedAt: state?.updatedAt || nowIso(),
+    base: {
+      modelProvider,
+      modelId,
+      chatChannel,
+      updatedAt: state?.base?.updatedAt || null,
+    },
+    exchange: {
+      bitgetConfigured: configured,
+      apiKeyMasked: maskMaybeSecret(apiKey),
+      apiSecretMasked: maskMaybeSecret(apiSecret),
+      passphraseMasked: maskMaybeSecret(apiPassphrase),
+      updatedAt: state?.exchange?.updatedAt || null,
+    },
+    strategy: {
+      profileName: String(state?.strategy?.profileName || 'default'),
+      symbol: String(state?.strategy?.symbol || 'BTC/USDT:USDT'),
+      leverage,
+      sizeMode,
+      orderSize,
+      riskPct,
+      minNotional,
+      maxNotional,
+      runtimeMode,
+      updatedAt: state?.strategy?.updatedAt || null,
+    },
+    locks: {
+      base: xbrainLockView(state?.locks?.base),
+      exchange: xbrainLockView(state?.locks?.exchange),
+    },
+  };
+}
+
+function buildXbrainModelContext() {
+  const pub = buildXbrainPublicState();
+  return {
+    base: {
+      modelProvider: pub.base.modelProvider,
+      modelId: pub.base.modelId,
+      chatChannel: pub.base.chatChannel,
+      locked: pub.locks.base.locked,
+    },
+    exchange: {
+      bitgetConfigured: pub.exchange.bitgetConfigured,
+      locked: pub.locks.exchange.locked,
+    },
+    strategy: {
+      profileName: pub.strategy.profileName,
+      symbol: pub.strategy.symbol,
+      leverage: pub.strategy.leverage,
+      sizeMode: pub.strategy.sizeMode,
+      orderSize: pub.strategy.orderSize,
+      riskPct: pub.strategy.riskPct,
+      minNotional: pub.strategy.minNotional,
+      maxNotional: pub.strategy.maxNotional,
+      runtimeMode: pub.strategy.runtimeMode,
+    },
+    updatedAt: pub.updatedAt,
+  };
+}
+
+function xbrainSectionLock(sectionLike) {
+  const section = String(sectionLike || '').trim().toLowerCase();
+  const state = ensureXbrainState();
+  if (section === 'base') return state.locks.base;
+  if (section === 'exchange') return state.locks.exchange;
+  return null;
+}
+
+function xbrainIsLocked(sectionLike) {
+  const lock = xbrainSectionLock(sectionLike);
+  return lock ? lock.locked !== false : false;
+}
+
+function xbrainVerifyPassword(sectionLike, passwordLike) {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return false;
+  const stored = String(lock.passwordHash || '').trim();
+  if (!stored) return true;
+  const password = String(passwordLike || '').trim();
+  if (!password) return false;
+  return sha1(password) === stored;
+}
+
+function applyXbrainBasePatch(patchLike, opts = {}) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const password = String(opts.password || '').trim();
+  if (xbrainIsLocked('base') && !xbrainVerifyPassword('base', password)) {
+    return { ok: false, status: 423, error: '基础配置已锁定，请输入密码后解锁。' };
+  }
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const updates = {};
+  const changed = {};
+  if (hasOwn(patch, 'modelProvider')) {
+    const v = normalizeXbrainModelProvider(patch.modelProvider);
+    state.base.modelProvider = v;
+    updates.OPENCLAW_MODEL_PROVIDER = v;
+    changed.modelProvider = v;
+  }
+  if (hasOwn(patch, 'modelId')) {
+    const v = String(patch.modelId || '').trim() || 'deepseek-chat';
+    state.base.modelId = v;
+    updates.OPENCLAW_MODEL_ID = v;
+    changed.modelId = v;
+  }
+  if (hasOwn(patch, 'chatChannel')) {
+    const v = normalizeXbrainChatChannel(patch.chatChannel);
+    state.base.chatChannel = v;
+    updates.THUNDERCLAW_CHAT_CHANNEL = v;
+    changed.chatChannel = v;
+  }
+  state.base.updatedAt = now;
+  state.updatedAt = now;
+  if (Object.keys(updates).length) writeEnvLocal(updates);
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function applyXbrainExchangePatch(patchLike, opts = {}) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const password = String(opts.password || '').trim();
+  if (xbrainIsLocked('exchange') && !xbrainVerifyPassword('exchange', password)) {
+    return { ok: false, status: 423, error: '交易配置已锁定，请输入密码后解锁。' };
+  }
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const envUpdates = {};
+  const changed = {};
+  if (hasOwn(patch, 'apiKey')) {
+    const v = String(patch.apiKey || '').trim();
+    envUpdates.BITGET_API_KEY = v;
+    changed.apiKey = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (hasOwn(patch, 'apiSecret')) {
+    const v = String(patch.apiSecret || '').trim();
+    envUpdates.BITGET_API_SECRET = v;
+    changed.apiSecret = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (hasOwn(patch, 'apiPassphrase')) {
+    const v = String(patch.apiPassphrase || '').trim();
+    envUpdates.BITGET_API_PASSPHRASE = v;
+    changed.apiPassphrase = v ? maskMaybeSecret(v) : '(未设置)';
+  }
+  if (Object.keys(envUpdates).length) writeEnvLocal(envUpdates);
+  const env = envPairsWithFallback();
+  state.exchange.enabled = Boolean(env.BITGET_API_KEY && env.BITGET_API_SECRET && env.BITGET_API_PASSPHRASE);
+  state.exchange.updatedAt = now;
+  state.updatedAt = now;
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function applyXbrainStrategyPatch(patchLike) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const changed = {};
+  const envUpdates = {};
+
+  if (hasOwn(patch, 'profileName')) {
+    const v = String(patch.profileName || '').trim() || 'default';
+    state.strategy.profileName = v;
+    changed.profileName = v;
+  }
+  if (hasOwn(patch, 'symbol')) {
+    const v = String(patch.symbol || '').trim() || 'BTC/USDT:USDT';
+    state.strategy.symbol = v;
+    changed.symbol = v;
+  }
+  if (hasOwn(patch, 'leverage')) {
+    const v = xbrainNum(patch.leverage, state.strategy.leverage, 1, 125);
+    state.strategy.leverage = v;
+    envUpdates.MAX_LEVERAGE = String(v);
+    changed.leverage = v;
+  }
+  if (hasOwn(patch, 'sizeMode')) {
+    const v = normalizeXbrainSizeMode(patch.sizeMode);
+    state.strategy.sizeMode = v;
+    envUpdates.SIZE_MODE = v;
+    changed.sizeMode = v;
+  }
+  if (hasOwn(patch, 'orderSize')) {
+    const v = xbrainNum(patch.orderSize, state.strategy.orderSize, 1, 200000);
+    state.strategy.orderSize = v;
+    envUpdates.NOTIONAL = String(v);
+    changed.orderSize = v;
+  }
+  if (hasOwn(patch, 'riskPct')) {
+    const v = xbrainNum(patch.riskPct, state.strategy.riskPct, 0.001, 0.4);
+    state.strategy.riskPct = v;
+    envUpdates.RISK_PCT = String(v);
+    changed.riskPct = v;
+  }
+  if (hasOwn(patch, 'minNotional')) {
+    const v = xbrainNum(patch.minNotional, state.strategy.minNotional, 1, 200000);
+    state.strategy.minNotional = v;
+    envUpdates.MIN_NOTIONAL = String(v);
+    changed.minNotional = v;
+  }
+  if (hasOwn(patch, 'maxNotional')) {
+    const floor = xbrainNum(
+      hasOwn(patch, 'minNotional') ? patch.minNotional : state.strategy.minNotional,
+      state.strategy.minNotional,
+      1,
+      200000,
+    );
+    const v = xbrainNum(patch.maxNotional, state.strategy.maxNotional, floor, 500000);
+    state.strategy.maxNotional = v;
+    envUpdates.MAX_NOTIONAL = String(v);
+    changed.maxNotional = v;
+  }
+  if (hasOwn(patch, 'runtimeMode')) {
+    const v = normalizeXbrainRuntimeMode(patch.runtimeMode);
+    state.strategy.runtimeMode = v;
+    envUpdates.DRY_RUN = v === 'dryrun' ? '1' : '0';
+    envUpdates.DRY_RUN_FORCE = v === 'dryrun' ? '1' : '0';
+    changed.runtimeMode = v;
+  }
+
+  state.strategy.updatedAt = now;
+  state.updatedAt = now;
+  if (Object.keys(envUpdates).length) writeEnvLocal(envUpdates);
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function setXbrainSectionLock(sectionLike, locked) {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return false;
+  lock.locked = Boolean(locked);
+  lock.updatedAt = nowIso();
+  const state = ensureXbrainState();
+  state.updatedAt = nowIso();
+  saveXbrainState();
+  return true;
+}
+
+function setXbrainSectionPassword(sectionLike, nextPasswordLike, currentPasswordLike = '') {
+  const lock = xbrainSectionLock(sectionLike);
+  if (!lock) return { ok: false, status: 400, error: '不支持该配置区。' };
+  const nextPassword = String(nextPasswordLike || '').trim();
+  if (nextPassword.length < XBRAIN_PASSWORD_MIN_LEN) {
+    return {
+      ok: false,
+      status: 400,
+      error: '密码长度至少 ' + XBRAIN_PASSWORD_MIN_LEN + ' 位。',
+    };
+  }
+  const currentHash = String(lock.passwordHash || '').trim();
+  if (currentHash) {
+    const currentPassword = String(currentPasswordLike || '').trim();
+    if (!currentPassword || sha1(currentPassword) !== currentHash) {
+      return { ok: false, status: 403, error: '当前密码不正确。' };
+    }
+  }
+  lock.passwordHash = sha1(nextPassword);
+  lock.locked = true;
+  lock.updatedAt = nowIso();
+  const state = ensureXbrainState();
+  state.updatedAt = nowIso();
+  saveXbrainState();
+  return { ok: true, state: buildXbrainPublicState() };
 }
 
 function isPidAlive(pidLike) {
@@ -1374,10 +1909,726 @@ function applyUserStrategyFeedback(messageLike, channel = 'dashboard') {
   };
 }
 
+function clampArtifactWeight(value) {
+  const maxW = Number.isFinite(STRATEGY_ARTIFACT_MAX_WEIGHT) ? STRATEGY_ARTIFACT_MAX_WEIGHT : 2;
+  const minW = Number.isFinite(STRATEGY_ARTIFACT_MIN_WEIGHT) ? STRATEGY_ARTIFACT_MIN_WEIGHT : -2;
+  return clampNum(Number(value) || 0, Math.min(minW, maxW), Math.max(minW, maxW)) || 0;
+}
+
+function strategyArtifactStrength(recordLike) {
+  const rec = recordLike && typeof recordLike === 'object' ? recordLike : {};
+  const reports = Math.max(0, Number(rec?.stats?.reports) || 0);
+  const avgPnl = Number(rec?.stats?.avgNetPnlPct) || 0;
+  const conf = Math.max(0, Math.min(1, Math.log1p(reports) / Math.log(16)));
+  return (
+    (Number(rec.learningWeight) || 0) * 0.5 +
+    (Number(rec.scoreEma) || 0) * 0.35 +
+    conf * 0.1 +
+    Math.max(-0.3, Math.min(0.4, avgPnl / 80))
+  );
+}
+
+function defaultStrategyArtifactRecord(initLike = {}) {
+  const init = initLike && typeof initLike === 'object' ? initLike : {};
+  return {
+    artifactId: String(init.artifactId || ''),
+    configHash: String(init.configHash || ''),
+    label: truncText(String(init.label || ''), 80) || 'strategy-artifact',
+    strategyType: String(init.strategyType || 'custom'),
+    source: String(init.source || 'dashboard'),
+    query: truncText(String(init.query || ''), 260) || null,
+    config: init.config && typeof init.config === 'object' ? init.config : {},
+    version: 0,
+    createdAt: init.createdAt || nowIso(),
+    updatedAt: init.updatedAt || nowIso(),
+    lastUsedAt: init.lastUsedAt || nowIso(),
+    lastResult: null,
+    scoreEma: 0,
+    learningWeight: 0,
+    feedbackCount: 0,
+    positiveFeedback: 0,
+    negativeFeedback: 0,
+    stats: {
+      reports: 0,
+      totalTrades: 0,
+      avgWinRate: 0,
+      avgNetPnlPct: 0,
+      avgDrawdownPct: 0,
+      bestNetPnlPct: null,
+      worstDrawdownPct: null,
+      lastReward: 0,
+      lastSource: null,
+      lastReason: null,
+      lastUpdatedAt: null,
+    },
+  };
+}
+
+function normalizeArtifactConfig(configLike) {
+  const cfg = configLike && typeof configLike === 'object' ? configLike : {};
+  const out = {};
+  const strategy = String(cfg.strategy || '').trim();
+  const tf = String(cfg.tf || '').trim();
+  if (strategy) out.strategy = strategy.slice(0, 64);
+  if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) out.tf = tf;
+  const bars = clampNum(cfg.bars, 80, 20000);
+  const feeBps = clampNum(cfg.feeBps, 0, 100);
+  const stopAtr = clampNum(cfg.stopAtr, 0.2, 20);
+  const tpAtr = clampNum(cfg.tpAtr, 0.2, 40);
+  const maxHold = clampNum(cfg.maxHold, 1, 3000);
+  if (bars != null) out.bars = Math.round(bars);
+  if (feeBps != null) out.feeBps = Number(feeBps);
+  if (stopAtr != null) out.stopAtr = Number(stopAtr);
+  if (tpAtr != null) out.tpAtr = Number(tpAtr);
+  if (maxHold != null) out.maxHold = Math.round(maxHold);
+  const custom = cfg.custom && typeof cfg.custom === 'object' ? cfg.custom : {};
+  const customOut = {};
+  const lookback = clampNum(custom.lookback, 2, 500);
+  const retestWindow = clampNum(custom.retestWindow, 1, 300);
+  const reentryWindow = clampNum(custom.reentryWindow, 1, 500);
+  const retestTolAtr = clampNum(custom.retestTolAtr, 0.01, 8);
+  const reentryTolAtr = clampNum(custom.reentryTolAtr, 0.01, 12);
+  const biasAdxMin = clampNum(custom.biasAdxMin, 0, 100);
+  const biasEmaFast = clampNum(custom.biasEmaFast, 2, 600);
+  const biasEmaSlow = clampNum(custom.biasEmaSlow, 2, 800);
+  const entryEma = clampNum(custom.entryEma, 2, 600);
+  if (lookback != null) customOut.lookback = Math.round(lookback);
+  if (retestWindow != null) customOut.retestWindow = Math.round(retestWindow);
+  if (reentryWindow != null) customOut.reentryWindow = Math.round(reentryWindow);
+  if (retestTolAtr != null) customOut.retestTolAtr = Number(retestTolAtr);
+  if (reentryTolAtr != null) customOut.reentryTolAtr = Number(reentryTolAtr);
+  if (biasAdxMin != null) customOut.biasAdxMin = Number(biasAdxMin);
+  if (biasEmaFast != null) customOut.biasEmaFast = Math.round(biasEmaFast);
+  if (biasEmaSlow != null) customOut.biasEmaSlow = Math.round(biasEmaSlow);
+  if (entryEma != null) customOut.entryEma = Math.round(entryEma);
+  if (typeof custom.allowRetest === 'boolean') customOut.allowRetest = custom.allowRetest;
+  if (typeof custom.allowReentry === 'boolean') customOut.allowReentry = custom.allowReentry;
+  if (typeof custom.allowBreakout === 'boolean') customOut.allowBreakout = custom.allowBreakout;
+  if (['long', 'short', 'both'].includes(String(custom.side || ''))) customOut.side = String(custom.side);
+  if (Object.keys(customOut).length) out.custom = customOut;
+  const dsl = normalizeStrategyDslSpec(cfg.dsl || cfg.spec);
+  if (Object.keys(dsl).length) out.dsl = dsl;
+  return out;
+}
+
+function normalizeArtifactResult(resultLike) {
+  const src = resultLike && typeof resultLike === 'object' ? resultLike : {};
+  const strategy = String(src.strategy || '').trim();
+  const tf = String(src.tf || '').trim();
+  const bars = clampNum(src.bars, 0, 20000);
+  const tradeCount = clampNum(src.tradeCount != null ? src.tradeCount : src.trades, 0, 50000);
+  const winRate = clampNum(src.winRate, 0, 100);
+  const netPnlPct = clampNum(src.netPnlPct != null ? src.netPnlPct : src.totalPnlPct, -1000, 2000);
+  const maxDrawdownPct = clampNum(src.maxDrawdownPct, 0, 1000);
+  const avgPnlPct = clampNum(src.avgPnlPct, -100, 100);
+  return {
+    strategy: strategy || null,
+    tf: tf || null,
+    bars: bars != null ? Math.round(bars) : null,
+    tradeCount: tradeCount != null ? Math.round(tradeCount) : 0,
+    winRate: winRate != null ? Number(winRate) : 0,
+    netPnlPct: netPnlPct != null ? Number(netPnlPct) : 0,
+    maxDrawdownPct: maxDrawdownPct != null ? Number(maxDrawdownPct) : 0,
+    avgPnlPct: avgPnlPct != null ? Number(avgPnlPct) : 0,
+  };
+}
+
+function normalizeStrategyArtifactReport(reportLike) {
+  const src = reportLike && typeof reportLike === 'object' ? reportLike : {};
+  const ts = src.ts || nowIso();
+  const source = truncText(String(src.source || 'dashboard'), 32);
+  const query = truncText(redactSecrets(src.query || src.userQuery || ''), 320) || null;
+  const config = normalizeArtifactConfig(src.config);
+  const result = normalizeArtifactResult(src.result);
+  const configHash = sha1(JSON.stringify(config));
+  const strategyType = config.dsl
+    ? 'dsl'
+    : config.custom
+      ? 'custom'
+      : String(config.strategy || result.strategy || 'preset').toLowerCase();
+  const label =
+    truncText(
+      String(
+        src.label ||
+          config.dsl?.name ||
+          (strategyType === 'dsl' ? (config.strategy || result.strategy || 'dsl') : config.strategy || result.strategy || 'custom'),
+      ),
+      80,
+    ) || 'strategy-artifact';
+  const artifactId = /^art-[a-f0-9]{8,20}$/i.test(String(src.artifactId || ''))
+    ? String(src.artifactId).toLowerCase()
+    : 'art-' + configHash.slice(0, 12);
+  const reportKey =
+    String(src.reportKey || '').trim() ||
+    sha1(
+      [
+        artifactId,
+        configHash,
+        String(result.tradeCount),
+        String(result.winRate),
+        String(result.netPnlPct),
+        String(result.maxDrawdownPct),
+        String(toMs(ts) || Date.now()),
+      ].join('|'),
+    ).slice(0, 32);
+  return {
+    ts,
+    source,
+    query,
+    artifactId,
+    reportKey,
+    label,
+    strategyType,
+    configHash,
+    config,
+    result,
+  };
+}
+
+function scoreArtifactFromResultMetrics(metricsLike) {
+  const m = metricsLike && typeof metricsLike === 'object' ? metricsLike : {};
+  const trades = Math.max(0, Number(m.tradeCount) || 0);
+  const winRate = Math.max(0, Math.min(100, Number(m.winRate) || 0)) / 100;
+  const pnl = Math.tanh((Number(m.netPnlPct) || 0) / 16);
+  const dd = Math.max(0, Number(m.maxDrawdownPct) || 0);
+  const ddPenalty = Math.tanh(dd / 28);
+  const tradeScore = Math.min(1, trades / 180);
+  return clampNum(winRate * 0.45 + pnl * 0.35 + tradeScore * 0.15 - ddPenalty * 0.25, -1, 1) || 0;
+}
+
+function loadStrategyArtifactState() {
+  if (strategyArtifactState.loaded) return;
+  strategyArtifactState.loaded = true;
+  strategyArtifactState.artifacts = {};
+  strategyArtifactState.reportKeys = new Set();
+  const parsed = safeJsonRead(STRATEGY_ARTIFACTS_STATE_PATH, {});
+  if (parsed && typeof parsed === 'object') {
+    const source = parsed.artifacts && typeof parsed.artifacts === 'object' ? parsed.artifacts : {};
+    for (const [id, raw] of Object.entries(source)) {
+      if (!/^art-[a-f0-9]{8,20}$/i.test(id)) continue;
+      const rec = raw && typeof raw === 'object' ? raw : {};
+      const base = defaultStrategyArtifactRecord({
+        artifactId: String(id).toLowerCase(),
+        configHash: String(rec.configHash || ''),
+        label: String(rec.label || ''),
+        strategyType: String(rec.strategyType || 'custom'),
+        source: String(rec.source || 'dashboard'),
+        query: rec.query || null,
+        config: normalizeArtifactConfig(rec.config),
+        createdAt: rec.createdAt || nowIso(),
+        updatedAt: rec.updatedAt || nowIso(),
+        lastUsedAt: rec.lastUsedAt || rec.updatedAt || nowIso(),
+      });
+      base.version = Math.max(0, Number(rec.version) || 0);
+      base.lastResult = normalizeArtifactResult(rec.lastResult);
+      base.scoreEma = clampNum(rec.scoreEma, -1, 1) || 0;
+      base.learningWeight = clampArtifactWeight(rec.learningWeight);
+      base.feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0);
+      base.positiveFeedback = Math.max(0, Number(rec.positiveFeedback) || 0);
+      base.negativeFeedback = Math.max(0, Number(rec.negativeFeedback) || 0);
+      const stats = rec.stats && typeof rec.stats === 'object' ? rec.stats : {};
+      base.stats = {
+        reports: Math.max(0, Number(stats.reports) || 0),
+        totalTrades: Math.max(0, Number(stats.totalTrades) || 0),
+        avgWinRate: Number(stats.avgWinRate) || 0,
+        avgNetPnlPct: Number(stats.avgNetPnlPct) || 0,
+        avgDrawdownPct: Number(stats.avgDrawdownPct) || 0,
+        bestNetPnlPct:
+          Number.isFinite(Number(stats.bestNetPnlPct)) ? Number(stats.bestNetPnlPct) : null,
+        worstDrawdownPct:
+          Number.isFinite(Number(stats.worstDrawdownPct)) ? Number(stats.worstDrawdownPct) : null,
+        lastReward: clampNum(stats.lastReward, -1, 1) || 0,
+        lastSource: stats.lastSource || null,
+        lastReason: stats.lastReason || null,
+        lastUpdatedAt: stats.lastUpdatedAt || null,
+      };
+      strategyArtifactState.artifacts[base.artifactId] = base;
+    }
+    const reportKeys = Array.isArray(parsed.reportKeys)
+      ? parsed.reportKeys.map((x) => String(x)).filter(Boolean)
+      : [];
+    strategyArtifactState.reportKeys = new Set(reportKeys.slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX));
+    strategyArtifactState.lastUpdatedAt = parsed.lastUpdatedAt || null;
+    return;
+  }
+  const rows = readJsonlFile(STRATEGY_ARTIFACTS_JSONL_PATH, STRATEGY_ARTIFACTS_MAX_ITEMS * 2);
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    registerStrategyArtifactReport(row, { skipPersist: true, source: 'rebuild' });
+  }
+}
+
+function trimStrategyArtifactState() {
+  const entries = Object.values(strategyArtifactState.artifacts || {});
+  if (entries.length > STRATEGY_ARTIFACTS_MAX_ITEMS) {
+    entries.sort((a, b) => (toMs(b.updatedAt) || 0) - (toMs(a.updatedAt) || 0));
+    const keep = entries.slice(0, STRATEGY_ARTIFACTS_MAX_ITEMS);
+    strategyArtifactState.artifacts = {};
+    keep.forEach((r) => {
+      strategyArtifactState.artifacts[r.artifactId] = r;
+    });
+  }
+  const keys = Array.from(strategyArtifactState.reportKeys);
+  if (keys.length > STRATEGY_ARTIFACTS_REPORT_KEYS_MAX) {
+    strategyArtifactState.reportKeys = new Set(keys.slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX));
+  }
+}
+
+function saveStrategyArtifactState() {
+  loadStrategyArtifactState();
+  trimStrategyArtifactState();
+  const payload = {
+    version: 1,
+    updatedAt: nowIso(),
+    reportKeys: Array.from(strategyArtifactState.reportKeys).slice(-STRATEGY_ARTIFACTS_REPORT_KEYS_MAX),
+    artifacts: strategyArtifactState.artifacts,
+  };
+  const ok = safeJsonWrite(STRATEGY_ARTIFACTS_STATE_PATH, payload, true);
+  if (ok) strategyArtifactState.lastSavedAt = nowIso();
+}
+
+function applyArtifactLearning(updateLike) {
+  loadStrategyArtifactState();
+  const u = updateLike && typeof updateLike === 'object' ? updateLike : {};
+  const artifactId = /^art-[a-f0-9]{8,20}$/i.test(String(u.artifactId || ''))
+    ? String(u.artifactId).toLowerCase()
+    : null;
+  if (!artifactId) return { ok: false, reason: 'invalid_artifact_id' };
+  const reward = clampNum(Number(u.reward), -1, 1);
+  if (!Number.isFinite(reward)) return { ok: false, reason: 'invalid_reward' };
+  const rec = strategyArtifactState.artifacts[artifactId];
+  if (!rec) return { ok: false, reason: 'not_found', artifactId };
+  const oldWeight = Number(rec.learningWeight) || 0;
+  const nextWeight = clampArtifactWeight(oldWeight * (1 - STRATEGY_ARTIFACT_LR * 0.1) + STRATEGY_ARTIFACT_LR * reward);
+  rec.learningWeight = nextWeight;
+  rec.scoreEma = clampNum((Number(rec.scoreEma) || 0) * 0.86 + reward * 0.14, -1, 1) || 0;
+  rec.updatedAt = u.ts || nowIso();
+  rec.lastUsedAt = rec.updatedAt;
+  rec.stats.lastReward = reward;
+  rec.stats.lastSource = u.source || 'feedback';
+  rec.stats.lastReason = truncText(String(u.reason || ''), 220) || null;
+  rec.stats.lastUpdatedAt = rec.updatedAt;
+  if (u.source === 'feedback') {
+    rec.feedbackCount = Math.max(0, Number(rec.feedbackCount) || 0) + 1;
+    if (reward >= 0) rec.positiveFeedback = Math.max(0, Number(rec.positiveFeedback) || 0) + 1;
+    else rec.negativeFeedback = Math.max(0, Number(rec.negativeFeedback) || 0) + 1;
+  }
+  saveStrategyArtifactState();
+  return {
+    ok: true,
+    artifactId,
+    oldWeight: Number(oldWeight.toFixed(4)),
+    newWeight: Number(nextWeight.toFixed(4)),
+    scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+    reward: Number(reward.toFixed(4)),
+  };
+}
+
+function registerStrategyArtifactReport(reportLike, options = {}) {
+  loadStrategyArtifactState();
+  const skipPersist = Boolean(options.skipPersist);
+  const normalized = normalizeStrategyArtifactReport(reportLike);
+  const existingKey = strategyArtifactState.reportKeys.has(normalized.reportKey);
+  if (existingKey) {
+    const rec = strategyArtifactState.artifacts[normalized.artifactId];
+    return {
+      ok: true,
+      duplicate: true,
+      artifactId: normalized.artifactId,
+      version: rec ? rec.version : null,
+      record: rec || null,
+    };
+  }
+  const now = normalized.ts || nowIso();
+  const artifactId = normalized.artifactId;
+  const rec =
+    strategyArtifactState.artifacts[artifactId] ||
+    defaultStrategyArtifactRecord({
+      artifactId,
+      configHash: normalized.configHash,
+      label: normalized.label,
+      strategyType: normalized.strategyType,
+      source: normalized.source,
+      query: normalized.query,
+      config: normalized.config,
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+    });
+  if (!strategyArtifactState.artifacts[artifactId]) {
+    strategyArtifactState.artifacts[artifactId] = rec;
+  }
+  rec.version = Math.max(0, Number(rec.version) || 0) + 1;
+  rec.updatedAt = now;
+  rec.lastUsedAt = now;
+  rec.label = normalized.label || rec.label;
+  rec.source = normalized.source || rec.source;
+  rec.query = normalized.query || rec.query;
+  rec.strategyType = normalized.strategyType || rec.strategyType;
+  rec.configHash = normalized.configHash || rec.configHash;
+  rec.config = normalized.config;
+  rec.lastResult = normalized.result;
+  rec.stats.reports = Math.max(0, Number(rec.stats.reports) || 0) + 1;
+  rec.stats.totalTrades = Math.max(0, Number(rec.stats.totalTrades) || 0) + Math.max(0, Number(normalized.result.tradeCount) || 0);
+  const n = rec.stats.reports;
+  rec.stats.avgWinRate =
+    n <= 1
+      ? Number(normalized.result.winRate) || 0
+      : ((Number(rec.stats.avgWinRate) || 0) * (n - 1) + (Number(normalized.result.winRate) || 0)) / n;
+  rec.stats.avgNetPnlPct =
+    n <= 1
+      ? Number(normalized.result.netPnlPct) || 0
+      : ((Number(rec.stats.avgNetPnlPct) || 0) * (n - 1) + (Number(normalized.result.netPnlPct) || 0)) / n;
+  rec.stats.avgDrawdownPct =
+    n <= 1
+      ? Number(normalized.result.maxDrawdownPct) || 0
+      : ((Number(rec.stats.avgDrawdownPct) || 0) * (n - 1) + (Number(normalized.result.maxDrawdownPct) || 0)) / n;
+  if (rec.stats.bestNetPnlPct == null || Number(normalized.result.netPnlPct) > Number(rec.stats.bestNetPnlPct)) {
+    rec.stats.bestNetPnlPct = Number(normalized.result.netPnlPct) || 0;
+  }
+  if (
+    rec.stats.worstDrawdownPct == null ||
+    Number(normalized.result.maxDrawdownPct) > Number(rec.stats.worstDrawdownPct)
+  ) {
+    rec.stats.worstDrawdownPct = Number(normalized.result.maxDrawdownPct) || 0;
+  }
+  const reward = scoreArtifactFromResultMetrics(normalized.result);
+  applyArtifactLearning({
+    artifactId,
+    reward,
+    source: 'backtest',
+    reason:
+      'report:' +
+      (normalized.result.strategy || '-') +
+      ' wr=' +
+      Number(normalized.result.winRate || 0).toFixed(2) +
+      ' pnl=' +
+      Number(normalized.result.netPnlPct || 0).toFixed(2),
+    ts: now,
+  });
+  strategyArtifactState.reportKeys.add(normalized.reportKey);
+  strategyArtifactState.lastUpdatedAt = nowIso();
+  trimStrategyArtifactState();
+  if (!skipPersist) {
+    try {
+      fs.mkdirSync(path.dirname(STRATEGY_ARTIFACTS_JSONL_PATH), { recursive: true });
+      fs.appendFileSync(
+        STRATEGY_ARTIFACTS_JSONL_PATH,
+        JSON.stringify({
+          ts: now,
+          source: normalized.source,
+          artifactId,
+          reportKey: normalized.reportKey,
+          version: rec.version,
+          label: rec.label,
+          strategyType: rec.strategyType,
+          configHash: rec.configHash,
+          config: rec.config,
+          result: normalized.result,
+          reward: Number(reward.toFixed(4)),
+          learningWeight: Number(rec.learningWeight || 0),
+          scoreEma: Number(rec.scoreEma || 0),
+          query: normalized.query || null,
+        }) + '\n',
+        'utf8',
+      );
+    } catch {}
+    appendTraderMemory({
+      key: 'strategy-artifact:' + normalized.reportKey,
+      ts: now,
+      kind: 'strategy_artifact',
+      channel: normalized.source || 'dashboard',
+      tags: ['strategy', 'artifact', rec.strategyType || 'custom'],
+      content: [
+        '策略工件更新',
+        'id=' + artifactId + ' v' + String(rec.version),
+        'type=' + String(rec.strategyType || '-'),
+        'label=' + String(rec.label || '-'),
+        'wr=' + String(Number(normalized.result.winRate || 0).toFixed(2)) + '%',
+        'trades=' + String(Math.max(0, Number(normalized.result.tradeCount) || 0)),
+        'pnl=' + String(Number(normalized.result.netPnlPct || 0).toFixed(2)) + '%',
+        'dd=' + String(Number(normalized.result.maxDrawdownPct || 0).toFixed(2)) + '%',
+        'weight=' + String(Number(rec.learningWeight || 0).toFixed(4)),
+      ].join(' | '),
+    });
+  }
+  saveStrategyArtifactState();
+  return {
+    ok: true,
+    duplicate: false,
+    artifactId,
+    version: rec.version,
+    reward: Number(reward.toFixed(4)),
+    learningWeight: Number((Number(rec.learningWeight) || 0).toFixed(4)),
+    scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+    strength: Number(strategyArtifactStrength(rec).toFixed(4)),
+    record: rec,
+  };
+}
+
+function listStrategyArtifacts(limit = STRATEGY_ARTIFACTS_TOPK, query = '') {
+  loadStrategyArtifactState();
+  const q = String(query || '').trim().toLowerCase();
+  const rows = Object.values(strategyArtifactState.artifacts || {}).map((rec) => {
+    const strength = strategyArtifactStrength(rec);
+    return {
+      artifactId: rec.artifactId,
+      label: rec.label || null,
+      strategyType: rec.strategyType || null,
+      source: rec.source || null,
+      version: Math.max(0, Number(rec.version) || 0),
+      configHash: rec.configHash || null,
+      tf: rec?.config?.tf || rec?.lastResult?.tf || null,
+      bars: Number(rec?.config?.bars || rec?.lastResult?.bars || 0) || null,
+      learningWeight: Number((Number(rec.learningWeight) || 0).toFixed(4)),
+      scoreEma: Number((Number(rec.scoreEma) || 0).toFixed(4)),
+      strength: Number(strength.toFixed(4)),
+      feedbackCount: Math.max(0, Number(rec.feedbackCount) || 0),
+      reports: Math.max(0, Number(rec?.stats?.reports) || 0),
+      totalTrades: Math.max(0, Number(rec?.stats?.totalTrades) || 0),
+      avgWinRate: Number((Number(rec?.stats?.avgWinRate) || 0).toFixed(2)),
+      avgNetPnlPct: Number((Number(rec?.stats?.avgNetPnlPct) || 0).toFixed(3)),
+      avgDrawdownPct: Number((Number(rec?.stats?.avgDrawdownPct) || 0).toFixed(3)),
+      bestNetPnlPct:
+        rec?.stats?.bestNetPnlPct == null ? null : Number(Number(rec.stats.bestNetPnlPct).toFixed(3)),
+      worstDrawdownPct:
+        rec?.stats?.worstDrawdownPct == null ? null : Number(Number(rec.stats.worstDrawdownPct).toFixed(3)),
+      lastResult: rec.lastResult || null,
+      config: rec.config || null,
+      updatedAt: rec.updatedAt || null,
+      createdAt: rec.createdAt || null,
+      query: rec.query || null,
+    };
+  });
+  const filtered = q
+    ? rows.filter((r) => {
+        const text = [
+          r.artifactId,
+          r.label,
+          r.strategyType,
+          r.source,
+          r.tf,
+          r.query,
+          r?.config?.strategy,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return text.includes(q);
+      })
+    : rows;
+  filtered.sort(
+    (a, b) =>
+      Number(b.strength || 0) - Number(a.strength || 0) ||
+      (toMs(b.updatedAt) || 0) - (toMs(a.updatedAt) || 0) ||
+      Number(b.reports || 0) - Number(a.reports || 0),
+  );
+  return filtered.slice(0, Math.max(1, Math.min(100, Number(limit) || STRATEGY_ARTIFACTS_TOPK)));
+}
+
+function strategyArtifactToAction(recordLike) {
+  const rec = recordLike && typeof recordLike === 'object' ? recordLike : null;
+  if (!rec) return null;
+  const cfg = rec.config && typeof rec.config === 'object' ? rec.config : {};
+  const base = {};
+  if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(String(cfg.tf || ''))) base.tf = String(cfg.tf);
+  if (Number.isFinite(Number(cfg.bars))) base.bars = Number(cfg.bars);
+  if (Number.isFinite(Number(cfg.feeBps))) base.feeBps = Number(cfg.feeBps);
+  if (Number.isFinite(Number(cfg.stopAtr))) base.stopAtr = Number(cfg.stopAtr);
+  if (Number.isFinite(Number(cfg.tpAtr))) base.tpAtr = Number(cfg.tpAtr);
+  if (Number.isFinite(Number(cfg.maxHold))) base.maxHold = Number(cfg.maxHold);
+  if (cfg.dsl && typeof cfg.dsl === 'object') {
+    return {
+      type: 'run_strategy_dsl',
+      artifactId: rec.artifactId,
+      ...base,
+      dsl: normalizeStrategyDslSpec(cfg.dsl),
+    };
+  }
+  if (cfg.custom && typeof cfg.custom === 'object') {
+    return {
+      type: 'run_custom_backtest',
+      artifactId: rec.artifactId,
+      strategy: String(cfg.strategy || 'custom'),
+      ...base,
+      custom: cfg.custom,
+    };
+  }
+  return {
+    type: 'run_backtest',
+    artifactId: rec.artifactId,
+    strategy: String(cfg.strategy || rec?.lastResult?.strategy || 'v5_hybrid'),
+    ...base,
+  };
+}
+
+function parseStrategyArtifactFeedbackIntent(messageLike) {
+  const text = String(messageLike || '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const explicit = /^(反馈工件|工件反馈|artifact\s*feedback|strategy\s*artifact\s*feedback)\s*[:：]?\s*/i.test(
+    text,
+  );
+  const hasArtifactWord = /(工件|artifact|art-[a-f0-9]{8,20})/i.test(text);
+  if (!explicit && !hasArtifactWord) return null;
+  const idMatch = text.match(/\b(art-[a-f0-9]{8,20})\b/i);
+  let artifactId = idMatch ? String(idMatch[1]).toLowerCase() : null;
+  if (!artifactId) {
+    artifactId = listStrategyArtifacts(1)[0]?.artifactId || null;
+  }
+  if (!artifactId) {
+    return {
+      explicit: true,
+      artifactId: null,
+      reward: null,
+      handled: true,
+      reason: 'no_artifact',
+    };
+  }
+  let reward = null;
+  const numMatch = text.match(/(?:^|[\s:：,，])([+-]?\d+(?:\.\d+)?)(?=$|[\s,，。!！])/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    if (Number.isFinite(n)) reward = Math.abs(n) > 1 ? clampNum(n / 2, -1, 1) : clampNum(n, -1, 1);
+  }
+  if (reward == null) {
+    const positive = /(看好|很好|不错|有效|有用|收益|盈利|继续|增强|加强|喜欢|稳|牛|赚|good|great|works?)/i.test(
+      lower,
+    );
+    const negative = /(不好|很差|失效|无效|亏损|回撤|太激进|风险高|停用|减弱|削弱|讨厌|bad|poor|worse|loss)/i.test(
+      lower,
+    );
+    if (positive && !negative) reward = 0.55;
+    else if (negative && !positive) reward = -0.55;
+    else if (positive && negative) reward = -0.15;
+  }
+  if (reward == null && explicit) {
+    return { explicit, artifactId, reward: null, handled: true, reason: 'missing_sentiment' };
+  }
+  if (reward == null) return null;
+  return {
+    explicit: Boolean(explicit),
+    artifactId,
+    reward: clampNum(reward, -1, 1) || 0,
+  };
+}
+
+function applyUserStrategyArtifactFeedback(messageLike, channel = 'dashboard') {
+  const intent = parseStrategyArtifactFeedbackIntent(messageLike);
+  if (!intent) return { handled: false };
+  if (!intent.artifactId) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: true,
+      reply: '未找到可反馈的策略工件。先运行一次策略回验，系统会自动沉淀工件。',
+    };
+  }
+  if (intent.reward == null) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: true,
+      artifactId: intent.artifactId,
+      reply: '已识别为工件反馈，但未识别到正/负方向。示例：反馈工件 ' + intent.artifactId + ' +0.6',
+    };
+  }
+  const updated = applyArtifactLearning({
+    artifactId: intent.artifactId,
+    reward: intent.reward,
+    source: 'feedback',
+    reason: truncText(String(messageLike || ''), 220),
+    ts: nowIso(),
+  });
+  if (!updated?.ok) {
+    return {
+      handled: true,
+      applied: false,
+      explicit: Boolean(intent.explicit),
+      artifactId: intent.artifactId,
+      reply: '工件反馈失败：' + String(updated?.reason || 'unknown'),
+    };
+  }
+  const top = listStrategyArtifacts(12).find((x) => x.artifactId === intent.artifactId) || null;
+  appendTraderMemory({
+    key: 'strategy-artifact-feedback:' + sha1(String(messageLike || '') + ':' + nowIso()).slice(0, 24),
+    ts: nowIso(),
+    kind: 'strategy_artifact_feedback',
+    channel,
+    tags: ['strategy', 'artifact', 'user_feedback', intent.artifactId],
+    content:
+      '工件反馈(用户) | artifact=' +
+      intent.artifactId +
+      ' | reward=' +
+      String(Number(intent.reward).toFixed(4)) +
+      ' | text=' +
+      redactSecrets(messageLike),
+  });
+  return {
+    handled: true,
+    applied: true,
+    explicit: Boolean(intent.explicit),
+    artifactId: intent.artifactId,
+    reward: intent.reward,
+    learningWeight: top?.learningWeight ?? null,
+    strength: top?.strength ?? null,
+    reply:
+      '已记录工件反馈：' +
+      intent.artifactId +
+      ' ' +
+      (intent.reward >= 0 ? '+' : '') +
+      Number(intent.reward).toFixed(2) +
+      '（当前权重=' +
+      (top ? Number(top.learningWeight).toFixed(3) : Number(updated.newWeight || 0).toFixed(3)) +
+      '）',
+  };
+}
+
+function buildStrategyArtifactStatusReply(limit = 6) {
+  const rows = listStrategyArtifacts(limit);
+  if (!rows.length) {
+    return [
+      '策略工件：暂无记录。',
+      '提示：运行策略回验后，系统会自动沉淀工件并进入闭环学习。',
+    ].join('\n');
+  }
+  const list = rows.map((r, idx) => {
+    const pnl = Number(r.avgNetPnlPct || 0);
+    return (
+      String(idx + 1) +
+      '. ' +
+      r.artifactId +
+      ' · ' +
+      (r.label || '-') +
+      ' · type=' +
+      (r.strategyType || '-') +
+      ' · v' +
+      String(r.version || 0) +
+      ' · 权重=' +
+      Number(r.learningWeight || 0).toFixed(3) +
+      ' · 胜率=' +
+      Number(r.avgWinRate || 0).toFixed(1) +
+      '% · PnL=' +
+      (pnl >= 0 ? '+' : '') +
+      pnl.toFixed(2) +
+      '%'
+    );
+  });
+  return [
+    '策略工件状态（Top ' + rows.length + '）：',
+    ...list,
+    '',
+    '使用方式：发送「使用工件 art-xxxxxx」即可直接执行该工件策略。',
+    '反馈方式：发送「反馈工件 art-xxxxxx +0.6」可强化闭环学习。',
+  ].join('\n');
+}
+
 function buildMidTermMemoryProfile() {
   learnStrategyWeightsFromTrades();
+  loadStrategyArtifactState();
   const longProfile = buildTraderProfileSummary();
   const ranking = buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES);
+  const artifactRanking = listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK);
   const topTags = Array.isArray(longProfile?.topTags) ? longProfile.topTags : [];
   const styleTag = topTags.find((x) => x.tag === 'brief-style' || x.tag === 'detailed-style');
   const responseStyle = styleTag?.tag === 'brief-style' ? 'brief' : styleTag?.tag === 'detailed-style' ? 'detailed' : 'balanced';
@@ -1387,8 +2638,11 @@ function buildMidTermMemoryProfile() {
     preferredSymbols: Array.isArray(longProfile?.symbols) ? longProfile.symbols.slice(0, 4) : [],
     topTags: topTags.slice(0, 8),
     strategyWeights: ranking,
+    strategyArtifacts: artifactRanking,
     guidance: {
       topStrategy: ranking[0]?.strategy || null,
+      topArtifactId: artifactRanking[0]?.artifactId || null,
+      topArtifactType: artifactRanking[0]?.strategyType || null,
       keepRiskFirst: true,
       summaryTone: responseStyle,
     },
@@ -1797,6 +3051,8 @@ function buildTradingContext(clientContext, memoryContext) {
   const midLayer = layeredMemory?.midTerm || null;
   const shortLayer = layeredMemory?.shortTerm || null;
   const topStrategy = Array.isArray(midLayer?.strategyWeights) ? midLayer.strategyWeights[0] || null : null;
+  const topArtifact = Array.isArray(midLayer?.strategyArtifacts) ? midLayer.strategyArtifacts[0] || null : null;
+  const xbrain = buildXbrainModelContext();
 
   const digest = {
     symbol,
@@ -1814,6 +3070,10 @@ function buildTradingContext(clientContext, memoryContext) {
     memoryItems: Number(longLayer?.profile?.memoryItems || memoryContext?.profile?.memoryItems || 0),
     topStrategy: topStrategy?.strategy || null,
     topStrategyWeight: toNum(topStrategy?.weight),
+    topArtifactId: topArtifact?.artifactId || null,
+    topArtifactWeight: toNum(topArtifact?.learningWeight),
+    xbrainRuntimeMode: xbrain?.strategy?.runtimeMode || null,
+    xbrainChatChannel: xbrain?.base?.chatChannel || null,
   };
 
   const context = {
@@ -1829,6 +3089,9 @@ function buildTradingContext(clientContext, memoryContext) {
       executedCount,
       dryRunOpenCount,
       recentDecisions,
+      artifacts: Array.isArray(midLayer?.strategyArtifacts)
+        ? midLayer.strategyArtifacts.slice(0, STRATEGY_ARTIFACTS_TOPK)
+        : [],
     },
     trades: {
       openOrders: openOrders.slice(0, 6).map(summarizeOrder),
@@ -1836,11 +3099,19 @@ function buildTradingContext(clientContext, memoryContext) {
       currentTrade: currentOrder ? summarizeOrder(currentOrder) : null,
       runtimeTimeline,
     },
+    xbrain,
     uiActions: {
-      switchViews: ['dashboard', 'runtime', 'kline', 'history', 'backtest', 'xsea'],
+      switchViews: ['dashboard', 'runtime', 'kline', 'history', 'backtest', 'xsea', 'xbrain'],
       backtest: {
         strategy: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
         tf: ['1m', '5m', '15m', '1h', '4h', '1d'],
+        artifactApi: '/api/strategy/artifacts',
+        reportApi: '/api/strategy/artifacts/report',
+      },
+      xbrain: {
+        stateApi: '/api/xbrain/state',
+        updateApi: '/api/xbrain/update',
+        lockApi: '/api/xbrain/lock',
       },
     },
     clientContext:
@@ -1968,6 +3239,11 @@ function normalizeViewName(viewLike) {
     xsea: 'xsea',
     虾海: 'xsea',
     社区策略: 'xsea',
+    xbrain: 'xbrain',
+    虾脑: 'xbrain',
+    脑: 'xbrain',
+    config: 'xbrain',
+    配置: 'xbrain',
   };
   return alias[raw] || null;
 }
@@ -1978,6 +3254,104 @@ function clampNum(value, min, max) {
   if (Number.isFinite(min) && n < min) return min;
   if (Number.isFinite(max) && n > max) return max;
   return n;
+}
+
+function normalizeStrategyDslSpec(specLike) {
+  const src = specLike && typeof specLike === 'object' ? specLike : {};
+  const out = {};
+  const allowedKinds = new Set([
+    'price',
+    'ema',
+    'sma',
+    'rsi',
+    'atr',
+    'adx',
+    'donchian_high',
+    'donchian_low',
+    'pct_change',
+    'constant',
+  ]);
+  const allowedSources = new Set(['open', 'high', 'low', 'close', 'volume', 'hl2', 'ohlc4']);
+  const normName = (v, fallback) => {
+    const raw = String(v || '').toLowerCase();
+    const n = raw.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return /^[a-z][a-z0-9_]{0,31}$/.test(n) ? n : fallback;
+  };
+  const normExpr = (v) => {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    let s = raw
+      .replace(/（/g, '(')
+      .replace(/）/g, ')')
+      .replace(/，/g, ',')
+      .replace(/：/g, ':')
+      .replace(/并且|且/g, '&&')
+      .replace(/或者|或/g, '||')
+      .replace(/\band\b/gi, '&&')
+      .replace(/\bor\b/gi, '||')
+      .replace(/；/g, ' ')
+      .replace(/;/g, ' ')
+      .trim();
+    if (s.length > 260) s = s.slice(0, 260);
+    if (!/^[a-zA-Z0-9_\s().,+\-*/%<>=!&|?:]+$/.test(s)) return '';
+    return s;
+  };
+  const name = String(src.name || '').trim();
+  if (name) out.name = name.slice(0, 64);
+  const side = String(src.side || '').toLowerCase();
+  if (['long', 'short', 'both'].includes(side)) out.side = side;
+  const features = [];
+  const usedNames = new Set();
+  const rawFeatures = Array.isArray(src.features) ? src.features : [];
+  rawFeatures.slice(0, 24).forEach((f, idx) => {
+    if (!f || typeof f !== 'object') return;
+    const kind = String(f.kind || '').toLowerCase();
+    if (!allowedKinds.has(kind)) return;
+    const fallbackName = (kind + '_' + String(idx + 1)).replace(/[^a-z0-9_]/g, '_');
+    const nameNorm = normName(f.name, fallbackName);
+    if (!nameNorm || usedNames.has(nameNorm)) return;
+    usedNames.add(nameNorm);
+    const item = { name: nameNorm, kind };
+    const srcVal = String(f.source || '').toLowerCase();
+    if (allowedSources.has(srcVal)) item.source = srcVal;
+    const period = clampNum(f.period, 1, 500);
+    const lookback = clampNum(f.lookback, 1, 500);
+    const shift = clampNum(f.shift, -120, 120);
+    const value = clampNum(f.value, -1e9, 1e9);
+    if (period != null) item.period = Math.round(period);
+    if (lookback != null) item.lookback = Math.round(lookback);
+    if (shift != null) item.shift = Math.round(shift);
+    if (value != null) item.value = Number(value);
+    features.push(item);
+  });
+  if (features.length) out.features = features;
+  const entryLong = normExpr(src.entryLong);
+  const entryShort = normExpr(src.entryShort);
+  const exitLong = normExpr(src.exitLong);
+  const exitShort = normExpr(src.exitShort);
+  if (entryLong) out.entryLong = entryLong;
+  if (entryShort) out.entryShort = entryShort;
+  if (exitLong) out.exitLong = exitLong;
+  if (exitShort) out.exitShort = exitShort;
+  if ((!out.entryLong || !out.entryShort || !out.exitLong || !out.exitShort) && features.length) {
+    const n = features[0].name;
+    if (!out.entryLong) out.entryLong = 'close > ' + n;
+    if (!out.entryShort) out.entryShort = 'close < ' + n;
+    if (!out.exitLong) out.exitLong = 'close < ' + n;
+    if (!out.exitShort) out.exitShort = 'close > ' + n;
+  }
+  const risk = src.risk && typeof src.risk === 'object' ? src.risk : {};
+  const riskOut = {};
+  const stopAtr = clampNum(risk.stopAtr, 0.2, 20);
+  const tpAtr = clampNum(risk.tpAtr, 0.2, 40);
+  const maxHold = clampNum(risk.maxHold, 1, 3000);
+  const cooldownBars = clampNum(risk.cooldownBars, 0, 60);
+  if (stopAtr != null) riskOut.stopAtr = Number(stopAtr);
+  if (tpAtr != null) riskOut.tpAtr = Number(tpAtr);
+  if (maxHold != null) riskOut.maxHold = Math.round(maxHold);
+  if (cooldownBars != null) riskOut.cooldownBars = Math.round(cooldownBars);
+  if (Object.keys(riskOut).length) out.risk = riskOut;
+  return out;
 }
 
 function normalizeAiActions(actionsLike) {
@@ -2025,6 +3399,75 @@ function normalizeAiActions(actionsLike) {
       if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
       if (maxHold != null) normalized.maxHold = Math.round(maxHold);
       pushUnique(normalized);
+      continue;
+    }
+    if (type === 'run_custom_backtest') {
+      const strategy = String(item.strategy || '').trim();
+      const tf = String(item.tf || '').trim();
+      const normalized = { type: 'run_custom_backtest' };
+      if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'custom'].includes(strategy)) {
+        normalized.strategy = strategy;
+      }
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) {
+        normalized.tf = tf;
+      }
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      const custom = item.custom && typeof item.custom === 'object' ? item.custom : {};
+      const customOut = {};
+      const lookback = clampNum(custom.lookback, 2, 300);
+      const retestWindow = clampNum(custom.retestWindow, 1, 200);
+      const reentryWindow = clampNum(custom.reentryWindow, 1, 300);
+      const retestTolAtr = clampNum(custom.retestTolAtr, 0.01, 6);
+      const reentryTolAtr = clampNum(custom.reentryTolAtr, 0.01, 8);
+      const biasAdxMin = clampNum(custom.biasAdxMin, 0, 80);
+      const biasEmaFast = clampNum(custom.biasEmaFast, 2, 400);
+      const biasEmaSlow = clampNum(custom.biasEmaSlow, 2, 600);
+      const entryEma = clampNum(custom.entryEma, 2, 400);
+      if (lookback != null) customOut.lookback = Math.round(lookback);
+      if (retestWindow != null) customOut.retestWindow = Math.round(retestWindow);
+      if (reentryWindow != null) customOut.reentryWindow = Math.round(reentryWindow);
+      if (retestTolAtr != null) customOut.retestTolAtr = Number(retestTolAtr);
+      if (reentryTolAtr != null) customOut.reentryTolAtr = Number(reentryTolAtr);
+      if (biasAdxMin != null) customOut.biasAdxMin = Number(biasAdxMin);
+      if (biasEmaFast != null) customOut.biasEmaFast = Math.round(biasEmaFast);
+      if (biasEmaSlow != null) customOut.biasEmaSlow = Math.round(biasEmaSlow);
+      if (entryEma != null) customOut.entryEma = Math.round(entryEma);
+      if (typeof custom.allowRetest === 'boolean') customOut.allowRetest = custom.allowRetest;
+      if (typeof custom.allowReentry === 'boolean') customOut.allowReentry = custom.allowReentry;
+      if (typeof custom.allowBreakout === 'boolean') customOut.allowBreakout = custom.allowBreakout;
+      if (['long', 'short', 'both'].includes(String(custom.side || ''))) customOut.side = String(custom.side);
+      if (Object.keys(customOut).length) normalized.custom = customOut;
+      pushUnique(normalized);
+      continue;
+    }
+    if (type === 'run_strategy_dsl') {
+      const normalized = { type: 'run_strategy_dsl' };
+      const tf = String(item.tf || '').trim();
+      if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) normalized.tf = tf;
+      const bars = clampNum(item.bars, 80, 5000);
+      const feeBps = clampNum(item.feeBps, 0, 100);
+      const stopAtr = clampNum(item.stopAtr, 0.2, 10);
+      const tpAtr = clampNum(item.tpAtr, 0.2, 20);
+      const maxHold = clampNum(item.maxHold, 1, 1000);
+      if (bars != null) normalized.bars = Math.round(bars);
+      if (feeBps != null) normalized.feeBps = Number(feeBps);
+      if (stopAtr != null) normalized.stopAtr = Number(stopAtr);
+      if (tpAtr != null) normalized.tpAtr = Number(tpAtr);
+      if (maxHold != null) normalized.maxHold = Math.round(maxHold);
+      const dsl = normalizeStrategyDslSpec(item.dsl || item.spec);
+      if (Object.keys(dsl).length) {
+        normalized.dsl = dsl;
+        pushUnique(normalized);
+      }
       continue;
     }
     if (type === 'run_backtest_compare') {
@@ -2080,6 +3523,103 @@ function parseBarsFromText(messageLike) {
   return Math.round(clampNum(n, 80, 5000) || 900);
 }
 
+function parseTradingGoalIntent(messageLike) {
+  const text = String(messageLike || '').trim();
+  const lower = text.toLowerCase();
+  if (!lower) return null;
+  const goalVerbs = [
+    /我想|想要|希望|我要|帮我|请你|给我|来个|整一个|搞个|安排|run|execute|做一个|执行|开始|开跑/,
+  ];
+  const tradingDomain = [
+    /交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场|快进快出|短线|长线|高频|激进|保守|稳一点|低回撤/,
+    /\bbtc\b|\beth\b|\bsol\b|币/,
+  ];
+  const hasGoalVerb = goalVerbs.some((re) => re.test(lower));
+  const hasTradingDomain = tradingDomain.some((re) => re.test(lower));
+  const hasMoneyGoal = /(赚钱|挣钱|盈利|收益|赚点|盈利能力)/.test(lower);
+  const hasDirectiveGoal = /(稳一点|保守|激进|低回撤|高胜率|风险小|快进快出|短线|长线|降低风险|提高胜率)/.test(
+    lower,
+  );
+  const looksLikeConfig = /(config|配置|设置|telegram|token|apikey|api key|deepseek|chatgpt|codex|登录|login)/.test(
+    lower,
+  );
+  if (!hasTradingDomain && !hasMoneyGoal) {
+    if (!(hasGoalVerb && !looksLikeConfig)) return null;
+  }
+  if (!hasGoalVerb && !hasMoneyGoal && !hasDirectiveGoal) return null;
+  let goal = 'general';
+  if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(lower)) goal = 'stability';
+  else if (/(赚钱|挣钱|盈利|收益|多赚|利润|回报|翻倍)/.test(lower)) goal = 'profit';
+  else if (/(快|短线|高频|快进快出|激进|猛一点)/.test(lower)) goal = 'aggressive';
+  else if (/(策略|系统|方案|模型)/.test(lower)) goal = 'strategy';
+  let risk = 'balanced';
+  if (/(保守|稳|风险小|低回撤|安全|别太激进)/.test(lower)) risk = 'conservative';
+  else if (/(激进|高风险|冲一点|猛一点|收益优先|快进快出)/.test(lower)) risk = 'aggressive';
+  let horizon = 'medium';
+  if (/(短线|快|今天|当日|高频|scalp)/.test(lower)) horizon = 'short';
+  else if (/(长线|日线|周线|趋势|中长线)/.test(lower)) horizon = 'long';
+  const tf = parseTfFromText(lower) || (horizon === 'short' ? '15m' : horizon === 'long' ? '1d' : '1h');
+  const bars = parseBarsFromText(lower) || (horizon === 'short' ? 1200 : horizon === 'long' ? 1800 : 900);
+  const wantsCompare = /(对比|比较|筛选|找一个|挑一个|推荐|最好|最优|高胜率)/.test(lower) || goal !== 'general';
+  const wantsExecute = /(执行|运行|开跑|开始|直接|马上|一键)/.test(lower) || true;
+  return {
+    goal,
+    risk,
+    horizon,
+    tf,
+    bars,
+    wantsCompare,
+    wantsExecute,
+    isNovice: /(不懂|不会|小白|简单说|口语|直接给我|你来决定)/.test(lower),
+    text: lower,
+  };
+}
+
+function chooseStrategiesByGoal(intentLike) {
+  const intent = intentLike && typeof intentLike === 'object' ? intentLike : {};
+  const risk = String(intent.risk || 'balanced');
+  const goal = String(intent.goal || 'general');
+  let base = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+  if (risk === 'conservative') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+  else if (risk === 'aggressive') base = ['v5_reentry', 'v5_hybrid', 'v4_breakout', 'v5_retest'];
+  if (goal === 'stability') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+  if (goal === 'profit' || goal === 'aggressive') base = ['v5_hybrid', 'v5_reentry', 'v4_breakout', 'v5_retest'];
+  return Array.from(new Set(base)).slice(0, 4);
+}
+
+function recommendArtifactActionByGoal(intentLike) {
+  const intent = intentLike && typeof intentLike === 'object' ? intentLike : null;
+  if (!intent) return null;
+  const rows = listStrategyArtifacts(40);
+  if (!rows.length) return null;
+  const filtered = rows.filter((x) => {
+    if (!x) return false;
+    if (intent.risk === 'conservative' && Number(x.avgDrawdownPct || 0) > 18) return false;
+    if (intent.goal === 'stability' && Number(x.avgWinRate || 0) < 45) return false;
+    return true;
+  });
+  const source = (filtered.length ? filtered : rows).slice();
+  source.sort((a, b) => {
+    const sa =
+      Number(a.strength || 0) * 0.55 +
+      (intent.goal === 'profit' ? Number(a.avgNetPnlPct || 0) / 60 : Number(a.avgWinRate || 0) / 100) * 0.25 -
+      Number(a.avgDrawdownPct || 0) / 220;
+    const sb =
+      Number(b.strength || 0) * 0.55 +
+      (intent.goal === 'profit' ? Number(b.avgNetPnlPct || 0) / 60 : Number(b.avgWinRate || 0) / 100) * 0.25 -
+      Number(b.avgDrawdownPct || 0) / 220;
+    return sb - sa || Number(b.reports || 0) - Number(a.reports || 0);
+  });
+  const top = source[0];
+  if (!top) return null;
+  if (Number(top.strength || 0) < 0.06) return null;
+  const action = strategyArtifactToAction(top);
+  if (!action) return null;
+  if (!action.tf && intent.tf) action.tf = intent.tf;
+  if (!action.bars && intent.bars) action.bars = intent.bars;
+  return action;
+}
+
 function parseStrategyNamesFromText(messageLike) {
   const text = String(messageLike || '').toLowerCase();
   const out = new Set();
@@ -2090,38 +3630,263 @@ function parseStrategyNamesFromText(messageLike) {
   return Array.from(out);
 }
 
+function parseNumByRegex(text, regex, min, max) {
+  const m = String(text || '').match(regex);
+  if (!m) return null;
+  const raw = m.slice(1).reverse().find((x) => x != null && String(x).trim() !== '');
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return clampNum(n, min, max);
+}
+
+function parseRiskAndCustomFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const out = { custom: {} };
+  const stopAtr = parseNumByRegex(text, /止损[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.2, 12);
+  const tpAtr = parseNumByRegex(text, /止盈[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.2, 20);
+  const feeBps = parseNumByRegex(text, /手续费[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*bps/i, 0, 100);
+  const maxHold = parseNumByRegex(text, /持仓[^\d]{0,8}([0-9]{1,4})\s*(?:根|bars?|小时|h)/i, 1, 1000);
+  const lookback = parseNumByRegex(text, /(lookback|窗口|通道)[^\d]{0,6}([0-9]{1,3})/i, 2, 300);
+  const adxMin = parseNumByRegex(text, /adx[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)/i, 0, 80);
+  const retestTol = parseNumByRegex(text, /回踩容差[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.01, 6);
+  const reentryTol = parseNumByRegex(text, /再入容差[^\d]{0,8}([0-9]+(?:\.[0-9]+)?)\s*atr/i, 0.01, 8);
+  if (stopAtr != null) out.stopAtr = Number(stopAtr);
+  if (tpAtr != null) out.tpAtr = Number(tpAtr);
+  if (feeBps != null) out.feeBps = Number(feeBps);
+  if (maxHold != null) out.maxHold = Math.round(maxHold);
+  if (lookback != null) out.custom.lookback = Math.round(lookback);
+  if (adxMin != null) out.custom.biasAdxMin = Number(adxMin);
+  if (retestTol != null) out.custom.retestTolAtr = Number(retestTol);
+  if (reentryTol != null) out.custom.reentryTolAtr = Number(reentryTol);
+  if (/回踩/.test(text) && !/再入/.test(text) && !/突破/.test(text)) {
+    out.custom.allowRetest = true;
+    out.custom.allowReentry = false;
+    out.custom.allowBreakout = false;
+  } else if (/再入/.test(text) && !/回踩/.test(text) && !/突破/.test(text)) {
+    out.custom.allowRetest = false;
+    out.custom.allowReentry = true;
+    out.custom.allowBreakout = false;
+  } else if (/突破/.test(text) && !/回踩|再入/.test(text)) {
+    out.custom.allowRetest = false;
+    out.custom.allowReentry = false;
+    out.custom.allowBreakout = true;
+  }
+  if (/只做多|仅做多|long only/.test(text)) out.custom.side = 'long';
+  if (/只做空|仅做空|short only/.test(text)) out.custom.side = 'short';
+  if (!Object.keys(out.custom).length) delete out.custom;
+  return out;
+}
+
+function parseFeatureDslSpecFromText(messageLike) {
+  const text = String(messageLike || '').toLowerCase();
+  const hasFeatureHint = /(特征|因子|feature|ema|sma|ma\b|rsi|k线|均线|突破|donchian|通道)/.test(text);
+  if (!hasFeatureHint) return null;
+  const dayN = text.match(/(\d{1,3})\s*(日|天)/);
+  const baseN = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 14;
+  const hasExplicitDayFeature = Boolean(dayN) && /(k线|日线|特征|因子|feature)/.test(text);
+  const features = [];
+  const used = new Set();
+  const pushFeature = (item) => {
+    if (!item || typeof item !== 'object') return;
+    const name = String(item.name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!/^[a-z][a-z0-9_]{0,31}$/.test(name)) return;
+    if (used.has(name)) return;
+    used.add(name);
+    features.push({ ...item, name });
+  };
+  if (/ema|指数均线/.test(text)) {
+    pushFeature({ name: 'ema_' + baseN, kind: 'ema', source: 'close', period: baseN });
+  }
+  if ((/sma|均线|ma\b/.test(text) && !/ema|指数均线/.test(text)) || hasExplicitDayFeature) {
+    pushFeature({ name: 'sma_' + baseN, kind: 'sma', source: 'close', period: baseN });
+  }
+  const rsiN = text.match(/rsi[^0-9]{0,4}(\d{1,3})/);
+  if (/rsi/.test(text)) {
+    const p = rsiN && Number.isFinite(Number(rsiN[1])) ? Math.max(2, Math.min(120, Math.round(Number(rsiN[1])))) : 14;
+    pushFeature({ name: 'rsi_' + p, kind: 'rsi', source: 'close', period: p });
+  }
+  const adxN = text.match(/adx[^0-9]{0,4}(\d{1,3})/);
+  if (/adx/.test(text)) {
+    const p = adxN && Number.isFinite(Number(adxN[1])) ? Math.max(2, Math.min(120, Math.round(Number(adxN[1])))) : 14;
+    pushFeature({ name: 'adx_' + p, kind: 'adx', period: p });
+  }
+  if (/atr/.test(text)) {
+    pushFeature({ name: 'atr_14', kind: 'atr', period: 14 });
+  }
+  if (/donchian|通道|突破/.test(text)) {
+    const lb = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 20;
+    pushFeature({ name: 'dch_' + lb, kind: 'donchian_high', lookback: lb });
+    pushFeature({ name: 'dcl_' + lb, kind: 'donchian_low', lookback: lb });
+  }
+  if (!features.length) return null;
+  const primary =
+    features.find((f) => ['ema', 'sma', 'donchian_high', 'donchian_low', 'price'].includes(String(f.kind || ''))) ||
+    features[0];
+  let entryLong = 'close > ' + primary.name;
+  let entryShort = 'close < ' + primary.name;
+  let exitLong = 'close < ' + primary.name;
+  let exitShort = 'close > ' + primary.name;
+  if (primary.kind === 'donchian_high') {
+    const lowName = features.find((f) => f.kind === 'donchian_low')?.name;
+    entryLong = 'close > ' + primary.name;
+    entryShort = lowName ? 'close < ' + lowName : 'close < open';
+    exitLong = lowName ? 'close < ' + lowName : 'close < open';
+    exitShort = 'close > ' + primary.name;
+  }
+  const adxFeature = features.find((f) => f.kind === 'adx');
+  if (adxFeature) {
+    const adxFloor = text.match(/adx[^0-9]{0,4}(\d{1,2})(?:\.\d+)?/);
+    const floor = adxFloor && Number.isFinite(Number(adxFloor[1])) ? Number(adxFloor[1]) : 20;
+    entryLong = '(' + entryLong + ') && ' + adxFeature.name + ' >= ' + floor;
+    entryShort = '(' + entryShort + ') && ' + adxFeature.name + ' >= ' + floor;
+  }
+  const side = /只做多|仅做多|long only/.test(text) ? 'long' : /只做空|仅做空|short only/.test(text) ? 'short' : 'both';
+  return normalizeStrategyDslSpec({
+    name: 'feature-driven',
+    side,
+    features,
+    entryLong,
+    entryShort,
+    exitLong,
+    exitShort,
+  });
+}
+
 function inferTaskActionFromMessage(messageLike) {
   const text = String(messageLike || '').trim().toLowerCase();
   if (!text) return null;
+  const goalIntent = parseTradingGoalIntent(text);
   const hasTaskVerb =
     /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/i.test(
       text,
     );
-  const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
-  if (!hasTaskVerb || !hasStrategyDomain) return null;
+  const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
+  if (!hasTaskVerb && !goalIntent) return null;
+  if (!hasStrategyDomain && !goalIntent) return null;
   const tf = parseTfFromText(text);
   const bars = parseBarsFromText(text);
   const strategies = parseStrategyNamesFromText(text);
+  const riskAndCustom = parseRiskAndCustomFromText(text);
+  const dsl = parseFeatureDslSpecFromText(text);
   const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/i.test(
     text,
   );
-  if (compareIntent || strategies.length >= 2 || !strategies.length) {
-    const action = { type: 'run_backtest_compare' };
-    if (strategies.length) action.strategies = strategies.slice(0, 4);
+  if (dsl && !compareIntent) {
+    const action = { type: 'run_strategy_dsl', dsl };
+    if (tf) action.tf = tf;
+    if (bars != null) action.bars = bars;
+    if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+    if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+    if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+    if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
+    if (riskAndCustom.custom?.side && ['long', 'short', 'both'].includes(String(riskAndCustom.custom.side))) {
+      action.dsl.side = String(riskAndCustom.custom.side);
+    }
+    if (Number.isFinite(Number(riskAndCustom.custom?.biasAdxMin))) {
+      const adxMin = Number(riskAndCustom.custom.biasAdxMin);
+      const hasAdx = Array.isArray(action.dsl.features)
+        ? action.dsl.features.some((f) => f && f.kind === 'adx')
+        : false;
+      if (!hasAdx) {
+        action.dsl.features = Array.isArray(action.dsl.features) ? action.dsl.features.slice(0, 16) : [];
+        action.dsl.features.push({ name: 'adx_14', kind: 'adx', period: 14 });
+      }
+      action.dsl.entryLong = '(' + String(action.dsl.entryLong || 'true') + ') && adx_14 >= ' + adxMin;
+      action.dsl.entryShort = '(' + String(action.dsl.entryShort || 'true') + ') && adx_14 >= ' + adxMin;
+      action.dsl = normalizeStrategyDslSpec(action.dsl);
+    }
+    return action;
+  }
+  const hasCustomHints = Boolean(riskAndCustom.custom && Object.keys(riskAndCustom.custom).length);
+  if (hasCustomHints && !compareIntent) {
+    const action = {
+      type: 'run_custom_backtest',
+      strategy: strategies[0] || 'custom',
+      ...riskAndCustom,
+    };
     if (tf) action.tf = tf;
     if (bars != null) action.bars = bars;
     return action;
   }
-  const action = { type: 'run_backtest', strategy: strategies[0] };
-  if (tf) action.tf = tf;
-  if (bars != null) action.bars = bars;
+  if (compareIntent || strategies.length >= 2 || (!strategies.length && goalIntent?.wantsCompare)) {
+    const inferredStrategies = strategies.length ? strategies : chooseStrategiesByGoal(goalIntent);
+    const action = { type: 'run_backtest_compare' };
+    if (inferredStrategies.length) action.strategies = inferredStrategies.slice(0, 4);
+    if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+    if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
+    if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+    if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+    if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+    if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
+    return action;
+  }
+  if (!strategies.length && goalIntent) {
+    const artifactAction = recommendArtifactActionByGoal(goalIntent);
+    if (artifactAction) {
+      if (!artifactAction.tf && (tf || goalIntent.tf)) artifactAction.tf = tf || goalIntent.tf;
+      if (!artifactAction.bars && (bars != null || goalIntent.bars != null)) {
+        artifactAction.bars = bars != null ? bars : goalIntent.bars;
+      }
+      if (riskAndCustom.stopAtr != null && artifactAction.stopAtr == null) artifactAction.stopAtr = riskAndCustom.stopAtr;
+      if (riskAndCustom.tpAtr != null && artifactAction.tpAtr == null) artifactAction.tpAtr = riskAndCustom.tpAtr;
+      return artifactAction;
+    }
+    const defaults = chooseStrategiesByGoal(goalIntent);
+    return {
+      type: goalIntent.wantsCompare ? 'run_backtest_compare' : 'run_backtest',
+      strategy: goalIntent.wantsCompare ? undefined : defaults[0],
+      strategies: goalIntent.wantsCompare ? defaults.slice(0, 4) : undefined,
+      tf: tf || goalIntent.tf,
+      bars: bars != null ? bars : goalIntent.bars,
+      stopAtr:
+        riskAndCustom.stopAtr != null
+          ? riskAndCustom.stopAtr
+          : goalIntent.risk === 'conservative'
+            ? 1.1
+            : goalIntent.risk === 'aggressive'
+              ? 1.8
+              : 1.4,
+      tpAtr:
+        riskAndCustom.tpAtr != null
+          ? riskAndCustom.tpAtr
+          : goalIntent.risk === 'conservative'
+            ? 2.0
+            : goalIntent.risk === 'aggressive'
+              ? 3.6
+              : 2.8,
+      maxHold:
+        riskAndCustom.maxHold != null
+          ? riskAndCustom.maxHold
+          : goalIntent.horizon === 'short'
+            ? 36
+            : goalIntent.horizon === 'long'
+              ? 180
+              : 72,
+    };
+  }
+  const action = { type: 'run_backtest', strategy: strategies[0] || 'v5_hybrid' };
+  if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+  if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
+  if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
+  if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
+  if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
+  if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
   return action;
 }
 
 function augmentActionsByIntent(messageLike, actionsLike) {
   const normalized = normalizeAiActions(actionsLike);
   const hasTaskAction = normalized.some(
-    (a) => a?.type === 'run_backtest' || a?.type === 'run_backtest_compare',
+    (a) =>
+      a?.type === 'run_backtest' ||
+      a?.type === 'run_backtest_compare' ||
+      a?.type === 'run_custom_backtest' ||
+      a?.type === 'run_strategy_dsl',
   );
   if (hasTaskAction) return normalized;
   const inferred = inferTaskActionFromMessage(messageLike);
@@ -2309,6 +4074,43 @@ async function handleTelegramIncoming(incoming) {
     content: '用户: ' + redactSecrets(incoming.text),
   });
 
+  const artifactFeedback = applyUserStrategyArtifactFeedback(incoming.text, 'telegram');
+  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
+    const replyText = String(artifactFeedback.reply || '已记录工件反馈。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
   const feedback = applyUserStrategyFeedback(incoming.text, 'telegram');
   if (feedback?.handled && feedback?.explicit) {
     const replyText = String(feedback.reply || '已记录策略反馈。');
@@ -2741,6 +4543,8 @@ function buildOpenClawPrompt(message, context) {
     '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
     '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
     '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
+    '上下文 strategy.artifacts 为已沉淀策略工件（含权重/表现）；可优先复用高权重工件并继续迭代。',
+    '上下文 xbrain 为当前配置中枢（模型/通道/交易参数/运行模式），生成动作时必须遵守这些约束。',
     '若信息不足，请直接说明缺失项，不得编造事实。',
     '',
     '输出要求（必须严格遵守）:',
@@ -2748,14 +4552,21 @@ function buildOpenClawPrompt(message, context) {
     '2) JSON 格式固定为：',
     '{"reply":"给用户看的中文回复","actions":[...]}',
     '3) actions 可选，最多 4 个。支持动作：',
-    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea"}',
+    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea|xbrain"}',
     '- {"type":"focus_trade","tradeId":"交易ID"}',
     '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
     '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
+    '- {"type":"run_custom_backtest","strategy":"custom|v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72,"custom":{"lookback":18,"allowRetest":true,"allowReentry":true,"allowBreakout":false,"biasAdxMin":15,"side":"both"}}',
+    '- {"type":"run_strategy_dsl","tf":"1d","bars":1200,"feeBps":5,"stopAtr":1.2,"tpAtr":2.8,"maxHold":120,"dsl":{"name":"feature-strategy","side":"both","features":[{"name":"ema_5","kind":"ema","source":"close","period":5},{"name":"adx_14","kind":"adx","period":14}],"entryLong":"close > ema_5 && adx_14 >= 20","entryShort":"close < ema_5 && adx_14 >= 20","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8,"maxHold":120}}}',
     '4) 如果不需要动作，actions 返回空数组。',
     '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
     '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
     '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
+    '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
+    '9) 如果用户要求基于任意新特征/因子（如“5日K线特征、EMA/RSI/ADX组合”）构建并执行策略，优先输出 run_strategy_dsl。',
+    '10) 若上下文已有可复用工件，请在 reply 中点明“复用了哪个工件”，并在动作里带上相应 dsl/custom 配置继续执行。',
+    '11) 用户可能非常口语化（如“我想挣钱”“帮我搞个能跑的策略”），你必须把口语目标翻译成可执行动作，不要要求用户提供术语。',
+    '12) 当用户表达的是交易目标而非技术细节时，请主动补全默认参数并先执行一轮对比/回验，再给结果摘要与下一步建议。',
     '',
     '[交易看板上下文]',
     contextJson,
@@ -2869,6 +4680,9 @@ function looksLikeConfigIntent(message) {
   if (!text) return false;
   if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
   if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+  if (/(杠杆|leverage|单次|下单|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|chat.?channel|聊天通道)/i.test(text)) {
+    return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|运行|模式|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
+  }
   if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
     return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
   }
@@ -2919,6 +4733,61 @@ function parseConfigIntent(message) {
     if (/(开启|启用|on|true|1)/i.test(lower)) return { type: 'set_trade_push', value: '1' };
   }
 
+  if (
+    /(聊天|chat|channel|通道|渠道)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|同步)/i.test(text)
+  ) {
+    const hasTg = /(telegram|tg|电报)/i.test(text);
+    const hasLocal = /(本地|网页|dashboard|站内|页面)/i.test(text);
+    const hasBoth = /(双向|同步|both|都|一起)/i.test(text);
+    let channel = 'dashboard';
+    if ((hasTg && hasLocal) || hasBoth) channel = 'both';
+    else if (hasTg) channel = 'telegram';
+    return { type: 'set_chat_channel', channel };
+  }
+
+  if (
+    /(运行模式|模式|运行|dryrun|dry-run|live|实盘|模拟|仿真)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|调整)/i.test(text)
+  ) {
+    if (/(dryrun|dry-run|模拟|仿真)/i.test(text)) return { type: 'set_runtime_mode', mode: 'dryrun' };
+    if (/(实盘|live)/i.test(text)) return { type: 'set_runtime_mode', mode: 'live' };
+  }
+
+  const leverageMatch =
+    text.match(/(?:杠杆|leverage)[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i) ||
+    text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:倍|x|X)\s*(?:杠杆|leverage)?/i);
+  if (
+    leverageMatch &&
+    /(杠杆|leverage)/i.test(text) &&
+    /(配置|设置|修改|切换|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    return { type: 'set_strategy_leverage', leverage: Number(leverageMatch[1]) };
+  }
+
+  const orderSizeMatch =
+    text.match(/(?:单次|每次|单笔|下单|仓位|notional|size)[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i) ||
+    text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:u|usdt|刀)\s*(?:单次|每次|下单|仓位|notional|size)?/i);
+  if (
+    orderSizeMatch &&
+    /(单次|每次|单笔|下单|仓位|notional|size|金额|资金)/i.test(text) &&
+    /(配置|设置|修改|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    return { type: 'set_strategy_order_size', orderSize: Number(orderSizeMatch[1]) };
+  }
+
+  const riskMatch = text.match(/(?:风险|risk)(?:比例|百分比|pct|%|仓位)?[^0-9]{0,8}([0-9]+(?:\.[0-9]+)?)(\s*%?)/i);
+  if (
+    riskMatch &&
+    /(风险|risk|仓位)/i.test(text) &&
+    /(配置|设置|修改|改成|改为|设为|调整|参数)/i.test(text)
+  ) {
+    let riskPct = Number(riskMatch[1]);
+    const maybePercent = String(riskMatch[2] || '').includes('%') || riskPct > 1;
+    if (maybePercent) riskPct = riskPct / 100;
+    return { type: 'set_strategy_risk_pct', riskPct };
+  }
+
   return { type: 'none' };
 }
 
@@ -2928,16 +4797,25 @@ function buildConfigStatusReply() {
   const tgAuto = String(envPairs.THUNDERCLAW_TELEGRAM_AUTO_REPLY || '1');
   const tgPush = String(envPairs.THUNDERCLAW_TELEGRAM_PUSH_TRADES || '1');
   const modelHint = String(envPairs.OPENCLAW_AGENT_ID || 'main');
+  const xbrain = buildXbrainPublicState();
   return [
     '当前配置状态：',
     '- OpenClaw Agent: ' + modelHint,
     '- Telegram Token: ' + maskMaybeSecret(tgToken),
     '- Telegram 自动回复: ' + (/^(1|true|yes|on)$/i.test(tgAuto) ? '开启' : '关闭'),
     '- Telegram 交易事件推送: ' + (/^(1|true|yes|on)$/i.test(tgPush) ? '开启' : '关闭'),
+    '- 虾脑基础配置锁: ' + (xbrain?.locks?.base?.locked ? '已锁定' : '已解锁'),
+    '- 虾脑交易配置锁: ' + (xbrain?.locks?.exchange?.locked ? '已锁定' : '已解锁'),
+    '- 虾脑运行模式: ' + (xbrain?.strategy?.runtimeMode === 'live' ? '实盘' : 'dryrun'),
+    '- 虾脑杠杆: ' + String(xbrain?.strategy?.leverage ?? '-'),
     '',
     '可直接发送：',
     '- 设置 Telegram token 123456:ABC...',
     '- 设置 DeepSeek key sk-xxxx',
+    '- 设置杠杆 12',
+    '- 设置单次下单 10u',
+    '- 设置风险比例 1.5%',
+    '- 切换运行模式为 dryrun / 实盘',
     '- 连接 ChatGPT/Codex',
     '- 关闭 Telegram 自动回复',
   ].join('\n');
@@ -2958,6 +4836,9 @@ async function handleConfigIntent(intent) {
     return { handled: true, reply: buildConfigStatusReply() };
   }
   if (intent.type === 'set_telegram_token') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再更新 Telegram token。' };
+    }
     const token = String(intent.token || '').trim();
     if (!token) return { handled: true, reply: 'Telegram token 为空，未更新。' };
     writeEnvLocal({
@@ -2982,6 +4863,9 @@ async function handleConfigIntent(intent) {
     return { handled: true, reply: 'Telegram 交易事件主动推送已' + (v === '1' ? '开启' : '关闭') + '。重启后生效。' };
   }
   if (intent.type === 'set_deepseek') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再更新模型。' };
+    }
     const apiKey = String(intent.apiKey || '').trim();
     if (!apiKey.toLowerCase().startsWith('sk-')) {
       return { handled: true, reply: 'DeepSeek key 格式不正确（需 sk- 开头）。' };
@@ -3000,6 +4884,7 @@ async function handleConfigIntent(intent) {
       await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
       await runOpenClawAdmin(['config', 'set', '--json', 'models.providers.deepseek', providerJson]);
       await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+      applyXbrainBasePatch({ modelProvider: 'deepseek', modelId }, { password: '' });
       return {
         handled: true,
         reply:
@@ -3013,7 +4898,55 @@ async function handleConfigIntent(intent) {
       return { handled: true, reply: '写入 DeepSeek 配置失败：' + safeErrMsg(err, 'unknown') };
     }
   }
+  if (intent.type === 'set_chat_channel') {
+    const out = applyXbrainBasePatch({ chatChannel: intent.channel }, { password: String(intent.password || '') });
+    if (!out.ok) return { handled: true, reply: String(out.error || '更新聊天通道失败。') };
+    return {
+      handled: true,
+      reply:
+        '聊天通道已更新为：' +
+        String(out.state?.base?.chatChannel || 'dashboard') +
+        '。该设置会同步给模型作为当前系统约束。',
+    };
+  }
+  if (intent.type === 'set_runtime_mode') {
+    const out = applyXbrainStrategyPatch({ runtimeMode: intent.mode });
+    return {
+      handled: true,
+      reply:
+        '运行模式已切换为：' +
+        (String(out.state?.strategy?.runtimeMode || '') === 'live' ? '实盘' : 'dryrun') +
+        '（已同步到策略参数与模型上下文）。',
+    };
+  }
+  if (intent.type === 'set_strategy_leverage') {
+    const out = applyXbrainStrategyPatch({ leverage: intent.leverage });
+    return {
+      handled: true,
+      reply: '杠杆已更新为 ' + String(out.state?.strategy?.leverage ?? '-') + ' 倍（已同步）。',
+    };
+  }
+  if (intent.type === 'set_strategy_order_size') {
+    const out = applyXbrainStrategyPatch({ orderSize: intent.orderSize });
+    return {
+      handled: true,
+      reply: '单次下单大小已更新为 ' + String(out.state?.strategy?.orderSize ?? '-') + ' USDT（已同步）。',
+    };
+  }
+  if (intent.type === 'set_strategy_risk_pct') {
+    const out = applyXbrainStrategyPatch({ riskPct: intent.riskPct });
+    return {
+      handled: true,
+      reply:
+        '风险比例已更新为 ' +
+        (Number(out.state?.strategy?.riskPct || 0) * 100).toFixed(2) +
+        '%（已同步）。',
+    };
+  }
   if (intent.type === 'connect_chatgpt') {
+    if (xbrainIsLocked('base')) {
+      return { handled: true, reply: '基础配置区已锁定。请先到「虾脑」里解锁后再进行模型连接。' };
+    }
     return {
       handled: true,
       reply: [
@@ -3095,6 +5028,14 @@ async function handleChatApi(req, res) {
     const strategyText = strategyRows.length
       ? strategyRows.map((x) => x.strategy + ':' + Number(x.weight).toFixed(3)).join(', ')
       : '-';
+    const artifactRows = Array.isArray(memoryBundle?.layers?.midTerm?.strategyArtifacts)
+      ? memoryBundle.layers.midTerm.strategyArtifacts.slice(0, 3)
+      : [];
+    const artifactText = artifactRows.length
+      ? artifactRows
+          .map((x) => String(x.artifactId || '-') + ':' + Number(x.learningWeight || 0).toFixed(3))
+          .join(', ')
+      : '-';
     sendJson(res, 200, {
       ok: true,
       source: 'memory',
@@ -3105,6 +5046,7 @@ async function handleChatApi(req, res) {
         '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
         '- 高频标签: ' + (topTags || '-'),
         '- 策略权重Top: ' + strategyText,
+        '- 策略工件Top: ' + artifactText,
       ].join('\n'),
       actions: [],
       contextDigest: null,
@@ -3112,6 +5054,7 @@ async function handleChatApi(req, res) {
         memoryItems: profile.memoryItems || 0,
         shortItems,
         topStrategies: strategyRows,
+        topArtifacts: artifactRows,
       },
     });
     appendChatHistoryEvent({
@@ -3125,7 +5068,91 @@ async function handleChatApi(req, res) {
         '- 最近活跃: ' + String(profile.lastActiveAt || '-'),
         '- 高频标签: ' + (topTags || '-'),
         '- 策略权重Top: ' + strategyText,
+        '- 策略工件Top: ' + artifactText,
       ].join('\n'),
+    });
+    return;
+  }
+  if (/^(工件状态|策略工件|artifact status)$/i.test(message)) {
+    const reply = buildStrategyArtifactStatusReply(8);
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply,
+      actions: [],
+      contextDigest: null,
+      meta: {
+        artifacts: listStrategyArtifacts(8),
+      },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    return;
+  }
+  const useArtifactMatch = message.match(/(?:使用|启用|执行|回测|运行|use)\s*(?:工件|artifact)?\s*[:：]?\s*(art-[a-f0-9]{8,20})/i);
+  if (useArtifactMatch && useArtifactMatch[1]) {
+    const artifactId = String(useArtifactMatch[1]).toLowerCase();
+    const artifact = listStrategyArtifacts(200).find((x) => x.artifactId === artifactId) || null;
+    if (!artifact) {
+      sendJson(res, 200, {
+        ok: true,
+        source: 'memory',
+        reply: '未找到工件 ' + artifactId + '。可先发送「工件状态」查看可用工件列表。',
+        actions: [],
+        contextDigest: null,
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: '未找到工件 ' + artifactId + '。可先发送「工件状态」查看可用工件列表。',
+      });
+      return;
+    }
+    const action = strategyArtifactToAction(artifact);
+    if (!action) {
+      sendJson(res, 200, {
+        ok: true,
+        source: 'memory',
+        reply: '工件 ' + artifactId + ' 存在，但配置不完整，暂时无法执行。',
+        actions: [],
+        contextDigest: null,
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: '工件 ' + artifactId + ' 存在，但配置不完整，暂时无法执行。',
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply:
+        '已加载工件 ' +
+        artifactId +
+        '（' +
+        String(artifact.label || artifact.strategyType || '-') +
+        '），现在执行一轮回验并返回结果。',
+      actions: [action],
+      contextDigest: null,
+      meta: { artifactId, artifact },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text:
+        '已加载工件 ' +
+        artifactId +
+        '（' +
+        String(artifact.label || artifact.strategyType || '-') +
+        '），现在执行一轮回验并返回结果。',
     });
     return;
   }
@@ -3155,6 +5182,29 @@ async function handleChatApi(req, res) {
       role: 'bot',
       direction: 'outbound',
       text: '已记住：' + truncText(redactSecrets(note), 180),
+    });
+    return;
+  }
+  const artifactFeedback = applyUserStrategyArtifactFeedback(message, 'dashboard');
+  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
+    sendJson(res, 200, {
+      ok: true,
+      source: 'memory',
+      reply: String(artifactFeedback.reply || '已记录工件反馈。'),
+      actions: [],
+      contextDigest: null,
+      meta: {
+        artifactId: artifactFeedback.artifactId || null,
+        reward: artifactFeedback.reward ?? null,
+        learningWeight: artifactFeedback.learningWeight ?? null,
+        strength: artifactFeedback.strength ?? null,
+      },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: String(artifactFeedback.reply || '已记录工件反馈。'),
     });
     return;
   }
@@ -3283,6 +5333,151 @@ async function handleConfigChatApi(req, res) {
   }
 }
 
+function handleXbrainStateApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    state: buildXbrainPublicState(),
+  });
+}
+
+async function handleXbrainUpdateApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const section = String(body.value?.section || '').trim().toLowerCase();
+  const values = body.value?.values && typeof body.value.values === 'object' ? body.value.values : {};
+  const password = String(body.value?.password || '').trim();
+  let out = null;
+  if (section === 'base') out = applyXbrainBasePatch(values, { password });
+  else if (section === 'exchange') out = applyXbrainExchangePatch(values, { password });
+  else if (section === 'strategy') out = applyXbrainStrategyPatch(values);
+  else {
+    sendJson(res, 400, { ok: false, error: 'section 必须是 base/exchange/strategy' });
+    return;
+  }
+  if (!out || out.ok !== true) {
+    sendJson(res, Number(out?.status || 400), {
+      ok: false,
+      error: String(out?.error || '更新失败'),
+      state: buildXbrainPublicState(),
+    });
+    return;
+  }
+  appendTraderMemory({
+    kind: 'config',
+    channel: 'dashboard',
+    tags: ['xbrain', section, 'update'],
+    content: '虾脑配置更新: section=' + section + ' keys=' + Object.keys(out.updated || {}).join(','),
+  });
+  sendJson(res, 200, {
+    ok: true,
+    section,
+    updated: out.updated || {},
+    state: out.state || buildXbrainPublicState(),
+  });
+}
+
+async function handleXbrainLockApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const section = String(body.value?.section || '').trim().toLowerCase();
+  const action = String(body.value?.action || '').trim().toLowerCase();
+  const password = String(body.value?.password || '').trim();
+  const currentPassword = String(body.value?.currentPassword || '').trim();
+  const lock = xbrainSectionLock(section);
+  if (!lock) {
+    sendJson(res, 400, { ok: false, error: '仅支持 base/exchange 的锁管理。' });
+    return;
+  }
+
+  if (action === 'unlock') {
+    if (!xbrainVerifyPassword(section, password)) {
+      sendJson(res, 403, { ok: false, error: '密码错误，无法解锁。', state: buildXbrainPublicState() });
+      return;
+    }
+    setXbrainSectionLock(section, false);
+    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'unlock'],
+      content: '虾脑配置区已解锁: ' + section,
+    });
+    return;
+  }
+  if (action === 'lock') {
+    if (password) {
+      const setPwd = setXbrainSectionPassword(section, password, currentPassword);
+      if (!setPwd.ok) {
+        sendJson(res, Number(setPwd.status || 400), {
+          ok: false,
+          error: String(setPwd.error || '设置密码失败'),
+          state: buildXbrainPublicState(),
+        });
+        return;
+      }
+    } else {
+      setXbrainSectionLock(section, true);
+    }
+    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'lock'],
+      content: '虾脑配置区已锁定: ' + section,
+    });
+    return;
+  }
+  if (action === 'set_password') {
+    const setPwd = setXbrainSectionPassword(section, password, currentPassword);
+    if (!setPwd.ok) {
+      sendJson(res, Number(setPwd.status || 400), {
+        ok: false,
+        error: String(setPwd.error || '设置密码失败'),
+        state: buildXbrainPublicState(),
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      section,
+      action,
+      state: setPwd.state || buildXbrainPublicState(),
+    });
+    appendTraderMemory({
+      kind: 'config',
+      channel: 'dashboard',
+      tags: ['xbrain', section, 'password'],
+      content: '虾脑配置区密码已更新: ' + section,
+    });
+    return;
+  }
+  sendJson(res, 400, { ok: false, error: 'action 必须是 lock/unlock/set_password' });
+}
+
 function handleTelegramEventsApi(req, res) {
   if (String(req.method || 'GET').toUpperCase() !== 'GET') {
     res.statusCode = 405;
@@ -3383,6 +5578,9 @@ function handleMemoryHealthApi(req, res) {
       shortTerm: TRADER_SHORT_MEMORY_PATH,
       midTerm: TRADER_PROFILE_PATH,
       strategyWeights: STRATEGY_WEIGHTS_PATH,
+      strategyArtifactsJsonl: STRATEGY_ARTIFACTS_JSONL_PATH,
+      strategyArtifactsState: STRATEGY_ARTIFACTS_STATE_PATH,
+      xbrainState: XBRAIN_STATE_PATH,
     },
     totalEntries: traderMemoryState.entries.length,
     shortEntries: shortTermMemoryState.items.length,
@@ -3393,6 +5591,70 @@ function handleMemoryHealthApi(req, res) {
       lastLearnAt: strategyFeedbackState.lastLearnAt,
       ranking: buildStrategyWeightsRanking(TRADER_MID_TOP_STRATEGIES),
     },
+    strategyArtifacts: {
+      total: Object.keys(strategyArtifactState.artifacts || {}).length,
+      lastUpdatedAt: strategyArtifactState.lastUpdatedAt,
+      ranking: listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK),
+    },
+    xbrain: buildXbrainPublicState(),
+  });
+}
+
+function handleStrategyArtifactsApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const q = String(url.searchParams.get('q') || '').trim();
+  const limit = Number(url.searchParams.get('limit') || String(STRATEGY_ARTIFACTS_TOPK));
+  const artifactId = String(url.searchParams.get('artifactId') || '').trim().toLowerCase();
+  const list = listStrategyArtifacts(limit, q);
+  const item = artifactId ? listStrategyArtifacts(1000).find((x) => x.artifactId === artifactId) || null : null;
+  sendJson(res, 200, {
+    ok: true,
+    total: Object.keys(strategyArtifactState.artifacts || {}).length,
+    latestUpdatedAt: strategyArtifactState.lastUpdatedAt,
+    artifactId: artifactId || null,
+    artifact: item,
+    artifacts: list,
+  });
+}
+
+async function handleStrategyArtifactReportApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req, Math.max(JSON_BODY_LIMIT, 256 * 1024));
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const payload =
+    body.value?.report && typeof body.value.report === 'object'
+      ? body.value.report
+      : body.value && typeof body.value === 'object'
+        ? body.value
+        : {};
+  const result = registerStrategyArtifactReport(payload);
+  if (!result?.ok) {
+    sendJson(res, 400, { ok: false, error: String(result?.reason || 'invalid report') });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    duplicate: Boolean(result.duplicate),
+    artifactId: result.artifactId || null,
+    version: result.version || null,
+    reward: result.reward ?? null,
+    learningWeight: result.learningWeight ?? null,
+    scoreEma: result.scoreEma ?? null,
+    strength: result.strength ?? null,
   });
 }
 
@@ -3469,7 +5731,9 @@ const server = http.createServer((req, res) => {
           shortItems: Number(healthMemory?.layers?.shortTerm?.totalItems || 0),
           longItems: Number(healthMemory?.layers?.longTerm?.profile?.memoryItems || 0),
           topStrategy: healthMemory?.layers?.midTerm?.strategyWeights?.[0] || null,
+          topArtifact: healthMemory?.layers?.midTerm?.strategyArtifacts?.[0] || null,
         },
+        xbrain: buildXbrainPublicState(),
         runtime: {
           serviceLock: {
             path: runtimeState.serviceLock.path,
@@ -3511,8 +5775,28 @@ const server = http.createServer((req, res) => {
       handleTelegramHealthApi(req, res);
       return;
     }
+    if (url.pathname === '/api/xbrain/state') {
+      handleXbrainStateApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/xbrain/update') {
+      await handleXbrainUpdateApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/xbrain/lock') {
+      await handleXbrainLockApi(req, res);
+      return;
+    }
     if (url.pathname === '/api/memory/health') {
       handleMemoryHealthApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/strategy/artifacts') {
+      handleStrategyArtifactsApi(req, res);
+      return;
+    }
+    if (url.pathname === '/api/strategy/artifacts/report') {
+      await handleStrategyArtifactReportApi(req, res);
       return;
     }
     if (url.pathname === '/api/chat/history') {
@@ -3573,6 +5857,8 @@ loadTelegramEventsFromDisk();
 loadTraderMemory();
 loadShortTermMemory();
 loadStrategyFeedbackState();
+loadStrategyArtifactState();
+loadXbrainState();
 rememberTradeOutcomesToMemory();
 learnStrategyWeightsFromTrades();
 buildMidTermMemoryProfile();
@@ -3602,8 +5888,10 @@ server.listen(PORT, () => {
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
   console.log('AI config channel: POST /api/config/chat');
+  console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Memory health: GET /api/memory/health?q=...');
+  console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
   console.log(
     'Memory layers: short=' +
       TRADER_SHORT_MEMORY_PATH +
@@ -3613,6 +5901,8 @@ server.listen(PORT, () => {
       TRADER_MEMORY_PATH,
   );
   console.log('Strategy feedback: ' + STRATEGY_WEIGHTS_PATH);
+  console.log('Strategy artifacts state: ' + STRATEGY_ARTIFACTS_STATE_PATH);
+  console.log('XBrain state: ' + XBRAIN_STATE_PATH);
   if (TELEGRAM_ENABLED) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
