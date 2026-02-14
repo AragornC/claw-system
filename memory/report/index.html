@@ -2618,6 +2618,11 @@
               pnlPct: pnlPct,
               maxDrawdownPct: Number(result.maxDrawdownPct || 0),
             });
+            void reportStrategyArtifactResult(result, cfg, {
+              source: 'task_high_winrate',
+              query: text,
+              label: 'high-winrate-' + String(strategy),
+            });
           });
           if (!rows.length) {
             return {
@@ -2847,6 +2852,88 @@
           return out;
         }
 
+        function buildStrategyArtifactReportPayload(resultLike, cfgLike, extraLike) {
+          const result = resultLike && typeof resultLike === 'object' ? resultLike : null;
+          const cfg = cfgLike && typeof cfgLike === 'object' ? cfgLike : {};
+          const extra = extraLike && typeof extraLike === 'object' ? extraLike : {};
+          if (!result || result.ok !== true) return null;
+          const config = {
+            strategy: String(cfg.strategy || result.strategy || ''),
+            tf: String(cfg.tf || result.tf || ''),
+            bars: Number(cfg.bars || result.bars || 0),
+            feeBps: Number(cfg.feeBps || 0),
+            stopAtr: Number(cfg.stopAtr || 0),
+            tpAtr: Number(cfg.tpAtr || 0),
+            maxHold: Number(cfg.maxHold || 0),
+          };
+          if (cfg.custom && typeof cfg.custom === 'object') {
+            config.custom = normalizeCustomBacktestSpec(cfg.custom);
+          }
+          if (cfg.dsl && typeof cfg.dsl === 'object') {
+            config.dsl = normalizeStrategyDslSpec(cfg.dsl);
+          }
+          if (result.dslMeta && typeof result.dslMeta === 'object' && !config.dsl) {
+            const dslMaybe = normalizeStrategyDslSpec(cfg.dsl || {});
+            if (Object.keys(dslMaybe).length) config.dsl = dslMaybe;
+          }
+          const reportKey =
+            String(extra.reportKey || '').trim() ||
+            (
+              'r' +
+              Date.now().toString(36) +
+              '_' +
+              Math.random().toString(36).slice(2, 8) +
+              '_' +
+              String(config.strategy || result.strategy || 's')
+            );
+          return {
+            ts: new Date().toISOString(),
+            source: String(extra.source || 'dashboard'),
+            query: String(extra.query || '').trim(),
+            label: String(extra.label || config?.dsl?.name || config.strategy || result.strategy || 'strategy-artifact'),
+            reportKey: reportKey,
+            config: config,
+            result: {
+              strategy: String(result.strategy || config.strategy || ''),
+              tf: String(result.tf || config.tf || ''),
+              bars: Number(result.bars || config.bars || 0),
+              tradeCount: Number(result.tradeCount || result.trades || 0),
+              winRate: Number(result.winRate || 0),
+              netPnlPct: Number(result.netPnlPct || result.totalPnlPct || 0),
+              maxDrawdownPct: Number(result.maxDrawdownPct || 0),
+              avgPnlPct: Number(result.avgPnlPct || 0),
+            },
+          };
+        }
+
+        async function reportStrategyArtifactResult(resultLike, cfgLike, extraLike) {
+          const payload = buildStrategyArtifactReportPayload(resultLike, cfgLike, extraLike);
+          if (!payload) return null;
+          try {
+            const resp = await fetch('/api/strategy/artifacts/report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              body: JSON.stringify(payload),
+            });
+            if (!resp.ok) return null;
+            const json = await resp.json().catch(function() { return null; });
+            if (!json || json.ok !== true) return null;
+            if (extraLike && extraLike.attachToNote && json.artifactId) {
+              const noteEl = document.getElementById('bt-note');
+              if (noteEl) {
+                const tail = ' · 工件：' + String(json.artifactId) + ' v' + String(json.version || '-');
+                if (!String(noteEl.textContent || '').includes(String(json.artifactId))) {
+                  noteEl.textContent = String(noteEl.textContent || '') + tail;
+                }
+              }
+            }
+            return json;
+          } catch (_) {
+            return null;
+          }
+        }
+
         function applyAiActions(actions, userQueryText) {
           if (!Array.isArray(actions) || !actions.length) return '';
           const query = String(userQueryText || '').toLowerCase();
@@ -2901,6 +2988,19 @@
                   const wr = Number(result.winRate || 0);
                   const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
                   const nTrades = Number(result.tradeCount || result.trades || 0);
+                  void reportStrategyArtifactResult(result, {
+                    strategy: String(action.strategy || result.strategy || 'v5_hybrid'),
+                    tf: String(action.tf || result.tf || '1h'),
+                    bars: Number(action.bars || result.bars || 900),
+                    feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                    stopAtr: Number(action.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                    tpAtr: Number(action.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                    maxHold: Number(action.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                  }, {
+                    source: 'ai_action_backtest',
+                    query: userQueryText || '',
+                    label: String(result.strategy || action.strategy || 'run_backtest'),
+                  });
                   summary =
                     '回验完成(' +
                     btStrategyLabel(String(result.strategy || action.strategy || 'v5_hybrid')) +
@@ -2956,6 +3056,11 @@
                 const wr = Number(result.winRate || 0);
                 const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
                 const trades = Number(result.tradeCount || result.trades || 0);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_compare',
+                  query: userQueryText || '',
+                  label: 'compare-' + String(cfg.strategy || 'strategy'),
+                });
                 const score = wr * 1.0 + Math.min(trades, 160) * 0.12 + pnl * 0.06;
                 rows.push({
                   cfg: cfg,
@@ -3025,6 +3130,11 @@
               const result = runBacktestByVersion(cfg);
               if (result && !result.error) {
                 renderBacktestResult(result, cfg);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_custom',
+                  query: userQueryText || '',
+                  label: String(cfg.strategy || 'custom'),
+                });
                 notes.push(
                   '自定义回验完成：胜率 ' +
                     btNum(result.winRate, 1) +
@@ -3061,6 +3171,11 @@
               const result = runBacktestByVersion(cfg);
               if (result && !result.error) {
                 renderBacktestResult(result, cfg);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_dsl',
+                  query: userQueryText || '',
+                  label: String(cfg?.dsl?.name || 'dsl'),
+                });
                 const featureCount = Array.isArray(dsl.features) ? dsl.features.length : 0;
                 notes.push(
                   'DSL策略回验完成：' +
@@ -4200,6 +4315,12 @@
         };
         const result = runBacktestByVersion(cfg);
         renderBacktestResult(result, cfg);
+        void reportStrategyArtifactResult(result, cfg, {
+          source: 'dashboard_manual',
+          query: '',
+          label: String(cfg?.dsl?.name || cfg.strategy || result?.strategy || 'manual'),
+          attachToNote: true,
+        });
         return result;
       }
 
