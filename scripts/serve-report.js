@@ -3001,6 +3001,95 @@ function parseBarsFromText(messageLike) {
   return Math.round(clampNum(n, 80, 5000) || 900);
 }
 
+function parseTradingGoalIntent(messageLike) {
+  const text = String(messageLike || '').trim();
+  const lower = text.toLowerCase();
+  if (!lower) return null;
+  const goalVerbs = [
+    /我想|想要|希望|我要|帮我|请你|给我|来个|整一个|搞个|安排|run|execute|做一个|执行|开始|开跑/,
+  ];
+  const tradingDomain = [
+    /交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场/,
+    /\bbtc\b|\beth\b|\bsol\b|币/,
+  ];
+  const hasGoalVerb = goalVerbs.some((re) => re.test(lower));
+  const hasTradingDomain = tradingDomain.some((re) => re.test(lower));
+  const hasMoneyGoal = /(赚钱|挣钱|盈利|收益|赚点|盈利能力)/.test(lower);
+  if (!hasTradingDomain && !hasMoneyGoal) return null;
+  if (!hasGoalVerb && !hasMoneyGoal) return null;
+  let goal = 'general';
+  if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(lower)) goal = 'stability';
+  else if (/(赚钱|挣钱|盈利|收益|多赚|利润|回报|翻倍)/.test(lower)) goal = 'profit';
+  else if (/(快|短线|高频|快进快出|激进|猛一点)/.test(lower)) goal = 'aggressive';
+  else if (/(策略|系统|方案|模型)/.test(lower)) goal = 'strategy';
+  let risk = 'balanced';
+  if (/(保守|稳|风险小|低回撤|安全|别太激进)/.test(lower)) risk = 'conservative';
+  else if (/(激进|高风险|冲一点|猛一点|收益优先|快进快出)/.test(lower)) risk = 'aggressive';
+  let horizon = 'medium';
+  if (/(短线|快|今天|当日|高频|scalp)/.test(lower)) horizon = 'short';
+  else if (/(长线|日线|周线|趋势|中长线)/.test(lower)) horizon = 'long';
+  const tf = parseTfFromText(lower) || (horizon === 'short' ? '15m' : horizon === 'long' ? '1d' : '1h');
+  const bars = parseBarsFromText(lower) || (horizon === 'short' ? 1200 : horizon === 'long' ? 1800 : 900);
+  const wantsCompare = /(对比|比较|筛选|找一个|挑一个|推荐|最好|最优|高胜率)/.test(lower) || goal !== 'general';
+  const wantsExecute = /(执行|运行|开跑|开始|直接|马上|一键)/.test(lower) || true;
+  return {
+    goal,
+    risk,
+    horizon,
+    tf,
+    bars,
+    wantsCompare,
+    wantsExecute,
+    isNovice: /(不懂|不会|小白|简单说|口语|直接给我|你来决定)/.test(lower),
+    text: lower,
+  };
+}
+
+function chooseStrategiesByGoal(intentLike) {
+  const intent = intentLike && typeof intentLike === 'object' ? intentLike : {};
+  const risk = String(intent.risk || 'balanced');
+  const goal = String(intent.goal || 'general');
+  let base = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+  if (risk === 'conservative') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+  else if (risk === 'aggressive') base = ['v5_reentry', 'v5_hybrid', 'v4_breakout', 'v5_retest'];
+  if (goal === 'stability') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+  if (goal === 'profit' || goal === 'aggressive') base = ['v5_hybrid', 'v5_reentry', 'v4_breakout', 'v5_retest'];
+  return Array.from(new Set(base)).slice(0, 4);
+}
+
+function recommendArtifactActionByGoal(intentLike) {
+  const intent = intentLike && typeof intentLike === 'object' ? intentLike : null;
+  if (!intent) return null;
+  const rows = listStrategyArtifacts(40);
+  if (!rows.length) return null;
+  const filtered = rows.filter((x) => {
+    if (!x) return false;
+    if (intent.risk === 'conservative' && Number(x.avgDrawdownPct || 0) > 18) return false;
+    if (intent.goal === 'stability' && Number(x.avgWinRate || 0) < 45) return false;
+    return true;
+  });
+  const source = (filtered.length ? filtered : rows).slice();
+  source.sort((a, b) => {
+    const sa =
+      Number(a.strength || 0) * 0.55 +
+      (intent.goal === 'profit' ? Number(a.avgNetPnlPct || 0) / 60 : Number(a.avgWinRate || 0) / 100) * 0.25 -
+      Number(a.avgDrawdownPct || 0) / 220;
+    const sb =
+      Number(b.strength || 0) * 0.55 +
+      (intent.goal === 'profit' ? Number(b.avgNetPnlPct || 0) / 60 : Number(b.avgWinRate || 0) / 100) * 0.25 -
+      Number(b.avgDrawdownPct || 0) / 220;
+    return sb - sa || Number(b.reports || 0) - Number(a.reports || 0);
+  });
+  const top = source[0];
+  if (!top) return null;
+  if (Number(top.strength || 0) < 0.06) return null;
+  const action = strategyArtifactToAction(top);
+  if (!action) return null;
+  if (!action.tf && intent.tf) action.tf = intent.tf;
+  if (!action.bars && intent.bars) action.bars = intent.bars;
+  return action;
+}
+
 function parseStrategyNamesFromText(messageLike) {
   const text = String(messageLike || '').toLowerCase();
   const out = new Set();
@@ -3141,12 +3230,14 @@ function parseFeatureDslSpecFromText(messageLike) {
 function inferTaskActionFromMessage(messageLike) {
   const text = String(messageLike || '').trim().toLowerCase();
   if (!text) return null;
+  const goalIntent = parseTradingGoalIntent(text);
   const hasTaskVerb =
     /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/i.test(
       text,
     );
   const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/i.test(text);
-  if (!hasTaskVerb || !hasStrategyDomain) return null;
+  if (!hasTaskVerb && !goalIntent) return null;
+  if (!hasStrategyDomain && !goalIntent) return null;
   const tf = parseTfFromText(text);
   const bars = parseBarsFromText(text);
   const strategies = parseStrategyNamesFromText(text);
@@ -3192,20 +3283,65 @@ function inferTaskActionFromMessage(messageLike) {
     if (bars != null) action.bars = bars;
     return action;
   }
-  if (compareIntent || strategies.length >= 2 || !strategies.length) {
+  if (compareIntent || strategies.length >= 2 || (!strategies.length && goalIntent?.wantsCompare)) {
+    const inferredStrategies = strategies.length ? strategies : chooseStrategiesByGoal(goalIntent);
     const action = { type: 'run_backtest_compare' };
-    if (strategies.length) action.strategies = strategies.slice(0, 4);
-    if (tf) action.tf = tf;
-    if (bars != null) action.bars = bars;
+    if (inferredStrategies.length) action.strategies = inferredStrategies.slice(0, 4);
+    if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+    if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
     if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
     if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
     if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
     if (riskAndCustom.maxHold != null) action.maxHold = riskAndCustom.maxHold;
     return action;
   }
+  if (!strategies.length && goalIntent) {
+    const artifactAction = recommendArtifactActionByGoal(goalIntent);
+    if (artifactAction) {
+      if (!artifactAction.tf && (tf || goalIntent.tf)) artifactAction.tf = tf || goalIntent.tf;
+      if (!artifactAction.bars && (bars != null || goalIntent.bars != null)) {
+        artifactAction.bars = bars != null ? bars : goalIntent.bars;
+      }
+      if (riskAndCustom.stopAtr != null && artifactAction.stopAtr == null) artifactAction.stopAtr = riskAndCustom.stopAtr;
+      if (riskAndCustom.tpAtr != null && artifactAction.tpAtr == null) artifactAction.tpAtr = riskAndCustom.tpAtr;
+      return artifactAction;
+    }
+    const defaults = chooseStrategiesByGoal(goalIntent);
+    return {
+      type: goalIntent.wantsCompare ? 'run_backtest_compare' : 'run_backtest',
+      strategy: goalIntent.wantsCompare ? undefined : defaults[0],
+      strategies: goalIntent.wantsCompare ? defaults.slice(0, 4) : undefined,
+      tf: tf || goalIntent.tf,
+      bars: bars != null ? bars : goalIntent.bars,
+      stopAtr:
+        riskAndCustom.stopAtr != null
+          ? riskAndCustom.stopAtr
+          : goalIntent.risk === 'conservative'
+            ? 1.1
+            : goalIntent.risk === 'aggressive'
+              ? 1.8
+              : 1.4,
+      tpAtr:
+        riskAndCustom.tpAtr != null
+          ? riskAndCustom.tpAtr
+          : goalIntent.risk === 'conservative'
+            ? 2.0
+            : goalIntent.risk === 'aggressive'
+              ? 3.6
+              : 2.8,
+      maxHold:
+        riskAndCustom.maxHold != null
+          ? riskAndCustom.maxHold
+          : goalIntent.horizon === 'short'
+            ? 36
+            : goalIntent.horizon === 'long'
+              ? 180
+              : 72,
+    };
+  }
   const action = { type: 'run_backtest', strategy: strategies[0] || 'v5_hybrid' };
-  if (tf) action.tf = tf;
-  if (bars != null) action.bars = bars;
+  if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+  if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
   if (riskAndCustom.feeBps != null) action.feeBps = riskAndCustom.feeBps;
   if (riskAndCustom.stopAtr != null) action.stopAtr = riskAndCustom.stopAtr;
   if (riskAndCustom.tpAtr != null) action.tpAtr = riskAndCustom.tpAtr;
@@ -3898,6 +4034,8 @@ function buildOpenClawPrompt(message, context) {
     '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
     '9) 如果用户要求基于任意新特征/因子（如“5日K线特征、EMA/RSI/ADX组合”）构建并执行策略，优先输出 run_strategy_dsl。',
     '10) 若上下文已有可复用工件，请在 reply 中点明“复用了哪个工件”，并在动作里带上相应 dsl/custom 配置继续执行。',
+    '11) 用户可能非常口语化（如“我想挣钱”“帮我搞个能跑的策略”），你必须把口语目标翻译成可执行动作，不要要求用户提供术语。',
+    '12) 当用户表达的是交易目标而非技术细节时，请主动补全默认参数并先执行一轮对比/回验，再给结果摘要与下一步建议。',
     '',
     '[交易看板上下文]',
     contextJson,

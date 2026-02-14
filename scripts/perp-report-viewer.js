@@ -2290,6 +2290,7 @@ const HTML = `<!DOCTYPE html>
                 '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
                 'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest/run_strategy_dsl。',
                 'run_strategy_dsl 示例：{"type":"run_strategy_dsl","tf":"1d","bars":1200,"dsl":{"name":"feature-strategy","features":[{"name":"ema_5","kind":"ema","source":"close","period":5}],"entryLong":"close > ema_5","entryShort":"close < ema_5","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8}}}',
+                '用户可能只会口语表达（如“我想挣钱”“帮我搞个能跑的策略”），你要主动翻译成可执行动作并补全默认参数，不要要求术语。',
                 '除非用户明确要求切页，否则不要使用 switch_view。',
               ].join('\\n'),
             },
@@ -2550,12 +2551,62 @@ const HTML = `<!DOCTYPE html>
           };
         }
 
+        function parseTradingGoalIntentLocal(text) {
+          const q = String(text || '').trim().toLowerCase();
+          if (!q) return null;
+          const hasGoalVerb = /(我想|想要|希望|我要|帮我|请你|给我|来个|整一个|搞个|安排|run|execute|做一个|执行|开始|开跑)/.test(q);
+          const hasTradingDomain =
+            /(交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场|币)/.test(
+              q,
+            );
+          const hasMoneyGoal = /(赚钱|挣钱|盈利|收益|赚点|盈利能力)/.test(q);
+          if (!hasTradingDomain && !hasMoneyGoal) return null;
+          if (!hasGoalVerb && !hasMoneyGoal) return null;
+          var goal = 'general';
+          if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(q)) goal = 'stability';
+          else if (/(赚钱|挣钱|盈利|收益|多赚|利润|回报|翻倍)/.test(q)) goal = 'profit';
+          else if (/(快|短线|高频|快进快出|激进|猛一点)/.test(q)) goal = 'aggressive';
+          else if (/(策略|系统|方案|模型)/.test(q)) goal = 'strategy';
+          var risk = 'balanced';
+          if (/(保守|稳|风险小|低回撤|安全|别太激进)/.test(q)) risk = 'conservative';
+          else if (/(激进|高风险|冲一点|猛一点|收益优先|快进快出)/.test(q)) risk = 'aggressive';
+          var horizon = 'medium';
+          if (/(短线|快|今天|当日|高频|scalp)/.test(q)) horizon = 'short';
+          else if (/(长线|日线|周线|趋势|中长线)/.test(q)) horizon = 'long';
+          const tf = parseTfLocal(q) || (horizon === 'short' ? '15m' : horizon === 'long' ? '1d' : '1h');
+          const bars = parseBarsLocal(q) || (horizon === 'short' ? 1200 : horizon === 'long' ? 1800 : 900);
+          const wantsCompare = /(对比|比较|筛选|找一个|挑一个|推荐|最好|最优|高胜率)/.test(q) || goal !== 'general';
+          return {
+            goal: goal,
+            risk: risk,
+            horizon: horizon,
+            tf: tf,
+            bars: bars,
+            wantsCompare: wantsCompare,
+            text: q,
+          };
+        }
+
+        function chooseStrategiesByGoalLocal(intentLike) {
+          const intent = intentLike && typeof intentLike === 'object' ? intentLike : {};
+          const risk = String(intent.risk || 'balanced');
+          const goal = String(intent.goal || 'general');
+          let base = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          if (risk === 'conservative') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+          else if (risk === 'aggressive') base = ['v5_reentry', 'v5_hybrid', 'v4_breakout', 'v5_retest'];
+          if (goal === 'stability') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+          if (goal === 'profit' || goal === 'aggressive') base = ['v5_hybrid', 'v5_reentry', 'v4_breakout', 'v5_retest'];
+          return Array.from(new Set(base)).slice(0, 4);
+        }
+
         function inferTaskActionLocal(text) {
           const q = String(text || '').trim().toLowerCase();
           if (!q) return null;
+          const goalIntent = parseTradingGoalIntentLocal(q);
           const hasTaskVerb = /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/.test(q);
           const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/.test(q);
-          if (!hasTaskVerb || !hasStrategyDomain) return null;
+          if (!hasTaskVerb && !goalIntent) return null;
+          if (!hasStrategyDomain && !goalIntent) return null;
           const tf = parseTfLocal(q);
           const bars = parseBarsLocal(q);
           const strategies = parseStrategiesLocal(q);
@@ -2591,17 +2642,44 @@ const HTML = `<!DOCTYPE html>
             return action;
           }
           if (compareIntent || strategies.length >= 2 || !strategies.length) {
+            const inferredStrategies = strategies.length ? strategies : chooseStrategiesByGoalLocal(goalIntent);
             const action = { type: 'run_backtest_compare' };
-            if (strategies.length) action.strategies = strategies.slice(0, 4);
-            if (tf) action.tf = tf;
-            if (bars != null) action.bars = bars;
+            if (inferredStrategies.length) action.strategies = inferredStrategies.slice(0, 4);
+            if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+            if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
             if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
             if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
             return action;
           }
-          const action = { type: 'run_backtest', strategy: strategies[0] || 'v5_hybrid' };
-          if (tf) action.tf = tf;
-          if (bars != null) action.bars = bars;
+          if (!strategies.length && goalIntent) {
+            const defaults = chooseStrategiesByGoalLocal(goalIntent);
+            return {
+              type: goalIntent.wantsCompare ? 'run_backtest_compare' : 'run_backtest',
+              strategy: goalIntent.wantsCompare ? undefined : defaults[0],
+              strategies: goalIntent.wantsCompare ? defaults.slice(0, 4) : undefined,
+              tf: tf || goalIntent.tf,
+              bars: bars != null ? bars : goalIntent.bars,
+              stopAtr:
+                custom.stopAtr != null
+                  ? custom.stopAtr
+                  : goalIntent.risk === 'conservative'
+                    ? 1.1
+                    : goalIntent.risk === 'aggressive'
+                      ? 1.8
+                      : 1.4,
+              tpAtr:
+                custom.tpAtr != null
+                  ? custom.tpAtr
+                  : goalIntent.risk === 'conservative'
+                    ? 2.0
+                    : goalIntent.risk === 'aggressive'
+                      ? 3.6
+                      : 2.8,
+            };
+          }
+          const action = { type: 'run_backtest', strategy: strategies[0] || chooseStrategiesByGoalLocal(goalIntent)[0] || 'v5_hybrid' };
+          if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+          if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
           if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
           if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
           return action;
