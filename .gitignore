@@ -17,6 +17,8 @@ memory/_*
 memory/tmp-*
 memory/last-*
 memory/*.tmp
+memory/*.lock
+memory/.telegram-inbound-dedupe*
 memory/*.html
 memory/*.md
 !memory/PERP-ARCHITECTURE.md
@@ -38,3 +40,6 @@ MEMORY.md
 # deploy env files
 deploy/tencent-cvm/.env
 deploy/tencent-cvm/.env.https
+
+# local env
+.env.local

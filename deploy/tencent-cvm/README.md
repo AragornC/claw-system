@@ -4,7 +4,7 @@
 
 - 手机公网访问看板 UI
 - 看板 AI 聊天通过 OpenClaw 打通
-- OpenClaw 走 DeepSeek API（`OPENCLAW_AGENT_LOCAL=1`）
+- OpenClaw 使用任意已配置模型 provider（DeepSeek / OpenAI / 其他）
 
 ## 1) 准备一台腾讯云 CVM
 
@@ -47,11 +47,32 @@ cd claw-system/deploy/tencent-cvm
 cp .env.example .env
 ```
 
-编辑 `.env`，至少填入：
+编辑 `.env`，最低可用配置：
 
 ```dotenv
-DEEPSEEK_API_KEY=sk-你的真实key
 PUBLIC_PORT=8765
+```
+
+常用增强配置（按需）：
+
+```dotenv
+# OpenClaw 基础
+OPENCLAW_AGENT_LOCAL=1
+OPENCLAW_AGENT_ID=main
+# 可选：留空则沿用 OpenClaw 当前默认模型
+OPENCLAW_PRIMARY_MODEL=
+# 可选：如需自动写入 DeepSeek provider，设为 1 并提供 DEEPSEEK_API_KEY
+OPENCLAW_BOOTSTRAP_DEEPSEEK=0
+DEEPSEEK_API_KEY=
+
+# 会话/路由（可留空）
+OPENCLAW_CHANNEL=
+OPENCLAW_TO=
+OPENCLAW_SESSION_ID=
+OPENCLAW_DELIVER=0
+OPENCLAW_REPLY_CHANNEL=
+OPENCLAW_REPLY_TO=
+OPENCLAW_REPLY_ACCOUNT=
 ```
 
 ## 4A) 启动 HTTP 版本（快速验证）
@@ -129,6 +150,75 @@ curl -I https://trade.yourdomain.com
 ```
 
 ---
+
+## OpenClaw 深度联通（模型 + Telegram）
+
+### 1) 检查容器内 OpenClaw 状态
+
+```bash
+docker exec -it claw-report openclaw status
+docker exec -it claw-report openclaw models status
+docker exec -it claw-report openclaw channels list
+```
+
+> `claw-report` 容器挂载了 `claw_openclaw_state`，模型与 channel 配置会持久化。
+
+### 2) 模型配置（可切换，不绑死 DeepSeek）
+
+改 `.env` 后重启容器即可：
+
+```dotenv
+OPENCLAW_PRIMARY_MODEL=deepseek/deepseek-reasoner
+OPENCLAW_BOOTSTRAP_DEEPSEEK=1
+```
+
+也可以进入容器临时切换：
+
+```bash
+docker exec -it claw-report openclaw models set deepseek/deepseek-chat
+```
+
+若你要改用非 DeepSeek provider，可设：
+
+```dotenv
+OPENCLAW_BOOTSTRAP_DEEPSEEK=0
+```
+
+然后在容器内用 `openclaw models auth ...` / `openclaw config set ...` 完成 provider 鉴权与模型绑定。
+
+### 3) Telegram channel 联通（示例）
+
+```bash
+docker exec -it claw-report openclaw channels add \
+  --channel telegram \
+  --account telegram-main \
+  --token "<你的TelegramBotToken>"
+
+docker exec -it claw-report openclaw channels list
+
+docker exec -it claw-report openclaw message send \
+  --channel telegram \
+  --account telegram-main \
+  --target @你的用户名或chat_id \
+  --message "OpenClaw Telegram通道已联通" \
+  --json
+```
+
+### 4) 让交易看板 OpenClaw 路由使用指定会话/频道（可选）
+
+在 `.env` 里加：
+
+```dotenv
+OPENCLAW_CHANNEL=telegram
+OPENCLAW_TO=@你的用户名或chat_id
+OPENCLAW_SESSION_ID=
+OPENCLAW_DELIVER=0
+```
+
+说明：
+
+- `OPENCLAW_DELIVER=0`：只把 OpenClaw 回复返回给看板前端（推荐）。
+- `OPENCLAW_DELIVER=1`：同时把回复投递回频道（可配 `OPENCLAW_REPLY_CHANNEL/OPENCLAW_REPLY_TO`）。
 
 ## 常用运维命令
 

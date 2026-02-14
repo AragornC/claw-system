@@ -47,13 +47,12 @@ const HTML = `<!DOCTYPE html>
   <title>AI 交易机器人集成看板</title>
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
-    :root { --bg: #0f1419; --card: #1a2332; --border: #2d3a4f; --text: #e6edf3; --muted: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+    :root { --bg: #0f1419; --card: #1a2332; --border: #2d3a4f; --text: #e6edf3; --muted: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; --sidebar-width: 248px; }
     * { box-sizing: border-box; }
     body { font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
     h1 { font-size: 1.18rem; margin: 0 0 2px; }
     h2 { font-size: 0.92rem; margin: 0; font-weight: 600; }
     .app-shell { max-width: 1280px; margin: 0 auto; }
-    .app-topbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
     .app-subtitle { color: var(--muted); font-size: 0.76rem; }
     .ai-link-status { color: var(--muted); font-size: 0.72rem; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
     .ai-link-status.ok { color: var(--green); border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.08); }
@@ -127,6 +126,232 @@ const HTML = `<!DOCTYPE html>
     }
     .nav-btn { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 0.74rem; cursor: pointer; }
     .nav-btn.active { border-color: rgba(88,166,255,0.6); color: #58a6ff; background: rgba(88,166,255,0.14); }
+    .hero-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+    .feature-sidebar-toggle {
+      border: 1px solid rgba(88,166,255,0.52);
+      border-radius: 10px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      width: 34px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 0.88rem;
+      line-height: 1;
+      flex: 0 0 auto;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+    .feature-sidebar-toggle:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
+    .feature-sidebar-toggle:active { background: rgba(88,166,255,0.22); }
+    .app-content-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15,20,25,0.92);
+      position: sticky;
+      top: 0;
+      z-index: 210;
+      backdrop-filter: blur(8px);
+    }
+    .toolbar-link-status { margin-left: auto; }
+    .content-page-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .content-page-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .symbol-switch-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .symbol-switch-wrap.hidden { display: none; }
+    .symbol-switch-toggle {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.2);
+      color: #79c0ff;
+      padding: 3px 10px;
+      font-size: 0.68rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .symbol-switch-toggle:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
+    .symbol-switch-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      min-width: 138px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15,20,25,0.98);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 260;
+    }
+    .symbol-switch-popover.hidden { display: none; }
+    .symbol-option {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-size: 0.72rem;
+      padding: 6px 8px;
+      cursor: pointer;
+    }
+    .symbol-option:hover { background: rgba(88,166,255,0.12); border-color: rgba(88,166,255,0.35); }
+    .symbol-option.active { border-color: rgba(88,166,255,0.58); color: #79c0ff; background: rgba(88,166,255,0.12); }
+    .feature-sidebar {
+      width: var(--sidebar-width);
+      overflow: hidden auto;
+      border-right: 1px solid transparent;
+      background: rgba(15,20,25,0.98);
+      transition: transform 180ms ease;
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      transform: translateX(calc(-1 * var(--sidebar-width)));
+      z-index: 230;
+    }
+    .app-shell.sidebar-open .feature-sidebar {
+      transform: translateX(0);
+      border-right-color: var(--border);
+      box-shadow: 8px 0 24px rgba(0,0,0,0.45);
+    }
+    .feature-sidebar-inner { width: var(--sidebar-width); min-height: 100%; padding: 10px 9px 14px; display: flex; flex-direction: column; gap: 7px; }
+    .feature-sidebar-head { font-size: 0.71rem; color: var(--muted); padding: 2px 6px 4px; letter-spacing: 0.2px; }
+    .feature-menu-btn {
+      border-radius: 10px;
+      text-align: left;
+      width: 100%;
+      font-size: 0.74rem;
+      padding: 8px 9px;
+      line-height: 1.35;
+    }
+    .feature-menu-btn.feature-thunder {
+      border-color: rgba(255,166,76,0.52);
+      background:
+        linear-gradient(90deg, rgba(6,7,18,0.78) 0%, rgba(6,7,18,0.46) 44%, rgba(6,7,18,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ea1d9dd4f6.webp') center / cover no-repeat,
+        url('./thunderclaw-feature.webp') center / cover no-repeat,
+        url('./thunderclaw-feature.jpg') center / cover no-repeat,
+        linear-gradient(135deg, rgba(77,17,12,0.95), rgba(18,8,27,0.95));
+    }
+    .feature-menu-btn.feature-thunder .k {
+      color: #ffdfa4;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-thunder .d {
+      color: rgba(255,236,206,0.88);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-thunder.active {
+      border-color: rgba(255,196,112,0.8);
+      box-shadow: 0 0 0 1px rgba(255,196,112,0.24) inset;
+    }
+    .feature-menu-btn.feature-xline {
+      border-color: rgba(111,192,255,0.56);
+      background:
+        linear-gradient(90deg, rgba(6,10,20,0.8) 0%, rgba(6,10,20,0.48) 46%, rgba(6,10,20,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ec6c765e93.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(9,31,58,0.95), rgba(8,19,36,0.95));
+    }
+    .feature-menu-btn.feature-xline .k {
+      color: #d9f1ff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xline .d {
+      color: rgba(220,241,255,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xline.active {
+      border-color: rgba(143,211,255,0.82);
+      box-shadow: 0 0 0 1px rgba(143,211,255,0.26) inset;
+    }
+    .feature-menu-btn.feature-xstrategy {
+      border-color: rgba(197,142,255,0.56);
+      background:
+        linear-gradient(90deg, rgba(11,8,24,0.8) 0%, rgba(11,8,24,0.46) 46%, rgba(11,8,24,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ecdd5deb70.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(37,13,61,0.95), rgba(20,8,36,0.95));
+    }
+    .feature-menu-btn.feature-xstrategy .k {
+      color: #f1ddff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xstrategy .d {
+      color: rgba(243,224,255,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xstrategy.active {
+      border-color: rgba(212,170,255,0.84);
+      box-shadow: 0 0 0 1px rgba(212,170,255,0.26) inset;
+    }
+    .feature-menu-btn.feature-xsea {
+      border-color: rgba(123,235,183,0.56);
+      background:
+        linear-gradient(90deg, rgba(6,18,18,0.8) 0%, rgba(6,18,18,0.46) 46%, rgba(6,18,18,0.2) 100%),
+        url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698eca2038a29.webp') center / cover no-repeat,
+        linear-gradient(135deg, rgba(8,42,34,0.95), rgba(8,22,24,0.95));
+    }
+    .feature-menu-btn.feature-xsea .k {
+      color: #ddffef;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xsea .d {
+      color: rgba(224,255,240,0.9);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xsea.active {
+      border-color: rgba(148,245,202,0.84);
+      box-shadow: 0 0 0 1px rgba(148,245,202,0.26) inset;
+    }
+    .feature-menu-btn.feature-xbrain {
+      border-color: rgba(255,214,92,0.56);
+      background:
+        linear-gradient(90deg, rgba(22,17,6,0.82) 0%, rgba(22,17,6,0.5) 46%, rgba(22,17,6,0.2) 100%),
+        url('https://imgloc.com/image/ymJJ29') center / cover no-repeat,
+        linear-gradient(135deg, rgba(66,46,8,0.95), rgba(27,18,8,0.95));
+    }
+    .feature-menu-btn.feature-xbrain .k {
+      color: #fff3cd;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.45);
+    }
+    .feature-menu-btn.feature-xbrain .d {
+      color: rgba(255,244,214,0.92);
+      text-shadow: 0 1px 6px rgba(0,0,0,0.42);
+    }
+    .feature-menu-btn.feature-xbrain.active {
+      border-color: rgba(255,225,132,0.84);
+      box-shadow: 0 0 0 1px rgba(255,225,132,0.24) inset;
+    }
+    .feature-menu-btn .k { display: block; color: inherit; font-weight: 600; margin-bottom: 1px; }
+    .feature-menu-btn .d { display: block; color: var(--muted); font-size: 0.66rem; }
+    .sidebar-trade-hub { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+    .sidebar-trade-hub .top-hero { grid-template-columns: 1fr; gap: 8px; }
+    .sidebar-trade-hub .hero-title-row { margin-bottom: 0; }
+    .sidebar-trade-hub h1 { font-size: 0.86rem; margin: 0; }
+    .sidebar-trade-hub .top-status { margin-top: 5px; gap: 5px; }
+    .sidebar-trade-hub .status-chip { font-size: 0.66rem; padding: 2px 8px; }
+    .sidebar-trade-hub .app-subtitle { font-size: 0.69rem; }
+    .sidebar-trade-hub .top-mini-kline canvas { height: 78px; }
     .global-back-btn {
       position: fixed;
       right: 12px;
@@ -223,50 +448,6 @@ const HTML = `<!DOCTYPE html>
     .ai-msg.user { align-self: flex-end; background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
     .ai-msg.bot { align-self: flex-start; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
     .ai-input-row { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; position: relative; }
-    .input-func-wrap { position: relative; flex: 0 0 auto; }
-    .input-func-toggle {
-      border: 1px solid rgba(88,166,255,0.45);
-      border-radius: 10px;
-      background: rgba(88,166,255,0.14);
-      color: #58a6ff;
-      padding: 8px 9px;
-      font-size: 0.8rem;
-      line-height: 1;
-      cursor: pointer;
-      min-width: 40px;
-    }
-    .input-func-toggle:hover { border-color: rgba(88,166,255,0.66); color: var(--text); }
-    .input-func-menu {
-      position: absolute;
-      left: 0;
-      bottom: calc(100% + 8px);
-      min-width: 132px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: rgba(22,30,43,0.98);
-      box-shadow: 0 8px 26px rgba(0,0,0,0.45);
-      padding: 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      transform-origin: left bottom;
-      transition: opacity 140ms ease, transform 140ms ease;
-      z-index: 260;
-    }
-    .input-func-menu.hidden {
-      opacity: 0;
-      transform: translateY(6px) scale(0.98);
-      pointer-events: none;
-    }
-    .input-func-menu .nav-btn {
-      border-radius: 8px;
-      text-align: left;
-      width: 100%;
-      font-size: 0.72rem;
-      padding: 6px 8px;
-    }
     .ai-input-row input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); padding: 8px 10px; font-size: 0.78rem; }
     .ai-input-row .send-btn { border: 1px solid rgba(88,166,255,0.55); border-radius: 8px; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 8px 12px; font-size: 0.76rem; cursor: pointer; }
     .history-summary { margin-bottom: 8px; color: var(--muted); font-size: 0.76rem; }
@@ -274,6 +455,78 @@ const HTML = `<!DOCTYPE html>
     #orders-table-wrap th, #orders-table-wrap td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     #orders-table-wrap th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
     #orders-table-wrap tr:hover { background: rgba(255,255,255,0.03); }
+    .xsea-grid { display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); gap: 10px; }
+    .xsea-card { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 9px; }
+    .xsea-card h3 { margin: 0 0 8px; font-size: 0.82rem; }
+    .xsea-form { display: flex; flex-direction: column; gap: 7px; }
+    .xsea-form input, .xsea-form textarea, .xsea-form select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      padding: 7px 8px;
+      font-size: 0.75rem;
+    }
+    .xsea-form textarea { min-height: 92px; resize: vertical; }
+    .xsea-form .xsea-publish-btn {
+      border: 1px solid rgba(88,166,255,0.6);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.16);
+      color: #58a6ff;
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .xsea-feed { display: flex; flex-direction: column; gap: 8px; }
+    .xsea-item { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.14); padding: 9px; }
+    .xsea-item-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+    .xsea-item-title { font-size: 0.8rem; font-weight: 600; }
+    .xsea-item-meta { font-size: 0.68rem; color: var(--muted); }
+    .xsea-item-summary { font-size: 0.73rem; color: var(--text); margin-bottom: 5px; white-space: pre-wrap; word-break: break-word; }
+    .xsea-item-plan { font-size: 0.7rem; color: var(--muted); background: rgba(0,0,0,0.2); border-radius: 8px; padding: 6px 7px; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; max-height: 130px; overflow: auto; }
+    .xsea-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .xsea-actions button { border: 1px solid var(--border); border-radius: 999px; background: rgba(0,0,0,0.2); color: var(--text); font-size: 0.69rem; padding: 4px 9px; cursor: pointer; }
+    .xsea-actions button.primary { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
+    .xsea-selected { font-size: 0.72rem; color: var(--muted); margin-bottom: 7px; }
+    .xsea-selected strong { color: #58a6ff; }
+    .xbrain-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .xbrain-card { border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.16); padding: 10px; }
+    .xbrain-card h3 { margin: 0; font-size: 0.82rem; }
+    .xbrain-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    .xbrain-lock-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.66rem; color: var(--muted); background: rgba(0,0,0,0.22); }
+    .xbrain-lock-tag.on { border-color: rgba(248,81,73,0.42); color: #ffaba8; }
+    .xbrain-lock-tag.off { border-color: rgba(63,185,80,0.42); color: #7ee787; }
+    .xbrain-hint { font-size: 0.69rem; color: var(--muted); margin-bottom: 8px; }
+    .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
+    .xbrain-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.71rem; color: var(--muted); }
+    .xbrain-form input, .xbrain-form textarea, .xbrain-form select {
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font: inherit;
+      outline: none;
+    }
+    .xbrain-form input:focus, .xbrain-form textarea:focus, .xbrain-form select:focus { border-color: rgba(88,166,255,0.72); }
+    .xbrain-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .xbrain-row > * { flex: 1 1 120px; }
+    .xbrain-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .xbrain-actions button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.24);
+      color: var(--text);
+      font-size: 0.69rem;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .xbrain-actions button.primary { border-color: rgba(88,166,255,0.62); color: #79c0ff; }
+    .xbrain-actions button.warn { border-color: rgba(248,81,73,0.48); color: #ffaba8; }
+    .xbrain-status { margin-top: 8px; font-size: 0.68rem; color: var(--muted); min-height: 18px; }
+    .xbrain-status.ok { color: #7ee787; }
+    .xbrain-status.err { color: #ffaba8; }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
     .chart-header .meta.ok { color: var(--green); }
@@ -443,19 +696,11 @@ const HTML = `<!DOCTYPE html>
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
     .load-error pre { font-size: 0.75rem; margin-top: 8px; }
-    .install-pwa { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 260; border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,50,0.97); box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
-    .install-pwa.hidden { display: none; }
-    .install-pwa .ipwa-main { flex: 1; min-width: 0; }
-    .install-pwa .ipwa-title { font-size: 0.78rem; color: var(--text); font-weight: 600; margin-bottom: 2px; }
-    .install-pwa .ipwa-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.35; }
-    .install-pwa .ipwa-actions { display: flex; gap: 8px; align-items: center; }
-    .install-pwa button { border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 0.74rem; cursor: pointer; }
-    .install-pwa button.primary { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.5); color: var(--green); }
-    .install-pwa button.ghost { color: var(--muted); }
     /* Chat-first layout (Telegram-like) */
     body { padding: 0; min-height: 100dvh; overflow: auto; }
-    .app-shell { max-width: none; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; }
-    .app-topbar { border-bottom: 1px solid var(--border); padding: 10px 12px 8px; margin-bottom: 0; background: rgba(15,20,25,0.96); position: sticky; top: 0; z-index: 220; backdrop-filter: blur(8px); }
+    .app-shell { max-width: none; margin: 0; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: row; overflow-x: hidden; }
+    .app-content { flex: 1; min-width: 0; width: 100%; display: flex; flex-direction: column; transition: transform 180ms ease; }
+    .app-shell.sidebar-open .app-content { transform: translateX(var(--sidebar-width)); }
     .status-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.69rem; background: rgba(0,0,0,0.22); color: var(--muted); }
     .status-chip.neutral { border-color: rgba(139,148,158,0.45); color: var(--muted); }
     .status-chip.long, .status-chip.positive { border-color: rgba(63,185,80,0.55); color: var(--green); }
@@ -473,13 +718,13 @@ const HTML = `<!DOCTYPE html>
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
     #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
-    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
+    #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active, #view-xsea.active, #view-xbrain.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
     .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
+      :root { --sidebar-width: 228px; }
       body { padding: 0; }
       h1 { font-size: 1.02rem; margin-bottom: 4px; }
-      .app-topbar { flex-direction: column; align-items: stretch; gap: 8px; }
       .top-hero { grid-template-columns: 1fr; gap: 8px; }
       .nav-btn { font-size: 0.72rem; padding: 6px 10px; }
       .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
@@ -488,8 +733,15 @@ const HTML = `<!DOCTYPE html>
       #view-dashboard .ai-chat-box { min-height: 52vh; }
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
-      .input-func-toggle { min-width: 44px; font-size: 0.86rem; padding: 9px 10px; }
-      .input-func-menu { min-width: 136px; }
+      .hero-title-row { margin-bottom: 0; }
+      .app-content-toolbar { padding: 8px 10px; gap: 8px; }
+      .feature-sidebar-toggle { width: 34px; height: 30px; }
+      .content-page-title { font-size: 0.9rem; }
+      .symbol-switch-toggle { font-size: 0.66rem; padding: 3px 9px; }
+      .toolbar-link-status { font-size: 0.68rem; padding: 2px 7px; }
+      .feature-sidebar { min-height: 0; }
+      .feature-sidebar-inner { width: var(--sidebar-width); }
+      .xsea-grid { grid-template-columns: 1fr; }
       .ai-input-row input { font-size: 16px; }
       .backtest-controls { grid-template-columns: 1fr 1fr; }
       .backtest-controls .run-btn { grid-column: 1 / -1; width: 100%; }
@@ -506,10 +758,6 @@ const HTML = `<!DOCTYPE html>
       #detail-popover .decision-tree { flex-direction: column; gap: 4px; overflow-x: hidden; }
       #detail-popover .dt-node { min-width: 0; width: 100%; }
       #detail-popover .dt-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 10px; }
-      .install-pwa { left: 8px; right: 8px; bottom: 8px; padding: 9px 10px; }
-      .install-pwa .ipwa-title { font-size: 0.76rem; }
-      .install-pwa .ipwa-desc { font-size: 0.7rem; }
-      .install-pwa button { font-size: 0.72rem; padding: 7px 9px; }
       .filters { gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
       .table-toolbar { margin-top: 0; font-size: 0.72rem; }
       .order-focus { width: 100%; justify-content: space-between; }
@@ -532,57 +780,66 @@ const HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div class="app-shell">
-    <div class="app-topbar">
-      <div class="top-hero">
-        <div class="top-hero-main">
-          <h1>AI 交易机器人</h1>
-          <div class="top-status">
-            <span id="status-position" class="status-chip neutral">仓位: --</span>
-            <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
-            <span id="status-price" class="status-chip neutral">币价: --</span>
-            <span id="status-trade" class="status-chip trade">交易: --</span>
-            <span id="status-runtime" class="status-chip runtime">运行: --</span>
-          </div>
-          <div class="app-subtitle" id="app-subtitle">聊天优先 · 功能入口在输入框左侧</div>
-        </div>
-        <div class="top-mini-kline">
-          <canvas id="top-mini-kline-canvas"></canvas>
-          <span id="mini-kline-dot" class="mini-price-dot hidden"></span>
-          <div class="top-mini-meta">
-            <span class="mini-main" id="mini-kline-main">BTC 实时缩略</span>
-            <span class="mini-sub" id="mini-kline-sub">等待数据...</span>
+  <div class="app-shell" id="app-shell">
+    <aside id="feature-sidebar" class="feature-sidebar">
+      <div class="feature-sidebar-inner">
+        <div class="feature-sidebar-head">功能页</div>
+        <button class="nav-btn feature-menu-btn feature-thunder active" id="nav-main" data-view-target="dashboard" type="button"><span class="k">ThunderClaw</span><span class="d">AI 交易交流与执行中枢</span></button>
+        <button class="nav-btn feature-menu-btn feature-xline" id="nav-kline" data-view-target="kline" type="button"><span class="k">虾线</span><span class="d">K 线与历史交易管理</span></button>
+        <button class="nav-btn feature-menu-btn feature-xstrategy" id="nav-backtest" data-view-target="backtest" type="button"><span class="k">虾策</span><span class="d">策略可视化与验证回验</span></button>
+        <button class="nav-btn feature-menu-btn feature-xsea" id="nav-xsea" data-view-target="xsea" type="button"><span class="k">虾海</span><span class="d">AI 策略发布、交流与训练选择</span></button>
+        <button class="nav-btn feature-menu-btn feature-xbrain" id="nav-xbrain" data-view-target="xbrain" type="button"><span class="k">虾脑</span><span class="d">配置中枢：模型、交易、策略参数联动</span></button>
+        <div class="sidebar-trade-hub">
+          <div class="feature-sidebar-head">交易中枢</div>
+          <div class="top-hero">
+            <div class="top-hero-main">
+              <div class="hero-title-row">
+                <h1>ThunderClaw 交易中枢</h1>
+              </div>
+              <div class="top-status">
+                <span id="status-position" class="status-chip neutral">仓位: --</span>
+                <span id="status-pnl" class="status-chip neutral">盈亏: --</span>
+                <span id="status-price" class="status-chip neutral">币价: --</span>
+                <span id="status-trade" class="status-chip trade">交易: --</span>
+                <span id="status-runtime" class="status-chip runtime">运行: --</span>
+              </div>
+              <div class="app-subtitle" id="app-subtitle">ThunderClaw · 简洁交易工作台</div>
+            </div>
+            <div class="top-mini-kline">
+              <canvas id="top-mini-kline-canvas"></canvas>
+              <span id="mini-kline-dot" class="mini-price-dot hidden"></span>
+              <div class="top-mini-meta">
+                <span class="mini-main" id="mini-kline-main">BTC 实时缩略</span>
+                <span class="mini-sub" id="mini-kline-sub">等待数据...</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </aside>
+    <div class="app-content">
+      <div class="app-content-toolbar">
+        <button id="feature-sidebar-toggle" class="feature-sidebar-toggle" type="button" aria-expanded="false" aria-controls="feature-sidebar" aria-label="打开左侧功能栏">☰</button>
+        <div class="content-page-head">
+          <span id="content-page-title" class="content-page-title">ThunderClaw</span>
+          <div id="symbol-switch-wrap" class="symbol-switch-wrap">
+            <button id="symbol-switch-toggle" class="symbol-switch-toggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="symbol-switch-popover">BTC ▾</button>
+            <div id="symbol-switch-popover" class="symbol-switch-popover hidden" role="menu">
+              <button class="symbol-option active" type="button" data-symbol-code="BTC" data-symbol-label="BTC/USDT">BTC/USDT</button>
+              <button class="symbol-option" type="button" data-symbol-code="ETH" data-symbol-label="ETH/USDT">ETH/USDT</button>
+              <button class="symbol-option" type="button" data-symbol-code="SOL" data-symbol-label="SOL/USDT">SOL/USDT</button>
+            </div>
+          </div>
+        </div>
+        <span id="ai-link-status" class="ai-link-status toolbar-link-status">OpenClaw: 检测中</span>
+      </div>
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
-        <div class="card-title-row">
-          <h2>AI 交易助理</h2>
-          <span id="ai-link-status" class="ai-link-status">OpenClaw: 检测中</span>
-        </div>
-        <div class="ai-quick" id="ai-quick">
-          <button class="ai-quick-btn" type="button" data-ask="当前仓位是什么？">当前仓位</button>
-          <button class="ai-quick-btn" type="button" data-ask="当前这单交易进展如何？">当前交易进展</button>
-          <button class="ai-quick-btn" type="button" data-ask="当前风控状态怎么样？">风控状态</button>
-          <button class="ai-quick-btn" type="button" data-view-target="backtest">策略回验</button>
-        </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
         </div>
         <div class="ai-input-row">
-          <div class="input-func-wrap">
-            <button id="input-func-toggle" class="input-func-toggle" type="button" aria-expanded="false" aria-controls="input-func-menu">☰</button>
-            <div id="input-func-menu" class="input-func-menu hidden">
-              <button class="nav-btn active" id="nav-main" data-view-target="dashboard" type="button">AI聊天</button>
-              <button class="nav-btn" id="nav-runtime" data-view-target="runtime" type="button">当前单</button>
-              <button class="nav-btn" id="nav-kline" data-view-target="kline" type="button">K线图</button>
-              <button class="nav-btn" id="nav-backtest" data-view-target="backtest" type="button">策略回验</button>
-              <button class="nav-btn" id="nav-history" data-view-target="history" type="button">历史单</button>
-            </div>
-          </div>
           <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
           <button id="ai-chat-send" class="send-btn" type="button">发送</button>
         </div>
@@ -592,10 +849,10 @@ const HTML = `<!DOCTYPE html>
     <section id="view-runtime" class="view-panel">
       <div class="panel-card" id="runtime-timeline-card">
         <div class="card-title-row">
-          <h2>当前交易运行时间线</h2>
+          <h2>ThunderClaw</h2>
           <span style="display:inline-flex;align-items:center;gap:8px;">
             <span class="app-subtitle" id="current-trade-meta">聚焦当前单</span>
-            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+            <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
           </span>
         </div>
         <div id="runtime-timeline" class="timeline-list"></div>
@@ -604,9 +861,13 @@ const HTML = `<!DOCTYPE html>
 
     <section id="view-kline" class="view-panel">
       <div class="card-title-row" style="margin-bottom:6px">
-        <h2>K线决策视图</h2>
-        <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+        <h2>虾线</h2>
+        <span>
+          <button class="nav-btn" data-view-target="history" type="button">历史交易</button>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </span>
       </div>
+      <div class="app-subtitle" style="margin-bottom:8px;">聚焦历史交易轨迹、K 线决策点与开平区间管理。</div>
       <div class="chart-header">
         <select id="tf-select">${tfOptions}</select>
         <button id="live-toggle" class="live-toggle on" type="button">实时: 开</button>
@@ -652,10 +913,10 @@ const HTML = `<!DOCTYPE html>
     <section id="view-history" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>历史订单详情</h2>
+          <h2>虾线</h2>
           <span>
             <span class="app-subtitle" id="history-total">共 0 条</span>
-            <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+            <button class="nav-btn" data-view-target="kline" type="button">返回虾线K线页</button>
           </span>
         </div>
         <div class="table-toolbar">
@@ -686,11 +947,12 @@ const HTML = `<!DOCTYPE html>
         </table>
       </div>
     </section>
+
     <section id="view-backtest" class="view-panel">
       <div class="panel-card">
         <div class="card-title-row">
-          <h2>策略回验（历史 K 线 PnL）</h2>
-          <button class="nav-btn" data-view-target="dashboard" type="button">返回AI主页面</button>
+          <h2>虾策</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
         <div class="backtest-controls">
           <label>策略版本
@@ -750,80 +1012,174 @@ const HTML = `<!DOCTYPE html>
         </div>
       </div>
     </section>
-  </div>
-  <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回主界面</button>
 
-  <div id="install-pwa" class="install-pwa hidden">
-    <div class="ipwa-main">
-      <div class="ipwa-title">安装为 App（更像原生应用）</div>
-      <div class="ipwa-desc" id="install-pwa-desc">安装后可全屏打开，使用更顺手。</div>
-    </div>
-    <div class="ipwa-actions">
-      <button id="install-pwa-btn" class="primary" type="button">安装</button>
-      <button id="install-pwa-close" class="ghost" type="button">关闭</button>
+    <section id="view-xsea" class="view-panel">
+      <div class="panel-card">
+        <div class="card-title-row">
+          <h2>虾海</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </div>
+        <div class="app-subtitle" style="margin-bottom:8px;">发布你的 AI 策略，与他人交流，并可将策略选入机器人训练参考。</div>
+        <div class="xsea-grid">
+          <div class="xsea-card">
+            <h3>发布策略</h3>
+            <form id="xsea-form" class="xsea-form">
+              <input id="xsea-title" type="text" maxlength="60" placeholder="策略标题（例：回踩确认 + 动量过滤）" required />
+              <input id="xsea-author" type="text" maxlength="32" placeholder="作者（例：Aragorn）" required />
+              <input id="xsea-summary" type="text" maxlength="120" placeholder="一句话摘要（例：趋势延续优先，逆势过滤）" required />
+              <textarea id="xsea-plan" placeholder="策略描述：入场、风控、退出、适配周期..." required></textarea>
+              <button class="xsea-publish-btn" type="submit">发布到虾海</button>
+            </form>
+          </div>
+          <div class="xsea-card">
+            <h3>策略广场</h3>
+            <div class="xsea-selected" id="xsea-selected"></div>
+            <div class="xsea-feed" id="xsea-feed"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-xbrain" class="view-panel">
+      <div class="panel-card">
+        <div class="card-title-row">
+          <h2>虾脑</h2>
+          <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
+        </div>
+        <div class="app-subtitle" style="margin-bottom:8px;">统一配置中枢：基础配置、交易配置、策略与运行配置。所有改动会同步到模型上下文。</div>
+        <div class="xbrain-grid">
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>一、基础配置</h3>
+              <span id="xbrain-lock-base" class="xbrain-lock-tag on">已锁定</span>
+            </div>
+            <div class="xbrain-hint">模型选择、聊天 channel。该区支持锁定/解锁与密码管理。</div>
+            <form id="xbrain-base-form" class="xbrain-form">
+              <label>模型提供方
+                <select id="xbrain-base-provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="chatgpt">ChatGPT</option>
+                  <option value="codex">Codex</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>模型 ID
+                <input id="xbrain-base-model" type="text" placeholder="例如 deepseek-chat" />
+              </label>
+              <label>聊天 Channel
+                <select id="xbrain-base-channel">
+                  <option value="dashboard">仅本地看板</option>
+                  <option value="telegram">仅 Telegram</option>
+                  <option value="both">本地 + Telegram</option>
+                </select>
+              </label>
+              <label>密码（用于解锁/设密码）
+                <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存基础配置</button>
+                <button type="button" data-xbrain-lock="base" data-xbrain-action="unlock">解锁</button>
+                <button class="warn" type="button" data-xbrain-lock="base" data-xbrain-action="lock">锁定</button>
+                <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置密码</button>
+              </div>
+              <div id="xbrain-status-base" class="xbrain-status"></div>
+            </form>
+          </div>
+
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>二、交易配置</h3>
+              <span id="xbrain-lock-exchange" class="xbrain-lock-tag on">已锁定</span>
+            </div>
+            <div class="xbrain-hint">Bitget API 管理（密钥掩码显示）。该区支持锁定/解锁与密码管理。</div>
+            <form id="xbrain-exchange-form" class="xbrain-form">
+              <label>Bitget API Key
+                <input id="xbrain-exchange-api-key" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>Bitget API Secret
+                <input id="xbrain-exchange-api-secret" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>Bitget Passphrase
+                <input id="xbrain-exchange-passphrase" type="password" autocomplete="off" placeholder="******" />
+              </label>
+              <label>密码（用于解锁/设密码）
+                <input id="xbrain-exchange-password" type="password" autocomplete="new-password" placeholder="输入密码后可解锁/重设密码" />
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存交易配置</button>
+                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="unlock">解锁</button>
+                <button class="warn" type="button" data-xbrain-lock="exchange" data-xbrain-action="lock">锁定</button>
+                <button type="button" data-xbrain-lock="exchange" data-xbrain-action="set_password">设置密码</button>
+              </div>
+              <div id="xbrain-status-exchange" class="xbrain-status"></div>
+            </form>
+          </div>
+
+          <div class="xbrain-card">
+            <div class="xbrain-card-head">
+              <h3>三、策略与运行配置</h3>
+              <span class="xbrain-lock-tag off">实时联动</span>
+            </div>
+            <div class="xbrain-hint">策略参数会与模型上下文双向同步：可对话改参数，也可改参数后让模型理解并执行。</div>
+            <form id="xbrain-strategy-form" class="xbrain-form">
+              <div class="xbrain-row">
+                <label>策略档案名
+                  <input id="xbrain-strategy-profile" type="text" placeholder="default" />
+                </label>
+                <label>交易符号
+                  <input id="xbrain-strategy-symbol" type="text" placeholder="BTC/USDT:USDT" />
+                </label>
+              </div>
+              <div class="xbrain-row">
+                <label>杠杆倍率
+                  <input id="xbrain-strategy-leverage" type="number" min="1" max="125" step="1" />
+                </label>
+                <label>仓位模式
+                  <select id="xbrain-strategy-size-mode">
+                    <option value="risk">Risk</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                </label>
+                <label>单次大小（USDT）
+                  <input id="xbrain-strategy-order-size" type="number" min="1" step="0.1" />
+                </label>
+              </div>
+              <div class="xbrain-row">
+                <label>风险比例（0-1）
+                  <input id="xbrain-strategy-risk-pct" type="number" min="0.001" max="0.4" step="0.001" />
+                </label>
+                <label>最小下单（USDT）
+                  <input id="xbrain-strategy-min-notional" type="number" min="1" step="0.1" />
+                </label>
+                <label>最大下单（USDT）
+                  <input id="xbrain-strategy-max-notional" type="number" min="1" step="0.1" />
+                </label>
+              </div>
+              <label>运行状态
+                <select id="xbrain-strategy-runtime-mode">
+                  <option value="dryrun">dryrun（模拟）</option>
+                  <option value="live">live（实盘）</option>
+                </select>
+              </label>
+              <div class="xbrain-actions">
+                <button class="primary" type="submit">保存策略与运行配置</button>
+                <button type="button" id="xbrain-refresh-btn">刷新配置</button>
+              </div>
+              <div id="xbrain-status-strategy" class="xbrain-status"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
     </div>
   </div>
+  <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
+
   <script>
     const TF_CONFIG = ${JSON.stringify(TF_CONFIG)};
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
-
-    function setupPwaInstall() {
-      const box = document.getElementById('install-pwa');
-      const btn = document.getElementById('install-pwa-btn');
-      const closeBtn = document.getElementById('install-pwa-close');
-      const desc = document.getElementById('install-pwa-desc');
-      if (!box || !btn || !closeBtn || !desc) return;
-
-      let deferredPrompt = null;
-      const ua = navigator.userAgent || '';
-      const isIOS = /iphone|ipad|ipod/i.test(ua);
-      const inStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-      if (inStandalone) {
-        box.classList.add('hidden');
-        return;
-      }
-
-      function showHint(text, canInstall) {
-        desc.textContent = text;
-        btn.style.display = canInstall ? 'inline-block' : 'none';
-        box.classList.remove('hidden');
-      }
-      function hideHint() {
-        box.classList.add('hidden');
-      }
-
-      closeBtn.addEventListener('click', hideHint);
-
-      window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        deferredPrompt = e;
-        showHint('点击“安装”将当前页面加入桌面，像 App 一样全屏使用。', true);
-      });
-
-      btn.addEventListener('click', async function() {
-        if (!deferredPrompt) return;
-        try {
-          deferredPrompt.prompt();
-          await deferredPrompt.userChoice;
-        } catch (_) {}
-        deferredPrompt = null;
-        hideHint();
-      });
-
-      if (isIOS) {
-        showHint('iOS：请在 Safari 点“分享”→“添加到主屏幕”，即可作为 App 使用。', false);
-      } else {
-        // Android/desktop: wait for beforeinstallprompt first; keep hidden by default.
-        hideHint();
-      }
-    }
-
-    function registerPwaServiceWorker() {
-      if (!('serviceWorker' in navigator)) return;
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js').catch(function() {});
-      }, { once: true });
-    }
 
     function buildMarkersForTf(records, tfSeconds) {
       return records.filter(r => r.ts && !r.stage).map(r => {
@@ -944,43 +1300,156 @@ const HTML = `<!DOCTYPE html>
         kline: document.getElementById('view-kline'),
         backtest: document.getElementById('view-backtest'),
         history: document.getElementById('view-history'),
+        xsea: document.getElementById('view-xsea'),
+        xbrain: document.getElementById('view-xbrain'),
       };
-      const navButtons = Array.from(document.querySelectorAll('.nav-btn[data-view-target]'));
+      const navButtons = Array.from(document.querySelectorAll('[data-view-target]'));
+      const featureMenuButtons = Array.from(document.querySelectorAll('.feature-menu-btn[data-view-target]'));
       const appSubtitle = document.getElementById('app-subtitle');
-      const inputFuncToggle = document.getElementById('input-func-toggle');
-      const inputFuncMenu = document.getElementById('input-func-menu');
+      const appShellEl = document.getElementById('app-shell');
+      const sidebarToggle = document.getElementById('feature-sidebar-toggle');
+      const sidebarEl = document.getElementById('feature-sidebar');
+      const contentPageTitleEl = document.getElementById('content-page-title');
+      const symbolSwitchWrapEl = document.getElementById('symbol-switch-wrap');
+      const symbolSwitchToggleEl = document.getElementById('symbol-switch-toggle');
+      const symbolSwitchPopoverEl = document.getElementById('symbol-switch-popover');
+      const symbolOptionEls = Array.from(document.querySelectorAll('.symbol-option[data-symbol-code]'));
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
+      let sidebarOpen = false;
+      const SYMBOL_SWITCH_KEY = 'thunderclaw.activeSymbolCode';
+      const SUPPORTED_SYMBOL_CODES = ['BTC', 'ETH', 'SOL'];
+      const defaultSymbolCode = (function() {
+        const raw = String(symbol || '').trim().toUpperCase();
+        const base = raw.split(/[/:]/)[0] || '';
+        return SUPPORTED_SYMBOL_CODES.includes(base) ? base : 'BTC';
+      })();
+      function normalizeSymbolCode(codeLike) {
+        const code = String(codeLike || '').trim().toUpperCase();
+        return SUPPORTED_SYMBOL_CODES.includes(code) ? code : defaultSymbolCode;
+      }
+      function readSymbolPreference() {
+        try {
+          return normalizeSymbolCode(window.localStorage.getItem(SYMBOL_SWITCH_KEY) || defaultSymbolCode);
+        } catch (_) {
+          return defaultSymbolCode;
+        }
+      }
+      function saveSymbolPreference(code) {
+        try { window.localStorage.setItem(SYMBOL_SWITCH_KEY, code); } catch (_) {}
+      }
+      let activeSymbolCode = readSymbolPreference();
 
-      function setInputMenuOpen(open) {
-        if (!inputFuncMenu || !inputFuncToggle) return;
+      function normalizeViewTarget(nameLike) {
+        const raw = String(nameLike || '').trim().toLowerCase();
+        if (!raw) return 'dashboard';
+        if (viewMap[raw]) return raw;
+        const alias = {
+          thunderclaw: 'dashboard',
+          main: 'dashboard',
+          ai: 'dashboard',
+          chat: 'dashboard',
+          xline: 'kline',
+          '虾线': 'kline',
+          chart: 'kline',
+          xstrategy: 'backtest',
+          '虾策': 'backtest',
+          strategy: 'backtest',
+          xsea: 'xsea',
+          '虾海': 'xsea',
+          community: 'xsea',
+          xbrain: 'xbrain',
+          '虾脑': 'xbrain',
+          brain: 'xbrain',
+          config: 'xbrain',
+          '配置': 'xbrain',
+        };
+        return alias[raw] || 'dashboard';
+      }
+
+      function isCompactViewport() {
+        return window.matchMedia('(max-width: 768px)').matches;
+      }
+
+      function setSidebarOpen(open) {
+        if (!appShellEl || !sidebarToggle || !sidebarEl) return;
         const isOpen = Boolean(open);
-        inputFuncMenu.classList.toggle('hidden', !isOpen);
-        inputFuncToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        sidebarOpen = isOpen;
+        appShellEl.classList.toggle('sidebar-open', isOpen);
+        sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
+
+      function titleForView(key) {
+        if (key === 'dashboard' || key === 'runtime') return 'ThunderClaw';
+        if (key === 'kline' || key === 'history') return '虾线';
+        if (key === 'backtest') return '虾策';
+        if (key === 'xsea') return '虾海';
+        if (key === 'xbrain') return '虾脑';
+        return 'ThunderClaw';
+      }
+
+      function subtitleForView(key) {
+        if (key === 'dashboard') return 'ThunderClaw · ' + activeSymbolCode + ' 交易工作台';
+        if (key === 'runtime') return 'ThunderClaw · 当前单运行时间线';
+        if (key === 'kline') return '虾线 · K 线与历史交易联动管理';
+        if (key === 'history') return '虾线 · 历史订单明细与K线定位';
+        if (key === 'backtest') return '虾策 · 策略可视化管理与回验验证';
+        if (key === 'xsea') return '虾海 · AI 策略发布、交流与训练选择';
+        if (key === 'xbrain') return '虾脑 · 配置中枢与模型参数联动';
+        return '交易系统功能页';
+      }
+
+      function setSymbolPopoverOpen(open) {
+        if (!symbolSwitchPopoverEl || !symbolSwitchToggleEl) return;
+        const visible = Boolean(open);
+        symbolSwitchPopoverEl.classList.toggle('hidden', !visible);
+        symbolSwitchToggleEl.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      }
+
+      function syncSymbolSwitchUi() {
+        if (symbolSwitchToggleEl) {
+          symbolSwitchToggleEl.textContent = activeSymbolCode + ' ▾';
+        }
+        symbolOptionEls.forEach(function(btn) {
+          const code = normalizeSymbolCode(btn.getAttribute('data-symbol-code'));
+          btn.classList.toggle('active', code === activeSymbolCode);
+        });
+      }
+
+      function applySymbolSelection(codeLike) {
+        activeSymbolCode = normalizeSymbolCode(codeLike);
+        saveSymbolPreference(activeSymbolCode);
+        syncSymbolSwitchUi();
+        if (appSubtitle) appSubtitle.textContent = subtitleForView(activeViewName);
+        updateHeaderStatus();
+      }
+
+      function syncContentHeader(viewKey) {
+        if (contentPageTitleEl) contentPageTitleEl.textContent = titleForView(viewKey);
+        if (symbolSwitchWrapEl) {
+          const showSwitcher = viewKey === 'dashboard';
+          symbolSwitchWrapEl.classList.toggle('hidden', !showSwitcher);
+          if (!showSwitcher) setSymbolPopoverOpen(false);
+        }
       }
 
       function switchView(name) {
-        const key = viewMap[name] ? name : 'dashboard';
+        const key = normalizeViewTarget(name);
         activeViewName = key;
         Object.entries(viewMap).forEach(([k, el]) => {
           if (!el) return;
           el.classList.toggle('active', k === key);
         });
-        navButtons.forEach(btn => {
+        featureMenuButtons.forEach(btn => {
           btn.classList.toggle('active', btn.getAttribute('data-view-target') === key);
         });
-        if (appSubtitle) {
-          if (key === 'dashboard') appSubtitle.textContent = '聊天优先 · 功能入口在输入框左侧';
-          else if (key === 'runtime') appSubtitle.textContent = '当前单交易过程与关键事件';
-          else if (key === 'kline') appSubtitle.textContent = 'K 线与决策点联动视图';
-          else if (key === 'backtest') appSubtitle.textContent = '策略版本回验 · 历史 K 线 PnL 估算';
-          else appSubtitle.textContent = '历史订单明细（支持跳转回 K 线定位）';
-        }
+        if (appSubtitle) appSubtitle.textContent = subtitleForView(key);
+        syncContentHeader(key);
         if (globalBackBtn) {
           globalBackBtn.classList.toggle('hidden', key === 'dashboard');
         }
-        setInputMenuOpen(false);
+        if (isCompactViewport()) setSidebarOpen(false);
         if (key === 'kline' && typeof onKlineVisible === 'function') {
           window.requestAnimationFrame(onKlineVisible);
         }
@@ -988,29 +1457,51 @@ const HTML = `<!DOCTYPE html>
           window.requestAnimationFrame(runBacktestFromUi);
         }
       }
-      if (inputFuncToggle && inputFuncMenu) {
-        inputFuncToggle.addEventListener('click', function(ev) {
+      if (sidebarToggle && sidebarEl) {
+        sidebarToggle.addEventListener('click', function(ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          const open = inputFuncToggle.getAttribute('aria-expanded') === 'true';
-          setInputMenuOpen(!open);
-        });
-        inputFuncMenu.addEventListener('click', function(ev) {
-          const btn = ev.target.closest('.nav-btn[data-view-target]');
-          if (btn) setInputMenuOpen(false);
+          setSidebarOpen(!sidebarOpen);
         });
         document.addEventListener('click', function(ev) {
-          if (inputFuncMenu.classList.contains('hidden')) return;
-          if (inputFuncMenu.contains(ev.target) || inputFuncToggle.contains(ev.target)) return;
-          setInputMenuOpen(false);
+          if (!sidebarOpen || !isCompactViewport()) return;
+          const target = ev.target;
+          if (sidebarEl.contains(target) || sidebarToggle.contains(target)) return;
+          setSidebarOpen(false);
         });
         document.addEventListener('keydown', function(ev) {
-          if (ev.key === 'Escape') setInputMenuOpen(false);
+          if (ev.key === 'Escape') setSidebarOpen(false);
         });
       }
+      if (symbolSwitchToggleEl && symbolSwitchPopoverEl) {
+        symbolSwitchToggleEl.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          setSymbolPopoverOpen(symbolSwitchPopoverEl.classList.contains('hidden'));
+        });
+        symbolOptionEls.forEach(function(btn) {
+          btn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            const code = btn.getAttribute('data-symbol-code');
+            applySymbolSelection(code);
+            setSymbolPopoverOpen(false);
+          });
+        });
+        document.addEventListener('click', function(ev) {
+          if (symbolSwitchPopoverEl.classList.contains('hidden')) return;
+          const target = ev.target;
+          if (symbolSwitchWrapEl && symbolSwitchWrapEl.contains(target)) return;
+          setSymbolPopoverOpen(false);
+        });
+        document.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Escape') setSymbolPopoverOpen(false);
+        });
+      }
+      syncSymbolSwitchUi();
+      syncContentHeader(activeViewName);
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
-          switchView(btn.getAttribute('data-view-target'));
+          switchView(normalizeViewTarget(btn.getAttribute('data-view-target')));
         });
       });
       if (globalBackBtn) {
@@ -1029,10 +1520,10 @@ const HTML = `<!DOCTYPE html>
       const miniKlineMainEl = document.getElementById('mini-kline-main');
       const miniKlineSubEl = document.getElementById('mini-kline-sub');
       const aiLinkStatusEl = document.getElementById('ai-link-status');
-      const navRuntimeBtn = document.getElementById('nav-runtime');
-      const navHistoryBtn = document.getElementById('nav-history');
+      const navMainBtn = document.getElementById('nav-main');
       const navKlineBtn = document.getElementById('nav-kline');
       const navBacktestBtn = document.getElementById('nav-backtest');
+      const navXseaBtn = document.getElementById('nav-xsea');
 
       function getCurrentTradeOrder() {
         if (activeOrder) return activeOrder;
@@ -1243,7 +1734,7 @@ const HTML = `<!DOCTYPE html>
         const miniBars = getMiniBars();
         drawTopMiniKline(miniBars);
         if (miniKlineMainEl) {
-          miniKlineMainEl.textContent = 'BTC ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
+          miniKlineMainEl.textContent = activeSymbolCode + ' ' + (Number.isFinite(px) ? px.toFixed(1) : '--');
         }
         const miniChange = miniChangePctFromBars(miniBars);
         if (miniKlineSubEl) {
@@ -1256,15 +1747,15 @@ const HTML = `<!DOCTYPE html>
           }
         }
 
-        clearBtnState(navRuntimeBtn);
-        clearBtnState(navHistoryBtn);
+        clearBtnState(navMainBtn);
         clearBtnState(navKlineBtn);
         clearBtnState(navBacktestBtn);
-        if (navRuntimeBtn && cur?.side === 'long') navRuntimeBtn.classList.add('state-long');
-        if (navRuntimeBtn && cur?.side === 'short') navRuntimeBtn.classList.add('state-short');
-        if (navHistoryBtn && Number.isFinite(shownPnl)) navHistoryBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
+        clearBtnState(navXseaBtn);
+        if (navMainBtn && cur?.side === 'long') navMainBtn.classList.add('state-long');
+        if (navMainBtn && cur?.side === 'short') navMainBtn.classList.add('state-short');
         if (navKlineBtn && Number.isFinite(miniChange)) navKlineBtn.classList.add(miniChange >= 0 ? 'state-pos' : 'state-neg');
         if (navBacktestBtn && Number.isFinite(shownPnl)) navBacktestBtn.classList.add(shownPnl >= 0 ? 'state-pos' : 'state-neg');
+        if (navXseaBtn && SORTED_ORDERS.length > 0) navXseaBtn.classList.add('state-pos');
       }
 
       function renderCurrentPositions() {
@@ -1481,17 +1972,597 @@ const HTML = `<!DOCTYPE html>
         };
       }
 
+      const XSEA_POSTS_KEY = 'thunderclaw.xsea.posts.v1';
+      const XSEA_SELECTED_KEY = 'thunderclaw.xsea.selected.v1';
+      const XSEA_SEED = [
+        {
+          id: 'seed-v5-retest',
+          title: 'BTC 回踩确认 + 成交量过滤',
+          author: '虾策实验室',
+          summary: '顺趋势优先，回踩结构确认后再入场，降低假突破。',
+          plan: '入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏',
+          createdAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+        },
+        {
+          id: 'seed-v5-reentry',
+          title: '趋势再入 + 分批加仓',
+          author: 'Aragorn',
+          summary: '主趋势确认后等待二次发力，再入场并限制最大持仓时间。',
+          plan: '入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场',
+          createdAt: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
+        },
+      ];
+      let xseaPosts = [];
+      let selectedXseaStrategy = null;
+      const xbrainClientState = {
+        loading: false,
+        loaded: false,
+        data: null,
+      };
+
+      function safeLocalJsonRead(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return fallback;
+          const parsed = JSON.parse(raw);
+          return parsed == null ? fallback : parsed;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function safeLocalJsonWrite(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function loadXseaPosts() {
+        const list = safeLocalJsonRead(XSEA_POSTS_KEY, []);
+        if (!Array.isArray(list)) return [];
+        return list
+          .filter(function(item) {
+            return item && typeof item === 'object' && item.id && item.title && item.plan;
+          })
+          .slice()
+          .sort(function(a, b) {
+            return (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0);
+          });
+      }
+
+      function saveXseaPosts(posts) {
+        xseaPosts = Array.isArray(posts) ? posts.slice() : [];
+        safeLocalJsonWrite(XSEA_POSTS_KEY, xseaPosts);
+      }
+
+      function loadSelectedXsea() {
+        const one = safeLocalJsonRead(XSEA_SELECTED_KEY, null);
+        if (!one || typeof one !== 'object') return null;
+        if (!one.id || !one.title || !one.plan) return null;
+        return one;
+      }
+
+      function saveSelectedXsea(one) {
+        selectedXseaStrategy = one && typeof one === 'object' ? one : null;
+        if (selectedXseaStrategy) safeLocalJsonWrite(XSEA_SELECTED_KEY, selectedXseaStrategy);
+        else {
+          try { localStorage.removeItem(XSEA_SELECTED_KEY); } catch {}
+        }
+      }
+
+      function buildXseaPrompt(item, mode) {
+        const header = mode === 'train'
+          ? '请将这条虾海策略作为本轮机器人训练参考，输出可执行建议。'
+          : '请评估这条虾海策略，并给出可执行建议。';
+        return [
+          header,
+          '策略标题：' + (item.title || '-'),
+          '作者：' + (item.author || '-'),
+          '摘要：' + (item.summary || '-'),
+          '详细策略：',
+          String(item.plan || '-'),
+          '',
+          '请给出：1) 适配市场条件 2) 参数建议 3) 主要风险 4) 可落地执行步骤',
+        ].join('\\n');
+      }
+
+      function askAiFromXsea(item, mode) {
+        const input = document.getElementById('ai-chat-input');
+        const sendBtn = document.getElementById('ai-chat-send');
+        if (!input || !sendBtn || !item) return;
+        switchView('dashboard');
+        input.value = buildXseaPrompt(item, mode);
+        sendBtn.click();
+      }
+
+      function renderXseaPanel() {
+        const feed = document.getElementById('xsea-feed');
+        const selectedEl = document.getElementById('xsea-selected');
+        if (!feed || !selectedEl) return;
+        if (selectedXseaStrategy) {
+          selectedEl.innerHTML = '当前训练参考：<strong>' + escapeHtml(selectedXseaStrategy.title) + '</strong> · ' + escapeHtml(selectedXseaStrategy.author || '-') + '。';
+        } else {
+          selectedEl.textContent = '当前未选择训练参考策略。';
+        }
+        if (!xseaPosts.length) {
+          feed.innerHTML = '<div class="xsea-item"><div class="xsea-item-summary">暂无策略，先发布第一条策略吧。</div></div>';
+          return;
+        }
+        feed.innerHTML = xseaPosts.map(function(item) {
+          const id = String(item.id || '');
+          return '<div class="xsea-item">' +
+            '<div class="xsea-item-head">' +
+              '<div class="xsea-item-title">' + escapeHtml(item.title || '-') + '</div>' +
+              '<div class="xsea-item-meta">' + escapeHtml(fmtTsShort(item.createdAt)) + '</div>' +
+            '</div>' +
+            '<div class="xsea-item-meta">作者：' + escapeHtml(item.author || '-') + '</div>' +
+            '<div class="xsea-item-summary">' + escapeHtml(item.summary || '-') + '</div>' +
+            '<div class="xsea-item-plan">' + escapeHtml(item.plan || '-') + '</div>' +
+            '<div class="xsea-actions">' +
+              '<button class="primary" type="button" data-xsea-action="pick" data-xsea-id="' + escapeHtml(id) + '">选取训练机器人</button>' +
+              '<button type="button" data-xsea-action="chat" data-xsea-id="' + escapeHtml(id) + '">与 ThunderClaw 讨论</button>' +
+              '<button type="button" data-xsea-action="remove" data-xsea-id="' + escapeHtml(id) + '">移除</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      function setupXseaPanel() {
+        const form = document.getElementById('xsea-form');
+        const titleInput = document.getElementById('xsea-title');
+        const authorInput = document.getElementById('xsea-author');
+        const summaryInput = document.getElementById('xsea-summary');
+        const planInput = document.getElementById('xsea-plan');
+        const feed = document.getElementById('xsea-feed');
+
+        xseaPosts = loadXseaPosts();
+        if (!xseaPosts.length) saveXseaPosts(XSEA_SEED);
+        xseaPosts = loadXseaPosts();
+        selectedXseaStrategy = loadSelectedXsea();
+        renderXseaPanel();
+
+        if (form && titleInput && authorInput && summaryInput && planInput) {
+          form.addEventListener('submit', function(ev) {
+            ev.preventDefault();
+            const title = String(titleInput.value || '').trim();
+            const author = String(authorInput.value || '').trim();
+            const summary = String(summaryInput.value || '').trim();
+            const plan = String(planInput.value || '').trim();
+            if (!title || !author || !summary || !plan) return;
+            const post = {
+              id: 'xsea-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+              title,
+              author,
+              summary,
+              plan,
+              createdAt: new Date().toISOString(),
+            };
+            saveXseaPosts([post].concat(xseaPosts));
+            xseaPosts = loadXseaPosts();
+            form.reset();
+            renderXseaPanel();
+          });
+        }
+
+        if (feed) {
+          feed.addEventListener('click', function(ev) {
+            const btn = ev.target.closest('button[data-xsea-action][data-xsea-id]');
+            if (!btn) return;
+            const action = String(btn.getAttribute('data-xsea-action') || '');
+            const id = String(btn.getAttribute('data-xsea-id') || '');
+            const item = xseaPosts.find(function(x) { return String(x.id || '') === id; }) || null;
+            if (!item) return;
+            if (action === 'pick') {
+              saveSelectedXsea(item);
+              renderXseaPanel();
+              askAiFromXsea(item, 'train');
+              return;
+            }
+            if (action === 'chat') {
+              askAiFromXsea(item, 'chat');
+              return;
+            }
+            if (action === 'remove') {
+              const next = xseaPosts.filter(function(x) { return String(x.id || '') !== id; });
+              saveXseaPosts(next);
+              xseaPosts = loadXseaPosts();
+              if (selectedXseaStrategy && String(selectedXseaStrategy.id || '') === id) {
+                saveSelectedXsea(null);
+              }
+              renderXseaPanel();
+            }
+          });
+        }
+      }
+
+      function xbrainSnapshotForContext() {
+        const x = xbrainClientState.data;
+        if (!x || typeof x !== 'object') return null;
+        return {
+          base: x.base
+            ? {
+                modelProvider: x.base.modelProvider || null,
+                modelId: x.base.modelId || null,
+                chatChannel: x.base.chatChannel || null,
+              }
+            : null,
+          exchange: x.exchange
+            ? {
+                bitgetConfigured: Boolean(x.exchange.bitgetConfigured),
+              }
+            : null,
+          strategy: x.strategy
+            ? {
+                profileName: x.strategy.profileName || null,
+                symbol: x.strategy.symbol || null,
+                leverage: Number(x.strategy.leverage),
+                sizeMode: x.strategy.sizeMode || null,
+                orderSize: Number(x.strategy.orderSize),
+                riskPct: Number(x.strategy.riskPct),
+                minNotional: Number(x.strategy.minNotional),
+                maxNotional: Number(x.strategy.maxNotional),
+                runtimeMode: x.strategy.runtimeMode || null,
+              }
+            : null,
+          locks: x.locks
+            ? {
+                baseLocked: Boolean(x.locks.base && x.locks.base.locked),
+                exchangeLocked: Boolean(x.locks.exchange && x.locks.exchange.locked),
+              }
+            : null,
+          updatedAt: x.updatedAt || null,
+        };
+      }
+
+      function setXbrainStatus(section, text, type) {
+        const el = document.getElementById('xbrain-status-' + section);
+        if (!el) return;
+        const msg = String(text || '').trim();
+        el.textContent = msg;
+        el.classList.remove('ok', 'err');
+        if (!msg) return;
+        if (type === 'ok') el.classList.add('ok');
+        if (type === 'err') el.classList.add('err');
+      }
+
+      function setXbrainLockTag(section, lockLike) {
+        const el = document.getElementById('xbrain-lock-' + section);
+        if (!el) return;
+        const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
+        const locked = lock.locked !== false;
+        const hasPassword = Boolean(lock.hasPassword);
+        el.classList.toggle('on', locked);
+        el.classList.toggle('off', !locked);
+        el.textContent = locked
+          ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
+          : '已解锁';
+      }
+
+      function setXbrainSectionDisabled(section, locked) {
+        const disabled = Boolean(locked);
+        if (section === 'base') {
+          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+        if (section === 'exchange') {
+          ['xbrain-exchange-api-key', 'xbrain-exchange-api-secret', 'xbrain-exchange-passphrase'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+      }
+
+      function renderXbrainState() {
+        const state = xbrainClientState.data;
+        if (!state || typeof state !== 'object') return;
+        const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const exchange = state.exchange && typeof state.exchange === 'object' ? state.exchange : {};
+        const strategy = state.strategy && typeof state.strategy === 'object' ? state.strategy : {};
+        const locks = state.locks && typeof state.locks === 'object' ? state.locks : {};
+
+        const baseProvider = document.getElementById('xbrain-base-provider');
+        const baseModel = document.getElementById('xbrain-base-model');
+        const baseChannel = document.getElementById('xbrain-base-channel');
+        if (baseProvider) baseProvider.value = String(base.modelProvider || 'deepseek');
+        if (baseModel) baseModel.value = String(base.modelId || 'deepseek-chat');
+        if (baseChannel) baseChannel.value = String(base.chatChannel || 'dashboard');
+
+        const apiKey = document.getElementById('xbrain-exchange-api-key');
+        const apiSecret = document.getElementById('xbrain-exchange-api-secret');
+        const passphrase = document.getElementById('xbrain-exchange-passphrase');
+        if (apiKey) {
+          apiKey.value = '';
+          apiKey.placeholder = String(exchange.apiKeyMasked || '(未设置)');
+        }
+        if (apiSecret) {
+          apiSecret.value = '';
+          apiSecret.placeholder = String(exchange.apiSecretMasked || '(未设置)');
+        }
+        if (passphrase) {
+          passphrase.value = '';
+          passphrase.placeholder = String(exchange.passphraseMasked || '(未设置)');
+        }
+
+        const profile = document.getElementById('xbrain-strategy-profile');
+        const symbolInput = document.getElementById('xbrain-strategy-symbol');
+        const leverage = document.getElementById('xbrain-strategy-leverage');
+        const sizeMode = document.getElementById('xbrain-strategy-size-mode');
+        const orderSize = document.getElementById('xbrain-strategy-order-size');
+        const riskPct = document.getElementById('xbrain-strategy-risk-pct');
+        const minNotional = document.getElementById('xbrain-strategy-min-notional');
+        const maxNotional = document.getElementById('xbrain-strategy-max-notional');
+        const runtimeMode = document.getElementById('xbrain-strategy-runtime-mode');
+        if (profile) profile.value = String(strategy.profileName || 'default');
+        if (symbolInput) symbolInput.value = String(strategy.symbol || 'BTC/USDT:USDT');
+        if (leverage) leverage.value = Number.isFinite(Number(strategy.leverage)) ? String(strategy.leverage) : '10';
+        if (sizeMode) sizeMode.value = String(strategy.sizeMode || 'risk');
+        if (orderSize) orderSize.value = Number.isFinite(Number(strategy.orderSize)) ? String(strategy.orderSize) : '8';
+        if (riskPct) riskPct.value = Number.isFinite(Number(strategy.riskPct)) ? String(strategy.riskPct) : '0.015';
+        if (minNotional) minNotional.value = Number.isFinite(Number(strategy.minNotional)) ? String(strategy.minNotional) : '5';
+        if (maxNotional) maxNotional.value = Number.isFinite(Number(strategy.maxNotional)) ? String(strategy.maxNotional) : '80';
+        if (runtimeMode) runtimeMode.value = String(strategy.runtimeMode || 'dryrun');
+
+        setXbrainLockTag('base', locks.base);
+        setXbrainLockTag('exchange', locks.exchange);
+        setXbrainSectionDisabled('base', Boolean(locks.base && locks.base.locked));
+        setXbrainSectionDisabled('exchange', Boolean(locks.exchange && locks.exchange.locked));
+      }
+
+      async function fetchXbrainState() {
+        if (xbrainClientState.loading) return xbrainClientState.data;
+        xbrainClientState.loading = true;
+        try {
+          const resp = await fetch('/api/xbrain/state', { cache: 'no-store' });
+          const payload = await resp.json().catch(function() { return null; });
+          if (!resp.ok || !payload || payload.ok !== true || !payload.state) {
+            const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
+            throw new Error(reason);
+          }
+          xbrainClientState.loaded = true;
+          xbrainClientState.data = payload.state;
+          renderXbrainState();
+          return payload.state;
+        } finally {
+          xbrainClientState.loading = false;
+        }
+      }
+
+      async function postXbrain(pathname, body) {
+        const resp = await fetch(pathname, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(body || {}),
+        });
+        const payload = await resp.json().catch(function() { return null; });
+        if (!resp.ok || !payload || payload.ok !== true) {
+          const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
+          throw new Error(reason);
+        }
+        if (payload.state) {
+          xbrainClientState.data = payload.state;
+          xbrainClientState.loaded = true;
+          renderXbrainState();
+        }
+        return payload;
+      }
+
+      function setupXbrainPanel() {
+        const baseForm = document.getElementById('xbrain-base-form');
+        const exchangeForm = document.getElementById('xbrain-exchange-form');
+        const strategyForm = document.getElementById('xbrain-strategy-form');
+        if (!baseForm || !exchangeForm || !strategyForm) return;
+
+        void fetchXbrainState().catch(function(err) {
+          setXbrainStatus('strategy', '加载虾脑配置失败：' + String(err?.message || err), 'err');
+        });
+
+        baseForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {
+            modelProvider: String(document.getElementById('xbrain-base-provider')?.value || 'deepseek'),
+            modelId: String(document.getElementById('xbrain-base-model')?.value || '').trim() || 'deepseek-chat',
+            chatChannel: String(document.getElementById('xbrain-base-channel')?.value || 'dashboard'),
+          };
+          const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
+          void postXbrain('/api/xbrain/update', { section: 'base', values, password })
+            .then(function() {
+              setXbrainStatus('base', '基础配置已保存，并同步给模型。', 'ok');
+            })
+            .catch(function(err) {
+              setXbrainStatus('base', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        exchangeForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {};
+          const key = String(document.getElementById('xbrain-exchange-api-key')?.value || '').trim();
+          const secret = String(document.getElementById('xbrain-exchange-api-secret')?.value || '').trim();
+          const passphrase = String(document.getElementById('xbrain-exchange-passphrase')?.value || '').trim();
+          if (key) values.apiKey = key;
+          if (secret) values.apiSecret = secret;
+          if (passphrase) values.apiPassphrase = passphrase;
+          const password = String(document.getElementById('xbrain-exchange-password')?.value || '').trim();
+          if (!Object.keys(values).length) {
+            setXbrainStatus('exchange', '未检测到新密钥输入；如需改动，请填写后保存。', 'err');
+            return;
+          }
+          void postXbrain('/api/xbrain/update', { section: 'exchange', values, password })
+            .then(function() {
+              setXbrainStatus('exchange', '交易配置已保存（掩码显示），并同步给模型。', 'ok');
+              const keyEl = document.getElementById('xbrain-exchange-api-key');
+              const secEl = document.getElementById('xbrain-exchange-api-secret');
+              const passEl = document.getElementById('xbrain-exchange-passphrase');
+              if (keyEl) keyEl.value = '';
+              if (secEl) secEl.value = '';
+              if (passEl) passEl.value = '';
+            })
+            .catch(function(err) {
+              setXbrainStatus('exchange', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        strategyForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const values = {
+            profileName: String(document.getElementById('xbrain-strategy-profile')?.value || '').trim() || 'default',
+            symbol: String(document.getElementById('xbrain-strategy-symbol')?.value || '').trim() || 'BTC/USDT:USDT',
+            leverage: Number(document.getElementById('xbrain-strategy-leverage')?.value || 10),
+            sizeMode: String(document.getElementById('xbrain-strategy-size-mode')?.value || 'risk'),
+            orderSize: Number(document.getElementById('xbrain-strategy-order-size')?.value || 8),
+            riskPct: Number(document.getElementById('xbrain-strategy-risk-pct')?.value || 0.015),
+            minNotional: Number(document.getElementById('xbrain-strategy-min-notional')?.value || 5),
+            maxNotional: Number(document.getElementById('xbrain-strategy-max-notional')?.value || 80),
+            runtimeMode: String(document.getElementById('xbrain-strategy-runtime-mode')?.value || 'dryrun'),
+          };
+          void postXbrain('/api/xbrain/update', { section: 'strategy', values })
+            .then(function() {
+              const mode = String(xbrainClientState.data?.strategy?.runtimeMode || values.runtimeMode);
+              const modeText = mode === 'live' ? '实盘' : 'dryrun';
+              setXbrainStatus('strategy', '策略/运行配置已保存：当前模式 ' + modeText + '。', 'ok');
+            })
+            .catch(function(err) {
+              setXbrainStatus('strategy', '保存失败：' + String(err?.message || err), 'err');
+            });
+        });
+
+        document
+          .querySelectorAll('button[data-xbrain-lock][data-xbrain-action]')
+          .forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+              ev.preventDefault();
+              const section = String(btn.getAttribute('data-xbrain-lock') || '').trim();
+              const action = String(btn.getAttribute('data-xbrain-action') || '').trim();
+              const passInput = document.getElementById('xbrain-' + section + '-password');
+              const password = String(passInput?.value || '').trim();
+              if ((action === 'unlock' || action === 'set_password') && !password) {
+                setXbrainStatus(section, '请先输入密码。', 'err');
+                return;
+              }
+              void postXbrain('/api/xbrain/lock', {
+                section: section,
+                action: action,
+                password: password,
+                currentPassword: password,
+              })
+                .then(function() {
+                  if (action === 'unlock') setXbrainStatus(section, '已解锁，可修改该配置区。', 'ok');
+                  else if (action === 'lock') setXbrainStatus(section, '已锁定该配置区。', 'ok');
+                  else if (action === 'set_password') setXbrainStatus(section, '密码已更新，并自动锁定。', 'ok');
+                })
+                .catch(function(err) {
+                  setXbrainStatus(section, '操作失败：' + String(err?.message || err), 'err');
+                });
+            });
+          });
+
+        const refreshBtn = document.getElementById('xbrain-refresh-btn');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            void fetchXbrainState()
+              .then(function() {
+                setXbrainStatus('strategy', '配置已刷新。', 'ok');
+              })
+              .catch(function(err) {
+                setXbrainStatus('strategy', '刷新失败：' + String(err?.message || err), 'err');
+              });
+          });
+        }
+      }
+
       function renderAiChat() {
         const box = document.getElementById('ai-chat-box');
         const input = document.getElementById('ai-chat-input');
         const sendBtn = document.getElementById('ai-chat-send');
         if (!box || !input || !sendBtn) return;
-        function pushMsg(role, text) {
+        const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
+        const CHAT_LOG_MAX = 800;
+        const chatHistoryState = (function() {
+          const existing = window.__thunderclawChatHistoryState;
+          if (existing && typeof existing === 'object') return existing;
+          const state = {
+            started: false,
+            busy: false,
+            afterId: 0,
+            timer: null,
+            seenIds: new Set(),
+            bootRendered: false,
+          };
+          window.__thunderclawChatHistoryState = state;
+          return state;
+        })();
+        function loadLocalChatLog() {
+          try {
+            const raw = localStorage.getItem(CHAT_LOG_KEY);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        function saveLocalChatLog(rows) {
+          const arr = Array.isArray(rows) ? rows.slice(-CHAT_LOG_MAX) : [];
+          try { localStorage.setItem(CHAT_LOG_KEY, JSON.stringify(arr)); } catch (_) {}
+        }
+        function appendLocalChatLog(rowLike) {
+          const row = rowLike && typeof rowLike === 'object' ? rowLike : null;
+          if (!row) return;
+          const text = String(row.text || '').trim();
+          if (!text) return;
+          const idNum = Number(row.id);
+          const current = loadLocalChatLog();
+          current.push({
+            id: Number.isFinite(idNum) && idNum > 0 ? idNum : null,
+            ts: row.ts || new Date().toISOString(),
+            role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'bot',
+            source: String(row.source || 'dashboard'),
+            text: text,
+          });
+          saveLocalChatLog(current);
+        }
+        function renderStoredChatLog() {
+          const rows = loadLocalChatLog();
+          box.innerHTML = '';
+          if (!rows.length) return;
+          rows.slice(-CHAT_LOG_MAX).forEach(function(r) {
+            const idNum = Number(r?.id);
+            if (Number.isFinite(idNum) && idNum > 0) {
+              chatHistoryState.seenIds.add(idNum);
+              chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+            }
+            const div = document.createElement('div');
+            const role = r.role === 'user' ? 'user' : 'bot';
+            div.className = 'ai-msg ' + role;
+            div.textContent = String(r.text || '');
+            box.appendChild(div);
+          });
+          box.scrollTop = box.scrollHeight;
+        }
+        function pushMsg(role, text, opts) {
+          const options = opts && typeof opts === 'object' ? opts : {};
           const div = document.createElement('div');
-          div.className = 'ai-msg ' + role;
-          div.textContent = text;
+          const roleClass = role === 'user' ? 'user' : 'bot';
+          const t = String(text || '').trim();
+          if (!t) return;
+          div.className = 'ai-msg ' + roleClass;
+          div.textContent = t;
           box.appendChild(div);
           box.scrollTop = box.scrollHeight;
+          appendLocalChatLog({
+            id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
+            ts: options.ts || new Date().toISOString(),
+            role: roleClass,
+            source: String(options.source || 'dashboard'),
+            text: t,
+          });
         }
         function setAiLinkStatus(state, text) {
           if (!aiLinkStatusEl) return;
@@ -1545,17 +2616,25 @@ const HTML = `<!DOCTYPE html>
         function normalizeActionArray(actionsLike) {
           if (!Array.isArray(actionsLike)) return [];
           const out = [];
+          const seen = new Set();
+          function pushUnique(action) {
+            if (!action || typeof action !== 'object') return;
+            const key = JSON.stringify(action);
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(action);
+          }
           actionsLike.slice(0, 4).forEach(function(action) {
             if (!action || typeof action !== 'object') return;
             const type = String(action.type || '').toLowerCase();
             if (type === 'switch_view') {
-              const view = String(action.view || '');
-              if (viewMap[view]) out.push({ type: 'switch_view', view: view });
+              const view = normalizeViewTarget(action.view);
+              if (viewMap[view]) pushUnique({ type: 'switch_view', view: view });
               return;
             }
             if (type === 'focus_trade') {
               const tradeId = String(action.tradeId || '').trim();
-              if (tradeId) out.push({ type: 'focus_trade', tradeId: tradeId });
+              if (tradeId) pushUnique({ type: 'focus_trade', tradeId: tradeId });
               return;
             }
             if (type === 'run_backtest') {
@@ -1569,7 +2648,58 @@ const HTML = `<!DOCTYPE html>
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
               if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
               if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
-              out.push(cfg);
+              pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_backtest_compare') {
+              const cfg = { type: 'run_backtest_compare' };
+              const tf = String(action.tf || '');
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const rawStrategies = Array.isArray(action.strategies)
+                ? action.strategies
+                : (action.strategy ? [action.strategy] : []);
+              const strategies = rawStrategies
+                .map(function(s) { return String(s || '').trim(); })
+                .filter(function(s) { return ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(s); });
+              if (strategies.length) cfg.strategies = Array.from(new Set(strategies)).slice(0, 4);
+              pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_custom_backtest') {
+              const cfg = { type: 'run_custom_backtest' };
+              const strategy = String(action.strategy || '').trim();
+              const tf = String(action.tf || '').trim();
+              if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'custom'].includes(strategy)) cfg.strategy = strategy;
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const custom = normalizeCustomBacktestSpec(action.custom);
+              if (Object.keys(custom).length) cfg.custom = custom;
+              pushUnique(cfg);
+              return;
+            }
+            if (type === 'run_strategy_dsl') {
+              const cfg = { type: 'run_strategy_dsl' };
+              const tf = String(action.tf || '').trim();
+              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
+              if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
+              if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
+              if (Number.isFinite(Number(action.tpAtr))) cfg.tpAtr = Number(action.tpAtr);
+              if (Number.isFinite(Number(action.maxHold))) cfg.maxHold = Number(action.maxHold);
+              const dsl = normalizeStrategyDslSpec(action.dsl || action.spec);
+              if (Object.keys(dsl).length) {
+                cfg.dsl = dsl;
+                pushUnique(cfg);
+              }
             }
           });
           return out;
@@ -1641,6 +2771,15 @@ const HTML = `<!DOCTYPE html>
                 pnlEstUSDT: Number(o?.pnlEstUSDT),
               };
             }),
+            communityStrategy: selectedXseaStrategy
+              ? {
+                  id: selectedXseaStrategy.id || null,
+                  title: selectedXseaStrategy.title || null,
+                  author: selectedXseaStrategy.author || null,
+                  summary: selectedXseaStrategy.summary || null,
+                }
+              : null,
+            xbrain: xbrainSnapshotForContext(),
           };
         }
         function buildDeepSeekMessages(question) {
@@ -1652,7 +2791,10 @@ const HTML = `<!DOCTYPE html>
                 '你是交易看板中的AI交易助理。',
                 '请严格根据给出的上下文回答，不要编造。',
                 '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest。',
+                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest/run_strategy_dsl。',
+                'run_strategy_dsl 示例：{"type":"run_strategy_dsl","tf":"1d","bars":1200,"dsl":{"name":"feature-strategy","features":[{"name":"ema_5","kind":"ema","source":"close","period":5}],"entryLong":"close > ema_5","entryShort":"close < ema_5","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8}}}',
+                '用户可能只会口语表达（如“我想挣钱”“帮我搞个能跑的策略”），你要主动翻译成可执行动作并补全默认参数，不要要求术语。',
+                '除非用户明确要求切页，否则不要使用 switch_view。',
               ].join('\\n'),
             },
             {
@@ -1696,9 +2838,14 @@ const HTML = `<!DOCTYPE html>
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
+          if (/虾脑|配置中枢|模型配置|交易配置|xbrain/.test(ql)) {
+            return '可以通过「虾脑」统一管理模型/聊天通道、Bitget API、策略参数与 dryrun/live 运行状态，改动会同步给模型感知。';
+          }
+          if (/虾海|策略交流|社区策略|strategy sea|xsea/.test(ql)) {
+            return '可以基于当前策略库做策略交流、筛选与训练任务。我会优先通过动作执行返回结果，而不是强制跳页。';
+          }
           if (/回验|backtest|复盘|回测/.test(ql)) {
-            switchView('backtest');
-            return 'OpenClaw 当前不可用，已切到「策略回验」页面。你可直接点“开始回验”。';
+            return '可以执行回验任务。若 AI 在线我会直接调用回验动作；若离线可在本地自动跑一轮并回传结果摘要。';
           }
           if (!ql.trim()) return '可以问我：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。';
           if (/仓位|持仓|position/.test(ql)) {
@@ -1736,6 +2883,15 @@ const HTML = `<!DOCTYPE html>
             userIntentHint: 'trade_dashboard_assistant',
             directModeBound: Boolean(readDeepSeekKey()),
             snapshot: aiSnapshot(),
+            communityStrategy: selectedXseaStrategy
+              ? {
+                  id: selectedXseaStrategy.id || null,
+                  title: selectedXseaStrategy.title || null,
+                  author: selectedXseaStrategy.author || null,
+                  summary: selectedXseaStrategy.summary || null,
+                }
+              : null,
+            xbrain: xbrainSnapshotForContext(),
           };
         }
 
@@ -1771,6 +2927,398 @@ const HTML = `<!DOCTYPE html>
           return null;
         }
 
+        function parseTfLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const m = t.match(/\\b(1m|5m|15m|1h|4h|1d)\\b/);
+          if (m && m[1]) return m[1];
+          if (/1分钟|分时/.test(t)) return '1m';
+          if (/5分钟/.test(t)) return '5m';
+          if (/15分钟/.test(t)) return '15m';
+          if (/1小时/.test(t)) return '1h';
+          if (/4小时/.test(t)) return '4h';
+          if (/日线|1天/.test(t)) return '1d';
+          return null;
+        }
+
+        function parseBarsLocal(text) {
+          const m = String(text || '').match(/(\\d{2,5})\\s*(根|bars?|k线)/i);
+          if (!m) return null;
+          const n = Number(m[1]);
+          if (!Number.isFinite(n)) return null;
+          return Math.max(80, Math.min(5000, Math.round(n)));
+        }
+
+        function parseStrategiesLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const set = new Set();
+          if (/\\bv5_hybrid\\b|v5\\s*hybrid|混合/.test(t)) set.add('v5_hybrid');
+          if (/\\bv5_retest\\b|v5\\s*retest|回踩/.test(t)) set.add('v5_retest');
+          if (/\\bv5_reentry\\b|v5\\s*reentry|再入/.test(t)) set.add('v5_reentry');
+          if (/\\bv4_breakout\\b|v4\\s*breakout|donchian|突破/.test(t)) set.add('v4_breakout');
+          return Array.from(set);
+        }
+
+        function parseCustomSpecLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const spec = {};
+          const stop = t.match(/止损[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)\\s*atr/i);
+          const tp = t.match(/止盈[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)\\s*atr/i);
+          const adx = t.match(/adx[^\\d]{0,8}([0-9]+(?:\\.[0-9]+)?)/i);
+          const lookback = t.match(/(lookback|窗口|通道)[^\\d]{0,6}([0-9]{1,3})/i);
+          if (stop && Number.isFinite(Number(stop[1]))) spec.stopAtr = Math.max(0.2, Math.min(10, Number(stop[1])));
+          if (tp && Number.isFinite(Number(tp[1]))) spec.tpAtr = Math.max(0.2, Math.min(20, Number(tp[1])));
+          if (adx && Number.isFinite(Number(adx[1]))) spec.custom = { ...(spec.custom || {}), biasAdxMin: Math.max(0, Math.min(80, Number(adx[1]))) };
+          if (lookback && Number.isFinite(Number(lookback[2]))) spec.custom = { ...(spec.custom || {}), lookback: Math.max(2, Math.min(300, Math.round(Number(lookback[2])))) };
+          if (/回踩/.test(t) && !/再入/.test(t) && !/突破/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: true, allowReentry: false, allowBreakout: false };
+          } else if (/再入/.test(t) && !/回踩/.test(t) && !/突破/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: false, allowReentry: true, allowBreakout: false };
+          } else if (/突破/.test(t) && !/回踩|再入/.test(t)) {
+            spec.custom = { ...(spec.custom || {}), allowRetest: false, allowReentry: false, allowBreakout: true };
+          }
+          if (/只做多|仅做多|long only/.test(t)) spec.custom = { ...(spec.custom || {}), side: 'long' };
+          if (/只做空|仅做空|short only/.test(t)) spec.custom = { ...(spec.custom || {}), side: 'short' };
+          return spec;
+        }
+
+        function parseFeatureDslSpecLocal(text) {
+          const t = String(text || '').toLowerCase();
+          const hasFeatureHint = /(特征|因子|feature|ema|sma|ma\\b|rsi|k线|均线|突破|donchian|通道)/.test(t);
+          if (!hasFeatureHint) return null;
+          const features = [];
+          const used = new Set();
+          function safeName(raw, fallback) {
+            const n = String(raw || '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+            if (/^[a-z][a-z0-9_]{0,30}$/.test(n)) return n;
+            return fallback;
+          }
+          function pushFeature(def) {
+            if (!def || typeof def !== 'object') return;
+            const name = safeName(def.name, '');
+            if (!name || used.has(name)) return;
+            used.add(name);
+            features.push({ ...def, name: name });
+          }
+          const dayN = t.match(/(\\d{1,3})\\s*(日|天)/);
+          const baseN = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 14;
+          const hasExplicitDayFeature = Boolean(dayN) && /(k线|日线|特征|因子|feature)/.test(t);
+          if (/ema|指数均线/.test(t)) {
+            pushFeature({ name: 'ema_' + baseN, kind: 'ema', source: 'close', period: baseN });
+          }
+          if ((/sma|均线|ma\\b/.test(t) && !/ema|指数均线/.test(t)) || hasExplicitDayFeature) {
+            pushFeature({ name: 'sma_' + baseN, kind: 'sma', source: 'close', period: baseN });
+          }
+          const rsiN = t.match(/rsi[^0-9]{0,4}(\\d{1,3})/);
+          if (/rsi/.test(t)) {
+            const p = rsiN && Number.isFinite(Number(rsiN[1])) ? Math.max(2, Math.min(120, Math.round(Number(rsiN[1])))) : 14;
+            pushFeature({ name: 'rsi_' + p, kind: 'rsi', source: 'close', period: p });
+          }
+          const adxN = t.match(/adx[^0-9]{0,4}(\\d{1,3})/);
+          if (/adx/.test(t)) {
+            const p = adxN && Number.isFinite(Number(adxN[1])) ? Math.max(2, Math.min(120, Math.round(Number(adxN[1])))) : 14;
+            pushFeature({ name: 'adx_' + p, kind: 'adx', period: p });
+          }
+          if (/atr/.test(t)) {
+            pushFeature({ name: 'atr_14', kind: 'atr', period: 14 });
+          }
+          if (/donchian|通道|突破/.test(t)) {
+            const lb = dayN && Number.isFinite(Number(dayN[1])) ? Math.max(2, Math.min(240, Math.round(Number(dayN[1])))) : 20;
+            pushFeature({ name: 'dch_' + lb, kind: 'donchian_high', lookback: lb });
+            pushFeature({ name: 'dcl_' + lb, kind: 'donchian_low', lookback: lb });
+          }
+          if (!features.length) return null;
+          const primary = features.find(function(f) { return ['ema', 'sma', 'donchian_high', 'donchian_low', 'price'].includes(String(f.kind || '')); }) || features[0];
+          let entryLong = 'close > ' + primary.name;
+          let entryShort = 'close < ' + primary.name;
+          let exitLong = 'close < ' + primary.name;
+          let exitShort = 'close > ' + primary.name;
+          if (primary.kind === 'donchian_high') {
+            const lowName = features.find(function(f) { return f.kind === 'donchian_low'; })?.name;
+            entryLong = 'close > ' + primary.name;
+            entryShort = lowName ? ('close < ' + lowName) : 'close < open';
+            exitLong = lowName ? ('close < ' + lowName) : 'close < open';
+            exitShort = 'close > ' + primary.name;
+          }
+          const adxFeature = features.find(function(f) { return f.kind === 'adx'; });
+          if (adxFeature) {
+            const adxFloor = t.match(/adx[^0-9]{0,4}(\\d{1,2})(?:\\.[0-9]+)?/);
+            const floor = adxFloor && Number.isFinite(Number(adxFloor[1])) ? Number(adxFloor[1]) : 20;
+            entryLong = '(' + entryLong + ') && ' + adxFeature.name + ' >= ' + floor;
+            entryShort = '(' + entryShort + ') && ' + adxFeature.name + ' >= ' + floor;
+          }
+          const side = /只做多|仅做多|long only/.test(t) ? 'long' : (/只做空|仅做空|short only/.test(t) ? 'short' : 'both');
+          return {
+            name: 'feature-driven',
+            side: side,
+            features: features,
+            entryLong: entryLong,
+            entryShort: entryShort,
+            exitLong: exitLong,
+            exitShort: exitShort,
+          };
+        }
+
+        function parseTradingGoalIntentLocal(text) {
+          const q = String(text || '').trim().toLowerCase();
+          if (!q) return null;
+          const hasGoalVerb = /(我想|想要|希望|我要|帮我|请你|给我|来个|整一个|搞个|安排|run|execute|做一个|执行|开始|开跑)/.test(q);
+          const hasTradingDomain =
+            /(交易|挣钱|赚钱|盈利|收益|胜率|策略|机器人|回测|回验|复盘|做多|做空|仓位|止损|止盈|风险|行情|进场|出场|币|快进快出|短线|长线|高频|激进|保守|稳一点|低回撤)/.test(
+              q,
+            );
+          const hasMoneyGoal = /(赚钱|挣钱|盈利|收益|赚点|盈利能力)/.test(q);
+          const hasDirectiveGoal = /(稳一点|保守|激进|低回撤|高胜率|风险小|快进快出|短线|长线|降低风险|提高胜率)/.test(
+            q,
+          );
+          const looksLikeConfig = /(config|配置|设置|telegram|token|apikey|api key|deepseek|chatgpt|codex|登录|login)/.test(
+            q,
+          );
+          if (!hasTradingDomain && !hasMoneyGoal) {
+            if (!(hasGoalVerb && !looksLikeConfig)) return null;
+          }
+          if (!hasGoalVerb && !hasMoneyGoal && !hasDirectiveGoal) return null;
+          var goal = 'general';
+          if (/(高胜率|胜率高|稳|稳定|保守|风险小|低回撤|少亏|安全)/.test(q)) goal = 'stability';
+          else if (/(赚钱|挣钱|盈利|收益|多赚|利润|回报|翻倍)/.test(q)) goal = 'profit';
+          else if (/(快|短线|高频|快进快出|激进|猛一点)/.test(q)) goal = 'aggressive';
+          else if (/(策略|系统|方案|模型)/.test(q)) goal = 'strategy';
+          var risk = 'balanced';
+          if (/(保守|稳|风险小|低回撤|安全|别太激进)/.test(q)) risk = 'conservative';
+          else if (/(激进|高风险|冲一点|猛一点|收益优先|快进快出)/.test(q)) risk = 'aggressive';
+          var horizon = 'medium';
+          if (/(短线|快|今天|当日|高频|scalp)/.test(q)) horizon = 'short';
+          else if (/(长线|日线|周线|趋势|中长线)/.test(q)) horizon = 'long';
+          const tf = parseTfLocal(q) || (horizon === 'short' ? '15m' : horizon === 'long' ? '1d' : '1h');
+          const bars = parseBarsLocal(q) || (horizon === 'short' ? 1200 : horizon === 'long' ? 1800 : 900);
+          const wantsCompare = /(对比|比较|筛选|找一个|挑一个|推荐|最好|最优|高胜率)/.test(q) || goal !== 'general';
+          return {
+            goal: goal,
+            risk: risk,
+            horizon: horizon,
+            tf: tf,
+            bars: bars,
+            wantsCompare: wantsCompare,
+            text: q,
+          };
+        }
+
+        function chooseStrategiesByGoalLocal(intentLike) {
+          const intent = intentLike && typeof intentLike === 'object' ? intentLike : {};
+          const risk = String(intent.risk || 'balanced');
+          const goal = String(intent.goal || 'general');
+          let base = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          if (risk === 'conservative') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+          else if (risk === 'aggressive') base = ['v5_reentry', 'v5_hybrid', 'v4_breakout', 'v5_retest'];
+          if (goal === 'stability') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
+          if (goal === 'profit' || goal === 'aggressive') base = ['v5_hybrid', 'v5_reentry', 'v4_breakout', 'v5_retest'];
+          return Array.from(new Set(base)).slice(0, 4);
+        }
+
+        function inferTaskActionLocal(text) {
+          const q = String(text || '').trim().toLowerCase();
+          if (!q) return null;
+          const goalIntent = parseTradingGoalIntentLocal(q);
+          const hasTaskVerb = /(跑|执行|做|帮我|请你|生成|对比|比较|评估|筛选|优化|回测|回验|复盘|simulate|backtest|compare|evaluate)/.test(q);
+          const hasStrategyDomain = /(策略|胜率|回测|回验|复盘|特征|因子|k线|均线|ema|sma|rsi|adx|v5_|v4_|retest|reentry|breakout|donchian)/.test(q);
+          if (!hasTaskVerb && !goalIntent) return null;
+          if (!hasStrategyDomain && !goalIntent) return null;
+          const tf = parseTfLocal(q);
+          const bars = parseBarsLocal(q);
+          const strategies = parseStrategiesLocal(q);
+          const custom = parseCustomSpecLocal(q);
+          const dsl = parseFeatureDslSpecLocal(q);
+          const compareIntent = /(高胜率|最高胜率|对比|比较|筛选|哪套更好|最佳策略|best strategy|compare)/.test(q);
+          const hasCustom = Object.keys(custom || {}).length > 0;
+          if (dsl && !compareIntent) {
+            const action = { type: 'run_strategy_dsl', dsl: dsl };
+            if (tf) action.tf = tf;
+            if (bars != null) action.bars = bars;
+            if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+            if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+            if (custom.custom && custom.custom.side && ['long', 'short', 'both'].includes(String(custom.custom.side))) {
+              action.dsl.side = String(custom.custom.side);
+            }
+            if (custom.custom && Number.isFinite(Number(custom.custom.biasAdxMin))) {
+              const adxNeed = Number(custom.custom.biasAdxMin);
+              const hasAdx = Array.isArray(action.dsl.features) && action.dsl.features.some(function(f) { return f && f.kind === 'adx'; });
+              if (!hasAdx) {
+                action.dsl.features = Array.isArray(action.dsl.features) ? action.dsl.features.slice(0, 16) : [];
+                action.dsl.features.push({ name: 'adx_14', kind: 'adx', period: 14 });
+              }
+              action.dsl.entryLong = '(' + String(action.dsl.entryLong || 'true') + ') && adx_14 >= ' + adxNeed;
+              action.dsl.entryShort = '(' + String(action.dsl.entryShort || 'true') + ') && adx_14 >= ' + adxNeed;
+            }
+            return action;
+          }
+          if (hasCustom && !compareIntent) {
+            const action = { type: 'run_custom_backtest', strategy: strategies[0] || 'custom', ...custom };
+            if (tf) action.tf = tf;
+            if (bars != null) action.bars = bars;
+            return action;
+          }
+          if (compareIntent || strategies.length >= 2 || !strategies.length) {
+            const inferredStrategies = strategies.length ? strategies : chooseStrategiesByGoalLocal(goalIntent);
+            const action = { type: 'run_backtest_compare' };
+            if (inferredStrategies.length) action.strategies = inferredStrategies.slice(0, 4);
+            if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+            if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
+            if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+            if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+            return action;
+          }
+          if (!strategies.length && goalIntent) {
+            const defaults = chooseStrategiesByGoalLocal(goalIntent);
+            return {
+              type: goalIntent.wantsCompare ? 'run_backtest_compare' : 'run_backtest',
+              strategy: goalIntent.wantsCompare ? undefined : defaults[0],
+              strategies: goalIntent.wantsCompare ? defaults.slice(0, 4) : undefined,
+              tf: tf || goalIntent.tf,
+              bars: bars != null ? bars : goalIntent.bars,
+              stopAtr:
+                custom.stopAtr != null
+                  ? custom.stopAtr
+                  : goalIntent.risk === 'conservative'
+                    ? 1.1
+                    : goalIntent.risk === 'aggressive'
+                      ? 1.8
+                      : 1.4,
+              tpAtr:
+                custom.tpAtr != null
+                  ? custom.tpAtr
+                  : goalIntent.risk === 'conservative'
+                    ? 2.0
+                    : goalIntent.risk === 'aggressive'
+                      ? 3.6
+                      : 2.8,
+            };
+          }
+          const action = { type: 'run_backtest', strategy: strategies[0] || chooseStrategiesByGoalLocal(goalIntent)[0] || 'v5_hybrid' };
+          if (tf || goalIntent?.tf) action.tf = tf || goalIntent.tf;
+          if (bars != null || goalIntent?.bars != null) action.bars = bars != null ? bars : goalIntent.bars;
+          if (custom.stopAtr != null) action.stopAtr = custom.stopAtr;
+          if (custom.tpAtr != null) action.tpAtr = custom.tpAtr;
+          return action;
+        }
+
+        function runHighWinRateTask(q) {
+          const text = String(q || '').trim();
+          if (!text) return null;
+          if (!/(高胜率|胜率最高|策略对比|帮我跑.*策略|筛选.*策略|优化策略)/i.test(text)) return null;
+          const tfEl = document.getElementById('bt-tf');
+          const barsEl = document.getElementById('bt-bars');
+          const feeEl = document.getElementById('bt-fee-bps');
+          const stopEl = document.getElementById('bt-stop-atr');
+          const tpEl = document.getElementById('bt-tp-atr');
+          const holdEl = document.getElementById('bt-max-hold');
+          const tf = tfEl ? String(tfEl.value || '1h') : '1h';
+          const bars = barsEl ? Number(barsEl.value || 900) : 900;
+          const feeBps = feeEl ? Number(feeEl.value || 5) : 5;
+          const stopAtr = stopEl ? Number(stopEl.value || 1.8) : 1.8;
+          const tpAtr = tpEl ? Number(tpEl.value || 3.0) : 3.0;
+          const maxHold = holdEl ? Number(holdEl.value || 72) : 72;
+          const strategies = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          const rows = [];
+          strategies.forEach(function(strategy) {
+            const cfg = {
+              strategy: strategy,
+              tf: tf,
+              bars: bars,
+              feeBps: feeBps,
+              stopAtr: stopAtr,
+              tpAtr: tpAtr,
+              maxHold: maxHold,
+            };
+            const result = runBacktestByVersion(cfg);
+            if (!result || result.error) return;
+            const trades = Number(result.tradeCount || result.trades || 0);
+            const winRate = Number(result.winRate || 0);
+            const pnlPct = Number(result.netPnlPct || result.totalPnlPct || 0);
+            const score = (winRate * 1.0) + Math.min(trades, 160) * 0.12 + pnlPct * 0.06;
+            rows.push({
+              strategy: strategy,
+              cfg: cfg,
+              result: result,
+              score: score,
+              trades: trades,
+              winRate: winRate,
+              pnlPct: pnlPct,
+              maxDrawdownPct: Number(result.maxDrawdownPct || 0),
+            });
+            void reportStrategyArtifactResult(result, cfg, {
+              source: 'task_high_winrate',
+              query: text,
+              label: 'high-winrate-' + String(strategy),
+            });
+          });
+          if (!rows.length) {
+            return {
+              reply: '未能执行策略对比（缺少回测数据）。请先确认虾线数据已加载。',
+              actions: [],
+              source: 'task_executor',
+            };
+          }
+          rows.sort(function(a, b) {
+            if (b.score !== a.score) return b.score - a.score;
+            if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+            if (b.trades !== a.trades) return b.trades - a.trades;
+            return b.pnlPct - a.pnlPct;
+          });
+          const best = rows[0];
+          setControlValue('bt-strategy', best.strategy);
+          setControlValue('bt-tf', best.cfg.tf);
+          setControlValue('bt-bars', best.cfg.bars);
+          setControlValue('bt-fee-bps', best.cfg.feeBps);
+          setControlValue('bt-stop-atr', best.cfg.stopAtr);
+          setControlValue('bt-tp-atr', best.cfg.tpAtr);
+          setControlValue('bt-max-hold', best.cfg.maxHold);
+          if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+          const top = rows.slice(0, 3).map(function(r, idx) {
+            return (
+              (idx + 1) +
+              '. ' +
+              btStrategyLabel(r.strategy) +
+              '：胜率 ' +
+              btNum(r.winRate, 1) +
+              '%，交易 ' +
+              r.trades +
+              ' 笔，净收益 ' +
+              (r.pnlPct >= 0 ? '+' : '') +
+              btNum(r.pnlPct, 2) +
+              '%，回撤 ' +
+              btNum(r.maxDrawdownPct, 2) +
+              '%'
+            );
+          }).join('\\n');
+          const reply = [
+            '已完成“高胜率优先”策略对比（自动执行，无需跳页操作）。',
+            '参数：tf=' + tf + '，bars=' + bars + '，fee=' + feeBps + 'bps。',
+            '',
+            '推荐策略：' + btStrategyLabel(best.strategy),
+            '胜率 ' + btNum(best.winRate, 1) + '%，交易 ' + best.trades + ' 笔，净收益 ' + (best.pnlPct >= 0 ? '+' : '') + btNum(best.pnlPct, 2) + '%。',
+            '',
+            'TOP3：',
+            top,
+            '',
+            '已把最佳参数应用到「虾策」回验面板，你现在只需看结果即可。',
+          ].join('\\n');
+          return { reply: reply, actions: [], source: 'task_executor' };
+        }
+
+        function runLocalTaskExecutor(q) {
+          const action = inferTaskActionLocal(q);
+          if (!action) return null;
+          const note = applyAiActions([action], q);
+          if (!note) return null;
+          return {
+            reply:
+              '已按你的自然语言要求直接执行任务（无需手动切换页面）。\\n\\n执行结果：' +
+              note +
+              '\\n\\n你可以继续给约束（如只做多、限制回撤、改周期/持仓时长），我会在同一任务里继续迭代。',
+            actions: [],
+            source: 'task_executor',
+          };
+        }
+
         function setControlValue(id, value) {
           if (value == null) return false;
           const el = document.getElementById(id);
@@ -1785,22 +3333,256 @@ const HTML = `<!DOCTYPE html>
           return true;
         }
 
-        function applyAiActions(actions) {
+        function normalizeCustomBacktestSpec(specLike) {
+          const src = specLike && typeof specLike === 'object' ? specLike : {};
+          const out = {};
+          function toNum(v, min, max) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (Number.isFinite(min) && n < min) return min;
+            if (Number.isFinite(max) && n > max) return max;
+            return n;
+          }
+          function toBool(v) {
+            if (v === true || v === false) return v;
+            const s = String(v || '').toLowerCase();
+            if (['1', 'true', 'yes', 'on', '开启', '启用'].includes(s)) return true;
+            if (['0', 'false', 'no', 'off', '关闭', '停用'].includes(s)) return false;
+            return null;
+          }
+          const lookback = toNum(src.lookback, 2, 300);
+          const retestWindow = toNum(src.retestWindow, 1, 200);
+          const reentryWindow = toNum(src.reentryWindow, 1, 300);
+          const retestTolAtr = toNum(src.retestTolAtr, 0.01, 5);
+          const reentryTolAtr = toNum(src.reentryTolAtr, 0.01, 8);
+          const biasAdxMin = toNum(src.biasAdxMin, 0, 80);
+          const biasEmaFast = toNum(src.biasEmaFast, 2, 400);
+          const biasEmaSlow = toNum(src.biasEmaSlow, 2, 600);
+          const entryEma = toNum(src.entryEma, 2, 400);
+          const allowRetest = toBool(src.allowRetest);
+          const allowReentry = toBool(src.allowReentry);
+          const allowBreakout = toBool(src.allowBreakout);
+          const sideRaw = String(src.side || '').toLowerCase();
+          const side = ['long', 'short', 'both'].includes(sideRaw) ? sideRaw : null;
+          if (lookback != null) out.lookback = Math.round(lookback);
+          if (retestWindow != null) out.retestWindow = Math.round(retestWindow);
+          if (reentryWindow != null) out.reentryWindow = Math.round(reentryWindow);
+          if (retestTolAtr != null) out.retestTolAtr = Number(retestTolAtr);
+          if (reentryTolAtr != null) out.reentryTolAtr = Number(reentryTolAtr);
+          if (biasAdxMin != null) out.biasAdxMin = Number(biasAdxMin);
+          if (biasEmaFast != null) out.biasEmaFast = Math.round(biasEmaFast);
+          if (biasEmaSlow != null) out.biasEmaSlow = Math.round(biasEmaSlow);
+          if (entryEma != null) out.entryEma = Math.round(entryEma);
+          if (allowRetest != null) out.allowRetest = allowRetest;
+          if (allowReentry != null) out.allowReentry = allowReentry;
+          if (allowBreakout != null) out.allowBreakout = allowBreakout;
+          if (side) out.side = side;
+          return out;
+        }
+
+        function normalizeStrategyDslSpec(specLike) {
+          const src = specLike && typeof specLike === 'object' ? specLike : {};
+          const out = {};
+          const allowedKinds = ['price', 'ema', 'sma', 'rsi', 'atr', 'adx', 'donchian_high', 'donchian_low', 'pct_change', 'constant'];
+          const allowedSources = ['open', 'high', 'low', 'close', 'volume', 'hl2', 'ohlc4'];
+          function clamp(v, min, max) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (Number.isFinite(min) && n < min) return min;
+            if (Number.isFinite(max) && n > max) return max;
+            return n;
+          }
+          function normName(v, fallback) {
+            const raw = String(v || '').toLowerCase();
+            const n = raw.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+            if (/^[a-z][a-z0-9_]{0,31}$/.test(n)) return n;
+            return fallback;
+          }
+          function normExpr(v) {
+            const raw = String(v || '').trim();
+            if (!raw) return '';
+            let s = raw
+              .replace(/（/g, '(')
+              .replace(/）/g, ')')
+              .replace(/，/g, ',')
+              .replace(/：/g, ':')
+              .replace(/并且|且/g, '&&')
+              .replace(/或者|或/g, '||')
+              .replace(/\\band\\b/gi, '&&')
+              .replace(/\\bor\\b/gi, '||')
+              .replace(/；/g, ' ')
+              .replace(/;/g, ' ')
+              .trim();
+            if (s.length > 260) s = s.slice(0, 260);
+            if (!/^[a-zA-Z0-9_\\s().,+\\-*/%<>=!&|?:]+$/.test(s)) return '';
+            return s;
+          }
+          const name = String(src.name || '').trim();
+          if (name) out.name = name.slice(0, 64);
+          const side = String(src.side || '').toLowerCase();
+          if (['long', 'short', 'both'].includes(side)) out.side = side;
+          const rawFeatures = Array.isArray(src.features) ? src.features : [];
+          const features = [];
+          const usedNames = new Set();
+          rawFeatures.slice(0, 24).forEach(function(f, idx) {
+            if (!f || typeof f !== 'object') return;
+            const kind = String(f.kind || '').toLowerCase();
+            if (!allowedKinds.includes(kind)) return;
+            const fallbackName = (kind + '_' + String(idx + 1)).replace(/[^a-z0-9_]/g, '_');
+            const nameNorm = normName(f.name, fallbackName);
+            if (!nameNorm || usedNames.has(nameNorm)) return;
+            usedNames.add(nameNorm);
+            const item = { name: nameNorm, kind: kind };
+            const srcVal = String(f.source || '').toLowerCase();
+            if (allowedSources.includes(srcVal)) item.source = srcVal;
+            const period = clamp(f.period, 1, 500);
+            const lookback = clamp(f.lookback, 1, 500);
+            const shift = clamp(f.shift, -120, 120);
+            const value = clamp(f.value, -1e9, 1e9);
+            if (period != null) item.period = Math.round(period);
+            if (lookback != null) item.lookback = Math.round(lookback);
+            if (shift != null) item.shift = Math.round(shift);
+            if (value != null) item.value = Number(value);
+            features.push(item);
+          });
+          if (features.length) out.features = features;
+          const entryLong = normExpr(src.entryLong);
+          const entryShort = normExpr(src.entryShort);
+          const exitLong = normExpr(src.exitLong);
+          const exitShort = normExpr(src.exitShort);
+          if (entryLong) out.entryLong = entryLong;
+          if (entryShort) out.entryShort = entryShort;
+          if (exitLong) out.exitLong = exitLong;
+          if (exitShort) out.exitShort = exitShort;
+          if (!out.entryLong || !out.entryShort || !out.exitLong || !out.exitShort) {
+            const primary = features[0];
+            if (primary) {
+              const n = primary.name;
+              if (!out.entryLong) out.entryLong = 'close > ' + n;
+              if (!out.entryShort) out.entryShort = 'close < ' + n;
+              if (!out.exitLong) out.exitLong = 'close < ' + n;
+              if (!out.exitShort) out.exitShort = 'close > ' + n;
+            }
+          }
+          const risk = src.risk && typeof src.risk === 'object' ? src.risk : {};
+          const riskOut = {};
+          const stopAtr = clamp(risk.stopAtr, 0.2, 20);
+          const tpAtr = clamp(risk.tpAtr, 0.2, 40);
+          const maxHold = clamp(risk.maxHold, 1, 3000);
+          const cooldownBars = clamp(risk.cooldownBars, 0, 60);
+          if (stopAtr != null) riskOut.stopAtr = Number(stopAtr);
+          if (tpAtr != null) riskOut.tpAtr = Number(tpAtr);
+          if (maxHold != null) riskOut.maxHold = Math.round(maxHold);
+          if (cooldownBars != null) riskOut.cooldownBars = Math.round(cooldownBars);
+          if (Object.keys(riskOut).length) out.risk = riskOut;
+          return out;
+        }
+
+        function buildStrategyArtifactReportPayload(resultLike, cfgLike, extraLike) {
+          const result = resultLike && typeof resultLike === 'object' ? resultLike : null;
+          const cfg = cfgLike && typeof cfgLike === 'object' ? cfgLike : {};
+          const extra = extraLike && typeof extraLike === 'object' ? extraLike : {};
+          if (!result || result.ok !== true) return null;
+          const config = {
+            strategy: String(cfg.strategy || result.strategy || ''),
+            tf: String(cfg.tf || result.tf || ''),
+            bars: Number(cfg.bars || result.bars || 0),
+            feeBps: Number(cfg.feeBps || 0),
+            stopAtr: Number(cfg.stopAtr || 0),
+            tpAtr: Number(cfg.tpAtr || 0),
+            maxHold: Number(cfg.maxHold || 0),
+          };
+          if (cfg.custom && typeof cfg.custom === 'object') {
+            config.custom = normalizeCustomBacktestSpec(cfg.custom);
+          }
+          if (cfg.dsl && typeof cfg.dsl === 'object') {
+            config.dsl = normalizeStrategyDslSpec(cfg.dsl);
+          }
+          if (result.dslMeta && typeof result.dslMeta === 'object' && !config.dsl) {
+            const dslMaybe = normalizeStrategyDslSpec(cfg.dsl || {});
+            if (Object.keys(dslMaybe).length) config.dsl = dslMaybe;
+          }
+          const reportKey =
+            String(extra.reportKey || '').trim() ||
+            (
+              'r' +
+              Date.now().toString(36) +
+              '_' +
+              Math.random().toString(36).slice(2, 8) +
+              '_' +
+              String(config.strategy || result.strategy || 's')
+            );
+          return {
+            ts: new Date().toISOString(),
+            source: String(extra.source || 'dashboard'),
+            query: String(extra.query || '').trim(),
+            label: String(extra.label || config?.dsl?.name || config.strategy || result.strategy || 'strategy-artifact'),
+            reportKey: reportKey,
+            config: config,
+            result: {
+              strategy: String(result.strategy || config.strategy || ''),
+              tf: String(result.tf || config.tf || ''),
+              bars: Number(result.bars || config.bars || 0),
+              tradeCount: Number(result.tradeCount || result.trades || 0),
+              winRate: Number(result.winRate || 0),
+              netPnlPct: Number(result.netPnlPct || result.totalPnlPct || 0),
+              maxDrawdownPct: Number(result.maxDrawdownPct || 0),
+              avgPnlPct: Number(result.avgPnlPct || 0),
+            },
+          };
+        }
+
+        async function reportStrategyArtifactResult(resultLike, cfgLike, extraLike) {
+          const payload = buildStrategyArtifactReportPayload(resultLike, cfgLike, extraLike);
+          if (!payload) return null;
+          try {
+            const resp = await fetch('/api/strategy/artifacts/report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              body: JSON.stringify(payload),
+            });
+            if (!resp.ok) return null;
+            const json = await resp.json().catch(function() { return null; });
+            if (!json || json.ok !== true) return null;
+            if (extraLike && extraLike.attachToNote && json.artifactId) {
+              const noteEl = document.getElementById('bt-note');
+              if (noteEl) {
+                const tail = ' · 工件：' + String(json.artifactId) + ' v' + String(json.version || '-');
+                if (!String(noteEl.textContent || '').includes(String(json.artifactId))) {
+                  noteEl.textContent = String(noteEl.textContent || '') + tail;
+                }
+              }
+            }
+            return json;
+          } catch (_) {
+            return null;
+          }
+        }
+
+        function applyAiActions(actions, userQueryText) {
           if (!Array.isArray(actions) || !actions.length) return '';
+          const query = String(userQueryText || '').toLowerCase();
+          const allowNavigation = /切换|跳转|打开|进入|转到|去到|go to|switch|打开页面|查看页面/.test(query);
           const notes = [];
           actions.slice(0, 4).forEach(function(action) {
             if (!action || typeof action !== 'object') return;
             const type = String(action.type || '').toLowerCase();
             if (type === 'switch_view') {
-              const view = String(action.view || '');
+              const view = normalizeViewTarget(action.view);
               if (view && viewMap[view]) {
-                switchView(view);
-                notes.push('已切换到「' + (
-                  view === 'dashboard' ? 'AI聊天' :
-                  view === 'runtime' ? '当前单' :
-                  view === 'kline' ? 'K线图' :
-                  view === 'backtest' ? '策略回验' : '历史单'
-                ) + '」');
+                if (allowNavigation) {
+                  switchView(view);
+                  notes.push('已切换到「' + (
+                    view === 'dashboard' ? 'ThunderClaw' :
+                    view === 'runtime' ? '当前单' :
+                    view === 'kline' ? '虾线(K线)' :
+                    view === 'history' ? '虾线(历史交易)' :
+                    view === 'backtest' ? '虾策' : '虾海'
+                  ) + '」');
+                } else {
+                  notes.push('已在后台准备「' + view + '」相关任务（未强制跳页）');
+                }
               }
               return;
             }
@@ -1825,18 +3607,226 @@ const HTML = `<!DOCTYPE html>
               setControlValue('bt-stop-atr', action.stopAtr);
               setControlValue('bt-tp-atr', action.tpAtr);
               setControlValue('bt-max-hold', action.maxHold);
-              switchView('backtest');
-              window.requestAnimationFrame(function() {
-                if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+              let summary = '已执行策略回验并刷新结果';
+              if (typeof runBacktestFromUi === 'function') {
+                const result = runBacktestFromUi();
+                if (result && !result.error) {
+                  const wr = Number(result.winRate || 0);
+                  const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
+                  const nTrades = Number(result.tradeCount || result.trades || 0);
+                  void reportStrategyArtifactResult(result, {
+                    strategy: String(action.strategy || result.strategy || 'v5_hybrid'),
+                    tf: String(action.tf || result.tf || '1h'),
+                    bars: Number(action.bars || result.bars || 900),
+                    feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                    stopAtr: Number(action.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                    tpAtr: Number(action.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                    maxHold: Number(action.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                  }, {
+                    source: 'ai_action_backtest',
+                    query: userQueryText || '',
+                    label: String(result.strategy || action.strategy || 'run_backtest'),
+                  });
+                  summary =
+                    '回验完成(' +
+                    btStrategyLabel(String(result.strategy || action.strategy || 'v5_hybrid')) +
+                    ' @ ' +
+                    String(result.tf || action.tf || '-') +
+                    '): 胜率 ' +
+                    btNum(wr, 1) +
+                    '%，交易 ' +
+                    nTrades +
+                    ' 笔，净收益 ' +
+                    (pnl >= 0 ? '+' : '') +
+                    btNum(pnl, 2) +
+                    '%';
+                }
+              } else {
+                window.requestAnimationFrame(function() {
+                  if (typeof runBacktestFromUi === 'function') runBacktestFromUi();
+                });
+              }
+              notes.push(summary + '（已同步到虾策面板）');
+              return;
+            }
+            if (type === 'run_backtest_compare') {
+              const tfEl = document.getElementById('bt-tf');
+              const barsEl = document.getElementById('bt-bars');
+              const feeEl = document.getElementById('bt-fee-bps');
+              const stopEl = document.getElementById('bt-stop-atr');
+              const tpEl = document.getElementById('bt-tp-atr');
+              const holdEl = document.getElementById('bt-max-hold');
+              const strategies = Array.isArray(action.strategies) && action.strategies.length
+                ? action.strategies
+                : ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+              const tf = String(action.tf || (tfEl ? tfEl.value : '1h') || '1h');
+              const bars = Number(action.bars || (barsEl ? barsEl.value : 900) || 900);
+              const feeBps = Number(action.feeBps || (feeEl ? feeEl.value : 5) || 5);
+              const stopAtr = Number(action.stopAtr || (stopEl ? stopEl.value : 1.8) || 1.8);
+              const tpAtr = Number(action.tpAtr || (tpEl ? tpEl.value : 3.0) || 3.0);
+              const maxHold = Number(action.maxHold || (holdEl ? holdEl.value : 72) || 72);
+              const rows = [];
+              strategies.forEach(function(strategy) {
+                if (!['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(String(strategy || ''))) return;
+                const cfg = {
+                  strategy: String(strategy),
+                  tf: tf,
+                  bars: bars,
+                  feeBps: feeBps,
+                  stopAtr: stopAtr,
+                  tpAtr: tpAtr,
+                  maxHold: maxHold,
+                };
+                const result = runBacktestByVersion(cfg);
+                if (!result || result.error) return;
+                const wr = Number(result.winRate || 0);
+                const pnl = Number(result.netPnlPct || result.totalPnlPct || 0);
+                const trades = Number(result.tradeCount || result.trades || 0);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_compare',
+                  query: userQueryText || '',
+                  label: 'compare-' + String(cfg.strategy || 'strategy'),
+                });
+                const score = wr * 1.0 + Math.min(trades, 160) * 0.12 + pnl * 0.06;
+                rows.push({
+                  cfg: cfg,
+                  result: result,
+                  strategy: cfg.strategy,
+                  score: score,
+                  winRate: wr,
+                  pnlPct: pnl,
+                  trades: trades,
+                });
               });
-              notes.push('已执行策略回验并刷新结果');
+              if (!rows.length) {
+                notes.push('策略对比未执行（当前数据不足）');
+                return;
+              }
+              rows.sort(function(a, b) {
+                if (b.score !== a.score) return b.score - a.score;
+                if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+                if (b.trades !== a.trades) return b.trades - a.trades;
+                return b.pnlPct - a.pnlPct;
+              });
+              const best = rows[0];
+              setControlValue('bt-strategy', best.strategy);
+              setControlValue('bt-tf', best.cfg.tf);
+              setControlValue('bt-bars', best.cfg.bars);
+              setControlValue('bt-fee-bps', best.cfg.feeBps);
+              setControlValue('bt-stop-atr', best.cfg.stopAtr);
+              setControlValue('bt-tp-atr', best.cfg.tpAtr);
+              setControlValue('bt-max-hold', best.cfg.maxHold);
+              renderBacktestResult(best.result, best.cfg);
+              const topText = rows.slice(0, 3).map(function(r, idx) {
+                return (
+                  (idx + 1) +
+                  ') ' +
+                  btStrategyLabel(r.strategy) +
+                  ' 胜率' +
+                  btNum(r.winRate, 1) +
+                  '% 交易' +
+                  r.trades +
+                  ' 净收益' +
+                  (r.pnlPct >= 0 ? '+' : '') +
+                  btNum(r.pnlPct, 2) +
+                  '%'
+                );
+              }).join(' / ');
+              notes.push('策略对比完成，推荐 ' + btStrategyLabel(best.strategy) + '。' + topText);
+              return;
+            }
+            if (type === 'run_custom_backtest') {
+              setControlValue('bt-strategy', action.strategy || 'v5_hybrid');
+              setControlValue('bt-tf', action.tf);
+              setControlValue('bt-bars', action.bars);
+              setControlValue('bt-fee-bps', action.feeBps);
+              setControlValue('bt-stop-atr', action.stopAtr);
+              setControlValue('bt-tp-atr', action.tpAtr);
+              setControlValue('bt-max-hold', action.maxHold);
+              const cfg = {
+                strategy: String(action.strategy || 'custom'),
+                tf: String(action.tf || (document.getElementById('bt-tf')?.value || '1h')),
+                bars: Number(action.bars || (document.getElementById('bt-bars')?.value || 900)),
+                feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                stopAtr: Number(action.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                tpAtr: Number(action.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                maxHold: Number(action.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                custom: normalizeCustomBacktestSpec(action.custom),
+              };
+              const result = runBacktestByVersion(cfg);
+              if (result && !result.error) {
+                renderBacktestResult(result, cfg);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_custom',
+                  query: userQueryText || '',
+                  label: String(cfg.strategy || 'custom'),
+                });
+                notes.push(
+                  '自定义回验完成：胜率 ' +
+                    btNum(result.winRate, 1) +
+                    '%，交易 ' +
+                    Number(result.tradeCount || 0) +
+                    ' 笔，净收益 ' +
+                    (Number(result.netPnlPct || 0) >= 0 ? '+' : '') +
+                    btNum(result.netPnlPct, 2) +
+                    '%',
+                );
+              } else {
+                notes.push('自定义回验失败：' + String(result?.message || result?.error || '未知原因'));
+              }
+              return;
+            }
+            if (type === 'run_strategy_dsl') {
+              setControlValue('bt-tf', action.tf);
+              setControlValue('bt-bars', action.bars);
+              setControlValue('bt-fee-bps', action.feeBps);
+              setControlValue('bt-stop-atr', action.stopAtr);
+              setControlValue('bt-tp-atr', action.tpAtr);
+              setControlValue('bt-max-hold', action.maxHold);
+              const dsl = normalizeStrategyDslSpec(action.dsl || action.spec);
+              const cfg = {
+                strategy: 'dsl',
+                tf: String(action.tf || (document.getElementById('bt-tf')?.value || '1h')),
+                bars: Number(action.bars || (document.getElementById('bt-bars')?.value || 900)),
+                feeBps: Number(action.feeBps || (document.getElementById('bt-fee-bps')?.value || 5)),
+                stopAtr: Number(action.stopAtr || dsl?.risk?.stopAtr || (document.getElementById('bt-stop-atr')?.value || 1.8)),
+                tpAtr: Number(action.tpAtr || dsl?.risk?.tpAtr || (document.getElementById('bt-tp-atr')?.value || 3.0)),
+                maxHold: Number(action.maxHold || dsl?.risk?.maxHold || (document.getElementById('bt-max-hold')?.value || 72)),
+                dsl: dsl,
+              };
+              const result = runBacktestByVersion(cfg);
+              if (result && !result.error) {
+                renderBacktestResult(result, cfg);
+                void reportStrategyArtifactResult(result, cfg, {
+                  source: 'ai_action_dsl',
+                  query: userQueryText || '',
+                  label: String(cfg?.dsl?.name || 'dsl'),
+                });
+                const featureCount = Array.isArray(dsl.features) ? dsl.features.length : 0;
+                notes.push(
+                  'DSL策略回验完成：' +
+                    (dsl.name ? (dsl.name + ' · ') : '') +
+                    '特征' +
+                    featureCount +
+                    '个，胜率 ' +
+                    btNum(result.winRate, 1) +
+                    '%，交易 ' +
+                    Number(result.tradeCount || 0) +
+                    ' 笔，净收益 ' +
+                    (Number(result.netPnlPct || 0) >= 0 ? '+' : '') +
+                    btNum(result.netPnlPct, 2) +
+                    '%',
+                );
+              } else {
+                notes.push('DSL策略回验失败：' + String(result?.message || result?.error || '未知原因'));
+              }
             }
           });
           return notes.join('；');
         }
 
         async function askOpenClaw(q) {
-          const resp = await fetch('api/ai/chat', {
+          const resp = await fetch('/api/ai/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
@@ -1857,47 +3847,130 @@ const HTML = `<!DOCTYPE html>
           return {
             reply: String(payload.reply || '').trim(),
             actions: Array.isArray(payload.actions) ? payload.actions : [],
+            source: 'openclaw',
+          };
+        }
+        function looksLikeConfigIntentLocal(q) {
+          const text = String(q || '').trim();
+          if (!text) return false;
+          if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
+          if (/^\\/(config|配置|设置|setup)\\b/i.test(text)) return true;
+          if (/(杠杆|leverage|单次|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|聊天通道|channel)/i.test(text)) {
+            return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|模式|运行|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
+          }
+          if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
+            return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
+          }
+          return false;
+        }
+        async function askConfigChannel(q) {
+          const resp = await fetch('/api/config/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({ message: q }),
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const payload = await resp.json().catch(function() { return null; });
+          if (!payload || payload.ok !== true) throw new Error('invalid payload');
+          return {
+            handled: Boolean(payload.handled),
+            reply: String(payload.reply || '').trim(),
           };
         }
         async function answer(q) {
           const cmd = handleLocalCmd(q);
-          if (cmd) return cmd;
+          if (cmd) return { ...cmd, source: cmd.source || 'local_cmd' };
+          if (looksLikeConfigIntentLocal(q)) {
+            try {
+              const cfg = await askConfigChannel(q);
+              if (cfg && cfg.handled) {
+                return { reply: cfg.reply || '配置已处理。', actions: [], source: 'config' };
+              }
+            } catch (_) {}
+          }
           try {
             return await askOpenClaw(q);
           } catch {
             try {
-              return await askDeepSeekDirect(q);
+              const out = await askDeepSeekDirect(q);
+              return { ...out, source: 'deepseek' };
             } catch (deepseekErr) {
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
                 setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+                const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
+                if (localTask) return localTask;
                 return {
                   reply: localAnswer(q) + '\\n\\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
                   actions: [],
+                  source: 'local_fallback',
                 };
               }
               setAiLinkStatus('warn', 'AI离线(本地兜底)');
-              return { reply: localAnswer(q), actions: [] };
+              const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
+              if (localTask) return localTask;
+              return { reply: localAnswer(q), actions: [], source: 'local_fallback' };
             }
           }
         }
         let inFlight = false;
         async function runTurn(text) {
-          pushMsg('user', text);
           const thinking = document.createElement('div');
           thinking.className = 'ai-msg bot';
-          thinking.textContent = 'OpenClaw 思考中...';
+          thinking.textContent = '处理中...';
           box.appendChild(thinking);
           box.scrollTop = box.scrollHeight;
           try {
             const result = await answer(text);
             const reply = String(result?.reply || '').trim();
-            const actionNote = applyAiActions(result?.actions);
-            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n' + actionNote) : '');
-            thinking.textContent = finalText;
+            const actionNote = applyAiActions(result?.actions, text);
+            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '');
+            const source = String(result?.source || '');
+            if (source !== 'openclaw') {
+              thinking.textContent = finalText;
+              appendLocalChatLog({
+                ts: new Date().toISOString(),
+                role: 'user',
+                source: 'dashboard',
+                text: text,
+              });
+              appendLocalChatLog({
+                ts: new Date().toISOString(),
+                role: 'bot',
+                source: 'dashboard',
+                text: finalText,
+              });
+            } else {
+              if (actionNote) {
+                const taskText = '执行结果：' + actionNote;
+                thinking.textContent = taskText;
+                appendLocalChatLog({
+                  ts: new Date().toISOString(),
+                  role: 'bot',
+                  source: 'task',
+                  text: taskText,
+                });
+              } else {
+                try { box.removeChild(thinking); } catch (_) {}
+              }
+            }
           } catch {
             thinking.textContent = '本次请求失败，请稍后重试。';
+            appendLocalChatLog({
+              ts: new Date().toISOString(),
+              role: 'user',
+              source: 'dashboard',
+              text: text,
+            });
+            appendLocalChatLog({
+              ts: new Date().toISOString(),
+              role: 'bot',
+              source: 'dashboard',
+              text: thinking.textContent,
+            });
           }
+          try { await pollChatHistory(); } catch (_) {}
           box.scrollTop = box.scrollHeight;
         }
         async function send() {
@@ -1920,26 +3993,70 @@ const HTML = `<!DOCTYPE html>
             void send();
           }
         });
-        const quickBtns = Array.from(document.querySelectorAll('#ai-quick .ai-quick-btn'));
-        quickBtns.forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            const viewTarget = btn.getAttribute('data-view-target');
-            if (viewTarget) {
-              switchView(viewTarget);
-              return;
+        function appendHistoryEvent(ev) {
+          const idNum = Number(ev?.id);
+          if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
+          if (Number.isFinite(idNum)) {
+            chatHistoryState.seenIds.add(idNum);
+            chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+            if (chatHistoryState.seenIds.size > 3000) {
+              const sorted = Array.from(chatHistoryState.seenIds).sort((a, b) => b - a);
+              chatHistoryState.seenIds = new Set(sorted.slice(0, 1800));
             }
-            const ask = btn.getAttribute('data-ask') || '';
-            if (!ask || inFlight) return;
-            inFlight = true;
-            sendBtn.disabled = true;
-            void runTurn(ask).finally(function() {
-              inFlight = false;
-              sendBtn.disabled = false;
-            });
+          }
+          const text = String(ev?.text || '').trim();
+          if (!text) return;
+          const role = ev?.role === 'user' ? 'user' : 'bot';
+          const source = String(ev?.source || 'dashboard');
+          const from = String(ev?.from || '').trim();
+          const chatId = ev?.chatId != null ? String(ev.chatId) : '';
+          let finalText = text;
+          if (source === 'telegram') {
+            finalText = role === 'user'
+              ? '[TG ' + (from || chatId || 'message') + '] ' + text
+              : '[TG 回执] ' + text;
+          } else if (source === 'system') {
+            finalText = '[系统] ' + text;
+          }
+          pushMsg(role, finalText, {
+            source: source,
+            ts: ev?.ts || null,
+            id: Number.isFinite(idNum) ? idNum : null,
           });
-        });
+        }
+
+        async function pollChatHistory() {
+          if (chatHistoryState.busy) return;
+          chatHistoryState.busy = true;
+          try {
+            const resp = await fetch('/api/chat/history?afterId=' + encodeURIComponent(String(chatHistoryState.afterId)) + '&limit=220', {
+              cache: 'no-store',
+            });
+            if (!resp.ok) return;
+            const payload = await resp.json().catch(function() { return null; });
+            if (!payload || payload.ok !== true) return;
+            const events = Array.isArray(payload.events) ? payload.events : [];
+            events.forEach(function(ev) {
+              appendHistoryEvent(ev);
+            });
+          } catch (_) {
+          } finally {
+            chatHistoryState.busy = false;
+          }
+        }
+
+        function startChatHistoryPolling() {
+          if (chatHistoryState.started) return;
+          chatHistoryState.started = true;
+          renderStoredChatLog();
+          void pollChatHistory();
+          chatHistoryState.timer = window.setInterval(function() {
+            void pollChatHistory();
+          }, 1200);
+        }
+        startChatHistoryPolling();
         setAiLinkStatus('warn', 'OpenClaw: 检测中');
-        void fetch('api/ai/health', { cache: 'no-store' })
+        void fetch('/api/ai/health', { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
             if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
@@ -1950,7 +4067,10 @@ const HTML = `<!DOCTYPE html>
             if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
             else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
           });
-        pushMsg('bot', '交易助理已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n手机静态访问可发送：/deepseek sk-你的key 绑定直连模式。');
+        if (!chatHistoryState.bootRendered && box.children.length === 0) {
+          chatHistoryState.bootRendered = true;
+          pushMsg('bot', 'ThunderClaw 已就绪。你可以问：当前仓位、当前这单进展、策略状态、风险拦截、最近订单。\\n点击顶部 ☰ 按钮可展开左侧功能栏：ThunderClaw / 虾线 / 虾策 / 虾海。\\n聊天内配置示例：\\n- 设置 Telegram token 123456:ABC...\\n- 设置 DeepSeek key sk-...\\n- 连接 ChatGPT/Codex');
+        }
       }
 
       function renderDashboard() {
@@ -1962,6 +4082,9 @@ const HTML = `<!DOCTYPE html>
       }
 
       function btStrategyLabel(v) {
+        if (String(v || '') === 'dsl') return 'DSL 自定义策略';
+        if (String(v || '').startsWith('dsl:')) return 'DSL ' + String(v || '').slice(4);
+        if (v === 'custom') return '自定义策略';
         if (v === 'v5_retest') return 'v5 回踩确认';
         if (v === 'v5_reentry') return 'v5 趋势再入';
         if (v === 'v4_breakout') return 'v4 Donchian 突破';
@@ -2083,6 +4206,358 @@ const HTML = `<!DOCTYPE html>
         return out;
       }
 
+      function btSmaSeries(values, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 2));
+        const out = new Array(values.length).fill(null);
+        let sum = 0;
+        let count = 0;
+        for (let i = 0; i < values.length; i++) {
+          const v = Number(values[i]);
+          if (Number.isFinite(v)) {
+            sum += v;
+            count += 1;
+          }
+          if (i >= p) {
+            const prev = Number(values[i - p]);
+            if (Number.isFinite(prev)) {
+              sum -= prev;
+              count -= 1;
+            }
+          }
+          if (i >= p - 1 && count > 0) out[i] = sum / count;
+        }
+        return out;
+      }
+
+      function btRsiSeries(values, period) {
+        const p = Math.max(2, Math.floor(Number(period) || 14));
+        const out = new Array(values.length).fill(null);
+        if (!Array.isArray(values) || values.length < p + 1) return out;
+        let gain = 0;
+        let loss = 0;
+        for (let i = 1; i <= p; i++) {
+          const diff = Number(values[i]) - Number(values[i - 1]);
+          if (!Number.isFinite(diff)) continue;
+          if (diff >= 0) gain += diff;
+          else loss += Math.abs(diff);
+        }
+        let avgGain = gain / p;
+        let avgLoss = loss / p;
+        out[p] = avgLoss <= 1e-12 ? 100 : (100 - (100 / (1 + avgGain / avgLoss)));
+        for (let i = p + 1; i < values.length; i++) {
+          const diff = Number(values[i]) - Number(values[i - 1]);
+          const g = Number.isFinite(diff) && diff > 0 ? diff : 0;
+          const l = Number.isFinite(diff) && diff < 0 ? Math.abs(diff) : 0;
+          avgGain = ((avgGain * (p - 1)) + g) / p;
+          avgLoss = ((avgLoss * (p - 1)) + l) / p;
+          out[i] = avgLoss <= 1e-12 ? 100 : (100 - (100 / (1 + avgGain / avgLoss)));
+        }
+        return out;
+      }
+
+      function btPctChangeSeries(values, period) {
+        const p = Math.max(1, Math.floor(Number(period) || 1));
+        const out = new Array(values.length).fill(null);
+        for (let i = p; i < values.length; i++) {
+          const now = Number(values[i]);
+          const prev = Number(values[i - p]);
+          if (!Number.isFinite(now) || !Number.isFinite(prev) || prev === 0) continue;
+          out[i] = ((now - prev) / prev) * 100;
+        }
+        return out;
+      }
+
+      function btShiftSeries(values, shift) {
+        const s = Math.trunc(Number(shift) || 0);
+        if (!s) return values.slice();
+        const out = new Array(values.length).fill(null);
+        for (let i = 0; i < values.length; i++) {
+          const src = i - s;
+          if (src < 0 || src >= values.length) continue;
+          out[i] = values[src];
+        }
+        return out;
+      }
+
+      function btSourceSeries(bars, source) {
+        const src = String(source || 'close').toLowerCase();
+        if (src === 'open') return bars.map(function(b) { return Number(b.open); });
+        if (src === 'high') return bars.map(function(b) { return Number(b.high); });
+        if (src === 'low') return bars.map(function(b) { return Number(b.low); });
+        if (src === 'volume') return bars.map(function(b) { return Number(b.volume); });
+        if (src === 'hl2') return bars.map(function(b) { return (Number(b.high) + Number(b.low)) / 2; });
+        if (src === 'ohlc4') {
+          return bars.map(function(b) {
+            return (Number(b.open) + Number(b.high) + Number(b.low) + Number(b.close)) / 4;
+          });
+        }
+        return bars.map(function(b) { return Number(b.close); });
+      }
+
+      function btBuildDslFeatureMap(bars, dsl) {
+        const featureDefs = Array.isArray(dsl?.features) ? dsl.features : [];
+        const out = {};
+        featureDefs.slice(0, 24).forEach(function(def, idx) {
+          if (!def || typeof def !== 'object') return;
+          const nameRaw = String(def.name || '').trim();
+          const name = /^[a-z][a-z0-9_]{0,31}$/i.test(nameRaw) ? nameRaw : ('f_' + (idx + 1));
+          const kind = String(def.kind || '').toLowerCase();
+          const sourceValues = btSourceSeries(bars, def.source || 'close');
+          let series = null;
+          if (kind === 'price') {
+            series = sourceValues.slice();
+          } else if (kind === 'ema') {
+            series = btEmaSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'sma') {
+            series = btSmaSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'rsi') {
+            series = btRsiSeries(sourceValues, Number(def.period || 14));
+          } else if (kind === 'atr') {
+            series = btAtrSeries(bars, Number(def.period || 14));
+          } else if (kind === 'adx') {
+            series = btAdxSeries(bars, Number(def.period || 14));
+          } else if (kind === 'donchian_high') {
+            const lb = Math.max(2, Math.floor(Number(def.lookback || 20)));
+            series = bars.map(function(_, i) { return btDonchianPrevHigh(bars, i, lb); });
+          } else if (kind === 'donchian_low') {
+            const lb = Math.max(2, Math.floor(Number(def.lookback || 20)));
+            series = bars.map(function(_, i) { return btDonchianPrevLow(bars, i, lb); });
+          } else if (kind === 'pct_change') {
+            series = btPctChangeSeries(sourceValues, Number(def.period || 1));
+          } else if (kind === 'constant') {
+            const v = Number.isFinite(Number(def.value)) ? Number(def.value) : 0;
+            series = new Array(bars.length).fill(v);
+          }
+          if (!Array.isArray(series) || !series.length) return;
+          const shift = Number(def.shift || 0);
+          out[name] = shift ? btShiftSeries(series, shift) : series;
+        });
+        return out;
+      }
+
+      function btCompileDslBoolExpr(expr, varNames) {
+        const sourceRaw = String(expr || '').trim();
+        if (!sourceRaw) return null;
+        const source = sourceRaw
+          .replace(/并且|且/g, '&&')
+          .replace(/或者|或/g, '||')
+          .replace(/\\band\\b/gi, '&&')
+          .replace(/\\bor\\b/gi, '||')
+          .trim();
+        if (!source || source.length > 280) return null;
+        if (!/^[a-zA-Z0-9_\\s().,+\\-*/%<>=!&|?:]+$/.test(source)) return null;
+        const ids = source.match(/\\b[a-zA-Z_][a-zA-Z0-9_]*\\b/g) || [];
+        const fnNames = ['abs', 'min', 'max', 'pow', 'sqrt', 'floor', 'ceil', 'round', 'log', 'exp'];
+        const allowed = new Set([].concat(varNames, fnNames, ['true', 'false', 'null']));
+        for (let i = 0; i < ids.length; i++) {
+          if (!allowed.has(ids[i])) return null;
+        }
+        let fn = null;
+        try {
+          fn = Function.apply(null, [].concat(varNames, fnNames, ['return (' + source + ');']));
+        } catch (_) {
+          fn = null;
+        }
+        if (!fn) return null;
+        return function(row) {
+          try {
+            const args = varNames.map(function(k) { return row[k]; });
+            const out = fn.apply(
+              null,
+              args.concat([Math.abs, Math.min, Math.max, Math.pow, Math.sqrt, Math.floor, Math.ceil, Math.round, Math.log, Math.exp]),
+            );
+            if (typeof out === 'boolean') return out;
+            const n = Number(out);
+            return Number.isFinite(n) ? n > 0 : false;
+          } catch (_) {
+            return false;
+          }
+        };
+      }
+
+      function runBacktestByDsl(opts) {
+        const tf = String(opts?.tf || '1h');
+        const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
+        const limitBars = Math.max(120, Math.floor(Number(opts?.bars || 900)));
+        const dsl = normalizeStrategyDslSpec(opts?.dsl || opts?.spec);
+        if (!dsl || typeof dsl !== 'object' || !Object.keys(dsl).length) {
+          return { ok: false, message: 'DSL 为空或格式无效。' };
+        }
+        const allBars = normalizeBars(OHLCV_BY_TF?.[tf]);
+        const bars = allBars.slice(-limitBars);
+        if (!bars.length) return { ok: false, message: '该周期没有可用 K 线数据。' };
+        if (bars.length < 120) return { ok: false, message: 'K 线样本不足（至少 120 根）。' };
+
+        const closeSeries = bars.map(function(b) { return Number(b.close); });
+        const openSeries = bars.map(function(b) { return Number(b.open); });
+        const highSeries = bars.map(function(b) { return Number(b.high); });
+        const lowSeries = bars.map(function(b) { return Number(b.low); });
+        const volumeSeries = bars.map(function(b) { return Number(b.volume); });
+        const atr14 = btAtrSeries(bars, 14);
+        const adx14 = btAdxSeries(bars, 14);
+        const featureMap = btBuildDslFeatureMap(bars, dsl);
+        const sideMode = String(dsl.side || 'both').toLowerCase();
+        const onlyLong = sideMode === 'long';
+        const onlyShort = sideMode === 'short';
+        const risk = dsl.risk && typeof dsl.risk === 'object' ? dsl.risk : {};
+        const stopAtrMult = Math.max(0.2, Number(opts?.stopAtr || risk.stopAtr || 1.8));
+        const tpAtrMult = Math.max(0.2, Number(opts?.tpAtr || risk.tpAtr || 3.0));
+        const maxHoldBars = Math.max(4, Math.floor(Number(opts?.maxHold || risk.maxHold || 72)));
+        const cooldownBars = Math.max(0, Math.floor(Number(risk.cooldownBars || 2)));
+        const varNames = ['open', 'high', 'low', 'close', 'volume', 'atr', 'adx', 'bar_index', 'prev_close'];
+        Object.keys(featureMap).forEach(function(k) { if (!varNames.includes(k)) varNames.push(k); });
+        const entryLongExpr = String(dsl.entryLong || 'close > open');
+        const entryShortExpr = String(dsl.entryShort || 'close < open');
+        const exitLongExpr = String(dsl.exitLong || 'close < open');
+        const exitShortExpr = String(dsl.exitShort || 'close > open');
+        const entryLongFn = btCompileDslBoolExpr(entryLongExpr, varNames);
+        const entryShortFn = btCompileDslBoolExpr(entryShortExpr, varNames);
+        const exitLongFn = btCompileDslBoolExpr(exitLongExpr, varNames);
+        const exitShortFn = btCompileDslBoolExpr(exitShortExpr, varNames);
+        if (!entryLongFn && !entryShortFn) {
+          return { ok: false, message: 'DSL 入场规则无效，无法编译。' };
+        }
+
+        let equity = 1;
+        let peak = 1;
+        let maxDd = 0;
+        let pos = null;
+        let cooldown = 0;
+        const trades = [];
+        const curve = [];
+
+        function buildRow(i) {
+          const row = {
+            open: openSeries[i],
+            high: highSeries[i],
+            low: lowSeries[i],
+            close: closeSeries[i],
+            volume: volumeSeries[i],
+            atr: atr14[i],
+            adx: adx14[i],
+            bar_index: i,
+            prev_close: i > 0 ? closeSeries[i - 1] : closeSeries[i],
+          };
+          for (const key in featureMap) {
+            row[key] = featureMap[key]?.[i];
+          }
+          return row;
+        }
+
+        function closePosition(i, px, reason) {
+          if (!pos) return;
+          const exitPx = Number(px);
+          if (!Number.isFinite(exitPx) || exitPx <= 0) return;
+          const gross = pos.side === 'long'
+            ? ((exitPx - pos.entryPrice) / pos.entryPrice)
+            : ((pos.entryPrice - exitPx) / pos.entryPrice);
+          const net = gross - feeRate * 2;
+          equity = Math.max(0.0001, equity * (1 + net));
+          trades.push({
+            side: pos.side,
+            signalTag: pos.signalTag,
+            entryTime: bars[pos.entryIdx].time,
+            exitTime: bars[i].time,
+            entryPrice: pos.entryPrice,
+            exitPrice: exitPx,
+            pnlPct: net * 100,
+            holdBars: Math.max(1, i - pos.entryIdx),
+            reason: reason,
+          });
+          pos = null;
+          cooldown = cooldownBars;
+        }
+
+        for (let i = 1; i < bars.length; i++) {
+          const row = buildRow(i);
+          const closeNow = Number(row.close);
+          const highNow = Number(row.high);
+          const lowNow = Number(row.low);
+          const atrNow = Number.isFinite(Number(row.atr)) ? Number(row.atr) : (closeNow * 0.0035);
+          if (!Number.isFinite(closeNow) || closeNow <= 0) continue;
+
+          if (pos) {
+            if (pos.side === 'long') {
+              if (lowNow <= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (highNow >= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            } else {
+              if (highNow >= pos.sl) closePosition(i, pos.sl, 'stop_loss');
+              else if (lowNow <= pos.tp) closePosition(i, pos.tp, 'take_profit');
+            }
+          }
+          if (pos && (i - pos.entryIdx) >= maxHoldBars) closePosition(i, closeNow, 'timeout');
+
+          if (pos) {
+            const shouldExit = pos.side === 'long'
+              ? (exitLongFn ? Boolean(exitLongFn(row)) : false)
+              : (exitShortFn ? Boolean(exitShortFn(row)) : false);
+            if (shouldExit) closePosition(i, closeNow, 'dsl_exit');
+          }
+
+          if (cooldown > 0) cooldown -= 1;
+          let signal = null;
+          if (cooldown === 0) {
+            const longOk = !onlyShort && (entryLongFn ? Boolean(entryLongFn(row)) : false);
+            const shortOk = !onlyLong && (entryShortFn ? Boolean(entryShortFn(row)) : false);
+            if (longOk && !shortOk) signal = { side: 'long', tag: 'dsl_entry_long' };
+            else if (shortOk && !longOk) signal = { side: 'short', tag: 'dsl_entry_short' };
+          }
+
+          if (pos && signal && signal.side !== pos.side) closePosition(i, closeNow, 'reverse');
+
+          if (!pos && signal) {
+            const stopDist = Math.max(atrNow * stopAtrMult, closeNow * 0.0012);
+            const takeDist = Math.max(atrNow * tpAtrMult, closeNow * 0.0012);
+            pos = {
+              side: signal.side,
+              signalTag: signal.tag,
+              entryIdx: i,
+              entryPrice: closeNow,
+              sl: signal.side === 'long' ? (closeNow - stopDist) : (closeNow + stopDist),
+              tp: signal.side === 'long' ? (closeNow + takeDist) : (closeNow - takeDist),
+            };
+          }
+
+          let markEq = equity;
+          if (pos) {
+            const unreal = pos.side === 'long'
+              ? ((closeNow - pos.entryPrice) / pos.entryPrice)
+              : ((pos.entryPrice - closeNow) / pos.entryPrice);
+            markEq = Math.max(0.0001, equity * (1 + unreal - feeRate * 2));
+          }
+          curve.push({ time: bars[i].time, equity: markEq });
+          if (markEq > peak) peak = markEq;
+          if (peak > 0) maxDd = Math.max(maxDd, (peak - markEq) / peak);
+        }
+
+        if (pos) closePosition(bars.length - 1, Number(bars[bars.length - 1].close), 'eod');
+        const winCount = trades.filter(function(t) { return Number(t.pnlPct) > 0; }).length;
+        const lossCount = trades.filter(function(t) { return Number(t.pnlPct) <= 0; }).length;
+        const avgPnl = trades.length
+          ? trades.reduce(function(s, t) { return s + Number(t.pnlPct || 0); }, 0) / trades.length
+          : 0;
+        return {
+          ok: true,
+          strategy: dsl.name ? ('dsl:' + dsl.name) : 'dsl',
+          tf: tf,
+          bars: bars.length,
+          tradeCount: trades.length,
+          winRate: trades.length ? (winCount / trades.length) * 100 : 0,
+          wins: winCount,
+          losses: lossCount,
+          avgPnlPct: avgPnl,
+          netPnlPct: (equity - 1) * 100,
+          maxDrawdownPct: maxDd * 100,
+          curve: curve,
+          trades: trades.slice().reverse(),
+          dslMeta: {
+            name: dsl.name || 'strategy_dsl',
+            side: sideMode,
+            featureCount: Array.isArray(dsl.features) ? dsl.features.length : 0,
+          },
+        };
+      }
+
       function btMapSeriesByTime(lowerBars, higherBars, values) {
         const out = new Array(lowerBars.length).fill(null);
         let j = 0;
@@ -2123,6 +4598,11 @@ const HTML = `<!DOCTYPE html>
       function runBacktestByVersion(opts) {
         const tf = String(opts?.tf || '1h');
         const strategy = String(opts?.strategy || 'v5_hybrid');
+        if (strategy === 'dsl' || (opts?.dsl && typeof opts.dsl === 'object')) {
+          return runBacktestByDsl({ ...opts, tf: tf });
+        }
+        const custom = opts?.custom && typeof opts.custom === 'object' ? opts.custom : {};
+        const isCustom = strategy === 'custom';
         const feeRate = Math.max(0, Number(opts?.feeBps || 0) / 10000);
         const stopAtrMult = Math.max(0.2, Number(opts?.stopAtr || 1.8));
         const tpAtrMult = Math.max(0.2, Number(opts?.tpAtr || 3.0));
@@ -2136,19 +4616,26 @@ const HTML = `<!DOCTYPE html>
 
         const close = bars.map(b => Number(b.close));
         const atr = btAtrSeries(bars, 14);
-        const entryEma = btEmaSeries(close, 20);
+        const entryEmaPeriod = Math.max(2, Math.floor(Number(custom.entryEma || 20)));
+        const entryEma = btEmaSeries(close, entryEmaPeriod);
 
-        const useV5 = /^v5_/.test(strategy);
+        const useV5 = /^v5_/.test(strategy) || isCustom;
         const biasSourceBars = (useV5 && tf === '1h' && Array.isArray(OHLCV_BY_TF?.['4h']) && OHLCV_BY_TF['4h'].length)
           ? normalizeBars(OHLCV_BY_TF['4h'])
           : bars;
         const biasClose = biasSourceBars.map(b => Number(b.close));
-        const biasEmaF = btEmaSeries(biasClose, 20);
-        const biasEmaS = btEmaSeries(biasClose, 50);
+        const biasEmaFast = Math.max(2, Math.floor(Number(custom.biasEmaFast || 20)));
+        const biasEmaSlow = Math.max(2, Math.floor(Number(custom.biasEmaSlow || 50)));
+        const biasEmaF = btEmaSeries(biasClose, biasEmaFast);
+        const biasEmaS = btEmaSeries(biasClose, biasEmaSlow);
         const biasAdx = btAdxSeries(biasSourceBars, 14);
         const mappedBiasEmaF = biasSourceBars === bars ? biasEmaF : btMapSeriesByTime(bars, biasSourceBars, biasEmaF);
         const mappedBiasEmaS = biasSourceBars === bars ? biasEmaS : btMapSeriesByTime(bars, biasSourceBars, biasEmaS);
         const mappedBiasAdx = biasSourceBars === bars ? biasAdx : btMapSeriesByTime(bars, biasSourceBars, biasAdx);
+        const biasAdxMin = Math.max(0, Number(custom.biasAdxMin || 15));
+        const sideMode = String(custom.side || 'both').toLowerCase();
+        const onlyLong = sideMode === 'long';
+        const onlyShort = sideMode === 'short';
 
         let equity = 1;
         let peak = 1;
@@ -2189,10 +4676,10 @@ const HTML = `<!DOCTYPE html>
           const b = bars[i];
           const atrNow = Number.isFinite(atr[i]) ? Number(atr[i]) : (Number(b.close) * 0.0035);
           const biasLong = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
-            ? (mappedBiasEmaF[i] > mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            ? (mappedBiasEmaF[i] > mappedBiasEmaS[i] && mappedBiasAdx[i] >= biasAdxMin)
             : false;
           const biasShort = Number.isFinite(mappedBiasEmaF[i]) && Number.isFinite(mappedBiasEmaS[i]) && Number.isFinite(mappedBiasAdx[i])
-            ? (mappedBiasEmaF[i] < mappedBiasEmaS[i] && mappedBiasAdx[i] >= 15)
+            ? (mappedBiasEmaF[i] < mappedBiasEmaS[i] && mappedBiasAdx[i] >= biasAdxMin)
             : false;
 
           // Exit check (intrabar)
@@ -2215,7 +4702,8 @@ const HTML = `<!DOCTYPE html>
           const closeNow = Number(b.close);
           const highNow = Number(b.high);
           const lowNow = Number(b.low);
-          const lookback = strategy === 'v4_breakout' ? 20 : 15;
+          const lookbackDefault = strategy === 'v4_breakout' ? 20 : 15;
+          const lookback = Math.max(2, Math.floor(Number(custom.lookback || lookbackDefault)));
           const dHigh = btDonchianPrevHigh(bars, i, lookback);
           const dLow = btDonchianPrevLow(bars, i, lookback);
 
@@ -2223,30 +4711,44 @@ const HTML = `<!DOCTYPE html>
           if (Number.isFinite(dLow) && closeNow < dLow) lastBreakShort = { idx: i, level: dLow };
 
           if (cooldown === 0) {
-            if (strategy === 'v4_breakout') {
-              if (Number.isFinite(dHigh) && closeNow > dHigh) signal = { side: 'long', tag: 'breakout' };
-              else if (Number.isFinite(dLow) && closeNow < dLow) signal = { side: 'short', tag: 'breakout' };
-            } else {
-              const allowRetest = strategy === 'v5_retest' || strategy === 'v5_hybrid';
-              const allowReentry = strategy === 'v5_reentry' || strategy === 'v5_hybrid';
-              const tolRetest = atrNow * 0.25;
-              const tolReentry = atrNow * 0.35;
+            const allowBreakout = (custom.allowBreakout === true) || (!isCustom && strategy === 'v4_breakout');
+            const allowRetest =
+              custom.allowRetest === true ||
+              (custom.allowRetest !== false && (strategy === 'v5_retest' || strategy === 'v5_hybrid' || isCustom));
+            const allowReentry =
+              custom.allowReentry === true ||
+              (custom.allowReentry !== false && (strategy === 'v5_reentry' || strategy === 'v5_hybrid' || isCustom));
+            const retestWindow = Math.max(1, Math.floor(Number(custom.retestWindow || 12)));
+            const tolRetest = atrNow * Math.max(0.01, Number(custom.retestTolAtr || 0.25));
+            const tolReentry = atrNow * Math.max(0.01, Number(custom.reentryTolAtr || 0.35));
+            if (allowBreakout) {
+              if (!onlyShort && Number.isFinite(dHigh) && closeNow > dHigh) signal = { side: 'long', tag: 'breakout' };
+              else if (!onlyLong && Number.isFinite(dLow) && closeNow < dLow) signal = { side: 'short', tag: 'breakout' };
+            }
+            if (!signal) {
               const emaNow = Number(entryEma[i]);
-              if (allowRetest && biasLong && lastBreakLong && (i - lastBreakLong.idx) <= 12) {
+              if (!onlyShort && allowRetest && biasLong && lastBreakLong && (i - lastBreakLong.idx) <= retestWindow) {
                 if (lowNow <= lastBreakLong.level + tolRetest && closeNow > lastBreakLong.level) {
                   signal = { side: 'long', tag: 'retest' };
                   lastBreakLong = null;
                 }
               }
-              if (!signal && allowRetest && biasShort && lastBreakShort && (i - lastBreakShort.idx) <= 12) {
+              if (!signal && !onlyLong && allowRetest && biasShort && lastBreakShort && (i - lastBreakShort.idx) <= retestWindow) {
                 if (highNow >= lastBreakShort.level - tolRetest && closeNow < lastBreakShort.level) {
                   signal = { side: 'short', tag: 'retest' };
                   lastBreakShort = null;
                 }
               }
               if (!signal && allowReentry && Number.isFinite(emaNow)) {
-                if (biasLong && lowNow <= emaNow + tolReentry && closeNow > emaNow) signal = { side: 'long', tag: 'reentry' };
-                else if (biasShort && highNow >= emaNow - tolReentry && closeNow < emaNow) signal = { side: 'short', tag: 'reentry' };
+                const prevClose = i > 0 ? Number(bars[i - 1]?.close) : closeNow;
+                const prevEma = i > 0 ? Number(entryEma[i - 1]) : emaNow;
+                const prevLong = Number.isFinite(prevClose) && Number.isFinite(prevEma) ? prevClose > prevEma : true;
+                const prevShort = Number.isFinite(prevClose) && Number.isFinite(prevEma) ? prevClose < prevEma : true;
+                if (!onlyShort && biasLong && prevLong && lowNow <= emaNow + tolReentry && closeNow > emaNow) {
+                  signal = { side: 'long', tag: 'reentry' };
+                } else if (!onlyLong && biasShort && prevShort && highNow >= emaNow - tolReentry && closeNow < emaNow) {
+                  signal = { side: 'short', tag: 'reentry' };
+                }
               }
             }
           }
@@ -2430,7 +4932,7 @@ const HTML = `<!DOCTYPE html>
         const stopEl = document.getElementById('bt-stop-atr');
         const tpEl = document.getElementById('bt-tp-atr');
         const holdEl = document.getElementById('bt-max-hold');
-        if (!strategyEl || !tfEl || !barsEl || !feeEl || !stopEl || !tpEl || !holdEl) return;
+        if (!strategyEl || !tfEl || !barsEl || !feeEl || !stopEl || !tpEl || !holdEl) return null;
         const cfg = {
           strategy: strategyEl.value || 'v5_hybrid',
           tf: tfEl.value || '1h',
@@ -2442,6 +4944,13 @@ const HTML = `<!DOCTYPE html>
         };
         const result = runBacktestByVersion(cfg);
         renderBacktestResult(result, cfg);
+        void reportStrategyArtifactResult(result, cfg, {
+          source: 'dashboard_manual',
+          query: '',
+          label: String(cfg?.dsl?.name || cfg.strategy || result?.strategy || 'manual'),
+          attachToNote: true,
+        });
+        return result;
       }
 
       function setupBacktestPanel() {
@@ -3567,11 +6076,11 @@ const HTML = `<!DOCTYPE html>
       renderHistoryOrders();
       renderDashboard();
       setupBacktestPanel();
+      setupXseaPanel();
+      setupXbrainPanel();
       switchView('dashboard');
     }
 
-    registerPwaServiceWorker();
-    setupPwaInstall();
     load().catch(e => showLoadError(e && e.message));
   </script>
 </body>
