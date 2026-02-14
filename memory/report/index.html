@@ -1021,6 +1021,7 @@
               <span id="xbrain-lock-base" class="xbrain-lock-tag on">已锁定</span>
             </div>
             <div class="xbrain-hint">模型选择、聊天 channel。该区支持锁定/解锁与密码管理。</div>
+            <div id="xbrain-base-runtime-meta" class="xbrain-hint">当前会话模型：加载中...</div>
             <form id="xbrain-base-form" class="xbrain-form">
               <label>模型提供方
                 <select id="xbrain-base-provider">
@@ -1049,6 +1050,7 @@
               </label>
               <div class="xbrain-actions">
                 <button class="primary" type="submit">保存基础配置</button>
+                <button type="button" id="xbrain-base-probe-btn">检测当前模型</button>
                 <button type="button" data-xbrain-lock="base" data-xbrain-action="unlock">解锁</button>
                 <button class="warn" type="button" data-xbrain-lock="base" data-xbrain-action="lock">锁定</button>
                 <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置密码</button>
@@ -2175,6 +2177,9 @@
             ? {
                 modelProvider: x.base.modelProvider || null,
                 modelId: x.base.modelId || null,
+                runtimeModelId: x.base.runtimeModelId || null,
+                runtimeModelProvider: x.base.runtimeModelProvider || null,
+                runtimeModelSource: x.base.runtimeModelSource || null,
                 chatChannel: x.base.chatChannel || null,
                 telegramConfigured: Boolean(x.base.telegramConfigured),
               }
@@ -2260,12 +2265,28 @@
         const baseModel = document.getElementById('xbrain-base-model');
         const baseChannel = document.getElementById('xbrain-base-channel');
         const baseTelegramToken = document.getElementById('xbrain-base-telegram-token');
+        const baseRuntimeMeta = document.getElementById('xbrain-base-runtime-meta');
         if (baseProvider) baseProvider.value = String(base.modelProvider || 'deepseek');
         if (baseModel) baseModel.value = String(base.modelId || 'deepseek-chat');
         if (baseChannel) baseChannel.value = String(base.chatChannel || 'dashboard');
         if (baseTelegramToken) {
           baseTelegramToken.value = '';
           baseTelegramToken.placeholder = String(base.telegramTokenMasked || '(未设置)');
+        }
+        if (baseRuntimeMeta) {
+          const checkedAt = base.runtimeModelCheckedAt
+            ? fmtTsShort(base.runtimeModelCheckedAt)
+            : '-';
+          const errText = String(base.runtimeModelError || '').trim();
+          const parts = [
+            '当前会话模型：' + String(base.runtimeModelId || base.modelId || '-'),
+            '提供方：' + String(base.runtimeModelProvider || base.modelProvider || '-'),
+            'API：' + String(base.runtimeModelApi || '-'),
+            '来源：' + String(base.runtimeModelSource || '-'),
+            '检测时间：' + checkedAt,
+          ];
+          if (errText) parts.push('探测提示：' + errText);
+          baseRuntimeMeta.textContent = parts.join(' · ');
         }
 
         const apiKey = document.getElementById('xbrain-exchange-api-key');
@@ -2311,11 +2332,13 @@
         setXbrainSectionDisabled('exchange', Boolean(locks.exchange && locks.exchange.locked));
       }
 
-      async function fetchXbrainState() {
+      async function fetchXbrainState(forceRefresh) {
+        const refresh = Boolean(forceRefresh);
         if (xbrainClientState.loading) return xbrainClientState.data;
         xbrainClientState.loading = true;
         try {
-          const resp = await fetch('/api/xbrain/state', { cache: 'no-store' });
+          const url = '/api/xbrain/state' + (refresh ? '?refresh=1' : '');
+          const resp = await fetch(url, { cache: 'no-store' });
           const payload = await resp.json().catch(function() { return null; });
           if (!resp.ok || !payload || payload.ok !== true || !payload.state) {
             const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
@@ -2377,6 +2400,7 @@
               setXbrainStatus('base', '基础配置已保存，并同步给模型。' + syncMsg, syncOk ? 'ok' : 'err');
               const tEl = document.getElementById('xbrain-base-telegram-token');
               if (tEl) tEl.value = '';
+              void fetchXbrainState(true).catch(function() {});
             })
             .catch(function(err) {
               setXbrainStatus('base', '保存失败：' + String(err?.message || err), 'err');
@@ -2472,12 +2496,25 @@
         if (refreshBtn) {
           refreshBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            void fetchXbrainState()
+            void fetchXbrainState(true)
               .then(function() {
                 setXbrainStatus('strategy', '配置已刷新。', 'ok');
               })
               .catch(function(err) {
                 setXbrainStatus('strategy', '刷新失败：' + String(err?.message || err), 'err');
+              });
+          });
+        }
+        const probeBtn = document.getElementById('xbrain-base-probe-btn');
+        if (probeBtn) {
+          probeBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            void fetchXbrainState(true)
+              .then(function() {
+                setXbrainStatus('base', '已刷新当前会话模型探测结果。', 'ok');
+              })
+              .catch(function(err) {
+                setXbrainStatus('base', '模型探测失败：' + String(err?.message || err), 'err');
               });
           });
         }

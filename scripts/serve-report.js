@@ -148,6 +148,10 @@ const XBRAIN_PASSWORD_MIN_LEN = Math.max(
   4,
   Math.min(24, positiveInt(process.env.THUNDERCLAW_XBRAIN_PASSWORD_MIN_LEN, 6)),
 );
+const XBRAIN_MODEL_PROBE_TTL_MS = Math.max(
+  2_000,
+  positiveInt(process.env.THUNDERCLAW_XBRAIN_MODEL_PROBE_TTL_MS, 20_000),
+);
 const TRADER_MEMORY_MAX_ITEMS = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
@@ -272,6 +276,10 @@ const xbrainState = {
   loaded: false,
   value: null,
   lastSavedAt: null,
+};
+const xbrainModelProbeState = {
+  lastAt: 0,
+  value: null,
 };
 const runtimeState = {
   serviceLock: {
@@ -499,7 +507,16 @@ function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
     if (provider === 'anthropic') return 'anthropic/claude-3-5-sonnet';
     return 'openai/gpt-4o-mini';
   }
-  if (raw.includes('/')) return raw;
+  if (raw.includes('/')) {
+    const segs = raw.split('/');
+    const prefix = String(segs[0] || '').toLowerCase();
+    const tail = segs.slice(1).join('/').trim();
+    if (!tail) return raw;
+    if (provider === 'deepseek') return 'deepseek/' + tail;
+    if (provider === 'anthropic') return 'anthropic/' + tail;
+    if (provider === 'chatgpt' || provider === 'codex') return 'openai/' + tail;
+    return raw;
+  }
   if (provider === 'deepseek') return normalizeDeepSeekModelId(raw);
   if (provider === 'anthropic') return 'anthropic/' + raw;
   return 'openai/' + raw;
@@ -518,6 +535,77 @@ function detectXbrainActiveStrategy(maxItems = 220) {
     if (note && !/^(no_setup|none|null|-)$/.test(note.toLowerCase())) return note;
   }
   return null;
+}
+
+function parseOpenClawConfigGetValue(stdoutLike) {
+  const raw = String(stdoutLike || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'string') return parsed.trim();
+    if (parsed && typeof parsed.value === 'string') return String(parsed.value).trim();
+  } catch {}
+  const line = raw.split(/\r?\n/).find((x) => String(x || '').trim()) || raw;
+  const eq = line.match(/=\s*(.+)$/);
+  if (eq) return String(eq[1] || '').trim().replace(/^"(.*)"$/, '$1');
+  const colon = line.match(/:\s*(.+)$/);
+  if (colon) return String(colon[1] || '').trim().replace(/^"(.*)"$/, '$1');
+  return line.trim().replace(/^"(.*)"$/, '$1');
+}
+
+function xbrainProviderApiLabel(providerLike) {
+  const provider = normalizeXbrainModelProvider(providerLike);
+  if (provider === 'deepseek') return 'DeepSeek API (via OpenClaw)';
+  if (provider === 'chatgpt' || provider === 'codex') return 'OpenAI API (via OpenClaw)';
+  if (provider === 'anthropic') return 'Anthropic API (via OpenClaw)';
+  return provider + ' API (via OpenClaw)';
+}
+
+async function probeXbrainRuntimeModel(force = false) {
+  const nowMs = Date.now();
+  if (!force && xbrainModelProbeState.value && nowMs - xbrainModelProbeState.lastAt < XBRAIN_MODEL_PROBE_TTL_MS) {
+    return xbrainModelProbeState.value;
+  }
+  let modelId = '';
+  let source = 'openclaw:unknown';
+  let errorMsg = null;
+  try {
+    const agentScopedPath = 'agents.' + OPENCLAW_AGENT_ID + '.model.primary';
+    const scoped = await runOpenClawAdmin(['config', 'get', agentScopedPath], 12_000).catch(() => null);
+    const scopedVal = parseOpenClawConfigGetValue(scoped?.stdout || '');
+    if (scopedVal && scopedVal.toLowerCase() !== 'null' && scopedVal.toLowerCase() !== 'undefined') {
+      modelId = scopedVal;
+      source = 'openclaw:' + agentScopedPath;
+    }
+    if (!modelId) {
+      const defaultsPath = 'agents.defaults.model.primary';
+      const def = await runOpenClawAdmin(['config', 'get', defaultsPath], 12_000);
+      const defVal = parseOpenClawConfigGetValue(def?.stdout || '');
+      if (defVal && defVal.toLowerCase() !== 'null' && defVal.toLowerCase() !== 'undefined') {
+        modelId = defVal;
+        source = 'openclaw:' + defaultsPath;
+      }
+    }
+  } catch (err) {
+    errorMsg = safeErrMsg(err, 'openclaw model probe failed');
+  }
+  if (!modelId) {
+    const env = envPairsWithFallback();
+    modelId = String(env.OPENCLAW_MODEL_ID || '').trim() || 'deepseek/deepseek-chat';
+    source = errorMsg ? 'env:fallback(error)' : 'env:fallback';
+  }
+  const provider = inferXbrainProviderFromModelId(modelId);
+  const out = {
+    checkedAt: nowIso(),
+    modelId,
+    modelProvider: provider,
+    modelApi: xbrainProviderApiLabel(provider),
+    source,
+    error: errorMsg,
+  };
+  xbrainModelProbeState.value = out;
+  xbrainModelProbeState.lastAt = nowMs;
+  return out;
 }
 
 function defaultXbrainState() {
@@ -665,7 +753,7 @@ function xbrainLockView(lockLike) {
   };
 }
 
-function buildXbrainPublicState() {
+function buildXbrainPublicState(runtimeModelLike = null) {
   const state = ensureXbrainState();
   const env = envPairsWithFallback();
   const telegramToken = String(env.THUNDERCLAW_TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -684,6 +772,12 @@ function buildXbrainPublicState() {
       env.OPENCLAW_MODEL_PROVIDER ||
       inferXbrainProviderFromModelId(modelId),
   );
+  const runtimeModel =
+    runtimeModelLike && typeof runtimeModelLike === 'object'
+      ? runtimeModelLike
+      : (xbrainModelProbeState.value && typeof xbrainModelProbeState.value === 'object'
+          ? xbrainModelProbeState.value
+          : null);
   const chatChannel = normalizeXbrainChatChannel(
     state?.base?.chatChannel || env.THUNDERCLAW_CHAT_CHANNEL || 'dashboard',
   );
@@ -706,6 +800,12 @@ function buildXbrainPublicState() {
       chatChannel,
       telegramTokenMasked: maskMaybeSecret(telegramToken),
       telegramConfigured: Boolean(telegramToken),
+      runtimeModelId: String(runtimeModel?.modelId || modelId),
+      runtimeModelProvider: normalizeXbrainModelProvider(runtimeModel?.modelProvider || modelProvider),
+      runtimeModelApi: String(runtimeModel?.modelApi || xbrainProviderApiLabel(runtimeModel?.modelProvider || modelProvider)),
+      runtimeModelSource: String(runtimeModel?.source || 'env:fallback'),
+      runtimeModelCheckedAt: runtimeModel?.checkedAt || null,
+      runtimeModelError: runtimeModel?.error || null,
       updatedAt: state?.base?.updatedAt || null,
     },
     exchange: {
@@ -741,6 +841,9 @@ function buildXbrainModelContext() {
     base: {
       modelProvider: pub.base.modelProvider,
       modelId: pub.base.modelId,
+      runtimeModelId: pub.base.runtimeModelId || pub.base.modelId,
+      runtimeModelProvider: pub.base.runtimeModelProvider || pub.base.modelProvider,
+      runtimeModelSource: pub.base.runtimeModelSource || null,
       chatChannel: pub.base.chatChannel,
       telegramConfigured: Boolean(pub.base.telegramConfigured),
       locked: pub.locks.base.locked,
@@ -845,7 +948,14 @@ async function syncXbrainBaseToOpenClaw(baseLike) {
   try {
     await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
     await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
-    return { ok: true, modelId };
+    let scopedPath = null;
+    let scopedSet = false;
+    try {
+      scopedPath = 'agents.' + OPENCLAW_AGENT_ID + '.model.primary';
+      await runOpenClawAdmin(['config', 'set', scopedPath, modelId]);
+      scopedSet = true;
+    } catch {}
+    return { ok: true, modelId, scopedPath, scopedSet };
   } catch (err) {
     return { ok: false, modelId, error: safeErrMsg(err, 'openclaw config sync failed') };
   }
@@ -5392,16 +5502,19 @@ async function handleConfigChatApi(req, res) {
   }
 }
 
-function handleXbrainStateApi(req, res) {
+async function handleXbrainStateApi(req, res) {
   if (String(req.method || 'GET').toUpperCase() !== 'GET') {
     res.statusCode = 405;
     res.setHeader('Allow', 'GET');
     res.end('Method Not Allowed');
     return;
   }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const refresh = String(url.searchParams.get('refresh') || '') === '1';
+  const runtimeModel = await probeXbrainRuntimeModel(refresh);
   sendJson(res, 200, {
     ok: true,
-    state: buildXbrainPublicState(),
+    state: buildXbrainPublicState(runtimeModel),
   });
 }
 
@@ -5440,6 +5553,10 @@ async function handleXbrainUpdateApi(req, res) {
   if (section === 'base' && (hasOwn(values, 'modelProvider') || hasOwn(values, 'modelId'))) {
     openclawModelSync = await syncXbrainBaseToOpenClaw(out.state?.base || values);
   }
+  const runtimeModel = section === 'base' ? await probeXbrainRuntimeModel(true) : null;
+  const stateForReply = section === 'base'
+    ? buildXbrainPublicState(runtimeModel)
+    : (out.state || buildXbrainPublicState());
   appendTraderMemory({
     kind: 'config',
     channel: 'dashboard',
@@ -5450,7 +5567,7 @@ async function handleXbrainUpdateApi(req, res) {
     ok: true,
     section,
     updated: out.updated || {},
-    state: out.state || buildXbrainPublicState(),
+    state: stateForReply,
     openclawModelSync,
   });
 }
@@ -5851,7 +5968,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (url.pathname === '/api/xbrain/state') {
-      handleXbrainStateApi(req, res);
+      await handleXbrainStateApi(req, res);
       return;
     }
     if (url.pathname === '/api/xbrain/update') {
