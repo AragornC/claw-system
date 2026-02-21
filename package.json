@@ -24,7 +24,10 @@
     "thunderclaw:start": "node scripts/thunderclaw-cli.js start",
     "test:smoke:xbrain": "node scripts/xbrain-smoke-check.mjs",
     "test:e2e:xbrain": "node scripts/xbrain-e2e-check.mjs",
-    "test:verify:xbrain": "npm run test:smoke:xbrain && npm run test:e2e:xbrain"
+    "test:verify:xbrain": "npm run test:smoke:xbrain && npm run test:e2e:xbrain",
+    "test:smoke:runtime": "node scripts/runtime-smoke-check.mjs",
+    "test:e2e:runtime": "node scripts/runtime-e2e-check.mjs",
+    "test:verify:runtime": "npm run test:smoke:runtime && npm run test:e2e:runtime"
   },
   "keywords": [],
   "author": "",

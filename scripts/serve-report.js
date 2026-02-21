@@ -21,7 +21,7 @@ import { createXbrainAuthService } from '../backend/src/services/xbrain-auth-ser
 import { createXbrainStateService } from '../backend/src/services/xbrain-state-service.js';
 import { createXbrainConfigService } from '../backend/src/services/xbrain-config-service.js';
 import { XBRAIN_PROVIDER_MODEL_OPTIONS, XBRAIN_PROVIDER_KEYS } from '../backend/src/models/xbrain-providers.js';
-import { createConversationRuntime } from '../backend/src/runtime/conversation-runtime.js';
+import { createOpenClawRuntime } from '../backend/src/runtime/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
@@ -45,6 +45,7 @@ let xbrainStateService = null;
 let xbrainConfigService = null;
 let serveApiDeps = null;
 let conversationRuntime = null;
+let openclawRuntime = null;
 const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
@@ -416,11 +417,11 @@ serveApiDeps = buildServeApiDeps({
   },
   handleRuntimeSchedulesPatchApi: async (req, res) => {
     if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
-    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules/patch' });
   },
   handleRuntimeSchedulesDeleteApi: async (req, res) => {
     if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
-    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules/delete' });
   },
   legacyHandleConfigChatApi: handleConfigChatApi,
   legacyHandleChatApi: handleChatApi,
@@ -1778,6 +1779,11 @@ function registerProcessCleanupHooks() {
     };
   };
   const cleanup = once(() => {
+    try {
+      openclawRuntime?.shutdown?.();
+    } catch {}
+    openclawRuntime = null;
+    conversationRuntime = null;
     releaseTelegramPollLock();
     releaseThunderClawServiceLock();
   });
@@ -9011,7 +9017,10 @@ async function handleStatic(req, res, pathname) {
 
 function setupConversationRuntime() {
   try {
-    conversationRuntime = createConversationRuntime({
+    try {
+      openclawRuntime?.shutdown?.();
+    } catch {}
+    openclawRuntime = createOpenClawRuntime({
       workspaceDir: WORKDIR,
       sendJson,
       readJsonBody,
@@ -9032,13 +9041,14 @@ function setupConversationRuntime() {
         .split(',')
         .map((x) => x.trim())
         .filter(Boolean),
-      sessionStorePath: path.resolve(WORKDIR, 'memory/runtime-sessions.json'),
-      taskStorePath: path.resolve(WORKDIR, 'memory/runtime-tasks.json'),
-      schedulerStorePath: path.resolve(WORKDIR, 'memory/runtime-schedules.json'),
-      auditPath: path.resolve(WORKDIR, 'memory/runtime-audit.jsonl'),
     });
+    conversationRuntime = openclawRuntime.conversation;
     console.log('[runtime] conversation runtime initialized');
   } catch (err) {
+    try {
+      openclawRuntime?.shutdown?.();
+    } catch {}
+    openclawRuntime = null;
     conversationRuntime = null;
     console.warn('[runtime] conversation runtime init failed:', safeErrMsg(err, 'unknown'));
   }

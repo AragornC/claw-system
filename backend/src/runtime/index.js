@@ -38,6 +38,8 @@ export function createOpenClawRuntime(options = {}) {
         source: context?.sessionKey || 'runtime-task',
         rawMessage: `task:${context?.taskId || ''}:${tool}`,
       }),
+    emitAudit,
+    appendSessionEvent: (sessionKey, event) => sessionManager.appendEvent?.(sessionKey, event),
   });
   const schedulerRuntime = createSchedulerRuntime({
     storePath: path.resolve(workspaceDir, 'memory/runtime-schedules.json'),
@@ -61,6 +63,7 @@ export function createOpenClawRuntime(options = {}) {
     approvalGate,
     toolRuntime,
     emitAudit,
+    startScheduler: false,
   });
   schedulerRuntime.start();
   return {
