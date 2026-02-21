@@ -25,8 +25,8 @@ export function createChatLegacyFacadeService(options = {}) {
     resolveCapabilityAdapter(optionsLike = {}) {
       return resolveCapabilityAdapterImpl(optionsLike);
     },
-    async handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard') {
-      return handleNaturalLanguageToolOrchestrationImpl(messageLike, source);
+    async handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard', contextLike = {}) {
+      return handleNaturalLanguageToolOrchestrationImpl(messageLike, source, contextLike);
     },
     async handleChatApi(req, res) {
       return handleChatApiImpl(req, res);

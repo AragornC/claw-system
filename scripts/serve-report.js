@@ -64,7 +64,7 @@ const OPENCLAW_DELIVER = /^(1|true|yes|on)$/i.test(
 const OPENCLAW_AGENT_LOCAL = /^(1|true|yes|on)$/i.test(
   String(process.env.OPENCLAW_AGENT_LOCAL || ''),
 );
-const THUNDERCLAW_CHAT_RUNTIME_MODE = String(process.env.THUNDERCLAW_CHAT_RUNTIME_MODE || 'legacy')
+const THUNDERCLAW_CHAT_RUNTIME_MODE = String(process.env.THUNDERCLAW_CHAT_RUNTIME_MODE || 'openclaw-native')
   .trim()
   .toLowerCase();
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
@@ -437,8 +437,8 @@ serveApiDeps = buildServeApiDeps({
   checkMcpBridgeConnectivity,
   resolveToolAdapterMode,
   resolveCapabilityAdapter: (optionsLike) => chatLegacyFacade.resolveCapabilityAdapter(optionsLike),
-  handleNaturalLanguageToolOrchestration: (messageLike, source) =>
-    chatLegacyFacade.handleNaturalLanguageToolOrchestration(messageLike, source),
+  handleNaturalLanguageToolOrchestration: (messageLike, source, contextLike) =>
+    chatLegacyFacade.handleNaturalLanguageToolOrchestration(messageLike, source, contextLike),
   handleXbrainStateApi,
   handleXbrainAuthStatusApi,
   handleXbrainAuthStartApi,
@@ -4700,8 +4700,8 @@ function getLegacyChatFacadeService() {
   legacyChatFacadeService = createChatLegacyFacadeService({
     buildLayeredMemoryBundleImpl: (queryText) => buildLayeredMemoryBundle(queryText),
     resolveCapabilityAdapterImpl: (optionsLike) => resolveCapabilityAdapter(optionsLike),
-    handleNaturalLanguageToolOrchestrationImpl: (messageLike, source) =>
-      handleNaturalLanguageToolOrchestration(messageLike, source),
+    handleNaturalLanguageToolOrchestrationImpl: (messageLike, source, contextLike) =>
+      handleNaturalLanguageToolOrchestration(messageLike, source, contextLike),
     handleChatApiImpl: (req, res) => handleChatApi(req, res),
   });
   return legacyChatFacadeService;
@@ -4715,8 +4715,12 @@ async function executeStrategyToolCalls(toolCallsLike = [], source = 'dashboard'
   return getChatToolOrchestrationService().executeStrategyToolCalls(toolCallsLike, source, rawMessage);
 }
 
-async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard') {
-  return getChatToolOrchestrationService().handleNaturalLanguageToolOrchestration(messageLike, source);
+async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard', contextLike = {}) {
+  return getChatToolOrchestrationService().handleNaturalLanguageToolOrchestration(
+    messageLike,
+    source,
+    contextLike,
+  );
 }
 
 function strategyArtifactToAction(recordLike) {
@@ -8947,8 +8951,8 @@ function setupConversationRuntime() {
       runOpenClawChat,
       buildTradingContext,
       buildLayeredMemoryBundle: (queryText) => chatFacade.buildLayeredMemoryBundle(queryText),
-      handleNaturalLanguageToolOrchestration: (messageLike, source) =>
-        chatFacade.handleNaturalLanguageToolOrchestration(messageLike, source),
+      handleNaturalLanguageToolOrchestration: (messageLike, source, contextLike) =>
+        chatFacade.handleNaturalLanguageToolOrchestration(messageLike, source, contextLike),
       executeStrategyToolCalls,
       buildMcpStyleToolManifest,
       checkMcpBridgeConnectivity,

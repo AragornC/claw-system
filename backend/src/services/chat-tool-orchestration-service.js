@@ -151,14 +151,20 @@ export function createChatToolOrchestrationService(depsLike = {}) {
     return { summaries, actions, toolResults };
   }
 
-  async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard') {
+  async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard', contextLike = {}) {
     const message = toText(messageLike);
     if (!message) return { handled: false };
     if (/^(\/|记忆状态|工件状态|使用工件|反馈工件|反馈\s)/i.test(message)) return { handled: false };
+    const context = toObject(contextLike);
     try {
       const memoryBundle = buildLayeredMemoryBundle(message);
       const trading = buildTradingContext(
-        { currentView: 'dashboard', userIntentHint: 'tool-router:' + source },
+        {
+          currentView: toText(context.currentView || 'dashboard'),
+          sessionKey: toText(context.sessionKey || ''),
+          sessionPreview: Array.isArray(context.sessionPreview) ? context.sessionPreview.slice(-12) : [],
+          userIntentHint: 'tool-router:' + source,
+        },
         memoryBundle,
       );
       const maxSteps = 3;
@@ -205,34 +211,11 @@ export function createChatToolOrchestrationService(depsLike = {}) {
       }
       const parts = replies.concat(allSummaries);
       const reply = parts.filter(Boolean).join('\n\n').trim();
-      const replyPayload = {
+      return {
         handled: Boolean(reply),
         reply: reply || '已处理你的请求。',
         actions: allActions,
       };
-      if (!replyPayload.handled) {
-        const lower = message.toLowerCase();
-        if (/(新闻|消息面|宏观|事件|headline|news)/i.test(lower) && /(影响|情绪|risk|风险|波动)/i.test(lower)) {
-          const assetMatch = message.match(/\b(BTC|ETH|SOL|BNB|XRP|DOGE)\b/i);
-          const fallbackExec = await executeStrategyToolCalls(
-            [{
-              tool: 'get_market_news_impact',
-              arguments: { asset: assetMatch ? String(assetMatch[1]).toUpperCase() : 'BTC', q: '', limit: 6 },
-            }],
-            source,
-            message,
-          );
-          const fbReply = (fallbackExec.summaries || []).join('\n\n').trim();
-          if (fbReply) {
-            return {
-              handled: true,
-              reply: fbReply,
-              actions: Array.isArray(fallbackExec.actions) ? fallbackExec.actions : [],
-            };
-          }
-        }
-      }
-      return replyPayload;
     } catch {
       return { handled: false };
     }

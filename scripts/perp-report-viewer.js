@@ -5894,26 +5894,32 @@ ${CHAT_RUNTIME_TRACE_SNIPPET}
           }
           try {
             return await askOpenClaw(q);
-          } catch {
+          } catch (openclawErr) {
+            const openclawMsg = String(openclawErr?.message || openclawErr || '').trim();
             try {
               const out = await askDeepSeekDirect(q);
               return { ...out, source: 'deepseek' };
             } catch (deepseekErr) {
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
-                setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
-                const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
-                if (localTask) return localTask;
+                setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
                 return {
-                  reply: localAnswer(q) + '\\n\\n提示：当前是手机/静态部署场景，可发送：/deepseek sk-你的key 绑定后直连模型。',
+                  reply:
+                    'OpenClaw 网关当前不可用，且未绑定 DeepSeek Key。\\n' +
+                    '请先检查服务状态，或发送：/deepseek sk-你的key 绑定后再试。',
                   actions: [],
-                  source: 'local_fallback',
+                  source: 'gateway_unavailable',
                 };
               }
-              setAiLinkStatus('warn', 'AI离线(本地兜底)');
-              const localTask = runLocalTaskExecutor(q) || runHighWinRateTask(q);
-              if (localTask) return localTask;
-              return { reply: localAnswer(q), actions: [], source: 'local_fallback' };
+              setAiLinkStatus('warn', 'OpenClaw/DeepSeek 均离线');
+              return {
+                reply:
+                  '模型链路不可用：' +
+                  String(openclawMsg || msg || 'unknown_error') +
+                  '\\n请检查 OpenClaw 网关与 DeepSeek 配置。',
+                actions: [],
+                source: 'gateway_unavailable',
+              };
             }
           }
         }
@@ -5938,41 +5944,20 @@ ${CHAT_RUNTIME_TRACE_SNIPPET}
             const traceText = formatExecutionTraceLocal(result?.executionTrace);
             const traceNote = traceText ? ('\\n\\n执行轨迹：\\n' + traceText) : '';
             const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '') + traceNote;
-            const source = String(result?.source || '');
-            if (source !== 'openclaw') {
-              setRowTextWithTypewriter(thinking, finalText, {
-                enabled: true,
-                tickMs: 13,
-                maxDurationMs: 2400,
-                onDone: function() { finishRowPendingState(thinking); },
-              });
-              attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
-              appendLocalChatLog({
-                ts: new Date().toISOString(),
-                role: 'bot',
-                source: 'dashboard',
-                text: finalText,
-              });
-            } else {
-              if (actionNote) {
-                const taskText = '执行结果：' + actionNote;
-                setRowTextWithTypewriter(thinking, taskText, {
-                  enabled: true,
-                  tickMs: 13,
-                  maxDurationMs: 2000,
-                  onDone: function() { finishRowPendingState(thinking); },
-                });
-                attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
-                appendLocalChatLog({
-                  ts: new Date().toISOString(),
-                  role: 'bot',
-                  source: 'task',
-                  text: taskText,
-                });
-              } else {
-                try { box.removeChild(thinking); } catch (_) {}
-              }
-            }
+            const source = String(result?.source || 'dashboard');
+            setRowTextWithTypewriter(thinking, finalText, {
+              enabled: true,
+              tickMs: 13,
+              maxDurationMs: 2400,
+              onDone: function() { finishRowPendingState(thinking); },
+            });
+            attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
+            appendLocalChatLog({
+              ts: new Date().toISOString(),
+              role: 'bot',
+              source: source,
+              text: finalText,
+            });
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,

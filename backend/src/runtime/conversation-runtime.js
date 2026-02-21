@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { createAuditLog } from './audit-log.js';
 import { createApprovalGate } from './approval-gate.js';
 import { createMemoryManager } from './memory-manager.js';
@@ -52,13 +54,6 @@ function parseTaskIntent(messageLike = '') {
     if (!tool) return null;
     return { tool, args: safeObj(args), title: `task:${tool}` };
   }
-  if (/^(创建任务|run task)(?:\s|$)/i.test(message)) {
-    return {
-      tool: 'get_market_news_impact',
-      args: { limit: 6 },
-      title: 'task:get_market_news_impact',
-    };
-  }
   return null;
 }
 
@@ -87,13 +82,13 @@ function parseScheduleIntent(messageLike = '') {
     };
   }
 
-  if (/^(创建定时|创建调度|定时任务)(?:\s|$)/i.test(message)) {
-    const remain = message.replace(/^(创建定时|创建调度|定时任务)\s*/i, '');
+  const mCn = message.match(/^(?:创建定时|创建调度|定时任务)\s+(.+)$/i);
+  if (mCn) {
     return {
       tool: 'get_market_news_impact',
       args: { limit: 5 },
       title: 'scheduled:get_market_news_impact',
-      scheduleText: text(remain || message),
+      scheduleText: text(mCn[1]),
     };
   }
 
@@ -218,6 +213,33 @@ export function createConversationRuntime(options = {}) {
   if (ownsScheduler || options.startScheduler === true) {
     schedulerRuntime.start?.();
   }
+  const learningPath = path.resolve(workspaceDir, 'memory/runtime-learning.md');
+
+  function rememberConversation(sessionKeyLike, userTextLike, assistantTextLike, sourceLike = 'runtime') {
+    const userText = text(userTextLike);
+    const assistantText = text(assistantTextLike);
+    if (!userText || !assistantText) return;
+    const sessionKey = text(sessionKeyLike || 'dashboard:main');
+    const source = text(sourceLike || 'runtime');
+    try {
+      fs.mkdirSync(path.dirname(learningPath), { recursive: true });
+      const line =
+        '\n## ' +
+        nowIso() +
+        ' [' +
+        source +
+        ']' +
+        '\n- session: ' +
+        sessionKey +
+        '\n- user: ' +
+        userText.replace(/\n+/g, ' ') +
+        '\n- assistant: ' +
+        assistantText.replace(/\n+/g, ' ') +
+        '\n';
+      fs.appendFileSync(learningPath, line, 'utf8');
+      emitAudit('memory.remember.turn', { sessionKey, source, path: learningPath });
+    } catch {}
+  }
 
   async function handleChatApi(req, res) {
     if (String(req.method || 'GET').toUpperCase() !== 'POST') {
@@ -258,6 +280,7 @@ export function createConversationRuntime(options = {}) {
         ? memoryHits.map((x, i) => `${i + 1}. ${x.path}#L${x.startLine} ${x.snippet}`).join('\n')
         : '未检索到相关记忆。';
       sessionManager.appendEvent?.(sessionKey, { type: 'memory', stage: 'search', detail: reply });
+      rememberConversation(sessionKey, message, reply, 'runtime-memory');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
@@ -274,10 +297,12 @@ export function createConversationRuntime(options = {}) {
       const from = Number(m?.[2] || 1) || 1;
       const lines = Number(m?.[3] || 120) || 120;
       const out = memoryManager.get(targetPath, from, lines);
+      const reply = out.text || '记忆文件为空或不存在。';
+      rememberConversation(sessionKey, message, reply, 'runtime-memory');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
-        reply: out.text || '记忆文件为空或不存在。',
+        reply,
         actions: [],
         executionTrace,
         meta: {
@@ -290,13 +315,58 @@ export function createConversationRuntime(options = {}) {
 
     if (/^(reset session|会话重置)(?:\s|$)/i.test(message)) {
       const next = sessionManager.reset(sessionKey);
+      const reply = `会话已重置：${next.key}`;
+      rememberConversation(sessionKey, message, reply, 'runtime-session');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
-        reply: `会话已重置：${next.key}`,
+        reply,
         actions: [],
         executionTrace,
         meta: { sessionKey: next.key },
+      });
+      return;
+    }
+
+    const memoryBundle = memoryManager.buildBundle(message);
+    const sessionPreview = Array.isArray(session?.events)
+      ? session.events.slice(-10).map((x) => ({
+          ts: x?.ts || null,
+          type: x?.type || null,
+          detail: text(x?.detail || x?.text || ''),
+        }))
+      : [];
+    const trading = buildTradingContext(
+      {
+        ...clientContext,
+        sessionKey,
+        sessionPreview,
+      },
+      memoryBundle,
+    );
+
+    const routed = await handleNaturalLanguageToolOrchestration(
+      message,
+      String(clientContext.source || 'dashboard'),
+      {
+        currentView: String(clientContext.currentView || 'dashboard'),
+        sessionKey,
+        sessionPreview,
+      },
+    );
+    if (routed?.handled) {
+      executionTrace.push(trace('tool_router', 'handled=true'));
+      const reply = text(routed.reply || routed.summary || '') || '已处理';
+      sessionManager.appendEvent?.(sessionKey, { type: 'tool_router', role: 'bot', detail: reply });
+      appendChatHistoryEvent({ source: String(routed.source || 'runtime'), role: 'bot', direction: 'outbound', text: reply });
+      rememberConversation(sessionKey, message, reply, String(routed.source || 'runtime'));
+      sendJson(res, 200, {
+        ok: true,
+        source: String(routed.source || 'runtime'),
+        reply,
+        actions: Array.isArray(routed.actions) ? routed.actions : [],
+        contextDigest: trading?.digest || null,
+        executionTrace,
       });
       return;
     }
@@ -332,6 +402,7 @@ export function createConversationRuntime(options = {}) {
       const reply = formatTaskReply(out);
       sessionManager.appendEvent?.(sessionKey, { type: 'task', role: 'bot', detail: reply });
       appendChatHistoryEvent({ source: 'runtime', role: 'bot', direction: 'outbound', text: reply });
+      rememberConversation(sessionKey, message, reply, 'runtime-task');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
@@ -378,6 +449,7 @@ export function createConversationRuntime(options = {}) {
       }
       const reply = `已创建调度任务：${job.id}（${job.scheduleText || job.scheduleSpec?.expr || 'unknown'}）`;
       sessionManager.appendEvent?.(sessionKey, { type: 'scheduler', stage: 'created', detail: reply });
+      rememberConversation(sessionKey, message, reply, 'runtime-scheduler');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
@@ -389,33 +461,15 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    const memoryBundle = memoryManager.buildBundle(message);
-    const trading = buildTradingContext(clientContext, memoryBundle);
-
-    const routed = await handleNaturalLanguageToolOrchestration(message, String(clientContext.source || 'dashboard'));
-    if (routed?.handled) {
-      executionTrace.push(trace('tool_router', 'handled=true'));
-      const reply = text(routed.reply || routed.summary || '') || '已处理';
-      sessionManager.appendEvent?.(sessionKey, { type: 'tool_router', role: 'bot', detail: reply });
-      appendChatHistoryEvent({ source: String(routed.source || 'runtime'), role: 'bot', direction: 'outbound', text: reply });
-      sendJson(res, 200, {
-        ok: true,
-        source: String(routed.source || 'runtime'),
-        reply,
-        actions: Array.isArray(routed.actions) ? routed.actions : [],
-        contextDigest: trading?.digest || null,
-        executionTrace,
-      });
-      return;
-    }
-
     const approved = approvalGate.evaluate({ action: 'chat.model.invoke', summary: message });
     executionTrace.push(trace('approval', `chat:${approved.reason}`, { approvalId: approved.approvalId || null }));
     if (!approved.allowed) {
+      const blockedReply = `请求被安全策略拦截：${approved.reason}`;
+      rememberConversation(sessionKey, message, blockedReply, 'runtime-approval');
       sendJson(res, 200, {
         ok: true,
         source: 'runtime',
-        reply: `请求被安全策略拦截：${approved.reason}`,
+        reply: blockedReply,
         actions: [],
         executionTrace,
         meta: { approvalId: approved.approvalId || null },
@@ -428,6 +482,7 @@ export function createConversationRuntime(options = {}) {
       const reply = text(out?.reply) || '模型暂无回复。';
       sessionManager.appendEvent?.(sessionKey, { type: 'chat', role: 'bot', detail: reply });
       appendChatHistoryEvent({ source: 'openclaw', role: 'bot', direction: 'outbound', text: reply });
+      rememberConversation(sessionKey, message, reply, 'openclaw');
       sendJson(res, 200, {
         ok: true,
         source: 'openclaw',
@@ -440,6 +495,7 @@ export function createConversationRuntime(options = {}) {
     } catch (err) {
       const messageText = text(err?.message || err) || 'model_invoke_failed';
       sessionManager.appendEvent?.(sessionKey, { type: 'chat', role: 'bot', detail: `调用失败：${messageText}` });
+      rememberConversation(sessionKey, message, `调用失败：${messageText}`, 'openclaw-error');
       sendJson(res, 502, {
         ok: false,
         source: 'openclaw',
