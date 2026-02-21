@@ -69,6 +69,10 @@ import {
   SUPPORTED_TIMEFRAMES,
 } from '../frontend/src/modules/chat/config.js';
 import { CHAT_API_ROUTES, CHAT_DEFAULTS } from '../frontend/src/modules/chat/config.js';
+import {
+  normalizeExecutionTrace,
+  formatExecutionTrace,
+} from '../frontend/src/modules/chat/trace.js';
 
 const XSEA_SEED = XSEA_SEED_DEF.map((item) => ({
   ...item,
@@ -1924,6 +1928,8 @@ const HTML = `<!DOCTYPE html>
     const requestXbrainModelSwitch = ${requestXbrainModelSwitch.toString()};
     const buildXbrainFlowDeps = ${buildXbrainFlowDeps.toString()};
     const createXbrainFlowHelpers = ${createXbrainFlowHelpers.toString()};
+    const normalizeExecutionTrace = ${normalizeExecutionTrace.toString()};
+    const formatExecutionTraceLocal = ${formatExecutionTrace.toString()};
     const XSEA_SEED = ${JSON.stringify(XSEA_SEED)};
     const XBRAIN_MODEL_OPTIONS = {
       deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
@@ -4715,23 +4721,7 @@ const HTML = `<!DOCTYPE html>
           if (state === 'warn') aiLinkStatusEl.classList.add('warn');
           aiLinkStatusEl.textContent = text;
         }
-        function formatExecutionTraceLocal(traceLike) {
-          const trace = Array.isArray(traceLike) ? traceLike : [];
-          if (!trace.length) return '';
-          const lines = [];
-          trace.slice(0, 12).forEach(function(item, idx) {
-            const row = item && typeof item === 'object' ? item : null;
-            if (!row) return;
-            const step = String(row.step || 'step');
-            const summary = String(row.summary || '').trim();
-            const ts = String(row.ts || '').trim();
-            if (summary && ts) lines.push(String(idx + 1) + ') ' + step + ': ' + summary + ' @ ' + ts);
-            else if (summary) lines.push(String(idx + 1) + ') ' + step + ': ' + summary);
-            else if (ts) lines.push(String(idx + 1) + ') ' + step + ': ' + ts);
-            else lines.push(String(idx + 1) + ') ' + step);
-          });
-          return lines.join('\n');
-        }
+        // formatExecutionTraceLocal 来自 frontend/src/modules/chat/trace.js
         const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
         const DEEPSEEK_MODEL = 'deepseek-chat';
         function readDeepSeekKey() {

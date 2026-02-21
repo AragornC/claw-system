@@ -16,6 +16,18 @@ export const CHAT_API_ROUTES = Object.freeze({
   aiHealth: '/api/ai/health',
 });
 
+/** OpenClaw 风格运行时 API（会话 / 任务 / 调度）由后端能力驱动 */
+export const RUNTIME_API_ROUTES = Object.freeze({
+  sessions: '/api/runtime/sessions',
+  tasks: '/api/runtime/tasks',
+  tasksRetry: '/api/runtime/tasks/retry',
+  schedules: '/api/runtime/schedules',
+  schedulesPatch: '/api/runtime/schedules/patch',
+  schedulesDelete: '/api/runtime/schedules/delete',
+  toolsManifest: '/api/runtime/tools/manifest',
+  toolsBridgeCheck: '/api/runtime/tools/bridge-check',
+});
+
 export const CHAT_DEFAULTS = Object.freeze({
   historyPollMs: 1200,
   historyLimit: 220,

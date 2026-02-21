@@ -416,11 +416,11 @@ serveApiDeps = buildServeApiDeps({
   },
   handleRuntimeSchedulesPatchApi: async (req, res) => {
     if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
-    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules/patch' });
   },
   handleRuntimeSchedulesDeleteApi: async (req, res) => {
     if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
-    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules/delete' });
   },
   legacyHandleConfigChatApi: handleConfigChatApi,
   legacyHandleChatApi: handleChatApi,

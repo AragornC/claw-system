@@ -72,5 +72,11 @@ export async function handleChatRoute(url, req, res, deps) {
     }
     return true;
   }
+  if (pathname.startsWith('/api/runtime/')) {
+    if (typeof d.runtimeHandleRoute === 'function') {
+      const handled = await d.runtimeHandleRoute(url, req, res);
+      if (handled) return true;
+    }
+  }
   return false;
 }
