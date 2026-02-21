@@ -10,6 +10,70 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  MANIFEST,
+  SERVICE_WORKER_JS,
+  APP_ICON_SVG,
+  APP_ICON_MASKABLE_SVG,
+} from '../frontend/src/viewer/pwa-assets.js';
+import {
+  VIEW_TITLE_MAP,
+  VIEW_SUBTITLE_MAP,
+} from '../frontend/src/modules/app/view-meta.js';
+import { VIEW_ALIAS_MAP } from '../frontend/src/modules/app/view-aliases.js';
+import {
+  XSEA_POSTS_KEY as XSEA_POSTS_KEY_DEF,
+  XSEA_SELECTED_KEY as XSEA_SELECTED_KEY_DEF,
+  XSEA_PROMPT_HEADER,
+  XSEA_PROMPT_TAIL,
+  XSEA_SEED as XSEA_SEED_DEF,
+} from '../frontend/src/modules/xsea/config.js';
+import {
+  normalizeXseaPostsList,
+  normalizeXseaSelected,
+  buildXseaPromptText,
+} from '../frontend/src/modules/xsea/runtime.js';
+import {
+  buildXseaSelectedHtml,
+  buildXseaFeedHtml,
+  applyXseaFeedAction,
+} from '../frontend/src/modules/xsea/presenter.js';
+import {
+  shouldSeedXseaPosts,
+  createXseaPostDraft,
+  resolveXseaAiTarget,
+  prependXseaPost,
+  buildXseaActionPersistencePlan,
+  parseXseaFeedClickEvent,
+  readXseaFormFields,
+} from '../frontend/src/modules/xsea/controller.js';
+import {
+  buildXbrainStateUrl,
+  requestXbrainJson,
+  requestXbrainState,
+  requestXbrainAuthStatus,
+  requestXbrainAuthStart,
+  requestXbrainModelSwitch,
+  buildXbrainFlowDeps,
+  createXbrainFlowHelpers,
+} from '../frontend/src/modules/xbrain/index.js';
+import {
+  CHAT_API,
+  CONFIG_CHAT_API,
+  CHAT_HISTORY_API,
+  CHAT_POLL_INTERVAL_MS,
+  CHAT_TYPEWRITER_TICK_MS,
+  CHAT_TYPEWRITER_MAX_MS,
+  CHAT_LOG_MAX as CHAT_LOG_MAX_DEFAULT,
+  SUPPORTED_STRATEGIES,
+  SUPPORTED_TIMEFRAMES,
+} from '../frontend/src/modules/chat/config.js';
+import { CHAT_API_ROUTES, CHAT_DEFAULTS } from '../frontend/src/modules/chat/config.js';
+
+const XSEA_SEED = XSEA_SEED_DEF.map((item) => ({
+  ...item,
+  createdAt: new Date(Date.now() + Number(item.createdAtOffsetHours || 0) * 3600 * 1000).toISOString(),
+}));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
@@ -174,7 +238,13 @@ const HTML = `<!DOCTYPE html>
       display: inline-flex;
       align-items: center;
     }
+    .model-switch-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
     .symbol-switch-wrap.hidden { display: none; }
+    .model-switch-wrap.hidden { display: none; }
     .symbol-switch-toggle {
       border: 1px solid var(--border);
       border-radius: 999px;
@@ -202,6 +272,7 @@ const HTML = `<!DOCTYPE html>
       z-index: 260;
     }
     .symbol-switch-popover.hidden { display: none; }
+    .model-switch-popover.hidden { display: none; }
     .symbol-option {
       border: 1px solid transparent;
       border-radius: 8px;
@@ -214,6 +285,43 @@ const HTML = `<!DOCTYPE html>
     }
     .symbol-option:hover { background: rgba(88,166,255,0.12); border-color: rgba(88,166,255,0.35); }
     .symbol-option.active { border-color: rgba(88,166,255,0.58); color: #79c0ff; background: rgba(88,166,255,0.12); }
+    .model-option.current {
+      cursor: default;
+      opacity: 0.92;
+      border-style: dashed;
+    }
+    .model-switch-group {
+      margin: 2px 2px 4px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.2px;
+    }
+    .model-switch-grid {
+      display: grid;
+      grid-template-columns: 120px minmax(160px, 1fr);
+      gap: 6px;
+      min-width: 320px;
+    }
+    .model-provider-col, .model-model-col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .model-provider-option {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.2);
+      color: var(--text);
+      font-size: 0.7rem;
+      padding: 6px 8px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .model-provider-option.active {
+      border-color: rgba(88,166,255,0.58);
+      color: #79c0ff;
+      background: rgba(88,166,255,0.12);
+    }
     .feature-sidebar {
       width: var(--sidebar-width);
       overflow: hidden auto;
@@ -250,8 +358,6 @@ const HTML = `<!DOCTYPE html>
       background:
         linear-gradient(90deg, rgba(6,7,18,0.78) 0%, rgba(6,7,18,0.46) 44%, rgba(6,7,18,0.2) 100%),
         url('https://youke.xn--y7xa690gmna.cn/s1/2026/02/13/698ea1d9dd4f6.webp') center / cover no-repeat,
-        url('./thunderclaw-feature.webp') center / cover no-repeat,
-        url('./thunderclaw-feature.jpg') center / cover no-repeat,
         linear-gradient(135deg, rgba(77,17,12,0.95), rgba(18,8,27,0.95));
     }
     .feature-menu-btn.feature-thunder .k {
@@ -367,6 +473,7 @@ const HTML = `<!DOCTYPE html>
       box-shadow: 0 6px 22px rgba(0,0,0,0.35);
     }
     .global-back-btn.hidden { display: none; }
+    .hidden { display: none !important; }
     .global-back-btn:hover { border-color: rgba(88,166,255,0.72); color: var(--text); }
     .assistant-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .backtest-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -406,6 +513,43 @@ const HTML = `<!DOCTYPE html>
     #bt-trades-table th { color: var(--muted); font-weight: 600; }
     #bt-trades-table .pos { color: var(--green); }
     #bt-trades-table .neg { color: var(--red); }
+    .strategy-lab-wrap { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .strategy-lab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .strategy-lab-title { font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    .strategy-lab-sub { font-size: 0.7rem; color: var(--muted); }
+    .strategy-lab-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .strategy-lab-tab-btn {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.18);
+      color: var(--muted);
+      font-size: 0.72rem;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .strategy-lab-tab-btn.active { border-color: rgba(88,166,255,0.66); color: #79c0ff; background: rgba(88,166,255,0.16); }
+    .strategy-lab-panel { display: none; }
+    .strategy-lab-panel.active { display: block; }
+    .strategy-lab-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .strategy-lab-card { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.14); padding: 8px; }
+    .strategy-lab-card h4 { margin: 0 0 6px; font-size: 0.76rem; color: var(--text); }
+    .strategy-lab-form { display: grid; gap: 6px; }
+    .strategy-lab-form textarea, .strategy-lab-form input, .strategy-lab-form select {
+      width: 100%; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); padding: 7px 8px; font-size: 0.74rem;
+    }
+    .strategy-lab-form textarea { min-height: 68px; resize: vertical; }
+    .strategy-lab-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .strategy-lab-actions button { border: 1px solid rgba(88,166,255,0.5); border-radius: 8px; background: rgba(88,166,255,0.15); color: #79c0ff; padding: 6px 10px; font-size: 0.72rem; cursor: pointer; }
+    .strategy-lab-actions .ghost { border-color: var(--border); color: var(--muted); background: rgba(0,0,0,0.16); }
+    .strategy-lab-status { font-size: 0.7rem; color: var(--muted); min-height: 18px; }
+    .strategy-lab-status.ok { color: var(--green); }
+    .strategy-lab-status.err { color: var(--red); }
+    .strategy-feature-list, .strategy-version-list { display: grid; gap: 6px; max-height: 300px; overflow: auto; }
+    .strategy-feature-item, .strategy-version-item { border: 1px solid var(--border); border-radius: 8px; padding: 6px 7px; background: rgba(0,0,0,0.12); }
+    .strategy-feature-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
+    .strategy-feature-item .meta, .strategy-version-item .meta { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
+    .strategy-version-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
+    .strategy-version-item .score { color: #7ee787; font-size: 0.69rem; font-weight: 600; margin-top: 3px; }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
     .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -444,9 +588,36 @@ const HTML = `<!DOCTYPE html>
     .ai-quick-btn { border: 1px dashed var(--border); border-radius: 999px; background: rgba(0,0,0,0.18); color: var(--muted); font-size: 0.68rem; padding: 3px 9px; cursor: pointer; }
     .ai-quick-btn:hover { border-color: rgba(88,166,255,0.6); color: #58a6ff; }
     .ai-chat-box { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.16); padding: 8px; min-height: 180px; max-height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-    .ai-msg { max-width: min(90%, 760px); border-radius: 10px; padding: 7px 9px; font-size: 0.74rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
-    .ai-msg.user { align-self: flex-end; background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
-    .ai-msg.bot { align-self: flex-start; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
+    .ai-msg-row { max-width: min(52%, 760px); display: flex; flex-direction: column; gap: 3px; }
+    .ai-msg-row.user { align-self: flex-end; align-items: flex-end; }
+    .ai-msg-row.bot { align-self: flex-start; align-items: flex-start; }
+    .ai-msg { border-radius: 10px; padding: 7px 9px; font-size: 0.74rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+    .ai-msg.user { background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
+    .ai-msg.bot { background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
+    .ai-msg-row.bot.pending .ai-msg.bot {
+      border-style: dashed;
+      border-color: rgba(63,185,80,0.52);
+      background: rgba(63,185,80,0.12);
+      color: #d8f6df;
+    }
+    .ai-msg-text { white-space: pre-wrap; word-break: break-word; }
+    .ai-msg-meta { display: inline-flex; align-items: center; gap: 8px; font-size: 0.66rem; color: var(--muted); opacity: 0.9; padding: 0 2px; margin-bottom: 1px; }
+    .ai-msg-status.sending { color: #79c0ff; }
+    .ai-msg-status.thinking { color: #7ee787; }
+    .ai-msg-status.thinking::after {
+      content: '';
+      display: inline-block;
+      width: 12px;
+      text-align: left;
+      margin-left: 1px;
+      animation: ai-dots 1.1s steps(1, end) infinite;
+    }
+    @keyframes ai-dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75%, 100% { content: '...'; }
+    }
     .ai-input-row { margin-top: 8px; display: flex; gap: 8px; align-items: flex-end; position: relative; }
     .ai-input-row input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); color: var(--text); padding: 8px 10px; font-size: 0.78rem; }
     .ai-input-row .send-btn { border: 1px solid rgba(88,166,255,0.55); border-radius: 8px; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 8px 12px; font-size: 0.76rem; cursor: pointer; }
@@ -501,17 +672,27 @@ const HTML = `<!DOCTYPE html>
     .xbrain-head-title .sub { font-size: 0.68rem; color: var(--muted); }
     .xbrain-lock-wrap { display: inline-flex; align-items: center; gap: 5px; }
     .xbrain-lock-btn {
-      width: 30px;
-      height: 30px;
+      width: 36px;
+      height: 36px;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: rgba(0,0,0,0.22);
       color: var(--muted);
       font-size: 0.9rem;
       cursor: pointer;
+      touch-action: manipulation;
     }
     .xbrain-lock-btn.locked { border-color: rgba(248,81,73,0.52); color: #ffaba8; }
     .xbrain-lock-btn.unlocked { border-color: rgba(63,185,80,0.52); color: #7ee787; }
+    .xbrain-lock-btn.text-mode {
+      width: auto;
+      min-width: 64px;
+      height: 28px;
+      border-radius: 8px;
+      padding: 0 10px;
+      font-size: 0.72rem;
+      line-height: 1;
+    }
     .xbrain-lock-text { font-size: 0.66rem; color: var(--muted); }
     .xbrain-hint { font-size: 0.69rem; color: var(--muted); margin-bottom: 8px; }
     .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
@@ -526,6 +707,259 @@ const HTML = `<!DOCTYPE html>
       outline: none;
     }
     .xbrain-form input:focus, .xbrain-form textarea:focus, .xbrain-form select:focus { border-color: rgba(88,166,255,0.72); }
+    .xbrain-toggle-line { flex-direction: row !important; align-items: center; justify-content: space-between; }
+    .xbrain-toggle-line input[type="checkbox"] { width: 18px; height: 18px; accent-color: #58a6ff; }
+    .xbrain-switch-input {
+      appearance: none;
+      width: 68px !important;
+      height: 24px !important;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(139,148,158,0.24);
+      position: relative;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    .xbrain-switch-input::after {
+      content: '关闭';
+      position: absolute;
+      right: 8px;
+      top: 3px;
+      font-size: 0.62rem;
+      color: #c9d1d9;
+      letter-spacing: 0.2px;
+    }
+    .xbrain-switch-input::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      left: 3px;
+      top: 4px;
+      background: #c9d1d9;
+      transition: transform 140ms ease;
+    }
+    .xbrain-switch-input:checked {
+      background: rgba(63,185,80,0.35);
+      border-color: rgba(63,185,80,0.7);
+    }
+    .xbrain-switch-input:checked::after { content: '开启'; left: 8px; right: auto; color: #7ee787; }
+    .xbrain-switch-input:checked::before { transform: translateX(48px); background: #7ee787; }
+    .xbrain-submodule {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px;
+      background: rgba(0,0,0,0.14);
+      margin-bottom: 8px;
+    }
+    .xbrain-submodule h4 {
+      margin: 0 0 6px;
+      font-size: 0.74rem;
+      color: var(--text);
+    }
+    .xbrain-inline-meta {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.68rem;
+      margin-left: 6px;
+    }
+    .xbrain-model-picker-row {
+      display: block;
+    }
+    .xbrain-model-picker {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+      width: 100%;
+      max-height: 340px;
+      overflow: auto;
+    }
+    .xbrain-model-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 28px;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.16);
+    }
+    .xbrain-model-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(0,0,0,0.22);
+      font-size: 0.67rem;
+    }
+    .xbrain-model-btn {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.24);
+      color: var(--text);
+      font-size: 0.69rem;
+      padding: 8px 10px;
+      cursor: pointer;
+      text-align: left;
+      min-height: 108px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .xbrain-model-btn::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: rgba(139,148,158,0.7);
+    }
+    .xbrain-model-btn.health-ok::before { background: rgba(63,185,80,0.9); }
+    .xbrain-model-btn.health-warn::before { background: rgba(210,153,34,0.9); }
+    .xbrain-model-btn.health-err::before { background: rgba(248,81,73,0.9); }
+    .xbrain-model-btn .name { font-size: 0.74rem; font-weight: 600; color: var(--text); }
+    .xbrain-model-btn .meta { font-size: 0.64rem; color: var(--muted); }
+    .xbrain-model-btn .stamp { font-size: 0.6rem; color: var(--muted); opacity: 0.85; }
+    .xbrain-model-btn .foot {
+      margin-top: auto;
+      width: 100%;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+    }
+    .xbrain-online-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 52px;
+      height: 20px;
+      border-radius: 999px;
+      font-size: 0.62rem;
+      letter-spacing: 0.2px;
+      border: 1px solid var(--border);
+      background: rgba(248,81,73,0.14);
+      color: #ffaba8;
+      cursor: pointer;
+      user-select: none;
+    }
+    .xbrain-online-pill.on {
+      border-color: rgba(63,185,80,0.62);
+      background: rgba(63,185,80,0.22);
+      color: #7ee787;
+    }
+    .xbrain-online-pill.off {
+      border-color: rgba(248,81,73,0.48);
+      background: rgba(248,81,73,0.14);
+      color: #ffaba8;
+    }
+    .xbrain-online-pill.disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .xbrain-model-btn.active {
+      border-color: rgba(88,166,255,0.72);
+      color: #79c0ff;
+      background: rgba(88,166,255,0.12);
+    }
+    .xbrain-model-btn.active .name { color: #79c0ff; }
+    .xbrain-model-btn.connected {
+      border-color: rgba(63,185,80,0.6);
+      box-shadow: 0 0 0 1px rgba(63,185,80,0.18) inset;
+    }
+    .xbrain-model-btn.disconnected {
+      border-color: rgba(248,81,73,0.45);
+      color: #ffaba8;
+    }
+    .xbrain-model-btn.disconnected .name { color: #ffaba8; }
+    .xbrain-model-btn .close {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 1px solid rgba(248,81,73,0.55);
+      background: rgba(248,81,73,0.14);
+      color: #ffaba8;
+      font-size: 0.62rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .xbrain-model-btn .close:hover { background: rgba(248,81,73,0.24); }
+    .xbrain-model-add {
+      min-height: 108px;
+      border-radius: 10px;
+      border: 1px dashed rgba(139,148,158,0.72);
+      background: rgba(0,0,0,0.12);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .xbrain-model-add:hover {
+      border-color: rgba(88,166,255,0.72);
+      color: #79c0ff;
+      background: rgba(88,166,255,0.08);
+    }
+    .xbrain-oauth-box {
+      border: 1px dashed rgba(88,166,255,0.45);
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,0.18);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.69rem;
+      color: var(--muted);
+      position: relative;
+    }
+    .xbrain-oauth-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .xbrain-oauth-badges {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }
+    .xbrain-oauth-badges .timeline-tag {
+      font-size: 0.56rem;
+      padding: 1px 5px;
+      border-radius: 999px;
+    }
+    .xbrain-secret-wrap { display: flex; align-items: center; gap: 6px; }
+    .xbrain-secret-wrap input { flex: 1; min-width: 0; }
+    .xbrain-eye-btn {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.24);
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1;
+      padding: 7px 10px;
+      cursor: pointer;
+      min-width: 42px;
+    }
+    .xbrain-eye-btn.on { color: #79c0ff; border-color: rgba(88,166,255,0.62); }
     .xbrain-row { display: flex; gap: 6px; flex-wrap: wrap; }
     .xbrain-row > * { flex: 1 1 120px; }
     .xbrain-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -544,6 +978,63 @@ const HTML = `<!DOCTYPE html>
     .xbrain-status { margin-top: 8px; font-size: 0.68rem; color: var(--muted); min-height: 18px; }
     .xbrain-status.ok { color: #7ee787; }
     .xbrain-status.err { color: #ffaba8; }
+    .xbrain-probe-modal.hidden { display: none; }
+    .xbrain-probe-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 550;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+    }
+    .xbrain-probe-modal-card {
+      width: min(560px, 94vw);
+      max-height: 82vh;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      box-shadow: 0 18px 48px rgba(0,0,0,0.45);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .xbrain-probe-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .xbrain-probe-title { font-size: 0.8rem; color: var(--text); font-weight: 700; }
+    .xbrain-probe-close {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.22);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.7rem;
+      padding: 4px 8px;
+    }
+    .xbrain-probe-steps { display: flex; flex-direction: column; gap: 6px; }
+    .xbrain-probe-step {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 0.69rem;
+      color: var(--muted);
+      background: rgba(0,0,0,0.16);
+    }
+    .xbrain-probe-step.pending { border-color: rgba(88,166,255,0.5); color: #79c0ff; }
+    .xbrain-probe-step.ok { border-color: rgba(63,185,80,0.48); color: #7ee787; }
+    .xbrain-probe-step.err { border-color: rgba(248,81,73,0.5); color: #ffaba8; }
+    .xbrain-probe-step .ts {
+      opacity: 0.75;
+      margin-right: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
     .chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .chart-header .meta { color: var(--muted); font-size: 0.875rem; margin: 0; }
     .chart-header .meta.ok { color: var(--green); }
@@ -713,6 +1204,52 @@ const HTML = `<!DOCTYPE html>
     .empty { text-align: center; padding: 24px; color: var(--muted); }
     .load-error { color: var(--red); padding: 16px; }
     .load-error pre { font-size: 0.75rem; margin-top: 8px; }
+    body.app-booting .app-shell { visibility: hidden; }
+    .app-boot-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 20% 20%, rgba(88,166,255,0.12), transparent 42%), #0f1419;
+      padding: 20px;
+    }
+    .app-boot-overlay.hidden { display: none; }
+    .app-boot-card {
+      width: min(560px, 92vw);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(26,35,50,0.92);
+      box-shadow: 0 12px 36px rgba(0,0,0,0.45);
+      padding: 18px 16px;
+    }
+    .app-boot-title { font-size: 1rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .app-boot-subtitle { font-size: 0.76rem; color: var(--muted); margin-bottom: 10px; }
+    .app-boot-progress-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(139,148,158,0.22);
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .app-boot-progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(88,166,255,0.75), rgba(63,185,80,0.88));
+      transition: width 220ms ease;
+    }
+    .app-boot-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.74rem;
+      color: var(--text);
+    }
+    .app-boot-detail { margin-top: 6px; font-size: 0.7rem; color: var(--muted); min-height: 1.1em; }
     /* Chat-first layout (Telegram-like) */
     body { padding: 0; min-height: 100dvh; overflow: auto; }
     .app-shell { max-width: none; margin: 0; min-height: 100dvh; height: 100dvh; display: flex; flex-direction: row; overflow-x: hidden; }
@@ -748,6 +1285,7 @@ const HTML = `<!DOCTYPE html>
       .panel-card { padding: 9px; border-radius: 10px; }
       #view-dashboard .ai-chat-wrap { padding: 8px; }
       #view-dashboard .ai-chat-box { min-height: 52vh; }
+      .ai-msg-row { max-width: 88%; }
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .hero-title-row { margin-bottom: 0; }
@@ -762,6 +1300,7 @@ const HTML = `<!DOCTYPE html>
       .ai-input-row input { font-size: 16px; }
       .backtest-controls { grid-template-columns: 1fr 1fr; }
       .backtest-controls .run-btn { grid-column: 1 / -1; width: 100%; }
+      .strategy-lab-grid { grid-template-columns: 1fr; }
       #orders-table-wrap { display: block; overflow-x: auto; white-space: nowrap; }
       .chart-header { gap: 8px; margin-bottom: 6px; }
       .chart-header .meta { font-size: 0.75rem; line-height: 1.35; }
@@ -796,7 +1335,21 @@ const HTML = `<!DOCTYPE html>
     }
   </style>
 </head>
-<body>
+<body class="app-booting">
+  <div id="app-boot-overlay" class="app-boot-overlay">
+    <div class="app-boot-card">
+      <div class="app-boot-title">系统启动中</div>
+      <div class="app-boot-subtitle">正在加载配置与数据，完成后自动进入主页面</div>
+      <div class="app-boot-progress-track">
+        <div id="app-boot-progress-fill" class="app-boot-progress-fill"></div>
+      </div>
+      <div class="app-boot-line">
+        <span id="app-boot-step-text">准备启动...</span>
+        <span id="app-boot-percent-text">0%</span>
+      </div>
+      <div id="app-boot-detail-text" class="app-boot-detail"></div>
+    </div>
+  </div>
   <div class="app-shell" id="app-shell">
     <aside id="feature-sidebar" class="feature-sidebar">
       <div class="feature-sidebar-inner">
@@ -847,6 +1400,11 @@ const HTML = `<!DOCTYPE html>
               <button class="symbol-option" type="button" data-symbol-code="SOL" data-symbol-label="SOL/USDT">SOL/USDT</button>
             </div>
           </div>
+          <div id="model-switch-wrap" class="model-switch-wrap">
+            <button id="model-switch-toggle" class="symbol-switch-toggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="model-switch-popover">模型 ▾</button>
+            <div id="model-switch-popover" class="symbol-switch-popover model-switch-popover hidden" role="menu"></div>
+          </div>
+          <span id="telegram-link-status" class="ai-link-status toolbar-link-status">Telegram: 检测中</span>
         </div>
         <span id="ai-link-status" class="ai-link-status toolbar-link-status">OpenClaw: 检测中</span>
       </div>
@@ -971,6 +1529,7 @@ const HTML = `<!DOCTYPE html>
           <h2>虾策</h2>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
+        <div id="sl-lab-backtest-core">
         <div class="backtest-controls">
           <label>策略版本
             <select id="bt-strategy">
@@ -1027,6 +1586,74 @@ const HTML = `<!DOCTYPE html>
             <tbody id="bt-trades-tbody"></tbody>
           </table>
         </div>
+        </div>
+        <div class="strategy-lab-wrap">
+          <div class="strategy-lab-head">
+            <div>
+              <div class="strategy-lab-title">虾策实验室（AI Native）</div>
+              <div class="strategy-lab-sub">自然语言调参 -> 生成候选版本 -> 评估打分 -> 持续优化</div>
+            </div>
+          </div>
+          <div class="strategy-lab-tabs">
+            <button id="sl-tab-feature" class="strategy-lab-tab-btn active" type="button" data-sl-tab="feature">交易特征</button>
+            <button id="sl-tab-strategy" class="strategy-lab-tab-btn" type="button" data-sl-tab="strategy">交易策略</button>
+            <button id="sl-tab-lab" class="strategy-lab-tab-btn" type="button" data-sl-tab="lab">策略实验室</button>
+          </div>
+          <div id="sl-panel-feature" class="strategy-lab-panel active">
+            <div class="strategy-lab-card">
+              <h4>交易特征（由 ThunderClaw 对话产出）</h4>
+              <div class="strategy-lab-form">
+                <input id="sl-feature-q" type="text" placeholder="搜索特征（如 adx / atr / 回踩）" />
+                <select id="sl-feature-group">
+                  <option value="">全部分组</option>
+                  <option value="trend">trend</option>
+                  <option value="momentum">momentum</option>
+                  <option value="volatility">volatility</option>
+                  <option value="structure">structure</option>
+                  <option value="risk">risk</option>
+                  <option value="session">session</option>
+                </select>
+                <div id="sl-feature-list" class="strategy-feature-list"></div>
+                <div id="sl-status" class="strategy-lab-status">就绪</div>
+              </div>
+            </div>
+          </div>
+          <div id="sl-panel-strategy" class="strategy-lab-panel">
+            <div class="strategy-lab-card">
+              <h4>交易策略（由 ThunderClaw 对话产出）</h4>
+              <div class="strategy-lab-form">
+                <textarea id="sl-prompt" placeholder="示例：降低回撤并提高胜率，减少假突破，允许交易频率下降。"></textarea>
+                <label>基准版本
+                  <select id="sl-base-version"></select>
+                </label>
+                <div class="strategy-lab-actions">
+                  <button id="sl-propose-btn" type="button">生成候选版本</button>
+                  <button id="sl-refresh-btn" class="ghost" type="button">刷新版本</button>
+                </div>
+                <div id="sl-version-list" class="strategy-version-list"></div>
+              </div>
+            </div>
+          </div>
+          <div id="sl-panel-lab" class="strategy-lab-panel">
+            <div class="strategy-lab-card">
+              <h4>策略实验室（回测任务 + 结果回流）</h4>
+              <div class="strategy-lab-form">
+                <select id="sl-eval-version"></select>
+                <input id="sl-eval-trades" type="number" min="0" step="1" placeholder="交易数（例如 120）" />
+                <input id="sl-eval-winrate" type="number" min="0" max="100" step="0.1" placeholder="胜率（%）" />
+                <input id="sl-eval-pnl" type="number" step="0.1" placeholder="净收益（%）" />
+                <input id="sl-eval-dd" type="number" min="0" step="0.1" placeholder="最大回撤（%）" />
+                <input id="sl-eval-sharpe" type="number" step="0.01" placeholder="Sharpe（可选）" />
+                <input id="sl-eval-pf" type="number" min="0" step="0.01" placeholder="Profit Factor（可选）" />
+                <div class="strategy-lab-actions">
+                  <button id="sl-fill-latest-btn" class="ghost" type="button">用最新回验结果填充</button>
+                  <button id="sl-eval-btn" type="button">写入评估</button>
+                </div>
+                <div id="sl-eval-status" class="strategy-lab-status">未评估</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1063,12 +1690,12 @@ const HTML = `<!DOCTYPE html>
           <h2>虾脑</h2>
           <button class="nav-btn" data-view-target="dashboard" type="button">返回 ThunderClaw</button>
         </div>
-        <div class="app-subtitle" style="margin-bottom:8px;">核心功能：托管 ThunderClaw 整体配置。编辑前请先点击每个模块右上角锁图标解锁。</div>
+        <div class="app-subtitle" style="margin-bottom:8px;">核心功能：托管 ThunderClaw 整体配置。可锁定/解锁基础配置（无需密码）。</div>
         <div class="xbrain-stack">
           <div id="xbrain-section-base" class="xbrain-section locked">
             <div class="xbrain-card-head">
               <div class="xbrain-head-title">
-                <span class="main">A-基础配置</span>
+                <span class="main">基础配置</span>
                 <span class="sub">模型管理 + 交流渠道</span>
               </div>
               <div class="xbrain-lock-wrap">
@@ -1076,47 +1703,86 @@ const HTML = `<!DOCTYPE html>
                 <button id="xbrain-lock-btn-base" class="xbrain-lock-btn locked" type="button" data-xbrain-toggle-lock="base" aria-label="切换基础配置锁">🔒</button>
               </div>
             </div>
-            <div class="xbrain-hint">用于查看当前会话真实模型，并管理模型切换与交流渠道。</div>
-            <div id="xbrain-base-runtime-meta" class="xbrain-hint">当前会话模型：加载中...</div>
-            <form id="xbrain-base-form" class="xbrain-form">
-              <label>模型提供方
-                <select id="xbrain-base-provider">
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="chatgpt">ChatGPT</option>
-                  <option value="codex">Codex</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-              <label>模型 ID
-                <input id="xbrain-base-model" type="text" placeholder="例如 deepseek/deepseek-chat" />
-              </label>
-              <label>交流渠道
-                <select id="xbrain-base-channel">
-                  <option value="dashboard">仅本地看板</option>
-                  <option value="telegram">仅 Telegram</option>
-                  <option value="both">本地 + Telegram</option>
-                </select>
-              </label>
-              <label>Telegram Token（可留空不改）
-                <input id="xbrain-base-telegram-token" type="password" autocomplete="off" placeholder="******" />
-              </label>
-              <label>模块密码（解锁/改密）
-                <input id="xbrain-base-password" type="password" autocomplete="new-password" placeholder="输入后可解锁或更新密码" />
-              </label>
-              <div class="xbrain-actions">
-                <button id="xbrain-save-base" class="primary" type="submit">保存基础配置</button>
-                <button class="neutral" type="button" id="xbrain-base-probe-btn">检测当前模型</button>
-                <button type="button" data-xbrain-lock="base" data-xbrain-action="set_password">设置/更新密码</button>
+            <div class="xbrain-submodule">
+              <h4>模型配置与检测 <span id="xbrain-a1-runtime-badge" class="xbrain-inline-meta">当前 ThunderClaw：加载中...</span></h4>
+              <form id="xbrain-base-model-form" class="xbrain-form">
+                <label>模型厂商
+                  <div class="xbrain-model-picker-row">
+                    <div id="xbrain-model-picker" class="xbrain-model-picker">
+                      <button type="button" class="xbrain-model-btn" data-xbrain-provider="deepseek">DeepSeek</button>
+                      <button type="button" class="xbrain-model-btn" data-xbrain-provider="chatgpt">OpenAI(ChatGPT/Codex)</button>
+                      <button type="button" class="xbrain-model-btn" data-xbrain-provider="anthropic">Anthropic</button>
+                    </div>
+                  </div>
+                  <input id="xbrain-base-provider" type="hidden" value="deepseek" />
+                </label>
+                <label>可用模型
+                  <div id="xbrain-base-model-list" class="xbrain-model-list">加载中...</div>
+                </label>
+                <div id="xbrain-connection-panel" class="xbrain-oauth-box">
+                  <div class="xbrain-oauth-head">
+                    <div id="xbrain-oauth-desc-1">API 配置</div>
+                    <div id="xbrain-oauth-badges" class="xbrain-oauth-badges">
+                      <span id="xbrain-badge-config" class="timeline-tag info">配置待完成</span>
+                      <span id="xbrain-badge-connected" class="timeline-tag info">未连接</span>
+                    </div>
+                  </div>
+                  <div id="xbrain-api-key-row" class="xbrain-secret-wrap">
+                    <input id="xbrain-base-deepseek-key" type="password" autocomplete="off" placeholder="输入 API Key（如 sk-...）" />
+                    <button id="xbrain-base-deepseek-eye" class="xbrain-eye-btn" type="button" aria-label="显示 API Key" title="显示">👁</button>
+                  </div>
+                  <div id="xbrain-oauth-actions" class="xbrain-actions" style="display:none;">
+                    <button id="xbrain-openai-login-btn" class="neutral" type="button">连接账号</button>
+                    <button id="xbrain-openai-disconnect-btn" class="warn" type="button">断开连接</button>
+                  </div>
+                </div>
+                <div id="xbrain-base-auth-meta" class="xbrain-hint">模型鉴权状态：加载中...</div>
+                <div class="xbrain-actions">
+                  <button id="xbrain-save-base-model" class="primary" type="submit">保存建连配置</button>
+                  <button class="neutral" type="button" id="xbrain-base-probe-btn">检测当前模型</button>
+                </div>
+                <div id="xbrain-status-base-model" class="xbrain-status"></div>
+              </form>
+            </div>
+          </div>
+
+          <div id="xbrain-section-channel" class="xbrain-section locked">
+            <div class="xbrain-card-head">
+              <div class="xbrain-head-title">
+                <span class="main">沟通渠道配置</span>
+                <span class="sub">Telegram 连接与通道开关</span>
               </div>
-              <div id="xbrain-status-base" class="xbrain-status"></div>
+              <div class="xbrain-lock-wrap">
+                <span id="xbrain-lock-text-channel" class="xbrain-lock-text">已锁定</span>
+                <button id="xbrain-lock-btn-channel" class="xbrain-lock-btn locked" type="button" data-xbrain-toggle-lock="channel" aria-label="切换沟通渠道配置锁">🔒</button>
+              </div>
+            </div>
+            <form id="xbrain-base-channel-form" class="xbrain-form">
+              <div id="xbrain-channel-status-row" class="xbrain-oauth-badges">
+                <span id="xbrain-badge-tg-config" class="timeline-tag info">Token 未配置</span>
+                <span id="xbrain-badge-tg-conn" class="timeline-tag info">未连接</span>
+                <span id="xbrain-badge-tg-switch" class="timeline-tag info">开关关闭</span>
+              </div>
+              <label>Telegram Token
+                <div class="xbrain-secret-wrap">
+                  <input id="xbrain-base-telegram-token" type="password" autocomplete="off" placeholder="输入 Telegram Bot Token（示例：123456:ABC...）" />
+                  <button id="xbrain-base-telegram-eye" class="xbrain-eye-btn" type="button" aria-label="显示 Telegram Token" title="显示">👁</button>
+                  <button id="xbrain-test-base-channel" class="xbrain-eye-btn" type="button">测试</button>
+                </div>
+              </label>
+              <label class="xbrain-toggle-line">Telegram 开关
+              </label>
+              <div class="xbrain-toggle-line">
+                <input id="xbrain-telegram-enable-toggle" class="xbrain-switch-input" type="checkbox" />
+              </div>
+              <div id="xbrain-status-base-channel" class="xbrain-status"></div>
             </form>
           </div>
 
           <div id="xbrain-section-exchange" class="xbrain-section locked">
             <div class="xbrain-card-head">
               <div class="xbrain-head-title">
-                <span class="main">B-交易配置</span>
+                <span class="main">交易配置</span>
                 <span class="sub">交易 API 管理</span>
               </div>
               <div class="xbrain-lock-wrap">
@@ -1149,7 +1815,7 @@ const HTML = `<!DOCTYPE html>
           <div id="xbrain-section-strategy" class="xbrain-section locked">
             <div class="xbrain-card-head">
               <div class="xbrain-head-title">
-                <span class="main">C-策略管理</span>
+                <span class="main">策略管理</span>
                 <span class="sub">当前 ThunderClaw 使用策略管理</span>
               </div>
               <div class="xbrain-lock-wrap">
@@ -1216,10 +1882,81 @@ const HTML = `<!DOCTYPE html>
     </div>
   </div>
   <button id="global-back-btn" class="global-back-btn hidden" data-view-target="dashboard" type="button">← 返回 ThunderClaw</button>
+  <div id="xbrain-probe-modal" class="xbrain-probe-modal hidden" aria-hidden="true">
+    <div class="xbrain-probe-modal-card">
+      <div class="xbrain-probe-title-row">
+        <div class="xbrain-probe-title">模型检测流程（白盒）</div>
+        <button id="xbrain-probe-close" class="xbrain-probe-close" type="button">关闭</button>
+      </div>
+      <div id="xbrain-probe-steps" class="xbrain-probe-steps"></div>
+    </div>
+  </div>
 
   <script>
+    const REPORT_BUILD_ID = ${JSON.stringify(new Date().toISOString())};
     const TF_CONFIG = ${JSON.stringify(TF_CONFIG)};
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
+    const VIEW_TITLE_MAP = ${JSON.stringify(VIEW_TITLE_MAP)};
+    const VIEW_SUBTITLE_MAP = ${JSON.stringify(VIEW_SUBTITLE_MAP)};
+    const VIEW_ALIAS_MAP = ${JSON.stringify(VIEW_ALIAS_MAP)};
+    const XSEA_POSTS_KEY = ${JSON.stringify(XSEA_POSTS_KEY_DEF)};
+    const XSEA_SELECTED_KEY = ${JSON.stringify(XSEA_SELECTED_KEY_DEF)};
+    const XSEA_PROMPT_HEADER = ${JSON.stringify(XSEA_PROMPT_HEADER)};
+    const XSEA_PROMPT_TAIL = ${JSON.stringify(XSEA_PROMPT_TAIL)};
+    const normalizeXseaPostsList = ${normalizeXseaPostsList.toString()};
+    const normalizeXseaSelected = ${normalizeXseaSelected.toString()};
+    const buildXseaPromptText = ${buildXseaPromptText.toString()};
+    const buildXseaSelectedHtml = ${buildXseaSelectedHtml.toString()};
+    const buildXseaFeedHtml = ${buildXseaFeedHtml.toString()};
+    const applyXseaFeedAction = ${applyXseaFeedAction.toString()};
+    const shouldSeedXseaPosts = ${shouldSeedXseaPosts.toString()};
+    const createXseaPostDraft = ${createXseaPostDraft.toString()};
+    const resolveXseaAiTarget = ${resolveXseaAiTarget.toString()};
+    const prependXseaPost = ${prependXseaPost.toString()};
+    const buildXseaActionPersistencePlan = ${buildXseaActionPersistencePlan.toString()};
+    const parseXseaFeedClickEvent = ${parseXseaFeedClickEvent.toString()};
+    const readXseaFormFields = ${readXseaFormFields.toString()};
+    const buildXbrainStateUrl = ${buildXbrainStateUrl.toString()};
+    const requestXbrainJson = ${requestXbrainJson.toString()};
+    const requestXbrainState = ${requestXbrainState.toString()};
+    const requestXbrainAuthStatus = ${requestXbrainAuthStatus.toString()};
+    const requestXbrainAuthStart = ${requestXbrainAuthStart.toString()};
+    const requestXbrainModelSwitch = ${requestXbrainModelSwitch.toString()};
+    const buildXbrainFlowDeps = ${buildXbrainFlowDeps.toString()};
+    const createXbrainFlowHelpers = ${createXbrainFlowHelpers.toString()};
+    const XSEA_SEED = ${JSON.stringify(XSEA_SEED)};
+    const XBRAIN_MODEL_OPTIONS = {
+      deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
+      chatgpt: ['openai-codex/gpt-5.3-codex', 'openai-codex/gpt-5.2-codex', 'openai-codex/gpt-5.1-codex'],
+      anthropic: ['anthropic/claude-3-5-sonnet', 'anthropic/claude-opus-4-6'],
+    };
+    (function disableLegacyPwaCaches() {
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker?.getRegistrations) {
+          navigator.serviceWorker.getRegistrations()
+            .then(function(regs) {
+              return Promise.all((regs || []).map(function(reg) {
+                return reg.unregister().catch(function() { return false; });
+              }));
+            })
+            .catch(function() {});
+        }
+      } catch {}
+      try {
+        if (typeof caches !== 'undefined' && caches?.keys) {
+          caches.keys()
+            .then(function(keys) {
+              const targets = (keys || []).filter(function(k) {
+                return /^perp-report-pwa-v/i.test(String(k || ''));
+              });
+              return Promise.all(targets.map(function(k) {
+                return caches.delete(k).catch(function() { return false; });
+              }));
+            })
+            .catch(function() {});
+        }
+      } catch {}
+    })();
 
     function buildMarkersForTf(records, tfSeconds) {
       return records.filter(r => r.ts && !r.stage).map(r => {
@@ -1243,12 +1980,40 @@ const HTML = `<!DOCTYPE html>
       if (pos) pos.innerHTML = '<div class="position-item"><div class="position-meta">加载失败：' + (msg || 'unknown') + '</div></div>';
     }
 
+    function setBootProgress(percent, stepText, detailText) {
+      const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+      const fillEl = document.getElementById('app-boot-progress-fill');
+      const stepEl = document.getElementById('app-boot-step-text');
+      const percentEl = document.getElementById('app-boot-percent-text');
+      const detailEl = document.getElementById('app-boot-detail-text');
+      if (fillEl) fillEl.style.width = String(safePercent) + '%';
+      if (stepEl && stepText != null) stepEl.textContent = String(stepText);
+      if (percentEl) percentEl.textContent = String(Math.round(safePercent)) + '%';
+      if (detailEl) detailEl.textContent = detailText == null ? '' : String(detailText);
+    }
+
+    function finishBootOverlay() {
+      setBootProgress(100, '加载完成', '正在进入主页面...');
+      const overlay = document.getElementById('app-boot-overlay');
+      window.setTimeout(function() {
+        if (overlay) overlay.classList.add('hidden');
+        document.body.classList.remove('app-booting');
+      }, 120);
+    }
+
+    function failBootOverlay(message) {
+      const msg = String(message || '未知错误');
+      setBootProgress(100, '加载失败', msg);
+      document.body.classList.remove('app-booting');
+    }
+
     async function fetchJsonWithFallback(url, fallback, opts) {
       const options = opts && typeof opts === 'object' ? opts : {};
+      const reqUrl = String(url || '') + (String(url || '').includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(REPORT_BUILD_ID);
       try {
-        const resp = await fetch(url, { cache: 'no-store' });
+        const resp = await fetch(reqUrl, { cache: 'no-store' });
         if (!resp.ok) {
-          if (options.strict) throw new Error(String(url) + ' -> HTTP ' + String(resp.status));
+          if (options.strict) throw new Error(String(reqUrl) + ' -> HTTP ' + String(resp.status));
           return fallback;
         }
         const json = await resp.json().catch(function() { return fallback; });
@@ -1260,6 +2025,9 @@ const HTML = `<!DOCTYPE html>
     }
 
     async function load() {
+      setBootProgress(5, '准备启动', '正在初始化加载流程...');
+      await new Promise(function(resolve) { window.setTimeout(resolve, 30); });
+      setBootProgress(18, '加载基础数据', '正在获取决策、K线与订单数据...');
       const [decisions, ohlcvPayload, ordersPayload] = await Promise.all([
         fetchJsonWithFallback('decisions.json', []),
         fetchJsonWithFallback('ohlcv.json', { symbol: 'BTC/USDT:USDT', data: {} }),
@@ -1270,15 +2038,19 @@ const HTML = `<!DOCTYPE html>
       const symbol = (ohlcvPayload && ohlcvPayload.symbol) ? ohlcvPayload.symbol : 'BTC/USDT:USDT';
       const MARKERS_BY_TF = {};
       (TF_CONFIG || []).forEach(({ key, seconds }) => { MARKERS_BY_TF[key] = buildMarkersForTf(RECORDS, seconds); });
+      setBootProgress(56, '基础数据就绪', '正在初始化页面组件...');
       try {
-        init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload);
+        await init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload);
+        setBootProgress(92, '配置预热中', '正在同步虾脑配置状态...');
+        await new Promise(function(resolve) { window.setTimeout(resolve, 80); });
+        finishBootOverlay();
       } catch (err) {
         console.error('[thunderclaw] init failed:', err);
         throw new Error(String(err?.message || err || 'init_failed'));
       }
     }
 
-    function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload) {
+    async function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload) {
       const isTouchDevice = window.matchMedia('(hover: none), (pointer: coarse)').matches;
       const RECORDS_WITH_TS = RECORDS
         .filter(r => r && r.ts && !r.stage)
@@ -1315,6 +2087,20 @@ const HTML = `<!DOCTYPE html>
         const d = new Date(String(isoLike));
         if (!Number.isFinite(d.getTime())) return String(isoLike).slice(0, 16).replace('T', ' ');
         return d.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      }
+
+      function fmtChatTs(tsLike) {
+        const d = tsLike ? new Date(String(tsLike)) : new Date();
+        if (!Number.isFinite(d.getTime())) {
+          const raw = String(tsLike || '');
+          return raw ? raw.slice(11, 19) : '--:--:--';
+        }
+        return d.toLocaleTimeString('zh-CN', {
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
       }
 
       function parseToSec(v) {
@@ -1373,10 +2159,16 @@ const HTML = `<!DOCTYPE html>
       const symbolSwitchToggleEl = document.getElementById('symbol-switch-toggle');
       const symbolSwitchPopoverEl = document.getElementById('symbol-switch-popover');
       const symbolOptionEls = Array.from(document.querySelectorAll('.symbol-option[data-symbol-code]'));
+      const modelSwitchWrapEl = document.getElementById('model-switch-wrap');
+      const modelSwitchToggleEl = document.getElementById('model-switch-toggle');
+      const modelSwitchPopoverEl = document.getElementById('model-switch-popover');
       const globalBackBtn = document.getElementById('global-back-btn');
       let onKlineVisible = null;
       let activeViewName = 'dashboard';
       let sidebarOpen = false;
+      let modelSwitchBusy = false;
+      let availableThunderModels = [];
+      let activeModelHoverProvider = 'chatgpt';
       const SYMBOL_SWITCH_KEY = 'thunderclaw.activeSymbolCode';
       const SUPPORTED_SYMBOL_CODES = ['BTC', 'ETH', 'SOL'];
       const defaultSymbolCode = (function() {
@@ -1404,27 +2196,7 @@ const HTML = `<!DOCTYPE html>
         const raw = String(nameLike || '').trim().toLowerCase();
         if (!raw) return 'dashboard';
         if (viewMap[raw]) return raw;
-        const alias = {
-          thunderclaw: 'dashboard',
-          main: 'dashboard',
-          ai: 'dashboard',
-          chat: 'dashboard',
-          xline: 'kline',
-          '虾线': 'kline',
-          chart: 'kline',
-          xstrategy: 'backtest',
-          '虾策': 'backtest',
-          strategy: 'backtest',
-          xsea: 'xsea',
-          '虾海': 'xsea',
-          community: 'xsea',
-          xbrain: 'xbrain',
-          '虾脑': 'xbrain',
-          brain: 'xbrain',
-          config: 'xbrain',
-          '配置': 'xbrain',
-        };
-        return alias[raw] || 'dashboard';
+        return VIEW_ALIAS_MAP[raw] || 'dashboard';
       }
 
       function isCompactViewport() {
@@ -1440,22 +2212,14 @@ const HTML = `<!DOCTYPE html>
       }
 
       function titleForView(key) {
-        if (key === 'dashboard' || key === 'runtime') return 'ThunderClaw';
-        if (key === 'kline' || key === 'history') return '虾线';
-        if (key === 'backtest') return '虾策';
-        if (key === 'xsea') return '虾海';
-        if (key === 'xbrain') return '虾脑';
-        return 'ThunderClaw';
+        const k = String(key || '').trim().toLowerCase();
+        return VIEW_TITLE_MAP[k] || VIEW_TITLE_MAP.dashboard || 'ThunderClaw';
       }
 
       function subtitleForView(key) {
-        if (key === 'dashboard') return 'ThunderClaw · ' + activeSymbolCode + ' 交易工作台';
-        if (key === 'runtime') return 'ThunderClaw · 当前单运行时间线';
-        if (key === 'kline') return '虾线 · K 线与历史交易联动管理';
-        if (key === 'history') return '虾线 · 历史订单明细与K线定位';
-        if (key === 'backtest') return '虾策 · 策略可视化管理与回验验证';
-        if (key === 'xsea') return '虾海 · AI 策略发布、交流与训练选择';
-        if (key === 'xbrain') return '虾脑 · 配置中枢与模型参数联动';
+        const k = String(key || '').trim().toLowerCase();
+        const tpl = String(VIEW_SUBTITLE_MAP[k] || '');
+        if (tpl) return tpl.replace('{symbol}', activeSymbolCode);
         return '交易系统功能页';
       }
 
@@ -1484,6 +2248,165 @@ const HTML = `<!DOCTYPE html>
         updateHeaderStatus();
       }
 
+      function inferProviderFromModelRef(modelRefLike) {
+        const ref = String(modelRefLike || '').trim().toLowerCase();
+        if (!ref) return 'deepseek';
+        if (ref.startsWith('deepseek/')) return 'deepseek';
+        if (ref.startsWith('anthropic/')) return 'anthropic';
+        if (ref.startsWith('openai-codex/') || ref.startsWith('openai/')) return 'chatgpt';
+        return 'deepseek';
+      }
+
+      function formatModelSwitchLabel(modelRefLike) {
+        const ref = String(modelRefLike || '').trim();
+        if (!ref) return '未知模型';
+        return ref;
+      }
+
+      function providerLabel(providerLike) {
+        const p = String(providerLike || '').trim().toLowerCase();
+        if (p === 'chatgpt') return 'OpenAI';
+        if (p === 'deepseek') return 'DeepSeek';
+        if (p === 'anthropic') return 'Anthropic';
+        return p || '其它';
+      }
+
+      function normalizeProviderKey(providerLike) {
+        const raw = String(providerLike || '').trim().toLowerCase();
+        if (raw === 'codex' || raw === 'openai' || raw === 'openai-codex') return 'chatgpt';
+        if (raw === 'claude') return 'anthropic';
+        if (raw === 'deepseek' || raw === 'chatgpt' || raw === 'anthropic') return raw;
+        return 'deepseek';
+      }
+
+      function rememberProviderCheck(providerLike, ok, detailLike) {
+        const provider = normalizeProviderKey(providerLike);
+        xbrainProviderChecks[provider] = {
+          ok: Boolean(ok),
+          detail: String(detailLike || ''),
+          checkedAt: new Date().toISOString(),
+        };
+        safeLocalJsonWrite(XBRAIN_PROVIDER_CHECKS_KEY, xbrainProviderChecks);
+      }
+
+      function providerCheckPassed(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        return Boolean(xbrainProviderChecks?.[provider]?.ok);
+      }
+
+      function providerLastCheckedAt(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        return String(xbrainProviderChecks?.[provider]?.checkedAt || '').trim();
+      }
+
+      function buildThunderModelOptionsFromState(stateLike) {
+        const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+        const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const registered = Array.isArray(base.modelRegistry) ? base.modelRegistry : [];
+        const configuredModel = String(base.modelId || '').trim();
+        const runtimeModel = String(base.runtimeModelId || '').trim();
+        const options = [];
+        registered.forEach(function(m) { options.push(String(m || '')); });
+        // 厂商已上线时，ThunderClaw 侧自动补齐该厂商的全部可用模型选项。
+        const hasProvider = { deepseek: false, chatgpt: false, anthropic: false };
+        registered.forEach(function(m) {
+          const p = inferProviderFromModelRef(m);
+          if (p === 'deepseek' || p === 'chatgpt' || p === 'anthropic') hasProvider[p] = true;
+        });
+        if (hasProvider.deepseek) {
+          (XBRAIN_MODEL_OPTIONS.deepseek || []).forEach(function(m) { options.push(String(m || '')); });
+        }
+        if (hasProvider.chatgpt) {
+          (XBRAIN_MODEL_OPTIONS.chatgpt || []).forEach(function(m) { options.push(String(m || '')); });
+        }
+        if (hasProvider.anthropic) {
+          (XBRAIN_MODEL_OPTIONS.anthropic || []).forEach(function(m) { options.push(String(m || '')); });
+        }
+        if (configuredModel) options.push(configuredModel);
+        if (runtimeModel) options.push(runtimeModel);
+        const dedup = [];
+        const seen = new Set();
+        options.forEach(function(m) {
+          const v = String(m || '').trim();
+          if (!v || seen.has(v)) return;
+          seen.add(v);
+          dedup.push(v);
+        });
+        return dedup;
+      }
+
+      function groupModelsByProvider(modelsLike) {
+        const models = Array.isArray(modelsLike) ? modelsLike : [];
+        const groups = { chatgpt: [], deepseek: [], anthropic: [], other: [] };
+        models.forEach(function(ref) {
+          const p = inferProviderFromModelRef(ref);
+          if (groups[p]) groups[p].push(ref);
+          else groups.other.push(ref);
+        });
+        return groups;
+      }
+
+      function getProviderCatalog(stateLike) {
+        const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+        const raw = Array.isArray(state?.base?.providerCatalog) ? state.base.providerCatalog : ['deepseek', 'chatgpt', 'anthropic'];
+        const normalized = Array.from(new Set(
+          raw.map(function(p) { return normalizeProviderKey(p); }).filter(function(p) {
+            return p === 'deepseek' || p === 'chatgpt' || p === 'anthropic';
+          }),
+        ));
+        return normalized.length ? normalized : ['deepseek', 'chatgpt', 'anthropic'];
+      }
+
+      function setModelPopoverOpen(open) {
+        if (!modelSwitchPopoverEl || !modelSwitchToggleEl) return;
+        const visible = Boolean(open);
+        modelSwitchPopoverEl.classList.toggle('hidden', !visible);
+        modelSwitchToggleEl.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      }
+
+      function renderThunderModelSwitch(stateLike) {
+        if (!modelSwitchWrapEl || !modelSwitchToggleEl || !modelSwitchPopoverEl) return;
+        const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+        const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const runtimeModel = String(base.runtimeModelId || base.modelId || '').trim();
+        const configuredModel = String(base.modelId || '').trim();
+        availableThunderModels = buildThunderModelOptionsFromState(state);
+        const shown = runtimeModel || configuredModel || (availableThunderModels[0] || '');
+        modelSwitchToggleEl.textContent = '模型: ' + formatModelSwitchLabel(shown) + ' ▾';
+        const grouped = groupModelsByProvider(availableThunderModels);
+        const providerKeys = ['chatgpt', 'deepseek', 'anthropic', 'other'].filter(function(k) {
+          return Array.isArray(grouped[k]) && grouped[k].length > 0;
+        });
+        if (!providerKeys.length) {
+          modelSwitchPopoverEl.innerHTML = '<button class="symbol-option model-option" type="button" disabled>请先到“模型配置与检测”完成建连与上线</button>';
+          return;
+        }
+        const currentProvider = inferProviderFromModelRef(shown);
+        if (!providerKeys.includes(activeModelHoverProvider)) {
+          activeModelHoverProvider = providerKeys.includes(currentProvider) ? currentProvider : providerKeys[0];
+        }
+        const providerRows = providerKeys.map(function(k) {
+          const active = k === activeModelHoverProvider ? ' active' : '';
+          const count = grouped[k].length;
+          return '<button class="model-provider-option' + active + '" type="button" data-model-provider="' + escapeHtml(k) + '">' +
+            escapeHtml(providerLabel(k)) + ' (' + count + ')' +
+            '</button>';
+        });
+        const modelRows = [];
+        modelRows.push('<div class="model-switch-group">当前模型</div>');
+        modelRows.push('<button class="symbol-option model-option current active" type="button" data-model-ref="' + escapeHtml(shown) + '" disabled>' + escapeHtml(formatModelSwitchLabel(shown)) + '</button>');
+        modelRows.push('<div class="model-switch-group">可切换模型</div>');
+        (grouped[activeModelHoverProvider] || []).forEach(function(ref) {
+          const active = ref === shown ? ' active' : '';
+          modelRows.push('<button class="symbol-option model-option' + active + '" type="button" data-model-ref="' + escapeHtml(ref) + '">' + escapeHtml(ref) + '</button>');
+        });
+        modelSwitchPopoverEl.innerHTML =
+          '<div class="model-switch-grid">' +
+          '<div class="model-provider-col">' + providerRows.join('') + '</div>' +
+          '<div class="model-model-col">' + modelRows.join('') + '</div>' +
+          '</div>';
+      }
+
       function syncContentHeader(viewKey) {
         if (contentPageTitleEl) contentPageTitleEl.textContent = titleForView(viewKey);
         if (symbolSwitchWrapEl) {
@@ -1491,6 +2414,13 @@ const HTML = `<!DOCTYPE html>
           symbolSwitchWrapEl.classList.toggle('hidden', !showSwitcher);
           if (!showSwitcher) setSymbolPopoverOpen(false);
         }
+        if (modelSwitchWrapEl) {
+          const showModelSwitcher = viewKey === 'dashboard';
+          modelSwitchWrapEl.classList.toggle('hidden', !showModelSwitcher);
+          if (!showModelSwitcher) setModelPopoverOpen(false);
+        }
+        const telegramStatusEl = document.getElementById('telegram-link-status');
+        if (telegramStatusEl) telegramStatusEl.classList.toggle('hidden', viewKey !== 'dashboard');
       }
 
       function switchView(name) {
@@ -1556,8 +2486,81 @@ const HTML = `<!DOCTYPE html>
           if (ev.key === 'Escape') setSymbolPopoverOpen(false);
         });
       }
+      if (modelSwitchToggleEl && modelSwitchPopoverEl) {
+        modelSwitchToggleEl.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (modelSwitchBusy) return;
+          setModelPopoverOpen(modelSwitchPopoverEl.classList.contains('hidden'));
+        });
+        modelSwitchPopoverEl.addEventListener('mouseover', function(ev) {
+          const providerBtn = ev.target && typeof ev.target.closest === 'function'
+            ? ev.target.closest('.model-provider-option[data-model-provider]')
+            : null;
+          if (!providerBtn) return;
+          const providerKey = String(providerBtn.getAttribute('data-model-provider') || '').trim();
+          if (!providerKey || providerKey === activeModelHoverProvider) return;
+          activeModelHoverProvider = providerKey;
+          renderThunderModelSwitch(xbrainClientState.data || {});
+        });
+        modelSwitchPopoverEl.addEventListener('click', function(ev) {
+          const providerBtn = ev.target && typeof ev.target.closest === 'function'
+            ? ev.target.closest('.model-provider-option[data-model-provider]')
+            : null;
+          if (providerBtn) {
+            ev.preventDefault();
+            const providerKey = String(providerBtn.getAttribute('data-model-provider') || '').trim();
+            if (providerKey && providerKey !== activeModelHoverProvider) {
+              activeModelHoverProvider = providerKey;
+              renderThunderModelSwitch(xbrainClientState.data || {});
+            }
+            return;
+          }
+          const target = ev.target && typeof ev.target.closest === 'function'
+            ? ev.target.closest('.model-option[data-model-ref]')
+            : null;
+          if (!target || target.disabled || modelSwitchBusy) return;
+          ev.preventDefault();
+          const modelRef = String(target.getAttribute('data-model-ref') || '').trim();
+          if (!modelRef) return;
+          const provider = inferProviderFromModelRef(modelRef);
+          modelSwitchBusy = true;
+          modelSwitchToggleEl.textContent = '模型切换中...';
+          setModelPopoverOpen(false);
+          void xbrainFlows.runThunderModelSwitchFlow(modelRef, provider)
+            .then(function(freshState) {
+              renderThunderModelSwitch(freshState);
+              const base = freshState && typeof freshState === 'object' && freshState.base && typeof freshState.base === 'object'
+                ? freshState.base
+                : {};
+              const runtimeModel = String(base.runtimeModelId || '').trim();
+              const configuredModel = String(base.modelId || '').trim();
+              if (runtimeModel && configuredModel && runtimeModel !== configuredModel) {
+                setXbrainBaseSubStatus('model', '模型已切换配置，但当前会话仍在使用 ' + runtimeModel + '，请稍候或点击“检测当前模型”。', 'err');
+                return;
+              }
+              setXbrainBaseSubStatus('model', '模型已切换并生效：' + (runtimeModel || configuredModel || modelRef), 'ok');
+            })
+            .catch(function(err) {
+              setXbrainBaseSubStatus('model', '模型切换失败：' + String(err?.message || err), 'err');
+            })
+            .finally(function() {
+              modelSwitchBusy = false;
+            });
+        });
+        document.addEventListener('click', function(ev) {
+          if (modelSwitchPopoverEl.classList.contains('hidden')) return;
+          const target = ev.target;
+          if (modelSwitchWrapEl && modelSwitchWrapEl.contains(target)) return;
+          setModelPopoverOpen(false);
+        });
+        document.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Escape') setModelPopoverOpen(false);
+        });
+      }
       syncSymbolSwitchUi();
       syncContentHeader(activeViewName);
+      renderThunderModelSwitch({});
       navButtons.forEach(btn => {
         btn.addEventListener('click', function() {
           switchView(normalizeViewTarget(btn.getAttribute('data-view-target')));
@@ -2031,26 +3034,6 @@ const HTML = `<!DOCTYPE html>
         };
       }
 
-      const XSEA_POSTS_KEY = 'thunderclaw.xsea.posts.v1';
-      const XSEA_SELECTED_KEY = 'thunderclaw.xsea.selected.v1';
-      const XSEA_SEED = [
-        {
-          id: 'seed-v5-retest',
-          title: 'BTC 回踩确认 + 成交量过滤',
-          author: '虾策实验室',
-          summary: '顺趋势优先，回踩结构确认后再入场，降低假突破。',
-          plan: '入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏',
-          createdAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
-        },
-        {
-          id: 'seed-v5-reentry',
-          title: '趋势再入 + 分批加仓',
-          author: 'Aragorn',
-          summary: '主趋势确认后等待二次发力，再入场并限制最大持仓时间。',
-          plan: '入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场',
-          createdAt: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
-        },
-      ];
       let xseaPosts = [];
       let selectedXseaStrategy = null;
       const xbrainClientState = {
@@ -2058,6 +3041,12 @@ const HTML = `<!DOCTYPE html>
         loaded: false,
         data: null,
       };
+      let xbrainUiProviderOverride = '';
+      const XBRAIN_PROVIDER_CHECKS_KEY = 'thunderclaw.xbrain.provider-checks.v1';
+      const XBRAIN_OAUTH_CONNECTED_KEY = 'thunderclaw.xbrain.oauth-connected.v1';
+      const xbrainProviderChecks = safeLocalJsonRead(XBRAIN_PROVIDER_CHECKS_KEY, {});
+      const xbrainOauthConnected = safeLocalJsonRead(XBRAIN_OAUTH_CONNECTED_KEY, {});
+      let xbrainAuthMonitorRunning = false;
 
       function safeLocalJsonRead(key, fallback) {
         try {
@@ -2079,17 +3068,18 @@ const HTML = `<!DOCTYPE html>
         }
       }
 
+      function safeLocalRemove(key) {
+        try {
+          localStorage.removeItem(key);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
       function loadXseaPosts() {
         const list = safeLocalJsonRead(XSEA_POSTS_KEY, []);
-        if (!Array.isArray(list)) return [];
-        return list
-          .filter(function(item) {
-            return item && typeof item === 'object' && item.id && item.title && item.plan;
-          })
-          .slice()
-          .sort(function(a, b) {
-            return (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0);
-          });
+        return normalizeXseaPostsList(list);
       }
 
       function saveXseaPosts(posts) {
@@ -2099,33 +3089,17 @@ const HTML = `<!DOCTYPE html>
 
       function loadSelectedXsea() {
         const one = safeLocalJsonRead(XSEA_SELECTED_KEY, null);
-        if (!one || typeof one !== 'object') return null;
-        if (!one.id || !one.title || !one.plan) return null;
-        return one;
+        return normalizeXseaSelected(one);
       }
 
       function saveSelectedXsea(one) {
         selectedXseaStrategy = one && typeof one === 'object' ? one : null;
         if (selectedXseaStrategy) safeLocalJsonWrite(XSEA_SELECTED_KEY, selectedXseaStrategy);
-        else {
-          try { localStorage.removeItem(XSEA_SELECTED_KEY); } catch {}
-        }
+        else safeLocalRemove(XSEA_SELECTED_KEY);
       }
 
       function buildXseaPrompt(item, mode) {
-        const header = mode === 'train'
-          ? '请将这条虾海策略作为本轮机器人训练参考，输出可执行建议。'
-          : '请评估这条虾海策略，并给出可执行建议。';
-        return [
-          header,
-          '策略标题：' + (item.title || '-'),
-          '作者：' + (item.author || '-'),
-          '摘要：' + (item.summary || '-'),
-          '详细策略：',
-          String(item.plan || '-'),
-          '',
-          '请给出：1) 适配市场条件 2) 参数建议 3) 主要风险 4) 可落地执行步骤',
-        ].join('\\n');
+        return buildXseaPromptText(item, mode, XSEA_PROMPT_HEADER, XSEA_PROMPT_TAIL);
       }
 
       function askAiFromXsea(item, mode) {
@@ -2141,32 +3115,8 @@ const HTML = `<!DOCTYPE html>
         const feed = document.getElementById('xsea-feed');
         const selectedEl = document.getElementById('xsea-selected');
         if (!feed || !selectedEl) return;
-        if (selectedXseaStrategy) {
-          selectedEl.innerHTML = '当前训练参考：<strong>' + escapeHtml(selectedXseaStrategy.title) + '</strong> · ' + escapeHtml(selectedXseaStrategy.author || '-') + '。';
-        } else {
-          selectedEl.textContent = '当前未选择训练参考策略。';
-        }
-        if (!xseaPosts.length) {
-          feed.innerHTML = '<div class="xsea-item"><div class="xsea-item-summary">暂无策略，先发布第一条策略吧。</div></div>';
-          return;
-        }
-        feed.innerHTML = xseaPosts.map(function(item) {
-          const id = String(item.id || '');
-          return '<div class="xsea-item">' +
-            '<div class="xsea-item-head">' +
-              '<div class="xsea-item-title">' + escapeHtml(item.title || '-') + '</div>' +
-              '<div class="xsea-item-meta">' + escapeHtml(fmtTsShort(item.createdAt)) + '</div>' +
-            '</div>' +
-            '<div class="xsea-item-meta">作者：' + escapeHtml(item.author || '-') + '</div>' +
-            '<div class="xsea-item-summary">' + escapeHtml(item.summary || '-') + '</div>' +
-            '<div class="xsea-item-plan">' + escapeHtml(item.plan || '-') + '</div>' +
-            '<div class="xsea-actions">' +
-              '<button class="primary" type="button" data-xsea-action="pick" data-xsea-id="' + escapeHtml(id) + '">选取训练机器人</button>' +
-              '<button type="button" data-xsea-action="chat" data-xsea-id="' + escapeHtml(id) + '">与 ThunderClaw 讨论</button>' +
-              '<button type="button" data-xsea-action="remove" data-xsea-id="' + escapeHtml(id) + '">移除</button>' +
-            '</div>' +
-          '</div>';
-        }).join('');
+        selectedEl.innerHTML = buildXseaSelectedHtml(selectedXseaStrategy, escapeHtml);
+        feed.innerHTML = buildXseaFeedHtml(xseaPosts, escapeHtml, fmtTsShort);
       }
 
       function setupXseaPanel() {
@@ -2178,7 +3128,7 @@ const HTML = `<!DOCTYPE html>
         const feed = document.getElementById('xsea-feed');
 
         xseaPosts = loadXseaPosts();
-        if (!xseaPosts.length) saveXseaPosts(XSEA_SEED);
+        if (shouldSeedXseaPosts(xseaPosts)) saveXseaPosts(XSEA_SEED);
         xseaPosts = loadXseaPosts();
         selectedXseaStrategy = loadSelectedXsea();
         renderXseaPanel();
@@ -2186,20 +3136,12 @@ const HTML = `<!DOCTYPE html>
         if (form && titleInput && authorInput && summaryInput && planInput) {
           form.addEventListener('submit', function(ev) {
             ev.preventDefault();
-            const title = String(titleInput.value || '').trim();
-            const author = String(authorInput.value || '').trim();
-            const summary = String(summaryInput.value || '').trim();
-            const plan = String(planInput.value || '').trim();
-            if (!title || !author || !summary || !plan) return;
-            const post = {
-              id: 'xsea-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
-              title,
-              author,
-              summary,
-              plan,
-              createdAt: new Date().toISOString(),
-            };
-            saveXseaPosts([post].concat(xseaPosts));
+            const post = createXseaPostDraft(
+              readXseaFormFields({ titleInput, authorInput, summaryInput, planInput }),
+              Date.now(),
+            );
+            if (!post) return;
+            saveXseaPosts(prependXseaPost(post, xseaPosts));
             xseaPosts = loadXseaPosts();
             form.reset();
             renderXseaPanel();
@@ -2208,30 +3150,24 @@ const HTML = `<!DOCTYPE html>
 
         if (feed) {
           feed.addEventListener('click', function(ev) {
-            const btn = ev.target.closest('button[data-xsea-action][data-xsea-id]');
-            if (!btn) return;
-            const action = String(btn.getAttribute('data-xsea-action') || '');
-            const id = String(btn.getAttribute('data-xsea-id') || '');
-            const item = xseaPosts.find(function(x) { return String(x.id || '') === id; }) || null;
-            if (!item) return;
-            if (action === 'pick') {
-              saveSelectedXsea(item);
-              renderXseaPanel();
-              askAiFromXsea(item, 'train');
-              return;
-            }
-            if (action === 'chat') {
-              askAiFromXsea(item, 'chat');
-              return;
-            }
-            if (action === 'remove') {
-              const next = xseaPosts.filter(function(x) { return String(x.id || '') !== id; });
-              saveXseaPosts(next);
+            const trigger = parseXseaFeedClickEvent(ev.target);
+            if (!trigger) return;
+            const action = trigger.action;
+            const id = trigger.id;
+            const out = applyXseaFeedAction(action, id, xseaPosts, selectedXseaStrategy);
+            if (!out.handled) return;
+            const plan = buildXseaActionPersistencePlan(action, out);
+            if (plan.shouldPersistPosts) {
+              saveXseaPosts(out.nextPosts);
               xseaPosts = loadXseaPosts();
-              if (selectedXseaStrategy && String(selectedXseaStrategy.id || '') === id) {
-                saveSelectedXsea(null);
-              }
-              renderXseaPanel();
+            }
+            if (plan.shouldPersistSelected) {
+              saveSelectedXsea(out.nextSelected);
+            }
+            renderXseaPanel();
+            if (plan.shouldAskAi) {
+              const target = resolveXseaAiTarget(id, xseaPosts, out.nextSelected);
+              if (target) askAiFromXsea(target, out.aiMode);
             }
           });
         }
@@ -2274,6 +3210,7 @@ const HTML = `<!DOCTYPE html>
           locks: x.locks
             ? {
                 baseLocked: Boolean(x.locks.base && x.locks.base.locked),
+                channelLocked: Boolean(x.locks.channel && x.locks.channel.locked),
                 exchangeLocked: Boolean(x.locks.exchange && x.locks.exchange.locked),
                 strategyLocked: Boolean(x.locks.strategy && x.locks.strategy.locked),
               }
@@ -2283,7 +3220,30 @@ const HTML = `<!DOCTYPE html>
       }
 
       function setXbrainStatus(section, text, type) {
-        const el = document.getElementById('xbrain-status-' + section);
+        let el = document.getElementById('xbrain-status-' + section);
+        if (!el && section === 'base') {
+          el = document.getElementById('xbrain-status-base-model');
+        }
+        if (!el && section === 'channel') {
+          el = document.getElementById('xbrain-status-base-channel');
+        }
+        if (!el) return;
+        const msg = String(text || '').trim();
+        el.textContent = msg;
+        el.classList.remove('ok', 'err');
+        if (!msg) return;
+        if (type === 'ok') el.classList.add('ok');
+        if (type === 'err') el.classList.add('err');
+      }
+
+      function setXbrainBaseSubStatus(kind, text, type) {
+        const slot = kind === 'channel' ? 'channel' : kind === 'model' ? 'model' : 'lock';
+        const id = slot === 'lock' ? 'xbrain-status-base' : ('xbrain-status-base-' + slot);
+        let el = document.getElementById(id);
+        if (!el && slot === 'lock') {
+          // 锁管理子模块已下线，锁相关提示回退到模型状态位显示
+          el = document.getElementById('xbrain-status-base-model');
+        }
         if (!el) return;
         const msg = String(text || '').trim();
         el.textContent = msg;
@@ -2305,25 +3265,59 @@ const HTML = `<!DOCTYPE html>
           sectionEl.classList.toggle('unlocked', !locked);
         }
         if (textEl) {
-          textEl.textContent = locked
-            ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
-            : '已解锁';
+          if (section === 'channel') {
+            textEl.textContent = locked ? '已保存' : '编辑中';
+          } else {
+            textEl.textContent = locked
+              ? ('已锁定' + (hasPassword ? '（密码）' : '（无密码）'))
+              : '已解锁';
+          }
         }
         if (btnEl) {
           btnEl.classList.toggle('locked', locked);
           btnEl.classList.toggle('unlocked', !locked);
-          btnEl.textContent = locked ? '🔒' : '🔓';
-          btnEl.title = locked
-            ? (hasPassword ? '已锁定，输入密码后点击解锁' : '已锁定，点击可解锁')
-            : '已解锁，点击可锁定';
+          btnEl.classList.toggle('text-mode', section === 'channel');
+          if (section === 'channel') {
+            btnEl.textContent = locked ? '编辑' : '保存';
+            btnEl.title = locked ? '点击进入编辑' : '点击保存并退出编辑';
+          } else {
+            btnEl.textContent = locked ? '🔒' : '🔓';
+            btnEl.title = locked
+              ? (hasPassword ? '已锁定，输入密码后点击解锁' : '已锁定，点击可解锁')
+              : '已解锁，点击可锁定';
+          }
           btnEl.setAttribute('aria-label', btnEl.title);
         }
       }
 
-      function setXbrainSectionDisabled(section, locked) {
+      function setXbrainSectionDisabled(section, lockLike) {
+        const lock = lockLike && typeof lockLike === 'object' ? lockLike : {};
+        const locked = lock.locked !== false;
         const disabled = Boolean(locked);
         if (section === 'base') {
-          ['xbrain-base-provider', 'xbrain-base-model', 'xbrain-base-channel', 'xbrain-base-telegram-token', 'xbrain-save-base'].forEach(function(id) {
+          document
+            .querySelectorAll('#xbrain-model-picker .xbrain-model-btn')
+            .forEach(function(btn) { btn.disabled = disabled; });
+          [
+            'xbrain-base-provider',
+            'xbrain-base-deepseek-key',
+            'xbrain-base-deepseek-eye',
+            'xbrain-save-base-model',
+            'xbrain-base-probe-btn',
+            'xbrain-openai-login-btn',
+            'xbrain-openai-disconnect-btn',
+          ].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+          });
+        }
+        if (section === 'channel') {
+          [
+            'xbrain-base-telegram-token',
+            'xbrain-base-telegram-eye',
+            'xbrain-telegram-enable-toggle',
+            'xbrain-test-base-channel',
+          ].forEach(function(id) {
             const el = document.getElementById(id);
             if (el) el.disabled = disabled;
           });
@@ -2353,6 +3347,241 @@ const HTML = `<!DOCTYPE html>
         }
       }
 
+      function syncXbrainProviderUi(providerLike, locked) {
+        const rawProvider = String(providerLike || 'deepseek').trim() || 'deepseek';
+        const provider = rawProvider === 'codex' ? 'chatgpt' : rawProvider;
+        document
+          .querySelectorAll('#xbrain-model-picker .xbrain-model-btn')
+          .forEach(function(btn) {
+            const p = String(btn.getAttribute('data-xbrain-provider') || '');
+            btn.classList.toggle('active', p === provider);
+            if (typeof locked === 'boolean') btn.disabled = locked;
+          });
+        const deepseekKey = document.getElementById('xbrain-base-deepseek-key');
+        const deepseekEye = document.getElementById('xbrain-base-deepseek-eye');
+        const apiKeyRow = document.getElementById('xbrain-api-key-row');
+        const oauthActions = document.getElementById('xbrain-oauth-actions');
+        const oauthDesc1 = document.getElementById('xbrain-oauth-desc-1');
+        const oauthLoginBtn = document.getElementById('xbrain-openai-login-btn');
+        const oauthDisconnectBtn = document.getElementById('xbrain-openai-disconnect-btn');
+        const badgeConfig = document.getElementById('xbrain-badge-config');
+        const badgeConnected = document.getElementById('xbrain-badge-connected');
+        const useDeepseekKey = provider === 'deepseek';
+        const stateBase = xbrainClientState.data?.base && typeof xbrainClientState.data.base === 'object'
+          ? xbrainClientState.data.base
+          : {};
+        const providerKey = normalizeProviderKey(provider);
+        const providerAuth = stateBase.providerAuth && typeof stateBase.providerAuth === 'object'
+          ? stateBase.providerAuth
+          : {};
+        const configured = Boolean(providerAuth?.[providerKey]?.configured);
+        const checked = providerCheckPassed(providerKey);
+        const connected = configured && (providerKey === 'deepseek' ? checked : true);
+        if (apiKeyRow) apiKeyRow.style.display = useDeepseekKey ? '' : 'none';
+        if (oauthActions) oauthActions.style.display = useDeepseekKey ? 'none' : '';
+        if (useDeepseekKey) {
+          if (oauthDesc1) oauthDesc1.textContent = 'API 配置';
+        } else {
+          if (oauthDesc1) oauthDesc1.textContent = 'API 配置';
+          if (oauthLoginBtn) oauthLoginBtn.textContent = connected ? '重新连接' : '连接账号';
+          if (oauthDisconnectBtn) oauthDisconnectBtn.style.display = connected ? '' : 'none';
+        }
+        if (badgeConfig) {
+          badgeConfig.className = 'timeline-tag ' + (configured ? 'order' : 'risk');
+          badgeConfig.textContent = configured ? '已配置' : '未配置';
+        }
+        if (badgeConnected) {
+          badgeConnected.className = 'timeline-tag ' + (connected ? 'order' : 'info');
+          badgeConnected.textContent = connected ? '已连接' : '未连接';
+        }
+        if (deepseekKey) deepseekKey.disabled = Boolean(locked) || !useDeepseekKey;
+        if (deepseekEye) deepseekEye.disabled = Boolean(locked) || !useDeepseekKey;
+        if (oauthLoginBtn) oauthLoginBtn.disabled = Boolean(locked) || useDeepseekKey;
+        if (oauthDisconnectBtn) oauthDisconnectBtn.disabled = Boolean(locked) || useDeepseekKey || !connected;
+      }
+
+      function getAvailableModelsForProvider(providerLike) {
+        const rawProvider = String(providerLike || 'deepseek').trim() || 'deepseek';
+        const provider = rawProvider === 'codex' ? 'chatgpt' : rawProvider;
+        const defaults = Array.isArray(XBRAIN_MODEL_OPTIONS[provider]) ? XBRAIN_MODEL_OPTIONS[provider] : [];
+        const registry = Array.isArray(xbrainClientState.data?.base?.modelRegistry)
+          ? xbrainClientState.data.base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+          : [];
+        const options = Array.from(new Set(defaults.concat(
+          registry.filter(function(ref) {
+            const p = inferProviderFromModelRef(ref);
+            return (provider === 'chatgpt' && p === 'chatgpt') || p === provider;
+          }),
+        )));
+        return options;
+      }
+
+      function availableProviderOptionsForAdd() {
+        const catalog = getProviderCatalog(xbrainClientState.data || {});
+        return ['deepseek', 'chatgpt', 'anthropic'].filter(function(p) { return !catalog.includes(p); });
+      }
+
+      async function removeProviderCard(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        const providerName = providerLabel(provider);
+        const ok = window.confirm('确认删除厂商「' + providerName + '」吗？\\n删除后将自动下线该厂商全部模型并清理连接状态。');
+        if (!ok) return;
+        const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
+        const payload = await postXbrain('/api/xbrain/provider/remove', { provider: provider, password: password });
+        xbrainUiProviderOverride = String(payload?.state?.base?.modelProvider || 'deepseek');
+        await fetchXbrainState(true);
+        setXbrainBaseSubStatus('model', '已删除厂商：' + providerName + '。', 'ok');
+      }
+
+      async function addProviderCard(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        const currentCatalog = getProviderCatalog(xbrainClientState.data || {});
+        if (currentCatalog.includes(provider)) return;
+        const nextCatalog = currentCatalog.concat([provider]);
+        const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
+        await postXbrain('/api/xbrain/update', { section: 'base', values: { providerCatalog: nextCatalog }, password: password });
+        await fetchXbrainState(true);
+        setXbrainBaseSubStatus('model', '已追加厂商：' + providerLabel(provider) + '。', 'ok');
+      }
+
+      function renderXbrainModelOptions(providerLike) {
+        const options = getAvailableModelsForProvider(providerLike);
+        const listEl = document.getElementById('xbrain-base-model-list');
+        if (!listEl) return;
+        if (!options.length) {
+          listEl.textContent = '当前厂商暂无可用模型';
+          return;
+        }
+        listEl.innerHTML = options
+          .map(function(m) {
+            return '<span class="xbrain-model-chip">' + escapeHtml(m) + '</span>';
+          })
+          .join('');
+      }
+
+      function syncXbrainModelOnlineButtonUi(locked) {
+        syncXbrainProviderHealthUi(xbrainClientState.data || {}, locked);
+      }
+
+      function syncXbrainProviderHealthUi(stateLike, locked) {
+        const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+        const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const catalog = getProviderCatalog(state);
+        const picker = document.getElementById('xbrain-model-picker');
+        if (picker) {
+          picker.querySelectorAll('.xbrain-model-btn').forEach(function(btn) {
+            const p = normalizeProviderKey(btn.getAttribute('data-xbrain-provider') || '');
+            if (!catalog.includes(p)) btn.remove();
+          });
+          catalog.forEach(function(p) {
+            if (picker.querySelector('.xbrain-model-btn[data-xbrain-provider="' + p + '"]')) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'xbrain-model-btn';
+            btn.setAttribute('data-xbrain-provider', p);
+            btn.textContent = providerLabel(p);
+            picker.appendChild(btn);
+          });
+        }
+        const registry = Array.isArray(base.modelRegistry)
+          ? base.modelRegistry.map(function(v) { return String(v || '').trim().toLowerCase(); }).filter(Boolean)
+          : [];
+        const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
+        function providerOnline(providerKey) {
+          if (providerKey === 'chatgpt') return registry.some(function(v) { return v.startsWith('openai-codex/') || v.startsWith('openai/'); });
+          if (providerKey === 'anthropic') return registry.some(function(v) { return v.startsWith('anthropic/'); });
+          return registry.some(function(v) { return v.startsWith('deepseek/'); });
+        }
+        document
+          .querySelectorAll('#xbrain-model-picker .xbrain-model-btn')
+          .forEach(function(btn) {
+            const p = String(btn.getAttribute('data-xbrain-provider') || '').trim();
+            if (!catalog.includes(normalizeProviderKey(p))) {
+              btn.remove();
+              return;
+            }
+            const baseLabel = p === 'chatgpt' ? 'OpenAI(ChatGPT/Codex)' : p === 'deepseek' ? 'DeepSeek' : 'Anthropic';
+            const providerKey = normalizeProviderKey(p);
+            const connected = Boolean(providerAuth?.[providerKey]?.configured);
+            const checked = providerCheckPassed(providerKey);
+            const online = providerOnline(providerKey);
+            const checkedAt = providerLastCheckedAt(providerKey);
+            const ready = connected && (providerKey === 'deepseek' ? checked : true);
+            const canToggleOnline = online || (connected && (providerKey === 'deepseek' ? checked : true));
+            const healthClass = !connected ? 'health-err' : checked ? 'health-ok' : 'health-warn';
+            btn.classList.toggle('connected', ready);
+            btn.classList.toggle('disconnected', !ready);
+            btn.classList.remove('health-ok', 'health-warn', 'health-err');
+            btn.classList.add(healthClass);
+            const checkedText = checkedAt ? fmtTsShort(checkedAt) : '-';
+            btn.innerHTML = '<span class="name">' + escapeHtml(baseLabel) + '</span>'
+              + (catalog.length > 1 ? '<span class="close" data-remove-provider="' + escapeHtml(p) + '" title="删除厂商">×</span>' : '')
+              + '<span class="meta">配置:' + (connected ? '已配置' : '未配置')
+              + ' · 检测:' + (checked ? '通过' : '未通过')
+              + ' · 上线:' + (online ? '是' : '否')
+              + '</span>'
+              + '<span class="stamp">最近检测：' + escapeHtml(checkedText) + '</span>'
+              + '<span class="foot"><span class="xbrain-online-pill '
+              + (online ? 'on' : 'off')
+              + ((locked || !canToggleOnline) ? ' disabled' : '')
+              + '" data-online-toggle="' + escapeHtml(p) + '" role="button" aria-label="切换厂商上线状态">'
+              + (online ? '下线' : '上线')
+              + '</span></span>';
+            if (typeof locked === 'boolean') btn.disabled = locked;
+          });
+        if (picker) {
+          const addCandidates = availableProviderOptionsForAdd();
+          const existAdd = picker.querySelector('[data-add-provider]');
+          if (existAdd) existAdd.remove();
+          if (addCandidates.length) {
+            const addCard = document.createElement('button');
+            addCard.type = 'button';
+            addCard.className = 'xbrain-model-add';
+            addCard.setAttribute('data-add-provider', '1');
+            addCard.setAttribute('title', '追加模型厂商');
+            addCard.textContent = '+';
+            addCard.disabled = Boolean(locked);
+            picker.appendChild(addCard);
+          }
+        }
+      }
+
+      function renderXbrainProviderAuthMeta(providerLike) {
+        const baseAuthMeta = document.getElementById('xbrain-base-auth-meta');
+        if (!baseAuthMeta) return;
+        const stateBase = xbrainClientState.data?.base && typeof xbrainClientState.data.base === 'object'
+          ? xbrainClientState.data.base
+          : {};
+        const providerKey = normalizeProviderKey(providerLike || stateBase.modelProvider || 'deepseek');
+        const providerAuth = stateBase.providerAuth && typeof stateBase.providerAuth === 'object'
+          ? stateBase.providerAuth
+          : {};
+        const authMeta = providerAuth?.[providerKey] && typeof providerAuth[providerKey] === 'object'
+          ? providerAuth[providerKey]
+          : {
+              configured: Boolean(stateBase.modelAuthConfigured),
+              masked: String(stateBase.modelAuthMasked || '(未设置)'),
+              source: String(stateBase.modelAuthSource || '-'),
+              error: String(stateBase.modelAuthError || ''),
+              type: providerKey === 'deepseek' ? 'apiKey' : 'oauth',
+            };
+        const checked = providerCheckPassed(providerKey);
+        const authConfigured = Boolean(authMeta.configured);
+        const authErr = String(authMeta.error || '').trim();
+        const registry = Array.isArray(stateBase.modelRegistry)
+          ? stateBase.modelRegistry.map(function(v) { return String(v || '').trim().toLowerCase(); }).filter(Boolean)
+          : [];
+        const online = providerKey === 'chatgpt'
+          ? registry.some(function(v) { return v.startsWith('openai-codex/') || v.startsWith('openai/'); })
+          : providerKey === 'anthropic'
+            ? registry.some(function(v) { return v.startsWith('anthropic/'); })
+            : registry.some(function(v) { return v.startsWith('deepseek/'); });
+        const core = '状态位：配置 ' + (authConfigured ? '已配置' : '未配置')
+          + '｜连接 ' + (checked || providerKey !== 'deepseek' ? '正常' : '待检测')
+          + '｜上线 ' + (online ? '已上线' : '未上线');
+        baseAuthMeta.textContent = authErr ? (core + '｜提示：' + authErr) : core;
+      }
+
       function renderXbrainState() {
         const state = xbrainClientState.data;
         if (!state || typeof state !== 'object') return;
@@ -2362,32 +3591,83 @@ const HTML = `<!DOCTYPE html>
         const locks = state.locks && typeof state.locks === 'object' ? state.locks : {};
 
         const baseProvider = document.getElementById('xbrain-base-provider');
-        const baseModel = document.getElementById('xbrain-base-model');
-        const baseChannel = document.getElementById('xbrain-base-channel');
+        const baseDeepseekKey = document.getElementById('xbrain-base-deepseek-key');
+        const baseDeepseekEye = document.getElementById('xbrain-base-deepseek-eye');
         const baseTelegramToken = document.getElementById('xbrain-base-telegram-token');
-        const baseRuntimeMeta = document.getElementById('xbrain-base-runtime-meta');
-        if (baseProvider) baseProvider.value = String(base.modelProvider || 'deepseek');
-        if (baseModel) baseModel.value = String(base.modelId || 'deepseek-chat');
-        if (baseChannel) baseChannel.value = String(base.chatChannel || 'dashboard');
+        const baseTelegramEye = document.getElementById('xbrain-base-telegram-eye');
+        const a1RuntimeBadge = document.getElementById('xbrain-a1-runtime-badge');
+        const configuredProvider = String(base.modelProvider || 'deepseek');
+        const configuredUiProvider = configuredProvider === 'codex' ? 'chatgpt' : configuredProvider;
+        const providerCatalog = getProviderCatalog(state);
+        const preferredUiProvider = String(xbrainUiProviderOverride || configuredUiProvider || 'deepseek');
+        const uiProvider = providerCatalog.includes(normalizeProviderKey(preferredUiProvider))
+          ? normalizeProviderKey(preferredUiProvider)
+          : providerCatalog[0];
+        const configuredModel = String(base.modelId || 'deepseek-chat');
+        const runtimeProvider = String(base.runtimeModelProvider || configuredProvider || 'deepseek');
+        const runtimeModel = String(base.runtimeModelId || configuredModel || 'deepseek-chat');
+        const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
+        const deepseekMeta = providerAuth.deepseek && typeof providerAuth.deepseek === 'object' ? providerAuth.deepseek : {};
+        if (baseProvider) baseProvider.value = uiProvider;
+        renderXbrainModelOptions(uiProvider);
+        if (baseDeepseekKey) {
+          baseDeepseekKey.value = String(locks.base?.locked === false ? (deepseekMeta.plain || '') : '');
+          baseDeepseekKey.placeholder = String(deepseekMeta.masked || '(未设置)');
+          baseDeepseekKey.type = 'password';
+          baseDeepseekKey.disabled = uiProvider !== 'deepseek' || Boolean(locks.base && locks.base.locked);
+        }
+        if (baseDeepseekEye) {
+          baseDeepseekEye.classList.remove('on');
+          baseDeepseekEye.textContent = '👁';
+          baseDeepseekEye.title = '显示';
+          baseDeepseekEye.setAttribute('aria-label', '显示 API Key');
+          baseDeepseekEye.disabled = uiProvider !== 'deepseek' || Boolean(locks.base && locks.base.locked);
+        }
         if (baseTelegramToken) {
-          baseTelegramToken.value = '';
+          const channelLocked = Boolean(locks.channel && locks.channel.locked);
+          const plain = String(base.telegramTokenValue || '');
+          baseTelegramToken.value = channelLocked ? '' : plain;
           baseTelegramToken.placeholder = String(base.telegramTokenMasked || '(未设置)');
+          baseTelegramToken.type = 'password';
         }
-        if (baseRuntimeMeta) {
-          const checkedAt = base.runtimeModelCheckedAt
-            ? fmtTsShort(base.runtimeModelCheckedAt)
-            : '-';
-          const errText = String(base.runtimeModelError || '').trim();
-          const parts = [
-            '当前会话模型：' + String(base.runtimeModelId || base.modelId || '-'),
-            '提供方：' + String(base.runtimeModelProvider || base.modelProvider || '-'),
-            'API：' + String(base.runtimeModelApi || '-'),
-            '来源：' + String(base.runtimeModelSource || '-'),
-            '检测时间：' + checkedAt,
-          ];
-          if (errText) parts.push('探测提示：' + errText);
-          baseRuntimeMeta.textContent = parts.join(' · ');
+        if (baseTelegramEye) {
+          baseTelegramEye.classList.remove('on');
+          baseTelegramEye.textContent = '👁';
+          baseTelegramEye.title = '显示';
+          baseTelegramEye.setAttribute('aria-label', '显示 Telegram Token');
         }
+        const tgToggle = document.getElementById('xbrain-telegram-enable-toggle');
+        if (tgToggle) tgToggle.checked = Boolean(base.telegramRelayEnabled);
+        const tgConfigBadge = document.getElementById('xbrain-badge-tg-config');
+        const tgConnBadge = document.getElementById('xbrain-badge-tg-conn');
+        const tgSwitchBadge = document.getElementById('xbrain-badge-tg-switch');
+        const tgConfigured = Boolean(base.telegramConfigured);
+        const tgRelayOn = Boolean(base.telegramRelayEnabled);
+        if (tgConfigBadge) {
+          tgConfigBadge.className = 'timeline-tag ' + (tgConfigured ? 'order' : 'risk');
+          tgConfigBadge.textContent = tgConfigured ? 'Token 已配置' : 'Token 未配置';
+        }
+        if (tgSwitchBadge) {
+          tgSwitchBadge.className = 'timeline-tag ' + (tgRelayOn ? 'order' : 'info');
+          tgSwitchBadge.textContent = tgRelayOn ? '开关开启' : '开关关闭';
+        }
+        if (tgConnBadge) {
+          const connected = tgConfigured && tgRelayOn;
+          tgConnBadge.className = 'timeline-tag ' + (connected ? 'order' : 'info');
+          tgConnBadge.textContent = connected ? '连接中/已连接' : '未连接';
+        }
+        if (tgConfigured && tgRelayOn) {
+          setTelegramLinkStatus('ok', 'Telegram: 已配置');
+        } else if (tgConfigured) {
+          setTelegramLinkStatus('warn', 'Telegram: 已配置(开关关闭)');
+        } else {
+          setTelegramLinkStatus('warn', 'Telegram: 未配置');
+        }
+        if (a1RuntimeBadge) {
+          a1RuntimeBadge.textContent = '当前 ThunderClaw：' + runtimeProvider + '/' + runtimeModel;
+        }
+        renderXbrainProviderAuthMeta(uiProvider);
+        renderThunderModelSwitch(state);
 
         const apiKey = document.getElementById('xbrain-exchange-api-key');
         const apiSecret = document.getElementById('xbrain-exchange-api-secret');
@@ -2427,11 +3707,17 @@ const HTML = `<!DOCTYPE html>
         if (runtimeMode) runtimeMode.value = String(strategy.runtimeMode || 'dryrun');
 
         setXbrainLockTag('base', locks.base);
+        setXbrainLockTag('channel', locks.channel);
         setXbrainLockTag('exchange', locks.exchange);
         setXbrainLockTag('strategy', locks.strategy);
-        setXbrainSectionDisabled('base', Boolean(locks.base && locks.base.locked));
-        setXbrainSectionDisabled('exchange', Boolean(locks.exchange && locks.exchange.locked));
-        setXbrainSectionDisabled('strategy', Boolean(locks.strategy && locks.strategy.locked));
+        setXbrainSectionDisabled('base', locks.base);
+        setXbrainSectionDisabled('channel', locks.channel);
+        setXbrainSectionDisabled('exchange', locks.exchange);
+        setXbrainSectionDisabled('strategy', locks.strategy);
+        const lockBase = Boolean(locks.base && locks.base.locked);
+        syncXbrainProviderUi(uiProvider, lockBase);
+        syncXbrainProviderHealthUi(state, lockBase);
+        syncXbrainModelOnlineButtonUi(lockBase);
       }
 
       async function fetchXbrainState(forceRefresh) {
@@ -2439,13 +3725,8 @@ const HTML = `<!DOCTYPE html>
         if (xbrainClientState.loading) return xbrainClientState.data;
         xbrainClientState.loading = true;
         try {
-          const url = '/api/xbrain/state' + (refresh ? '?refresh=1' : '');
-          const resp = await fetch(url, { cache: 'no-store' });
-          const payload = await resp.json().catch(function() { return null; });
-          if (!resp.ok || !payload || payload.ok !== true || !payload.state) {
-            const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
-            throw new Error(reason);
-          }
+          const payload = await requestXbrainState(fetch, REPORT_BUILD_ID, refresh);
+          if (!payload || !payload.state) throw new Error('响应缺少 state');
           xbrainClientState.loaded = true;
           xbrainClientState.data = payload.state;
           renderXbrainState();
@@ -2456,17 +3737,7 @@ const HTML = `<!DOCTYPE html>
       }
 
       async function postXbrain(pathname, body) {
-        const resp = await fetch(pathname, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify(body || {}),
-        });
-        const payload = await resp.json().catch(function() { return null; });
-        if (!resp.ok || !payload || payload.ok !== true) {
-          const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
-          throw new Error(reason);
-        }
+        const payload = await requestXbrainJson(fetch, pathname, body || {});
         if (payload.state) {
           xbrainClientState.data = payload.state;
           xbrainClientState.loaded = true;
@@ -2475,38 +3746,518 @@ const HTML = `<!DOCTYPE html>
         return payload;
       }
 
+      async function requestTelegramHealth() {
+        const resp = await fetch('/api/telegram/health?v=' + encodeURIComponent(REPORT_BUILD_ID), {
+          method: 'GET',
+          cache: 'no-store',
+        });
+        const payload = await resp.json().catch(function() { return null; });
+        if (!resp.ok || !payload) throw new Error(String(payload?.error || ('HTTP ' + resp.status)));
+        return payload;
+      }
+
+      function setTelegramLinkStatus(kind, text) {
+        const el = document.getElementById('telegram-link-status');
+        if (!el) return;
+        el.textContent = String(text || 'Telegram: -');
+        el.classList.remove('ok', 'warn');
+        if (kind === 'ok') el.classList.add('ok');
+        if (kind === 'warn') el.classList.add('warn');
+      }
+
+      async function requestTelegramTest(body) {
+        const resp = await fetch('/api/telegram/test?v=' + encodeURIComponent(REPORT_BUILD_ID), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(body || {}),
+        });
+        const payload = await resp.json().catch(function() { return null; });
+        if (!resp.ok || !payload) throw new Error(String(payload?.error || ('HTTP ' + resp.status)));
+        if (payload.ok !== true) throw new Error(String(payload.error || 'telegram test failed'));
+        return payload;
+      }
+
+      async function requestTelegramHandshake(body) {
+        const resp = await fetch('/api/telegram/handshake?v=' + encodeURIComponent(REPORT_BUILD_ID), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(body || {}),
+        });
+        const payload = await resp.json().catch(function() { return null; });
+        if (!resp.ok || !payload) throw new Error(String(payload?.error || ('HTTP ' + resp.status)));
+        if (payload.ok !== true) throw new Error(String(payload.error || 'telegram handshake failed'));
+        return payload;
+      }
+
+      function setXbrainProbeModalOpen(open) {
+        const modal = document.getElementById('xbrain-probe-modal');
+        if (!modal) return;
+        modal.classList.toggle('hidden', !open);
+        modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+      }
+
+      function setXbrainProbeModalTitle(titleLike) {
+        const titleEl = document.querySelector('#xbrain-probe-modal .xbrain-probe-title');
+        if (!titleEl) return;
+        const text = String(titleLike || '').trim();
+        titleEl.textContent = text || '流程白盒';
+      }
+
+      function setXbrainProbeSteps(stepItems) {
+        const box = document.getElementById('xbrain-probe-steps');
+        if (!box) return;
+        const items = Array.isArray(stepItems) ? stepItems : [];
+        box.innerHTML = items.map(function(s) {
+          const cls = String(s?.type || '').trim();
+          const text = String(s?.text || '').trim() || '-';
+          const ts = String(s?.ts || '').trim();
+          const tsHtml = ts ? ('<span class="ts">' + escapeHtml(ts) + '</span>') : '';
+          return '<div class="xbrain-probe-step ' + escapeHtml(cls) + '">' + tsHtml + escapeHtml(text) + '</div>';
+        }).join('');
+      }
+
+      const xbrainFlows = createXbrainFlowHelpers(buildXbrainFlowDeps({
+        normalizeProviderKey,
+        providerLabel,
+        fmtChatTs,
+        setXbrainProbeSteps,
+        setXbrainProbeModalTitle,
+        setXbrainProbeModalOpen,
+        syncXbrainModelOnlineButtonUi,
+        getBaseLocked: function() { return Boolean(xbrainClientState.data?.locks?.base?.locked); },
+        getCurrentProvider: function() { return document.getElementById('xbrain-base-provider')?.value || 'deepseek'; },
+        fetchXbrainState,
+        getXbrainAuthStatus: async function() {
+          const payload = await requestXbrainAuthStatus(fetch, REPORT_BUILD_ID);
+          return payload.status || {};
+        },
+        getOauthConnected: function(provider) { return Boolean(xbrainOauthConnected?.[provider]); },
+        getOauthMap: function() { return xbrainOauthConnected; },
+        setOauthConnected: function(provider, value) { xbrainOauthConnected[provider] = Boolean(value); },
+        rememberProviderCheck,
+        setXbrainBaseSubStatus,
+        safeLocalJsonWrite,
+        oauthConnectedKey: XBRAIN_OAUTH_CONNECTED_KEY,
+        switchXbrainRuntimeModel: function(modelRef, provider) {
+          return requestXbrainModelSwitch(fetch, modelRef, provider);
+        },
+        getAuthMonitorRunning: function() { return Boolean(xbrainAuthMonitorRunning); },
+        setAuthMonitorRunning: function(v) { xbrainAuthMonitorRunning = Boolean(v); },
+      }));
+
+      function buildAnthropicTokenGuide() {
+        return 'Anthropic 当前为 token 登录方式。\\n'
+          + '请在终端执行：openclaw models auth setup-token --provider anthropic --yes\\n'
+          + '完成后回到页面点击“重新连接”或“检测当前模型”。';
+      }
+
+      async function disconnectXbrainAuth(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        const payload = await postXbrain('/api/xbrain/auth/disconnect', { provider: provider });
+        if (xbrainOauthConnected && typeof xbrainOauthConnected === 'object') {
+          xbrainOauthConnected[provider] = false;
+          safeLocalJsonWrite(XBRAIN_OAUTH_CONNECTED_KEY, xbrainOauthConnected);
+        }
+        rememberProviderCheck(provider, false, '账号已断开');
+        return payload;
+      }
+
+      async function setProviderOnlineState(providerLike, willOnline) {
+        const provider = normalizeProviderKey(providerLike);
+        const providerModels = getAvailableModelsForProvider(provider);
+        if (!providerModels.length) {
+          throw new Error('当前厂商暂无可上线模型。');
+        }
+        const currentRegistry = Array.isArray(xbrainClientState.data?.base?.modelRegistry)
+          ? xbrainClientState.data.base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+          : [];
+        const providerSet = new Set(providerModels);
+        const nextRegistry = currentRegistry.filter(function(v) { return !providerSet.has(v); });
+        if (willOnline) {
+          providerModels.forEach(function(m) { nextRegistry.push(m); });
+        }
+        const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
+        await postXbrain('/api/xbrain/update', { section: 'base', values: { modelRegistry: nextRegistry }, password });
+        await fetchXbrainState(true);
+        setXbrainBaseSubStatus(
+          'model',
+          (willOnline ? '厂商已上线，可切换模型数：' : '厂商已下线，已移除模型数：')
+            + String(providerModels.length)
+            + '（'
+            + providerLabel(provider)
+            + '）',
+          'ok',
+        );
+      }
+
       function setupXbrainPanel() {
-        const baseForm = document.getElementById('xbrain-base-form');
+        const baseModelForm = document.getElementById('xbrain-base-model-form');
+        const baseChannelForm = document.getElementById('xbrain-base-channel-form');
         const exchangeForm = document.getElementById('xbrain-exchange-form');
         const strategyForm = document.getElementById('xbrain-strategy-form');
-        if (!baseForm || !exchangeForm || !strategyForm) return;
+        if (!baseModelForm || !baseChannelForm || !exchangeForm || !strategyForm) return Promise.resolve();
 
-        void fetchXbrainState(true).catch(function(err) {
+        const initialXbrainLoadPromise = fetchXbrainState(true).catch(function(err) {
           setXbrainStatus('strategy', '加载虾脑配置失败：' + String(err?.message || err), 'err');
         });
 
-        baseForm.addEventListener('submit', function(ev) {
+        const baseProviderInput = document.getElementById('xbrain-base-provider');
+        const modelPicker = document.getElementById('xbrain-model-picker');
+        if (modelPicker) {
+          modelPicker.addEventListener('click', function(ev) {
+            const addEl = ev.target && ev.target.closest ? ev.target.closest('[data-add-provider]') : null;
+            if (addEl) {
+              ev.preventDefault();
+              if (addEl.disabled) return;
+              const candidates = availableProviderOptionsForAdd();
+              if (!candidates.length) {
+                setXbrainBaseSubStatus('model', '当前没有可追加的厂商。', 'err');
+                return;
+              }
+              const providerNameMap = { deepseek: 'DeepSeek', chatgpt: 'OpenAI(ChatGPT/Codex)', anthropic: 'Anthropic' };
+              const msg = '输入要追加的厂商编号：\\n'
+                + candidates.map(function(p, idx) { return String(idx + 1) + '. ' + providerNameMap[p]; }).join('\\n');
+              const pick = window.prompt(msg, '1');
+              if (!pick) return;
+              const idx = Number(String(pick).trim()) - 1;
+              if (!Number.isFinite(idx) || idx < 0 || idx >= candidates.length) {
+                setXbrainBaseSubStatus('model', '追加取消：输入无效。', 'err');
+                return;
+              }
+              void addProviderCard(candidates[idx]).catch(function(err) {
+                setXbrainBaseSubStatus('model', '追加厂商失败：' + String(err?.message || err), 'err');
+              });
+              return;
+            }
+
+            const cardBtn = ev.target && ev.target.closest ? ev.target.closest('.xbrain-model-btn[data-xbrain-provider]') : null;
+            if (!cardBtn) return;
+            ev.preventDefault();
+            const provider = String(cardBtn.getAttribute('data-xbrain-provider') || 'deepseek');
+            const removeEl = ev.target && ev.target.closest ? ev.target.closest('[data-remove-provider]') : null;
+            if (removeEl) {
+              if (Boolean(xbrainClientState.data?.locks?.base?.locked)) return;
+              void removeProviderCard(provider).catch(function(err) {
+                setXbrainBaseSubStatus('model', '删除厂商失败：' + String(err?.message || err), 'err');
+              });
+              return;
+            }
+            const onlineToggleEl = ev.target && ev.target.closest ? ev.target.closest('[data-online-toggle]') : null;
+            if (onlineToggleEl) {
+              if (onlineToggleEl.classList.contains('disabled')) return;
+              const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
+              if (lockBase) return;
+              const isOnline = onlineToggleEl.classList.contains('on');
+              onlineToggleEl.classList.add('disabled');
+              setXbrainBaseSubStatus('model', (isOnline ? '下线' : '上线') + '中，请稍候...', 'ok');
+              void setProviderOnlineState(provider, !isOnline).catch(function(err) {
+                setXbrainBaseSubStatus('model', '模型上下线失败：' + String(err?.message || err), 'err');
+              });
+              return;
+            }
+            xbrainUiProviderOverride = provider;
+            if (baseProviderInput) baseProviderInput.value = provider;
+            const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
+            syncXbrainProviderUi(provider, lockBase);
+            syncXbrainProviderHealthUi(xbrainClientState.data || {}, lockBase);
+            renderXbrainModelOptions(provider);
+            renderXbrainProviderAuthMeta(provider);
+            syncXbrainModelOnlineButtonUi(lockBase);
+            const dsEl = document.getElementById('xbrain-base-deepseek-key');
+            const eyeEl = document.getElementById('xbrain-base-deepseek-eye');
+            if (provider !== 'deepseek') {
+              if (dsEl) dsEl.type = 'password';
+              if (eyeEl) {
+                eyeEl.classList.remove('on');
+                eyeEl.textContent = '👁';
+                eyeEl.title = '显示';
+                eyeEl.setAttribute('aria-label', '显示 API Key');
+              }
+              setXbrainBaseSubStatus('model', '当前厂商使用 OAuth。可直接连接、断开或重新连接账号。', 'ok');
+            } else {
+              setXbrainBaseSubStatus('model', '当前厂商使用 API Key 连接。保存后会自动检测，检测通过后可上线。', 'ok');
+            }
+          });
+        }
+        const deepseekEyeBtn = document.getElementById('xbrain-base-deepseek-eye');
+        if (deepseekEyeBtn) {
+          deepseekEyeBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            const dsEl = document.getElementById('xbrain-base-deepseek-key');
+            if (!dsEl || dsEl.disabled) return;
+            if (!String(dsEl.value || '').trim()) {
+              setXbrainBaseSubStatus('model', '当前没有可展示的 API Key（可先输入后查看）。', 'err');
+              return;
+            }
+            const showing = dsEl.type === 'text';
+            dsEl.type = showing ? 'password' : 'text';
+            deepseekEyeBtn.classList.toggle('on', !showing);
+            deepseekEyeBtn.textContent = showing ? '👁' : '🙈';
+            deepseekEyeBtn.title = showing ? '显示' : '隐藏';
+            deepseekEyeBtn.setAttribute('aria-label', showing ? '显示 API Key' : '隐藏 API Key');
+            setXbrainBaseSubStatus('model', showing ? 'API Key 已隐藏。' : 'API Key 已显示。', 'ok');
+          });
+        }
+        const telegramEyeBtn = document.getElementById('xbrain-base-telegram-eye');
+        if (telegramEyeBtn) {
+          telegramEyeBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            const tokenEl = document.getElementById('xbrain-base-telegram-token');
+            if (!tokenEl || tokenEl.disabled) return;
+            if (!String(tokenEl.value || '').trim()) {
+              const saved = String(xbrainClientState.data?.base?.telegramTokenValue || '').trim();
+              if (saved) tokenEl.value = saved;
+            }
+            if (!String(tokenEl.value || '').trim()) {
+              setXbrainBaseSubStatus('channel', '当前没有可展示的 Telegram Token（请先保存 Token）。', 'err');
+              return;
+            }
+            const showing = tokenEl.type === 'text';
+            tokenEl.type = showing ? 'password' : 'text';
+            telegramEyeBtn.classList.toggle('on', !showing);
+            telegramEyeBtn.textContent = showing ? '👁' : '🙈';
+            telegramEyeBtn.title = showing ? '显示' : '隐藏';
+            telegramEyeBtn.setAttribute('aria-label', showing ? '显示 Telegram Token' : '隐藏 Telegram Token');
+            setXbrainBaseSubStatus('channel', showing ? 'Telegram Token 已隐藏。' : 'Telegram Token 已显示。', 'ok');
+          });
+        }
+        const openaiLoginBtn = document.getElementById('xbrain-openai-login-btn');
+        if (openaiLoginBtn) {
+          openaiLoginBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            if (openaiLoginBtn.disabled) return;
+            const providerRaw = String(document.getElementById('xbrain-base-provider')?.value || 'chatgpt');
+            const provider = providerRaw === 'anthropic' ? 'anthropic' : 'chatgpt';
+            const providerLabel = provider === 'anthropic' ? 'Anthropic' : 'OpenAI(ChatGPT/Codex)';
+            if (provider === 'anthropic') {
+              openaiLoginBtn.disabled = true;
+              openaiLoginBtn.textContent = '发起中...';
+              setXbrainBaseSubStatus('model', '正在初始化 Anthropic 连接流程...', 'ok');
+              void requestXbrainAuthStart(fetch, provider)
+                .then(function() {
+                  void xbrainFlows.monitorXbrainAuthCompletion(provider);
+                  return xbrainFlows.waitForXbrainAuthUrl(8, 500);
+                })
+                .then(function(out) {
+                  const loginUrl = String(out?.url || '').trim();
+                  if (loginUrl) {
+                    try { window.open(loginUrl, '_blank'); } catch {}
+                    setXbrainBaseSubStatus('model', '请在新窗口完成 Anthropic 授权。', 'ok');
+                    return;
+                  }
+                  setXbrainBaseSubStatus('model', buildAnthropicTokenGuide(), 'err');
+                })
+                .catch(function(err) {
+                  const msg = String(err?.message || err);
+                  if (/token|setup-token|provider plugins|interactive|tty/i.test(msg)) {
+                    setXbrainBaseSubStatus('model', buildAnthropicTokenGuide(), 'err');
+                    return;
+                  }
+                  setXbrainBaseSubStatus('model', '发起登录失败：' + msg, 'err');
+                })
+                .finally(function() {
+                  openaiLoginBtn.disabled = false;
+                  syncXbrainProviderUi(providerRaw, Boolean(xbrainClientState.data?.locks?.base?.locked));
+                });
+              return;
+            }
+            openaiLoginBtn.disabled = true;
+            openaiLoginBtn.textContent = '发起中...';
+            setXbrainBaseSubStatus('model', '正在自动初始化并发起' + providerLabel + '登录，请稍候...', 'ok');
+            void requestXbrainAuthStart(fetch, provider)
+              .then(function() {
+                void xbrainFlows.monitorXbrainAuthCompletion(provider);
+                return xbrainFlows.waitForXbrainAuthUrl(30, 600);
+              })
+              .then(function(out) {
+                const status = out?.status || {};
+                const loginUrl = String(out?.url || '').trim();
+                const phase = String(status?.phase || '');
+                if (loginUrl) {
+                  try {
+                    window.open(loginUrl, '_blank');
+                  } catch {
+                    try { window.open(loginUrl, '_blank'); } catch {}
+                  }
+                  setXbrainBaseSubStatus('model', '已发起' + providerLabel + '登录，请在新窗口完成授权，系统会自动回写连接状态。', 'ok');
+                  return;
+                }
+                if (status?.running) {
+                  if (phase === 'preparing') {
+                    setXbrainBaseSubStatus('model', '正在准备登录环境，请稍候后查看状态。', 'ok');
+                    return;
+                  }
+                  setXbrainBaseSubStatus('model', providerLabel + '登录流程已启动，系统将自动刷新状态。', 'ok');
+                  return;
+                }
+                setXbrainBaseSubStatus('model', providerLabel + '登录流程已触发，系统将自动刷新状态。', 'ok');
+              })
+              .catch(function(err) {
+                setXbrainBaseSubStatus('model', '发起登录失败：' + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                openaiLoginBtn.disabled = false;
+                syncXbrainProviderUi(providerRaw, Boolean(xbrainClientState.data?.locks?.base?.locked));
+              });
+          });
+        }
+        const oauthDisconnectBtn = document.getElementById('xbrain-openai-disconnect-btn');
+        if (oauthDisconnectBtn) {
+          oauthDisconnectBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            if (oauthDisconnectBtn.disabled) return;
+            const providerRaw = String(document.getElementById('xbrain-base-provider')?.value || 'chatgpt');
+            const provider = providerRaw === 'anthropic' ? 'anthropic' : 'chatgpt';
+            const label = provider === 'anthropic' ? 'Anthropic' : 'OpenAI(ChatGPT/Codex)';
+            oauthDisconnectBtn.disabled = true;
+            oauthDisconnectBtn.textContent = '断开中...';
+            setXbrainBaseSubStatus('model', '正在断开 ' + label + ' 连接...', 'ok');
+            void disconnectXbrainAuth(provider)
+              .then(function() {
+                return fetchXbrainState(true);
+              })
+              .then(function() {
+                setXbrainBaseSubStatus('model', label + ' 已断开，可重新连接账号。', 'ok');
+              })
+              .catch(function(err) {
+                setXbrainBaseSubStatus('model', '断开失败：' + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                oauthDisconnectBtn.textContent = '断开连接';
+                syncXbrainProviderUi(providerRaw, Boolean(xbrainClientState.data?.locks?.base?.locked));
+              });
+          });
+        }
+
+        const channelTestBtn = document.getElementById('xbrain-test-base-channel');
+        const channelToggle = document.getElementById('xbrain-telegram-enable-toggle');
+        async function runTelegramChannelTest(optionsLike) {
+          const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+          const token = String(document.getElementById('xbrain-base-telegram-token')?.value || '').trim();
+          const sendProbe = Boolean(options.sendProbe);
+          const mustInputToken = Boolean(options.mustInputToken);
+          if (mustInputToken && !token) {
+            throw new Error('请先输入 Telegram Token。');
+          }
+          const payload = await requestTelegramTest({
+            token: token,
+            sendProbe: sendProbe,
+          });
+          const botName = payload?.bot?.username ? ('@' + payload.bot.username) : (payload?.bot?.firstName || 'unknown');
+          const probeMsg = sendProbe ? '，已尝试下发测试消息' : '';
+          setXbrainBaseSubStatus('channel', 'Telegram 验证通过：' + botName + probeMsg + '。', 'ok');
+          return payload;
+        }
+
+        if (channelTestBtn) {
+          channelTestBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            if (channelTestBtn.disabled) return;
+            const oldText = String(channelTestBtn.textContent || '测试连接');
+            channelTestBtn.disabled = true;
+            channelTestBtn.textContent = '测试中...';
+            setXbrainBaseSubStatus('channel', '正在验证 Telegram Token...', 'ok');
+            void runTelegramChannelTest({ mustInputToken: true, sendProbe: true })
+              .catch(function(err) {
+                setXbrainBaseSubStatus('channel', 'Telegram 验证失败：' + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                channelTestBtn.disabled = false;
+                channelTestBtn.textContent = oldText;
+              });
+          });
+        }
+        if (channelToggle) {
+          channelToggle.addEventListener('change', function() {
+            const on = Boolean(channelToggle.checked);
+            const configured = Boolean(xbrainClientState.data?.base?.telegramConfigured)
+              || Boolean(String(document.getElementById('xbrain-base-telegram-token')?.value || '').trim());
+            if (on && !configured) {
+              channelToggle.checked = false;
+              setXbrainBaseSubStatus('channel', '请先填写并保存 Telegram Token，再开启开关。', 'err');
+              return;
+            }
+            channelToggle.disabled = true;
+            setXbrainBaseSubStatus('channel', on ? '正在开启 Telegram...' : '正在关闭 Telegram...', 'ok');
+            void postXbrain('/api/xbrain/update', {
+              section: 'channel',
+              values: {
+                chatChannel: 'both',
+                telegramRelayEnabled: on,
+              },
+              password: '',
+            })
+              .then(function() {
+                if (!on) return null;
+                return requestTelegramHandshake({ text: 'ThunderClaw 已连接 Telegram（握手成功）' });
+              })
+              .then(function() {
+                return requestTelegramHealth();
+              })
+              .then(function(health) {
+                const connected = Boolean(health?.connected);
+                if (on) {
+                  setXbrainBaseSubStatus(
+                    'channel',
+                    connected ? 'Telegram 已开启并发送握手消息。' : 'Telegram 已开启，正在建立连接。',
+                    connected ? 'ok' : 'err',
+                  );
+                } else {
+                  setXbrainBaseSubStatus('channel', 'Telegram 已关闭。', 'ok');
+                }
+              })
+              .catch(function(err) {
+                channelToggle.checked = !on;
+                setXbrainBaseSubStatus('channel', (on ? '开启失败：' : '关闭失败：') + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                channelToggle.disabled = false;
+              });
+          });
+        }
+
+        baseModelForm.addEventListener('submit', function(ev) {
           ev.preventDefault();
-          const tgToken = String(document.getElementById('xbrain-base-telegram-token')?.value || '').trim();
-          const values = {
-            modelProvider: String(document.getElementById('xbrain-base-provider')?.value || 'deepseek'),
-            modelId: String(document.getElementById('xbrain-base-model')?.value || '').trim() || 'deepseek-chat',
-            chatChannel: String(document.getElementById('xbrain-base-channel')?.value || 'dashboard'),
-          };
-          if (tgToken) values.telegramToken = tgToken;
+          const provider = String(document.getElementById('xbrain-base-provider')?.value || 'deepseek');
+          const deepseekKey = String(document.getElementById('xbrain-base-deepseek-key')?.value || '').trim();
+          const values = {};
+          if (provider === 'deepseek' && deepseekKey) values.deepseekApiKey = deepseekKey;
+          if (!Object.keys(values).length) {
+            setXbrainBaseSubStatus('model', '当前没有可保存的建连信息（DeepSeek 需填写 API Key；OAuth 模型请用一键登录）。', 'err');
+            return;
+          }
           const password = String(document.getElementById('xbrain-base-password')?.value || '').trim();
           void postXbrain('/api/xbrain/update', { section: 'base', values, password })
-            .then(function(payload) {
-              const syncOk = payload?.openclawModelSync == null || payload?.openclawModelSync?.ok === true;
-              const syncMsg = syncOk ? '模型同步正常。' : ('模型同步提示：' + String(payload?.openclawModelSync?.error || '请检查 OpenClaw'));
-              setXbrainStatus('base', '基础配置已保存，并同步给模型。' + syncMsg, syncOk ? 'ok' : 'err');
-              const tEl = document.getElementById('xbrain-base-telegram-token');
-              if (tEl) tEl.value = '';
-              void fetchXbrainState(true).catch(function() {});
+            .then(function() {
+              const dsEl = document.getElementById('xbrain-base-deepseek-key');
+              if (dsEl) dsEl.value = '';
+              void fetchXbrainState(true)
+                .then(function() {
+                  setXbrainBaseSubStatus('model', '建连配置已保存，正在自动检测...', 'ok');
+                  return xbrainFlows.runXbrainProviderProbeFlow({ provider: provider, showModal: false });
+                })
+                .then(function(result) {
+                  if (!result) return;
+                  if (result.ok) {
+                    setXbrainBaseSubStatus('model', '自动检测通过：' + providerLabel(provider) + ' 可上线。', 'ok');
+                    return;
+                  }
+                  setXbrainBaseSubStatus('model', '自动检测未通过：' + String(result.error || '请检查连接配置'), 'err');
+                })
+                .catch(function(err) {
+                  setXbrainBaseSubStatus('model', '模型配置已保存，但刷新状态失败：' + String(err?.message || err), 'err');
+                });
             })
             .catch(function(err) {
-              setXbrainStatus('base', '保存失败：' + String(err?.message || err), 'err');
+              setXbrainBaseSubStatus('model', '保存失败：' + String(err?.message || err), 'err');
             });
+        });
+
+        baseChannelForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          setXbrainBaseSubStatus('channel', '请使用“保存 Token”和“Telegram 开关”。', 'ok');
         });
 
         exchangeForm.addEventListener('submit', function(ev) {
@@ -2603,24 +4354,41 @@ const HTML = `<!DOCTYPE html>
               const lockInfo = xbrainClientState.data?.locks?.[section] || {};
               const locked = lockInfo.locked !== false;
               const hasPassword = Boolean(lockInfo.hasPassword);
+              const action = locked ? 'unlock' : 'lock';
               const passInput = document.getElementById('xbrain-' + section + '-password');
               const password = String(passInput?.value || '').trim();
-              const action = locked ? 'unlock' : 'lock';
-              if (action === 'unlock' && hasPassword && !password) {
+              if (action === 'unlock' && section !== 'base' && hasPassword && !password) {
                 setXbrainStatus(section, '该模块已设置密码，请先输入密码再解锁。', 'err');
                 return;
               }
-              void postXbrain('/api/xbrain/lock', {
-                section: section,
-                action: action,
-                password: password,
-                currentPassword: password,
-              })
+              const lockActionPromise = (section === 'channel' && action === 'lock')
+                ? (function() {
+                    const token = String(document.getElementById('xbrain-base-telegram-token')?.value || '').trim();
+                    const relayEnabled = Boolean(document.getElementById('xbrain-telegram-enable-toggle')?.checked);
+                    const values = { chatChannel: 'both', telegramRelayEnabled: relayEnabled };
+                    if (token) values.telegramToken = token;
+                    return postXbrain('/api/xbrain/update', { section: 'channel', values, password: '' })
+                      .then(function() {
+                        return postXbrain('/api/xbrain/lock', {
+                          section: section,
+                          action: action,
+                          password: password,
+                          currentPassword: password,
+                        });
+                      });
+                  })()
+                : postXbrain('/api/xbrain/lock', {
+                    section: section,
+                    action: action,
+                    password: password,
+                    currentPassword: password,
+                  });
+              void lockActionPromise
                 .then(function() {
                   if (action === 'unlock') {
-                    setXbrainStatus(section, '已解锁，可编辑该模块配置。', 'ok');
+                    setXbrainStatus(section, section === 'channel' ? '已进入编辑模式。' : '已解锁，可编辑该模块配置。', 'ok');
                   } else {
-                    setXbrainStatus(section, '已锁定该模块。', 'ok');
+                    setXbrainStatus(section, section === 'channel' ? '沟通渠道配置已保存。' : '已锁定该模块。', 'ok');
                   }
                 })
                 .catch(function(err) {
@@ -2643,18 +4411,46 @@ const HTML = `<!DOCTYPE html>
           });
         }
         const probeBtn = document.getElementById('xbrain-base-probe-btn');
+        const probeCloseBtn = document.getElementById('xbrain-probe-close');
+        const probeModal = document.getElementById('xbrain-probe-modal');
+        if (probeCloseBtn) {
+          probeCloseBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            setXbrainProbeModalOpen(false);
+          });
+        }
+        if (probeModal) {
+          probeModal.addEventListener('click', function(ev) {
+            if (ev.target === probeModal) setXbrainProbeModalOpen(false);
+          });
+        }
         if (probeBtn) {
           probeBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            void fetchXbrainState(true)
-              .then(function() {
-                setXbrainStatus('base', '已刷新当前会话模型探测结果。', 'ok');
+            if (probeBtn.disabled) return;
+            const oldText = String(probeBtn.textContent || '检测当前模型');
+            probeBtn.disabled = true;
+            probeBtn.textContent = '检测中...';
+            setXbrainBaseSubStatus('model', '正在执行模型检测流程...', 'ok');
+            const provider = String(document.getElementById('xbrain-base-provider')?.value || 'deepseek');
+            void xbrainFlows.runXbrainProviderProbeFlow({ provider: provider, showModal: true })
+              .then(function(result) {
+                if (result?.ok) {
+                  setXbrainBaseSubStatus('model', '检测通过：' + providerLabel(provider) + ' 可以上线。', 'ok');
+                  return;
+                }
+                setXbrainBaseSubStatus('model', '检测未通过：' + String(result?.error || '请检查配置与登录状态。'), 'err');
               })
               .catch(function(err) {
-                setXbrainStatus('base', '模型探测失败：' + String(err?.message || err), 'err');
+                setXbrainBaseSubStatus('model', '模型探测失败：' + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                probeBtn.disabled = false;
+                probeBtn.textContent = oldText;
               });
           });
         }
+        return initialXbrainLoadPromise;
       }
 
       function renderAiChat() {
@@ -2662,8 +4458,20 @@ const HTML = `<!DOCTYPE html>
         const input = document.getElementById('ai-chat-input');
         const sendBtn = document.getElementById('ai-chat-send');
         if (!box || !input || !sendBtn) return;
+        const CHAT_ROUTES = {
+          aiChat: '${CHAT_API_ROUTES.aiChat}',
+          configChat: '${CHAT_API_ROUTES.configChat}',
+          chatHistory: '${CHAT_API_ROUTES.chatHistory}',
+          aiHealth: '${CHAT_API_ROUTES.aiHealth}',
+        };
+        const CHAT_HISTORY_LIMIT = ${CHAT_DEFAULTS.historyLimit};
+        const CHAT_HISTORY_POLL_MS = ${CHAT_DEFAULTS.historyPollMs};
+        const SUPPORTED_STRATEGY_LIST = ${JSON.stringify(SUPPORTED_STRATEGIES)};
+        const SUPPORTED_TIMEFRAME_LIST = ${JSON.stringify(SUPPORTED_TIMEFRAMES)};
+        const SUPPORTED_STRATEGY_SET = new Set(SUPPORTED_STRATEGY_LIST);
+        const SUPPORTED_TIMEFRAME_SET = new Set(SUPPORTED_TIMEFRAME_LIST);
         const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
-        const CHAT_LOG_MAX = 800;
+        const CHAT_LOG_MAX = ${CHAT_LOG_MAX_DEFAULT};
         const chatHistoryState = (function() {
           const existing = window.__thunderclawChatHistoryState;
           if (existing && typeof existing === 'object') return existing;
@@ -2674,6 +4482,8 @@ const HTML = `<!DOCTYPE html>
             timer: null,
             seenIds: new Set(),
             bootRendered: false,
+            pendingUserEchoes: [],
+            pendingSeq: 0,
           };
           window.__thunderclawChatHistoryState = state;
           return state;
@@ -2692,6 +4502,76 @@ const HTML = `<!DOCTYPE html>
           const arr = Array.isArray(rows) ? rows.slice(-CHAT_LOG_MAX) : [];
           try { localStorage.setItem(CHAT_LOG_KEY, JSON.stringify(arr)); } catch (_) {}
         }
+        function fmtChatTs(tsLike) {
+          const ms = Number.isFinite(Date.parse(String(tsLike || ''))) ? Date.parse(String(tsLike || '')) : Date.now();
+          const d = new Date(ms);
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          const ss = String(d.getSeconds()).padStart(2, '0');
+          return hh + ':' + mm + ':' + ss;
+        }
+        function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass) {
+          const row = document.createElement('div');
+          row.className = 'ai-msg-row ' + roleClass;
+          if (pendingKey) row.setAttribute('data-pending-key', String(pendingKey));
+          const div = document.createElement('div');
+          div.className = 'ai-msg ' + roleClass;
+          const textEl = document.createElement('div');
+          textEl.className = 'ai-msg-text';
+          textEl.textContent = String(text || '').trim();
+          const metaEl = document.createElement('div');
+          metaEl.className = 'ai-msg-meta';
+          const tsEl = document.createElement('span');
+          tsEl.className = 'ai-msg-time';
+          tsEl.textContent = fmtChatTs(tsLike);
+          metaEl.appendChild(tsEl);
+          if (statusText) {
+            const statusEl = document.createElement('span');
+            statusEl.className = 'ai-msg-status ' + String(statusClass || 'sending');
+            statusEl.textContent = String(statusText);
+            metaEl.appendChild(statusEl);
+          }
+          div.appendChild(textEl);
+          row.appendChild(metaEl);
+          row.appendChild(div);
+          return row;
+        }
+        function finishRowPendingState(row) {
+          if (!row) return;
+          row.classList.remove('pending');
+          row.removeAttribute('data-pending-key');
+          const statusEl = row.querySelector('.ai-msg-status');
+          if (statusEl) statusEl.remove();
+        }
+        function setRowTextWithTypewriter(row, textLike, optionsLike) {
+          const rowEl = row || null;
+          const textEl = rowEl ? rowEl.querySelector('.ai-msg-text') : null;
+          if (!rowEl || !textEl) return;
+          const text = String(textLike || '');
+          const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+          const enabled = options.enabled !== false;
+          const onDone = typeof options.onDone === 'function' ? options.onDone : null;
+          if (!enabled || !text) {
+            textEl.textContent = text;
+            if (onDone) onDone();
+            return;
+          }
+          const len = text.length;
+          const tickMs = Math.max(10, Number(options.tickMs) || 14);
+          const maxDurationMs = Math.max(700, Number(options.maxDurationMs) || 2600);
+          const step = Math.max(1, Math.ceil(len / Math.max(1, Math.floor(maxDurationMs / tickMs))));
+          let cursor = 0;
+          textEl.textContent = '';
+          (function draw() {
+            cursor = Math.min(len, cursor + step);
+            textEl.textContent = text.slice(0, cursor);
+            if (cursor >= len) {
+              if (onDone) onDone();
+              return;
+            }
+            window.setTimeout(draw, tickMs);
+          })();
+        }
         function appendLocalChatLog(rowLike) {
           const row = rowLike && typeof rowLike === 'object' ? rowLike : null;
           if (!row) return;
@@ -2708,6 +4588,47 @@ const HTML = `<!DOCTYPE html>
           });
           saveLocalChatLog(current);
         }
+        function ackLocalUserEcho(text, tsLike, idLike) {
+          const t = String(text || '').trim();
+          if (!t) return;
+          const idNum = Number(idLike);
+          const tsMs = Number.isFinite(Date.parse(String(tsLike || ''))) ? Date.parse(String(tsLike || '')) : Date.now();
+          const rows = loadLocalChatLog();
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
+            if (!row) continue;
+            if (String(row.role || '') !== 'user') continue;
+            if (String(row.text || '').trim() !== t) continue;
+            const rowMs = Number.isFinite(Date.parse(String(row.ts || ''))) ? Date.parse(String(row.ts || '')) : tsMs;
+            if (Math.abs(tsMs - rowMs) > 120000) continue;
+            if (Number.isFinite(Number(row.id)) && Number(row.id) > 0) continue;
+            row.id = Number.isFinite(idNum) && idNum > 0 ? idNum : null;
+            row.ts = tsLike || row.ts;
+            saveLocalChatLog(rows);
+            return;
+          }
+          appendLocalChatLog({
+            source: 'dashboard',
+            ts: tsLike || null,
+            id: Number.isFinite(idNum) ? idNum : null,
+            role: 'user',
+            text: t,
+          });
+        }
+        function markPendingDelivered(pendingKey, tsLike) {
+          if (!pendingKey) return;
+          const selector = '.ai-msg-row.user[data-pending-key="' + String(pendingKey).replace(/"/g, '\\"') + '"]';
+          const node = box.querySelector(selector);
+          if (!node) return;
+          node.removeAttribute('data-pending-key');
+          const metaEl = node.querySelector('.ai-msg-meta');
+          if (metaEl) {
+            const statusEl = metaEl.querySelector('.ai-msg-status');
+            if (statusEl) statusEl.remove();
+            const tsEl = metaEl.querySelector('.ai-msg-time');
+            if (tsEl) tsEl.textContent = fmtChatTs(tsLike);
+          }
+        }
         function renderStoredChatLog() {
           const rows = loadLocalChatLog();
           box.innerHTML = '';
@@ -2718,31 +4639,74 @@ const HTML = `<!DOCTYPE html>
               chatHistoryState.seenIds.add(idNum);
               chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
             }
-            const div = document.createElement('div');
             const role = r.role === 'user' ? 'user' : 'bot';
-            div.className = 'ai-msg ' + role;
-            div.textContent = String(r.text || '');
+            const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '');
             box.appendChild(div);
           });
           box.scrollTop = box.scrollHeight;
         }
         function pushMsg(role, text, opts) {
           const options = opts && typeof opts === 'object' ? opts : {};
-          const div = document.createElement('div');
           const roleClass = role === 'user' ? 'user' : 'bot';
           const t = String(text || '').trim();
           if (!t) return;
-          div.className = 'ai-msg ' + roleClass;
-          div.textContent = t;
+          const pendingKey = options.pendingKey ? String(options.pendingKey) : '';
+          const sending = options.sending === true;
+          const div = createChatMessageElement(
+            roleClass,
+            t,
+            options.ts || null,
+            sending ? 'sending...' : String(options.statusText || ''),
+            pendingKey,
+            sending ? 'sending' : String(options.statusClass || ''),
+          );
+          if (options.pendingClass) div.classList.add(String(options.pendingClass));
           box.appendChild(div);
+          if (options.typewriter === true && roleClass === 'bot') {
+            setRowTextWithTypewriter(div, t, {
+              enabled: true,
+              tickMs: Number(options.typewriterTickMs) || 14,
+              maxDurationMs: Number(options.typewriterMaxMs) || 2600,
+              onDone: function() {
+                if (options.typewriterFinishPending) finishRowPendingState(div);
+              },
+            });
+          }
           box.scrollTop = box.scrollHeight;
-          appendLocalChatLog({
-            id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
-            ts: options.ts || new Date().toISOString(),
-            role: roleClass,
-            source: String(options.source || 'dashboard'),
-            text: t,
+          if (!options.skipStore) {
+            appendLocalChatLog({
+              id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
+              ts: options.ts || new Date().toISOString(),
+              role: roleClass,
+              source: String(options.source || 'dashboard'),
+              text: t,
+            });
+          }
+        }
+        function ensureTelegramThinking(chatIdLike, tsLike) {
+          const chatId = String(chatIdLike || '').trim();
+          if (!chatId) return;
+          const pendingKey = 'tg-pending:' + chatId;
+          const selector = '.ai-msg-row.bot[data-pending-key="' + pendingKey.replace(/"/g, '\\"') + '"]';
+          if (box.querySelector(selector)) return;
+          pushMsg('bot', '[TG 回执] 正在思考中...', {
+            ts: tsLike || null,
+            source: 'telegram',
+            pendingKey: pendingKey,
+            statusText: '思考中',
+            statusClass: 'thinking',
+            pendingClass: 'pending',
+            skipStore: true,
           });
+        }
+        function clearTelegramThinking(chatIdLike) {
+          const chatId = String(chatIdLike || '').trim();
+          if (!chatId) return;
+          const pendingKey = 'tg-pending:' + chatId;
+          const selector = '.ai-msg-row.bot[data-pending-key="' + pendingKey.replace(/"/g, '\\"') + '"]';
+          const node = box.querySelector(selector);
+          if (!node) return;
+          try { box.removeChild(node); } catch (_) {}
         }
         function setAiLinkStatus(state, text) {
           if (!aiLinkStatusEl) return;
@@ -2750,6 +4714,23 @@ const HTML = `<!DOCTYPE html>
           if (state === 'ok') aiLinkStatusEl.classList.add('ok');
           if (state === 'warn') aiLinkStatusEl.classList.add('warn');
           aiLinkStatusEl.textContent = text;
+        }
+        function formatExecutionTraceLocal(traceLike) {
+          const trace = Array.isArray(traceLike) ? traceLike : [];
+          if (!trace.length) return '';
+          const lines = [];
+          trace.slice(0, 12).forEach(function(item, idx) {
+            const row = item && typeof item === 'object' ? item : null;
+            if (!row) return;
+            const step = String(row.step || 'step');
+            const summary = String(row.summary || '').trim();
+            const ts = String(row.ts || '').trim();
+            if (summary && ts) lines.push(String(idx + 1) + ') ' + step + ': ' + summary + ' @ ' + ts);
+            else if (summary) lines.push(String(idx + 1) + ') ' + step + ': ' + summary);
+            else if (ts) lines.push(String(idx + 1) + ') ' + step + ': ' + ts);
+            else lines.push(String(idx + 1) + ') ' + step);
+          });
+          return lines.join('\n');
         }
         const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
         const DEEPSEEK_MODEL = 'deepseek-chat';
@@ -2771,7 +4752,7 @@ const HTML = `<!DOCTYPE html>
           }
         }
         function clearDeepSeekKey() {
-          try { localStorage.removeItem(DEEPSEEK_STORAGE_KEY); } catch {}
+          safeLocalRemove(DEEPSEEK_STORAGE_KEY);
         }
         function maskKey(key) {
           const k = String(key || '').trim();
@@ -2821,8 +4802,8 @@ const HTML = `<!DOCTYPE html>
               const cfg = { type: 'run_backtest' };
               const strategy = String(action.strategy || '');
               const tf = String(action.tf || '');
-              if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(strategy)) cfg.strategy = strategy;
-              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (SUPPORTED_STRATEGY_SET.has(strategy)) cfg.strategy = strategy;
+              if (SUPPORTED_TIMEFRAME_SET.has(tf)) cfg.tf = tf;
               if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
               if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
@@ -2834,7 +4815,7 @@ const HTML = `<!DOCTYPE html>
             if (type === 'run_backtest_compare') {
               const cfg = { type: 'run_backtest_compare' };
               const tf = String(action.tf || '');
-              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (SUPPORTED_TIMEFRAME_SET.has(tf)) cfg.tf = tf;
               if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
               if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
@@ -2845,7 +4826,7 @@ const HTML = `<!DOCTYPE html>
                 : (action.strategy ? [action.strategy] : []);
               const strategies = rawStrategies
                 .map(function(s) { return String(s || '').trim(); })
-                .filter(function(s) { return ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(s); });
+                .filter(function(s) { return SUPPORTED_STRATEGY_SET.has(s); });
               if (strategies.length) cfg.strategies = Array.from(new Set(strategies)).slice(0, 4);
               pushUnique(cfg);
               return;
@@ -2854,8 +4835,8 @@ const HTML = `<!DOCTYPE html>
               const cfg = { type: 'run_custom_backtest' };
               const strategy = String(action.strategy || '').trim();
               const tf = String(action.tf || '').trim();
-              if (['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'custom'].includes(strategy)) cfg.strategy = strategy;
-              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (SUPPORTED_STRATEGY_SET.has(strategy) || strategy === 'custom') cfg.strategy = strategy;
+              if (SUPPORTED_TIMEFRAME_SET.has(tf)) cfg.tf = tf;
               if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
               if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
@@ -2869,7 +4850,7 @@ const HTML = `<!DOCTYPE html>
             if (type === 'run_strategy_dsl') {
               const cfg = { type: 'run_strategy_dsl' };
               const tf = String(action.tf || '').trim();
-              if (['1m', '5m', '15m', '1h', '4h', '1d'].includes(tf)) cfg.tf = tf;
+              if (SUPPORTED_TIMEFRAME_SET.has(tf)) cfg.tf = tf;
               if (Number.isFinite(Number(action.bars))) cfg.bars = Number(action.bars);
               if (Number.isFinite(Number(action.feeBps))) cfg.feeBps = Number(action.feeBps);
               if (Number.isFinite(Number(action.stopAtr))) cfg.stopAtr = Number(action.stopAtr);
@@ -2899,7 +4880,7 @@ const HTML = `<!DOCTYPE html>
           return { reply: raw, actions: [] };
         }
         function latestPriceFromBrowserData() {
-          const tfs = ['1m', '5m', '15m', '1h', '4h', '1d'];
+          const tfs = SUPPORTED_TIMEFRAME_LIST.slice();
           for (let i = 0; i < tfs.length; i++) {
             const tf = tfs[i];
             const bars = Array.isArray(OHLCV_BY_TF?.[tf]) ? OHLCV_BY_TF[tf] : [];
@@ -3286,7 +5267,7 @@ const HTML = `<!DOCTYPE html>
           const intent = intentLike && typeof intentLike === 'object' ? intentLike : {};
           const risk = String(intent.risk || 'balanced');
           const goal = String(intent.goal || 'general');
-          let base = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          let base = SUPPORTED_STRATEGY_LIST.slice();
           if (risk === 'conservative') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
           else if (risk === 'aggressive') base = ['v5_reentry', 'v5_hybrid', 'v4_breakout', 'v5_retest'];
           if (goal === 'stability') base = ['v5_retest', 'v5_hybrid', 'v4_breakout', 'v5_reentry'];
@@ -3396,7 +5377,7 @@ const HTML = `<!DOCTYPE html>
           const stopAtr = stopEl ? Number(stopEl.value || 1.8) : 1.8;
           const tpAtr = tpEl ? Number(tpEl.value || 3.0) : 3.0;
           const maxHold = holdEl ? Number(holdEl.value || 72) : 72;
-          const strategies = ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+          const strategies = SUPPORTED_STRATEGY_LIST.slice();
           const rows = [];
           strategies.forEach(function(strategy) {
             const cfg = {
@@ -3839,7 +5820,7 @@ const HTML = `<!DOCTYPE html>
               const holdEl = document.getElementById('bt-max-hold');
               const strategies = Array.isArray(action.strategies) && action.strategies.length
                 ? action.strategies
-                : ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'];
+                : SUPPORTED_STRATEGY_LIST.slice();
               const tf = String(action.tf || (tfEl ? tfEl.value : '1h') || '1h');
               const bars = Number(action.bars || (barsEl ? barsEl.value : 900) || 900);
               const feeBps = Number(action.feeBps || (feeEl ? feeEl.value : 5) || 5);
@@ -3848,7 +5829,7 @@ const HTML = `<!DOCTYPE html>
               const maxHold = Number(action.maxHold || (holdEl ? holdEl.value : 72) || 72);
               const rows = [];
               strategies.forEach(function(strategy) {
-                if (!['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'].includes(String(strategy || ''))) return;
+                if (!SUPPORTED_STRATEGY_SET.has(String(strategy || ''))) return;
                 const cfg = {
                   strategy: String(strategy),
                   tf: tf,
@@ -4007,7 +5988,7 @@ const HTML = `<!DOCTYPE html>
         }
 
         async function askOpenClaw(q) {
-          const resp = await fetch('/api/ai/chat', {
+          const resp = await fetch(CHAT_ROUTES.aiChat, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
@@ -4028,7 +6009,8 @@ const HTML = `<!DOCTYPE html>
           return {
             reply: String(payload.reply || '').trim(),
             actions: Array.isArray(payload.actions) ? payload.actions : [],
-            source: 'openclaw',
+            source: String(payload.source || 'openclaw'),
+            executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
           };
         }
         function looksLikeConfigIntentLocal(q) {
@@ -4045,7 +6027,7 @@ const HTML = `<!DOCTYPE html>
           return false;
         }
         async function askConfigChannel(q) {
-          const resp = await fetch('/api/config/chat', {
+          const resp = await fetch(CHAT_ROUTES.configChat, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
@@ -4097,19 +6079,33 @@ const HTML = `<!DOCTYPE html>
         }
         let inFlight = false;
         async function runTurn(text) {
-          const thinking = document.createElement('div');
-          thinking.className = 'ai-msg bot';
-          thinking.textContent = '处理中...';
+          const localPendingKey = 'local-thinking:' + String(Date.now());
+          const thinking = createChatMessageElement(
+            'bot',
+            '处理中...',
+            new Date().toISOString(),
+            '思考中',
+            localPendingKey,
+            'thinking',
+          );
+          thinking.classList.add('pending');
           box.appendChild(thinking);
           box.scrollTop = box.scrollHeight;
           try {
             const result = await answer(text);
             const reply = String(result?.reply || '').trim();
             const actionNote = applyAiActions(result?.actions, text);
-            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '');
+            const traceText = formatExecutionTraceLocal(result?.executionTrace);
+            const traceNote = traceText ? ('\\n\\n执行轨迹：\\n' + traceText) : '';
+            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\\n\\n执行结果：' + actionNote) : '') + traceNote;
             const source = String(result?.source || '');
             if (source !== 'openclaw') {
-              thinking.textContent = finalText;
+              setRowTextWithTypewriter(thinking, finalText, {
+                enabled: true,
+                tickMs: 13,
+                maxDurationMs: 2400,
+                onDone: function() { finishRowPendingState(thinking); },
+              });
               appendLocalChatLog({
                 ts: new Date().toISOString(),
                 role: 'bot',
@@ -4119,7 +6115,12 @@ const HTML = `<!DOCTYPE html>
             } else {
               if (actionNote) {
                 const taskText = '执行结果：' + actionNote;
-                thinking.textContent = taskText;
+                setRowTextWithTypewriter(thinking, taskText, {
+                  enabled: true,
+                  tickMs: 13,
+                  maxDurationMs: 2000,
+                  onDone: function() { finishRowPendingState(thinking); },
+                });
                 appendLocalChatLog({
                   ts: new Date().toISOString(),
                   role: 'bot',
@@ -4131,12 +6132,17 @@ const HTML = `<!DOCTYPE html>
               }
             }
           } catch {
-            thinking.textContent = '本次请求失败，请稍后重试。';
+            setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
+              enabled: true,
+              tickMs: 13,
+              maxDurationMs: 1500,
+              onDone: function() { finishRowPendingState(thinking); },
+            });
             appendLocalChatLog({
               ts: new Date().toISOString(),
               role: 'bot',
               source: 'dashboard',
-              text: thinking.textContent,
+              text: '本次请求失败，请稍后重试。',
             });
           }
           try { await pollChatHistory(); } catch (_) {}
@@ -4147,9 +6153,21 @@ const HTML = `<!DOCTYPE html>
           if (!text || inFlight) return;
           inFlight = true;
           sendBtn.disabled = true;
+          const nowTs = Date.now();
+          chatHistoryState.pendingUserEchoes.push({
+            text: text,
+            createdAt: nowTs,
+            pendingKey: 'p' + String(++chatHistoryState.pendingSeq),
+          });
+          if (chatHistoryState.pendingUserEchoes.length > 40) {
+            chatHistoryState.pendingUserEchoes = chatHistoryState.pendingUserEchoes.slice(-30);
+          }
+          const pending = chatHistoryState.pendingUserEchoes[chatHistoryState.pendingUserEchoes.length - 1] || null;
           pushMsg('user', text, {
-            ts: new Date().toISOString(),
+            ts: new Date(nowTs).toISOString(),
             source: 'dashboard',
+            sending: true,
+            pendingKey: pending?.pendingKey || '',
           });
           input.value = '';
           try {
@@ -4185,6 +6203,7 @@ const HTML = `<!DOCTYPE html>
           const chatId = ev?.chatId != null ? String(ev.chatId) : '';
           let finalText = text;
           if (source === 'telegram') {
+            if (role === 'bot') clearTelegramThinking(chatId);
             finalText = role === 'user'
               ? '[TG ' + (from || chatId || 'message') + '] ' + text
               : '[TG 回执] ' + text;
@@ -4192,21 +6211,20 @@ const HTML = `<!DOCTYPE html>
             finalText = '[系统] ' + text;
           }
           if (source === 'dashboard' && role === 'user') {
-            const lastEl = box.lastElementChild;
-            if (
-              lastEl &&
-              lastEl.classList &&
-              lastEl.classList.contains('ai-msg') &&
-              lastEl.classList.contains('user') &&
-              String(lastEl.textContent || '').trim() === finalText
-            ) {
-              appendLocalChatLog({
-                source: source,
-                ts: ev?.ts || null,
-                id: Number.isFinite(idNum) ? idNum : null,
-                role: 'user',
-                text: finalText,
-              });
+            const eventTsMs = Number.isFinite(Date.parse(String(ev?.ts || '')))
+              ? Date.parse(String(ev?.ts || ''))
+              : Date.now();
+            const idx = chatHistoryState.pendingUserEchoes.findIndex(function(item) {
+              if (!item || typeof item !== 'object') return false;
+              if (String(item.text || '').trim() !== finalText) return false;
+              const ageMs = Math.abs(eventTsMs - Number(item.createdAt || 0));
+              return ageMs <= 120000;
+            });
+            if (idx >= 0) {
+              const pending = chatHistoryState.pendingUserEchoes[idx];
+              chatHistoryState.pendingUserEchoes.splice(idx, 1);
+              markPendingDelivered(pending?.pendingKey || '', ev?.ts || null);
+              ackLocalUserEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null);
               return;
             }
           }
@@ -4214,14 +6232,22 @@ const HTML = `<!DOCTYPE html>
             source: source,
             ts: ev?.ts || null,
             id: Number.isFinite(idNum) ? idNum : null,
+            typewriter: source === 'dashboard' && role === 'bot',
+            statusText: source === 'dashboard' && role === 'bot' ? '输出中' : '',
+            statusClass: source === 'dashboard' && role === 'bot' ? 'thinking' : '',
+            pendingClass: source === 'dashboard' && role === 'bot' ? 'pending' : '',
+            typewriterFinishPending: source === 'dashboard' && role === 'bot',
           });
+          if (source === 'telegram' && role === 'user') {
+            ensureTelegramThinking(chatId, ev?.ts || null);
+          }
         }
 
         async function pollChatHistory() {
           if (chatHistoryState.busy) return;
           chatHistoryState.busy = true;
           try {
-            const resp = await fetch('/api/chat/history?afterId=' + encodeURIComponent(String(chatHistoryState.afterId)) + '&limit=220', {
+            const resp = await fetch(CHAT_ROUTES.chatHistory + '?afterId=' + encodeURIComponent(String(chatHistoryState.afterId)) + '&limit=' + encodeURIComponent(String(CHAT_HISTORY_LIMIT)), {
               cache: 'no-store',
             });
             if (!resp.ok) return;
@@ -4244,11 +6270,11 @@ const HTML = `<!DOCTYPE html>
           void pollChatHistory();
           chatHistoryState.timer = window.setInterval(function() {
             void pollChatHistory();
-          }, 1200);
+          }, CHAT_HISTORY_POLL_MS);
         }
         startChatHistoryPolling();
         setAiLinkStatus('warn', 'OpenClaw: 检测中');
-        void fetch('/api/ai/health', { cache: 'no-store' })
+        void fetch(CHAT_ROUTES.aiHealth, { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
             if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
@@ -5135,14 +7161,241 @@ const HTML = `<!DOCTYPE html>
           maxHold: Number(holdEl.value || 72),
         };
         const result = runBacktestByVersion(cfg);
+        window.__tcLatestBacktestResult = result || null;
         renderBacktestResult(result, cfg);
-        void reportStrategyArtifactResult(result, cfg, {
-          source: 'dashboard_manual',
-          query: '',
-          label: String(cfg?.dsl?.name || cfg.strategy || result?.strategy || 'manual'),
-          attachToNote: true,
-        });
+        if (typeof reportStrategyArtifactResult === 'function') {
+          void reportStrategyArtifactResult(result, cfg, {
+            source: 'dashboard_manual',
+            query: '',
+            label: String(cfg?.dsl?.name || cfg.strategy || result?.strategy || 'manual'),
+            attachToNote: true,
+          });
+        }
         return result;
+      }
+
+      function setupStrategyLabPanel(getLatestBacktestResult) {
+        const statusEl = document.getElementById('sl-status');
+        const evalStatusEl = document.getElementById('sl-eval-status');
+        const featureListEl = document.getElementById('sl-feature-list');
+        const versionListEl = document.getElementById('sl-version-list');
+        const baseVersionEl = document.getElementById('sl-base-version');
+        const evalVersionEl = document.getElementById('sl-eval-version');
+        const proposeBtn = document.getElementById('sl-propose-btn');
+        const refreshBtn = document.getElementById('sl-refresh-btn');
+        const featureQEl = document.getElementById('sl-feature-q');
+        const featureGroupEl = document.getElementById('sl-feature-group');
+        const promptEl = document.getElementById('sl-prompt');
+        const fillBtn = document.getElementById('sl-fill-latest-btn');
+        const evalBtn = document.getElementById('sl-eval-btn');
+        const tradesEl = document.getElementById('sl-eval-trades');
+        const winRateEl = document.getElementById('sl-eval-winrate');
+        const pnlEl = document.getElementById('sl-eval-pnl');
+        const ddEl = document.getElementById('sl-eval-dd');
+        const sharpeEl = document.getElementById('sl-eval-sharpe');
+        const pfEl = document.getElementById('sl-eval-pf');
+        const backtestCoreEl = document.getElementById('sl-lab-backtest-core');
+        const featurePanelEl = document.getElementById('sl-panel-feature');
+        const strategyPanelEl = document.getElementById('sl-panel-strategy');
+        const labPanelEl = document.getElementById('sl-panel-lab');
+        const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
+        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+
+        function switchStrategyLabTab(tabKeyLike) {
+          const tabKey = String(tabKeyLike || '').trim() || 'feature';
+          tabButtons.forEach(function(btn) {
+            btn.classList.toggle('active', String(btn.getAttribute('data-sl-tab') || '') === tabKey);
+          });
+          if (featurePanelEl) featurePanelEl.classList.toggle('active', tabKey === 'feature');
+          if (strategyPanelEl) strategyPanelEl.classList.toggle('active', tabKey === 'strategy');
+          if (labPanelEl) labPanelEl.classList.toggle('active', tabKey === 'lab');
+          if (backtestCoreEl) backtestCoreEl.style.display = tabKey === 'lab' ? '' : 'none';
+        }
+        tabButtons.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            switchStrategyLabTab(btn.getAttribute('data-sl-tab'));
+          });
+        });
+        switchStrategyLabTab('feature');
+
+        function setStatus(el, text, kind) {
+          if (!el) return;
+          el.textContent = String(text || '');
+          el.classList.remove('ok', 'err');
+          if (kind === 'ok') el.classList.add('ok');
+          if (kind === 'err') el.classList.add('err');
+        }
+        async function readJson(resp) {
+          const payload = await resp.json().catch(function() { return null; });
+          if (!resp.ok || !payload || payload.ok !== true) {
+            throw new Error(String(payload?.error || ('HTTP ' + resp.status)));
+          }
+          return payload;
+        }
+        async function fetchFeatures() {
+          const q = String(featureQEl.value || '').trim();
+          const group = String(featureGroupEl.value || '').trim();
+          const url = '/api/strategy/features?q=' + encodeURIComponent(q) + '&group=' + encodeURIComponent(group);
+          const resp = await fetch(url, { cache: 'no-store' });
+          return readJson(resp);
+        }
+        async function fetchVersions() {
+          const resp = await fetch('/api/strategy/versions?limit=80', { cache: 'no-store' });
+          return readJson(resp);
+        }
+        function renderFeatures(list) {
+          const rows = Array.isArray(list) ? list : [];
+          if (!rows.length) {
+            featureListEl.innerHTML = '<div class="strategy-feature-item"><div class="meta">暂无特征</div></div>';
+            return;
+          }
+          featureListEl.innerHTML = rows.slice(0, 80).map(function(f) {
+            const name = escapeHtml(String(f?.name || f?.featureId || '-'));
+            const meta = escapeHtml(String(f?.group || '-') + ' · ' + String(f?.kind || '-') + ' · ' + (f?.enabled === false ? '关闭' : '启用'));
+            const desc = escapeHtml(String(f?.description || ''));
+            return '<div class="strategy-feature-item"><div class="name">' + name + '</div><div class="meta">' + meta + '</div><div class="meta">' + desc + '</div></div>';
+          }).join('');
+        }
+        function renderVersionSelectors(list) {
+          const rows = Array.isArray(list) ? list : [];
+          const options = rows.map(function(v) {
+            const id = String(v?.versionId || '');
+            const title = String(v?.title || id || '-');
+            const score = Number.isFinite(Number(v?.score)) ? (' · score=' + Number(v.score).toFixed(4)) : '';
+            return '<option value="' + escapeHtml(id) + '">' + escapeHtml(title + score) + '</option>';
+          }).join('');
+          baseVersionEl.innerHTML = options;
+          evalVersionEl.innerHTML = options;
+        }
+        function renderVersions(list) {
+          const rows = Array.isArray(list) ? list : [];
+          if (!rows.length) {
+            versionListEl.innerHTML = '<div class="strategy-version-item"><div class="meta">暂无版本</div></div>';
+            return;
+          }
+          versionListEl.innerHTML = rows.slice(0, 80).map(function(v) {
+            const id = String(v?.versionId || '-');
+            const title = String(v?.title || id);
+            const status = String(v?.status || 'draft');
+            const parent = String(v?.parentVersionId || '-');
+            const score = Number.isFinite(Number(v?.score)) ? Number(v.score).toFixed(4) : 'NA';
+            const summary = String(v?.evalSummary || '');
+            return '<div class="strategy-version-item">'
+              + '<div class="name">' + escapeHtml(title) + '</div>'
+              + '<div class="meta">id=' + escapeHtml(id) + ' · status=' + escapeHtml(status) + ' · parent=' + escapeHtml(parent) + '</div>'
+              + '<div class="score">Score: ' + escapeHtml(score) + '</div>'
+              + (summary ? ('<div class="meta">' + escapeHtml(summary) + '</div>') : '')
+              + '</div>';
+          }).join('');
+        }
+        async function reloadAll() {
+          setStatus(statusEl, '加载实验室数据中...', '');
+          try {
+            const featuresPayload = await fetchFeatures();
+            renderFeatures(featuresPayload.features);
+            const versionsPayload = await fetchVersions();
+            renderVersions(versionsPayload.versions);
+            renderVersionSelectors(versionsPayload.versions);
+            setStatus(statusEl, '实验室已更新：特征 ' + String(featuresPayload.total || 0) + ' 个，版本 ' + String(versionsPayload.total || 0) + ' 个。', 'ok');
+          } catch (err) {
+            setStatus(statusEl, '加载失败：' + String(err?.message || err), 'err');
+          }
+        }
+
+        proposeBtn.addEventListener('click', function() {
+          const message = String(promptEl.value || '').trim();
+          if (!message) {
+            setStatus(statusEl, '请先输入优化目标。', 'err');
+            return;
+          }
+          const baseVersionId = String(baseVersionEl.value || '').trim();
+          proposeBtn.disabled = true;
+          setStatus(statusEl, '正在生成候选版本...', '');
+          void fetch('/api/strategy/versions/propose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: message, baseVersionId: baseVersionId || null }),
+          })
+            .then(readJson)
+            .then(function(payload) {
+              const count = Array.isArray(payload.proposals) ? payload.proposals.length : 0;
+              setStatus(statusEl, '已生成 ' + String(count) + ' 个候选版本。', 'ok');
+              return reloadAll();
+            })
+            .catch(function(err) {
+              setStatus(statusEl, '生成失败：' + String(err?.message || err), 'err');
+            })
+            .finally(function() {
+              proposeBtn.disabled = false;
+            });
+        });
+
+        refreshBtn.addEventListener('click', function() {
+          void reloadAll();
+        });
+        featureQEl.addEventListener('change', function() {
+          void fetchFeatures()
+            .then(function(payload) { renderFeatures(payload.features); })
+            .catch(function(err) { setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err'); });
+        });
+        featureGroupEl.addEventListener('change', function() {
+          void fetchFeatures()
+            .then(function(payload) { renderFeatures(payload.features); })
+            .catch(function(err) { setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err'); });
+        });
+
+        fillBtn.addEventListener('click', function() {
+          const latest = typeof getLatestBacktestResult === 'function' ? getLatestBacktestResult() : null;
+          if (!latest || typeof latest !== 'object') {
+            setStatus(evalStatusEl, '暂无可填充的回验结果，请先跑一次回验。', 'err');
+            return;
+          }
+          tradesEl.value = String(Number(latest.tradeCount || latest.trades || 0) || 0);
+          winRateEl.value = String(Number(latest.winRate || 0) || 0);
+          pnlEl.value = String(Number(latest.netPnlPct || latest.totalPnlPct || 0) || 0);
+          ddEl.value = String(Number(latest.maxDrawdownPct || 0) || 0);
+          sharpeEl.value = '';
+          pfEl.value = '';
+          setStatus(evalStatusEl, '已填充最新回验结果。', 'ok');
+        });
+
+        evalBtn.addEventListener('click', function() {
+          const versionId = String(evalVersionEl.value || '').trim();
+          if (!versionId) {
+            setStatus(evalStatusEl, '请选择要评估的版本。', 'err');
+            return;
+          }
+          const metrics = {
+            tradeCount: Number(tradesEl.value || 0),
+            winRate: Number(winRateEl.value || 0),
+            netPnlPct: Number(pnlEl.value || 0),
+            maxDrawdownPct: Number(ddEl.value || 0),
+            sharpe: Number(sharpeEl.value || 0),
+            profitFactor: Number(pfEl.value || 0),
+          };
+          evalBtn.disabled = true;
+          setStatus(evalStatusEl, '正在写入评估...', '');
+          void fetch('/api/strategy/versions/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ versionId: versionId, metrics: metrics }),
+          })
+            .then(readJson)
+            .then(function(payload) {
+              const score = Number(payload?.report?.score);
+              const scoreText = Number.isFinite(score) ? score.toFixed(4) : 'NA';
+              setStatus(evalStatusEl, '评估完成，score=' + scoreText, 'ok');
+              return reloadAll();
+            })
+            .catch(function(err) {
+              setStatus(evalStatusEl, '评估失败：' + String(err?.message || err), 'err');
+            })
+            .finally(function() {
+              evalBtn.disabled = false;
+            });
+        });
+
+        void reloadAll();
       }
 
       function setupBacktestPanel() {
@@ -5161,6 +7414,7 @@ const HTML = `<!DOCTYPE html>
           });
         });
         runBacktestFromUi();
+        setupStrategyLabPanel(function() { return window.__tcLatestBacktestResult || null; });
       }
 
       function orderRelationHtml(order) {
@@ -6302,125 +8556,18 @@ const HTML = `<!DOCTYPE html>
       renderDashboard();
       setupBacktestPanel();
       setupXseaPanel();
-      setupXbrainPanel();
+      await setupXbrainPanel();
       switchView('dashboard');
     }
 
-    load().catch(e => showLoadError(e && e.message));
+    load().catch(function(e) {
+      const msg = e && e.message ? e.message : String(e || 'unknown');
+      failBootOverlay(msg);
+      showLoadError(msg);
+    });
   </script>
 </body>
 </html>`;
-
-const MANIFEST = {
-  name: 'AI 交易机器人集成看板',
-  short_name: 'AI交易看板',
-  description: '当前订单 + K线决策 + 历史订单 + AI交互',
-  start_url: './index.html',
-  scope: './',
-  display: 'standalone',
-  orientation: 'portrait',
-  background_color: '#0f1419',
-  theme_color: '#0f1419',
-  icons: [
-    { src: 'app-icon.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
-    { src: 'app-icon-maskable.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
-  ],
-};
-
-const SERVICE_WORKER_JS = `const CACHE_NAME = 'perp-report-pwa-v8';
-const PRECACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './app-icon.svg',
-  './app-icon-maskable.svg'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
-});
-
-function networkFirst(request) {
-  return fetch(request)
-    .then((response) => {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-      return response;
-    })
-    .catch(() => caches.match(request));
-}
-
-function staleWhileRevalidate(request) {
-  return caches.match(request).then((cached) => {
-    const networkFetch = fetch(request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-        return response;
-      })
-      .catch(() => cached);
-    return cached || networkFetch;
-  });
-}
-
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  const isRuntimeData = /\\/(decisions|ohlcv|orders)\\.json$/.test(url.pathname);
-  if (isRuntimeData) {
-    event.respondWith(networkFirst(request));
-    return;
-  }
-  event.respondWith(staleWhileRevalidate(request));
-});`;
-
-const APP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1a2332"/>
-      <stop offset="100%" stop-color="#0f1419"/>
-    </linearGradient>
-    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#3fb950"/>
-      <stop offset="100%" stop-color="#58a6ff"/>
-    </linearGradient>
-  </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)" stroke="#2d3a4f" stroke-width="12"/>
-  <path d="M110 320 L180 250 L238 284 L312 190 L402 230" fill="none" stroke="url(#line)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="110" cy="320" r="14" fill="#3fb950"/>
-  <circle cx="180" cy="250" r="14" fill="#3fb950"/>
-  <circle cx="238" cy="284" r="14" fill="#d29922"/>
-  <circle cx="312" cy="190" r="14" fill="#58a6ff"/>
-  <circle cx="402" cy="230" r="14" fill="#3fb950"/>
-  <rect x="104" y="92" width="304" height="56" rx="28" fill="rgba(88,166,255,0.14)" stroke="rgba(88,166,255,0.5)" stroke-width="2"/>
-  <text x="256" y="127" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="26" fill="#e6edf3">Perp 决策</text>
-</svg>`;
-
-const APP_ICON_MASKABLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#0f1419"/>
-  <rect x="46" y="46" width="420" height="420" rx="96" fill="#1a2332" stroke="#2d3a4f" stroke-width="10"/>
-  <path d="M128 330 L186 270 L244 298 L322 206 L384 236" fill="none" stroke="#3fb950" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="128" cy="330" r="12" fill="#3fb950"/>
-  <circle cx="186" cy="270" r="12" fill="#3fb950"/>
-  <circle cx="244" cy="298" r="12" fill="#d29922"/>
-  <circle cx="322" cy="206" r="12" fill="#58a6ff"/>
-  <circle cx="384" cy="236" r="12" fill="#3fb950"/>
-</svg>`;
 
 function main() {
   fs.mkdirSync(REPORT_DIR, { recursive: true });

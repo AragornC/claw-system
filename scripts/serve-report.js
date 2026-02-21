@@ -15,6 +15,13 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { handleApiRoute } from '../backend/src/routes/index.js';
+import { buildServeApiDeps } from '../backend/src/routes/api-deps.js';
+import { createXbrainAuthService } from '../backend/src/services/xbrain-auth-service.js';
+import { createXbrainStateService } from '../backend/src/services/xbrain-state-service.js';
+import { createXbrainConfigService } from '../backend/src/services/xbrain-config-service.js';
+import { XBRAIN_PROVIDER_MODEL_OPTIONS, XBRAIN_PROVIDER_KEYS } from '../backend/src/models/xbrain-providers.js';
+import { createConversationRuntime } from '../backend/src/runtime/conversation-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || process.cwd();
@@ -23,7 +30,21 @@ const LOCAL_ENV_PATH = path.resolve(WORKDIR, '.env.local');
 const PORT = parseInt(process.argv[2], 10) || 8765;
 const OPENCLAW_REPO_ENTRY = path.resolve(WORKDIR, 'openclaw/openclaw.mjs');
 const OPENCLAW_REPO_MODULES = path.resolve(WORKDIR, 'openclaw/node_modules');
+const XBRAIN_OPENAI_OAUTH_RUNNER = path.resolve(__dirname, 'xbrain-openai-oauth-runner.mjs');
 const OPENCLAW_AGENT_ID = (process.env.OPENCLAW_AGENT_ID || 'main').trim() || 'main';
+const xbrainAuthService = createXbrainAuthService({
+  fs,
+  path,
+  os,
+  workdir: WORKDIR,
+  openclawAgentId: OPENCLAW_AGENT_ID,
+  safeErrMsg,
+  hasOwn,
+});
+let xbrainStateService = null;
+let xbrainConfigService = null;
+let serveApiDeps = null;
+let conversationRuntime = null;
 const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
@@ -38,6 +59,9 @@ const OPENCLAW_DELIVER = /^(1|true|yes|on)$/i.test(
 const OPENCLAW_AGENT_LOCAL = /^(1|true|yes|on)$/i.test(
   String(process.env.OPENCLAW_AGENT_LOCAL || ''),
 );
+const THUNDERCLAW_CHAT_RUNTIME_MODE = String(process.env.THUNDERCLAW_CHAT_RUNTIME_MODE || 'legacy')
+  .trim()
+  .toLowerCase();
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
 const OPENCLAW_CHAT_TIMEOUT_MS = positiveInt(process.env.OPENCLAW_CHAT_TIMEOUT_MS, 95_000);
 const JSON_BODY_LIMIT = 64 * 1024;
@@ -51,16 +75,18 @@ const OPENCLAW_CONTEXT_TIMELINE_EVENTS = positiveInt(
   18,
 );
 const OPENCLAW_CONTEXT_MAX_ORDERS = positiveInt(process.env.OPENCLAW_CONTEXT_MAX_ORDERS, 12);
-const TELEGRAM_BOT_TOKEN = (
+const TELEGRAM_BOOT_TOKEN = (
   process.env.THUNDERCLAW_TELEGRAM_BOT_TOKEN ||
   process.env.TELEGRAM_BOT_TOKEN ||
   process.env.OPENCLAW_TELEGRAM_BOT_TOKEN ||
   ''
 ).trim();
-const TELEGRAM_ENABLED = Boolean(TELEGRAM_BOT_TOKEN);
-const TELEGRAM_API_BASE = TELEGRAM_ENABLED
-  ? 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN
-  : '';
+let telegramRuntimeToken = TELEGRAM_BOOT_TOKEN;
+const TELEGRAM_BOOT_ENABLED = !/^(0|false|off|no)$/i.test(
+  String(process.env.THUNDERCLAW_TELEGRAM_ENABLED || (TELEGRAM_BOOT_TOKEN ? '1' : '0')),
+);
+let telegramRuntimeEnabled = TELEGRAM_BOOT_ENABLED;
+const TELEGRAM_ENABLED = Boolean(TELEGRAM_BOOT_TOKEN);
 const TELEGRAM_ALLOWED_CHAT_IDS = new Set(
   String(process.env.THUNDERCLAW_TELEGRAM_ALLOWED_CHAT_IDS || process.env.TELEGRAM_ALLOWED_CHAT_IDS || '')
     .split(',')
@@ -104,26 +130,28 @@ if (!TELEGRAM_PUSH_EVENTS.size) {
   TELEGRAM_PUSH_EVENTS.add('close');
   TELEGRAM_PUSH_EVENTS.add('risk');
 }
-const TELEGRAM_POLL_LOCK_KEY = TELEGRAM_ENABLED
-  ? createHash('sha1').update(TELEGRAM_BOT_TOKEN, 'utf8').digest('hex').slice(0, 12)
-  : 'disabled';
-const TELEGRAM_POLL_LOCK_PATH = path.resolve(WORKDIR, 'memory/.telegram-poll.' + TELEGRAM_POLL_LOCK_KEY + '.lock');
+const THUNDERCLAW_RUNTIME_DIR = path.resolve(
+  process.env.THUNDERCLAW_RUNTIME_DIR || path.join(os.homedir(), '.thunderclaw', 'runtime'),
+);
+// Use a single global lock namespace to avoid multi-instance telegram poll loops.
+const TELEGRAM_POLL_LOCK_KEY = 'global';
+const TELEGRAM_POLL_LOCK_PATH = path.resolve(
+  THUNDERCLAW_RUNTIME_DIR,
+  'telegram-poll.' + TELEGRAM_POLL_LOCK_KEY + '.lock',
+);
 const TELEGRAM_POLL_LOCK_STALE_MS = Math.max(
   20_000,
   positiveInt(process.env.THUNDERCLAW_TELEGRAM_POLL_LOCK_STALE_MS, 180_000),
 );
 const TELEGRAM_INBOUND_DEDUPE_DIR = path.resolve(
-  WORKDIR,
-  'memory/.telegram-inbound-dedupe.' + TELEGRAM_POLL_LOCK_KEY,
+  THUNDERCLAW_RUNTIME_DIR,
+  'telegram-inbound-dedupe.' + TELEGRAM_POLL_LOCK_KEY,
 );
 const TELEGRAM_INBOUND_DEDUPE_TTL_MS = Math.max(
   6 * 3600 * 1000,
   positiveInt(process.env.THUNDERCLAW_TELEGRAM_INBOUND_DEDUPE_TTL_MS, 7 * 24 * 3600 * 1000),
 );
-const THUNDERCLAW_RUNTIME_DIR = path.resolve(
-  process.env.THUNDERCLAW_RUNTIME_DIR || path.join(os.homedir(), '.thunderclaw', 'runtime'),
-);
-const THUNDERCLAW_SERVICE_LOCK_KEY = TELEGRAM_ENABLED ? 'tg-' + TELEGRAM_POLL_LOCK_KEY : 'port-' + String(PORT);
+const THUNDERCLAW_SERVICE_LOCK_KEY = 'port-' + String(PORT);
 const THUNDERCLAW_SERVICE_LOCK_PATH = path.resolve(
   THUNDERCLAW_RUNTIME_DIR,
   'serve-report.' + THUNDERCLAW_SERVICE_LOCK_KEY + '.lock',
@@ -143,6 +171,7 @@ const TRADER_PROFILE_PATH = path.resolve(WORKDIR, 'memory/trader-mid-profile.jso
 const STRATEGY_WEIGHTS_PATH = path.resolve(WORKDIR, 'memory/strategy-feedback-weights.json');
 const STRATEGY_ARTIFACTS_JSONL_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts.jsonl');
 const STRATEGY_ARTIFACTS_STATE_PATH = path.resolve(WORKDIR, 'memory/strategy-artifacts-state.json');
+const STRATEGY_VERSION_LAB_PATH = path.resolve(WORKDIR, 'memory/strategy-version-lab.json');
 const XBRAIN_STATE_PATH = path.resolve(WORKDIR, 'memory/xbrain-state.json');
 const XBRAIN_PASSWORD_MIN_LEN = Math.max(
   4,
@@ -152,6 +181,22 @@ const XBRAIN_MODEL_PROBE_TTL_MS = Math.max(
   2_000,
   positiveInt(process.env.THUNDERCLAW_XBRAIN_MODEL_PROBE_TTL_MS, 20_000),
 );
+xbrainStateService = createXbrainStateService({
+  providerKeys: XBRAIN_PROVIDER_KEYS,
+  providerModelOptions: XBRAIN_PROVIDER_MODEL_OPTIONS,
+  normalizeProviderForUi,
+  xbrainIsLocked,
+  xbrainVerifyPassword,
+  ensureXbrainState,
+  normalizeXbrainModelRegistry,
+  inferXbrainProviderFromModelId,
+  normalizeXbrainModelIdForProvider,
+  normalizeXbrainModelProvider,
+  nowIso,
+  saveXbrainState,
+  disconnectOAuthCredentials: xbrainAuthService.disconnectOAuthCredentials,
+  buildXbrainPublicState,
+});
 const TRADER_MEMORY_MAX_ITEMS = Math.max(
   200,
   positiveInt(process.env.THUNDERCLAW_MEMORY_MAX_ITEMS, 4000),
@@ -238,6 +283,8 @@ let thunderclawServiceLockFd = null;
 let thunderclawServiceLockAcquired = false;
 let telegramInboundDedupeLastCleanupAt = 0;
 const telegramKnownChatIds = new Set();
+let telegramLastInboundChatId = '';
+const telegramChatLoopGuard = new Map();
 const telegramTradeKnownEventKeys = new Set();
 const telegramTradeSentAck = new Set();
 let chatHistorySeq = 0;
@@ -268,6 +315,14 @@ const strategyArtifactState = {
   lastUpdatedAt: null,
   lastSavedAt: null,
 };
+const strategyLabState = {
+  loaded: false,
+  features: {},
+  versions: {},
+  versionOrder: [],
+  lastUpdatedAt: null,
+  lastSavedAt: null,
+};
 const midTermMemoryState = {
   profile: null,
   lastBuiltAt: null,
@@ -281,6 +336,123 @@ const xbrainModelProbeState = {
   lastAt: 0,
   value: null,
 };
+const xbrainAgentRuntimeState = {
+  value: null,
+};
+const xbrainProviderProbeState = {
+  lastAt: 0,
+  value: null,
+};
+xbrainConfigService = createXbrainConfigService({
+  providerModelOptions: XBRAIN_PROVIDER_MODEL_OPTIONS,
+  inferXbrainProviderFromModelId,
+  normalizeXbrainModelProvider,
+  normalizeXbrainModelIdForProvider,
+  normalizeProviderForUi,
+  ensureXbrainState,
+  normalizeXbrainModelRegistry,
+  buildXbrainPublicState,
+  applyXbrainBasePatch,
+  applyXbrainChannelPatch,
+  syncXbrainBaseToOpenClaw,
+  nowIso,
+  xbrainProviderApiLabel,
+  xbrainAgentRuntimeState,
+  xbrainModelProbeState,
+  probeXbrainRuntimeModel,
+  probeXbrainProviderAuth,
+  applyXbrainExchangePatch,
+  applyXbrainStrategyPatch,
+  hasOwn,
+  syncXbrainDeepseekProviderConfig,
+  xbrainSectionLock,
+  xbrainVerifyPassword,
+  setXbrainSectionLock,
+  setXbrainSectionPassword,
+});
+serveApiDeps = buildServeApiDeps({
+  handleTelegramEventsApi,
+  handleTelegramHealthApi,
+  handleTelegramTestApi,
+  handleTelegramHandshakeApi,
+  handleMemoryHealthApi,
+  sendJson,
+  readJsonBody,
+  registerStrategyArtifactReport,
+  listStrategyArtifacts,
+  strategyArtifactState,
+  STRATEGY_ARTIFACTS_TOPK,
+  JSON_BODY_LIMIT,
+  listStrategyFeatures,
+  upsertStrategyFeature,
+  listStrategyVersions,
+  createStrategyVersion,
+  proposeStrategyVersionsByPrompt,
+  evaluateStrategyVersion,
+  listChatHistory,
+  chatHistorySeq,
+  runtimeMode: THUNDERCLAW_CHAT_RUNTIME_MODE,
+  runtimeHandleRoute: async (url, req, res) => {
+    if (!conversationRuntime) return false;
+    return conversationRuntime.handleRuntimeApi(req, res, url);
+  },
+  handleConfigChatApi,
+  handleChatApi,
+  handleChatApiOpenClaw: async (req, res) => {
+    if (!conversationRuntime) return handleChatApi(req, res);
+    return conversationRuntime.handleChatApi(req, res);
+  },
+  handleRuntimeTasksApi: async (req, res) => {
+    if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/tasks' });
+  },
+  handleRuntimeTaskRetryApi: async (req, res) => {
+    if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/tasks/retry' });
+  },
+  handleRuntimeSchedulesApi: async (req, res) => {
+    if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+  },
+  handleRuntimeSchedulesPatchApi: async (req, res) => {
+    if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+  },
+  handleRuntimeSchedulesDeleteApi: async (req, res) => {
+    if (!conversationRuntime) return sendJson(res, 503, { ok: false, error: 'runtime_unavailable' });
+    return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules' });
+  },
+  legacyHandleConfigChatApi: handleConfigChatApi,
+  legacyHandleChatApi: handleChatApi,
+  buildLayeredMemoryBundle,
+  buildTradingContext,
+  executeStrategyToolCalls,
+  buildMcpStyleToolManifest,
+  checkMcpBridgeConnectivity,
+  resolveToolAdapterMode,
+  handleXbrainStateApi,
+  handleXbrainAuthStatusApi,
+  handleXbrainAuthStartApi,
+  handleXbrainAuthDisconnectApi,
+  handleXbrainProviderRemoveApi,
+  handleXbrainAuthInputApi,
+  handleXbrainModelSwitchApi,
+  handleXbrainUpdateApi,
+  handleXbrainLockApi,
+});
+const xbrainAuthState = {
+  running: false,
+  pid: null,
+  provider: null,
+  phase: 'idle',
+  startedAt: null,
+  finishedAt: null,
+  exitCode: null,
+  url: null,
+  outputTail: '',
+  error: null,
+};
+let xbrainAuthProc = null;
 const runtimeState = {
   serviceLock: {
     path: THUNDERCLAW_SERVICE_LOCK_PATH,
@@ -290,7 +462,7 @@ const runtimeState = {
   },
 };
 const telegramState = {
-  enabled: TELEGRAM_ENABLED,
+  enabled: isTelegramEnabledNow(),
   pollActive: false,
   connected: false,
   lastPollAt: null,
@@ -322,7 +494,7 @@ const telegramState = {
     lastMessage: null,
   },
   push: {
-    enabled: TELEGRAM_ENABLED && TELEGRAM_PUSH_TRADES,
+    enabled: isTelegramEnabledNow() && TELEGRAM_PUSH_TRADES,
     events: Array.from(TELEGRAM_PUSH_EVENTS),
     configuredChatIds: TELEGRAM_PUSH_CHAT_IDS.slice(),
     active: false,
@@ -334,6 +506,23 @@ const telegramState = {
     skippedNoTarget: 0,
   },
 };
+
+function getTelegramRuntimeToken() {
+  return String(telegramRuntimeToken || '').trim();
+}
+
+function isTelegramEnabledNow() {
+  return telegramRuntimeEnabled && Boolean(getTelegramRuntimeToken());
+}
+
+function getTelegramApiBaseFromToken(tokenLike) {
+  const token = String(tokenLike || '').trim();
+  return token ? ('https://api.telegram.org/bot' + token) : '';
+}
+
+function getTelegramApiBase() {
+  return getTelegramApiBaseFromToken(getTelegramRuntimeToken());
+}
 
 function positiveInt(raw, fallback) {
   const n = Number.parseInt(String(raw ?? ''), 10);
@@ -478,6 +667,7 @@ function normalizeXbrainModelProvider(providerLike) {
   const raw = String(providerLike || '').trim().toLowerCase();
   if (!raw) return 'deepseek';
   if (raw === 'openai' || raw === 'chatgpt') return 'chatgpt';
+  if (raw === 'openai-codex') return 'codex';
   if (raw === 'codex') return 'codex';
   if (raw === 'anthropic') return 'anthropic';
   if (raw === 'deepseek') return 'deepseek';
@@ -493,6 +683,7 @@ function inferXbrainProviderFromModelId(modelIdLike) {
   const modelId = String(modelIdLike || '').trim().toLowerCase();
   if (!modelId) return 'deepseek';
   if (modelId.startsWith('deepseek/')) return 'deepseek';
+  if (modelId.startsWith('openai-codex/')) return 'codex';
   if (modelId.startsWith('openai/') || modelId.startsWith('gpt-')) return 'chatgpt';
   if (modelId.startsWith('anthropic/')) return 'anthropic';
   if (modelId.startsWith('codex/')) return 'codex';
@@ -505,6 +696,7 @@ function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
   if (!raw) {
     if (provider === 'deepseek') return 'deepseek/deepseek-chat';
     if (provider === 'anthropic') return 'anthropic/claude-3-5-sonnet';
+    if (provider === 'codex') return 'openai-codex/gpt-5.3-codex';
     return 'openai/gpt-4o-mini';
   }
   if (raw.includes('/')) {
@@ -514,12 +706,57 @@ function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
     if (!tail) return raw;
     if (provider === 'deepseek') return 'deepseek/' + tail;
     if (provider === 'anthropic') return 'anthropic/' + tail;
-    if (provider === 'chatgpt' || provider === 'codex') return 'openai/' + tail;
+    if (provider === 'codex') {
+      if (prefix === 'openai-codex') return raw;
+      return 'openai-codex/' + tail;
+    }
+    if (provider === 'chatgpt') {
+      if (prefix === 'openai' || prefix === 'openai-codex') return raw;
+      return 'openai/' + tail;
+    }
     return raw;
   }
   if (provider === 'deepseek') return normalizeDeepSeekModelId(raw);
   if (provider === 'anthropic') return 'anthropic/' + raw;
+  if (provider === 'codex') return 'openai-codex/' + raw;
   return 'openai/' + raw;
+}
+
+function normalizeXbrainModelRegistry(listLike) {
+  const input = Array.isArray(listLike) ? listLike : [];
+  const out = [];
+  const seen = new Set();
+  input.forEach((item) => {
+    const raw = String(item || '').trim();
+    if (!raw) return;
+    const provider = inferXbrainProviderFromModelId(raw);
+    const normalized = normalizeXbrainModelIdForProvider(provider, raw);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  });
+  return out;
+}
+
+function normalizeProviderForUi(providerLike) {
+  const p = normalizeXbrainModelProvider(providerLike);
+  if (p === 'codex' || p === 'openai') return 'chatgpt';
+  return p;
+}
+
+function readOpenClawAuthProfiles() {
+  const stateDir = xbrainAuthService.resolveOpenClawStateDir();
+  const agentId = String(OPENCLAW_AGENT_ID || 'main').trim() || 'main';
+  const authPath = path.resolve(stateDir, 'agents', agentId, 'auth-profiles.json');
+  if (!fs.existsSync(authPath)) return {};
+  try {
+    const raw = fs.readFileSync(authPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.profiles && typeof parsed.profiles === 'object') {
+      return parsed.profiles;
+    }
+  } catch {}
+  return {};
 }
 
 function detectXbrainActiveStrategy(maxItems = 220) {
@@ -559,6 +796,37 @@ function xbrainProviderApiLabel(providerLike) {
   if (provider === 'chatgpt' || provider === 'codex') return 'OpenAI API (via OpenClaw)';
   if (provider === 'anthropic') return 'Anthropic API (via OpenClaw)';
   return provider + ' API (via OpenClaw)';
+}
+
+function normalizeRuntimeModelFromAgentMeta(agentMetaLike) {
+  const agentMeta = agentMetaLike && typeof agentMetaLike === 'object' ? agentMetaLike : {};
+  const modelRaw = String(agentMeta.model || '').trim();
+  if (!modelRaw) return null;
+  const providerRaw = String(agentMeta.provider || '').trim();
+  const provider = normalizeXbrainModelProvider(providerRaw || inferXbrainProviderFromModelId(modelRaw));
+  const modelId = modelRaw.includes('/')
+    ? modelRaw
+    : normalizeXbrainModelIdForProvider(provider, modelRaw);
+  const normalizedProvider = inferXbrainProviderFromModelId(modelId);
+  return {
+    checkedAt: nowIso(),
+    modelId,
+    modelProvider: normalizedProvider,
+    modelApi: xbrainProviderApiLabel(normalizedProvider),
+    source: 'openclaw:agent-meta',
+    error: null,
+  };
+}
+
+function captureXbrainRuntimeFromAgentResult(parsedLike) {
+  const parsed = parsedLike && typeof parsedLike === 'object' ? parsedLike : null;
+  if (!parsed) return;
+  const agentMeta = parsed?.result?.meta?.agentMeta;
+  const normalized = normalizeRuntimeModelFromAgentMeta(agentMeta);
+  if (!normalized) return;
+  xbrainAgentRuntimeState.value = normalized;
+  xbrainModelProbeState.value = normalized;
+  xbrainModelProbeState.lastAt = Date.now();
 }
 
 async function probeXbrainRuntimeModel(force = false) {
@@ -608,6 +876,102 @@ async function probeXbrainRuntimeModel(force = false) {
   return out;
 }
 
+function extractProviderApiKeyMask(providerCfgLike, envKeyLike = '') {
+  const providerCfg = providerCfgLike && typeof providerCfgLike === 'object' ? providerCfgLike : {};
+  const envKey = String(envKeyLike || '').trim();
+  const apiKeyRaw = String(providerCfg.apiKey || '').trim();
+  const authHeader = String(providerCfg?.headers?.Authorization || '').trim();
+  if (envKey) return { configured: true, masked: maskMaybeSecret(envKey), source: 'env:DEEPSEEK_API_KEY', plain: envKey };
+  if (apiKeyRaw) {
+    if (/^\$[A-Z0-9_]+$/i.test(apiKeyRaw)) return { configured: false, masked: '(环境变量未注入)', source: 'openclaw:provider_ref', plain: '' };
+    return { configured: true, masked: maskMaybeSecret(apiKeyRaw), source: 'openclaw:provider_config', plain: apiKeyRaw };
+  }
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (m) {
+    const token = String(m[1] || '').trim();
+    if (/^\$[A-Z0-9_]+$/i.test(token)) return { configured: false, masked: '(环境变量未注入)', source: 'openclaw:provider_ref', plain: '' };
+    if (token) return { configured: true, masked: maskMaybeSecret(token), source: 'openclaw:provider_config', plain: token };
+  }
+  return { configured: false, masked: '(未设置)', source: 'none', plain: '' };
+}
+
+async function probeXbrainProviderAuth(force = false) {
+  const nowMs = Date.now();
+  if (!force && xbrainProviderProbeState.value && nowMs - xbrainProviderProbeState.lastAt < XBRAIN_MODEL_PROBE_TTL_MS) {
+    return xbrainProviderProbeState.value;
+  }
+  const env = envPairsWithFallback();
+  const envDeepseekKey = String(env.DEEPSEEK_API_KEY || '').trim();
+  const out = {
+    checkedAt: nowIso(),
+    deepseek: {
+      configured: false,
+      apiKeyMasked: '(未设置)',
+      source: 'none',
+      apiKeyPlain: '',
+      error: null,
+    },
+    chatgpt: {
+      configured: false,
+      apiKeyMasked: '(未登录)',
+      source: 'none',
+      apiKeyPlain: '',
+      error: null,
+    },
+    anthropic: {
+      configured: false,
+      apiKeyMasked: '(未登录)',
+      source: 'none',
+      apiKeyPlain: '',
+      error: null,
+    },
+  };
+  try {
+    const cfg = await runOpenClawAdmin(['config', 'get', 'models.providers.deepseek'], 12_000).catch(() => null);
+    const raw = String(cfg?.stdout || '').trim();
+    let providerCfg = null;
+    if (raw) {
+      try {
+        providerCfg = JSON.parse(raw);
+        if (typeof providerCfg === 'string') {
+          try { providerCfg = JSON.parse(providerCfg); } catch {}
+        }
+      } catch {}
+    }
+    const maskMeta = extractProviderApiKeyMask(providerCfg, envDeepseekKey);
+    out.deepseek.configured = Boolean(maskMeta.configured);
+    out.deepseek.apiKeyMasked = String(maskMeta.masked || '(未设置)');
+    out.deepseek.source = String(maskMeta.source || 'none');
+    out.deepseek.apiKeyPlain = String(maskMeta.plain || '');
+  } catch (err) {
+    out.deepseek.error = safeErrMsg(err, 'provider probe failed');
+    const envMaskMeta = extractProviderApiKeyMask({}, envDeepseekKey);
+    out.deepseek.configured = Boolean(envMaskMeta.configured);
+    out.deepseek.apiKeyMasked = String(envMaskMeta.masked || '(未设置)');
+    out.deepseek.source = String(envMaskMeta.source || 'none');
+    out.deepseek.apiKeyPlain = String(envMaskMeta.plain || '');
+  }
+  try {
+    const profiles = readOpenClawAuthProfiles();
+    const profileKeys = Object.keys(profiles || {});
+    const hasOpenAi = profileKeys.some((k) => String(k || '').toLowerCase().startsWith('openai-codex:'));
+    const hasAnthropic = profileKeys.some((k) => String(k || '').toLowerCase().startsWith('anthropic:'));
+    out.chatgpt.configured = hasOpenAi;
+    out.chatgpt.apiKeyMasked = hasOpenAi ? 'OAuth 已登录' : '(未登录)';
+    out.chatgpt.source = hasOpenAi ? 'openclaw:auth-profiles' : 'none';
+    out.anthropic.configured = hasAnthropic;
+    out.anthropic.apiKeyMasked = hasAnthropic ? 'OAuth 已登录' : '(未登录)';
+    out.anthropic.source = hasAnthropic ? 'openclaw:auth-profiles' : 'none';
+  } catch (err) {
+    const msg = safeErrMsg(err, 'oauth profile probe failed');
+    out.chatgpt.error = msg;
+    out.anthropic.error = msg;
+  }
+  xbrainProviderProbeState.value = out;
+  xbrainProviderProbeState.lastAt = nowMs;
+  return out;
+}
+
 function defaultXbrainState() {
   const env = envPairsWithFallback();
   const now = nowIso();
@@ -616,7 +980,7 @@ function defaultXbrainState() {
   const openclawChannel = String(env.OPENCLAW_CHANNEL || '').trim();
   const chatChannel =
     chatChannelHint ||
-    (/(telegram|tg)/i.test(openclawChannel) ? 'telegram' : (TELEGRAM_ENABLED ? 'both' : 'dashboard'));
+    (/(telegram|tg)/i.test(openclawChannel) ? 'telegram' : (isTelegramEnabledNow() ? 'both' : 'dashboard'));
   const runtimeMode = /^(1|true|yes|on)$/i.test(String(env.DRY_RUN || ''))
     ? 'dryrun'
     : 'live';
@@ -628,6 +992,8 @@ function defaultXbrainState() {
         String(env.OPENCLAW_MODEL_PROVIDER || inferXbrainProviderFromModelId(modelId)),
       ),
       modelId,
+      modelRegistry: [normalizeXbrainModelIdForProvider(inferXbrainProviderFromModelId(modelId), modelId)],
+      providerCatalog: XBRAIN_PROVIDER_KEYS.slice(),
       chatChannel: normalizeXbrainChatChannel(chatChannel),
       updatedAt: now,
     },
@@ -649,6 +1015,11 @@ function defaultXbrainState() {
     },
     locks: {
       base: {
+        locked: true,
+        passwordHash: '',
+        updatedAt: now,
+      },
+      channel: {
         locked: true,
         passwordHash: '',
         updatedAt: now,
@@ -692,6 +1063,12 @@ function normalizeXbrainState(rawLike) {
           ? raw.locks.base
           : {}),
       },
+      channel: {
+        ...fallback.locks.channel,
+        ...((raw.locks && raw.locks.channel && typeof raw.locks.channel === 'object')
+          ? raw.locks.channel
+          : {}),
+      },
       exchange: {
         ...fallback.locks.exchange,
         ...((raw.locks && raw.locks.exchange && typeof raw.locks.exchange === 'object')
@@ -708,6 +1085,16 @@ function normalizeXbrainState(rawLike) {
   };
   out.base.modelProvider = normalizeXbrainModelProvider(out.base.modelProvider);
   out.base.modelId = String(out.base.modelId || fallback.base.modelId || 'deepseek-chat').trim() || 'deepseek-chat';
+  out.base.modelRegistry = normalizeXbrainModelRegistry(
+    Array.isArray(out.base.modelRegistry) && out.base.modelRegistry.length
+      ? out.base.modelRegistry
+      : [out.base.modelId],
+  );
+  const rawCatalog = Array.isArray(out.base.providerCatalog) ? out.base.providerCatalog : XBRAIN_PROVIDER_KEYS;
+  const normalizedCatalog = Array.from(new Set(
+    rawCatalog.map((p) => normalizeProviderForUi(p)).filter((p) => XBRAIN_PROVIDER_KEYS.includes(p)),
+  ));
+  out.base.providerCatalog = normalizedCatalog.length ? normalizedCatalog : XBRAIN_PROVIDER_KEYS.slice();
   out.base.chatChannel = normalizeXbrainChatChannel(out.base.chatChannel);
   out.exchange.enabled = Boolean(out.exchange.enabled);
   out.strategy.profileName = String(out.strategy.profileName || 'default').trim() || 'default';
@@ -725,12 +1112,15 @@ function normalizeXbrainState(rawLike) {
   );
   out.strategy.runtimeMode = normalizeXbrainRuntimeMode(out.strategy.runtimeMode);
   out.locks.base.locked = out.locks.base.locked !== false;
+  out.locks.channel.locked = out.locks.channel.locked !== false;
   out.locks.exchange.locked = out.locks.exchange.locked !== false;
   out.locks.strategy.locked = out.locks.strategy.locked !== false;
   out.locks.base.passwordHash = String(out.locks.base.passwordHash || '').trim();
+  out.locks.channel.passwordHash = String(out.locks.channel.passwordHash || '').trim();
   out.locks.exchange.passwordHash = String(out.locks.exchange.passwordHash || '').trim();
   out.locks.strategy.passwordHash = String(out.locks.strategy.passwordHash || '').trim();
   out.locks.base.updatedAt = out.locks.base.updatedAt || out.updatedAt || nowIso();
+  out.locks.channel.updatedAt = out.locks.channel.updatedAt || out.updatedAt || nowIso();
   out.locks.exchange.updatedAt = out.locks.exchange.updatedAt || out.updatedAt || nowIso();
   out.locks.strategy.updatedAt = out.locks.strategy.updatedAt || out.updatedAt || nowIso();
   out.updatedAt = out.updatedAt || nowIso();
@@ -767,7 +1157,7 @@ function xbrainLockView(lockLike) {
   };
 }
 
-function buildXbrainPublicState(runtimeModelLike = null) {
+function buildXbrainPublicState(runtimeModelLike = null, providerAuthLike = null) {
   const state = ensureXbrainState();
   const env = envPairsWithFallback();
   const telegramToken = String(env.THUNDERCLAW_TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -792,6 +1182,16 @@ function buildXbrainPublicState(runtimeModelLike = null) {
       : (xbrainModelProbeState.value && typeof xbrainModelProbeState.value === 'object'
           ? xbrainModelProbeState.value
           : null);
+  const activeRuntimeModel =
+    xbrainAgentRuntimeState.value && typeof xbrainAgentRuntimeState.value === 'object'
+      ? xbrainAgentRuntimeState.value
+      : null;
+  const providerAuth =
+    providerAuthLike && typeof providerAuthLike === 'object'
+      ? providerAuthLike
+      : (xbrainProviderProbeState.value && typeof xbrainProviderProbeState.value === 'object'
+          ? xbrainProviderProbeState.value
+          : null);
   const chatChannel = normalizeXbrainChatChannel(
     state?.base?.chatChannel || env.THUNDERCLAW_CHAT_CHANNEL || 'dashboard',
   );
@@ -806,20 +1206,63 @@ function buildXbrainPublicState(runtimeModelLike = null) {
     minNotional,
     500000,
   );
+  const selectedProviderUi = normalizeProviderForUi(modelProvider);
+  const providerAuthMap = {
+    deepseek: {
+      configured: Boolean(providerAuth?.deepseek?.configured),
+      masked: String(providerAuth?.deepseek?.apiKeyMasked || '(未设置)'),
+      source: String(providerAuth?.deepseek?.source || 'none'),
+      error: String(providerAuth?.deepseek?.error || ''),
+      plain: String(providerAuth?.deepseek?.apiKeyPlain || ''),
+      type: 'apiKey',
+    },
+    chatgpt: {
+      configured: Boolean(providerAuth?.chatgpt?.configured),
+      masked: String(providerAuth?.chatgpt?.apiKeyMasked || '(未登录)'),
+      source: String(providerAuth?.chatgpt?.source || 'none'),
+      error: String(providerAuth?.chatgpt?.error || ''),
+      plain: '',
+      type: 'oauth',
+    },
+    anthropic: {
+      configured: Boolean(providerAuth?.anthropic?.configured),
+      masked: String(providerAuth?.anthropic?.apiKeyMasked || '(未登录)'),
+      source: String(providerAuth?.anthropic?.source || 'none'),
+      error: String(providerAuth?.anthropic?.error || ''),
+      plain: '',
+      type: 'oauth',
+    },
+  };
+  const selectedAuth = providerAuthMap[selectedProviderUi] || providerAuthMap.deepseek;
   return {
     updatedAt: state?.updatedAt || nowIso(),
     base: {
       modelProvider,
       modelId,
+      modelRegistry: normalizeXbrainModelRegistry(state?.base?.modelRegistry || [modelId]),
+      providerCatalog: Array.isArray(state?.base?.providerCatalog) && state.base.providerCatalog.length
+        ? state.base.providerCatalog.slice()
+        : XBRAIN_PROVIDER_KEYS.slice(),
       chatChannel,
+      telegramRelayEnabled: isTelegramEnabledNow(),
       telegramTokenMasked: maskMaybeSecret(telegramToken),
+      telegramTokenValue: state?.locks?.channel?.locked === false ? telegramToken : '',
       telegramConfigured: Boolean(telegramToken),
-      runtimeModelId: String(runtimeModel?.modelId || modelId),
-      runtimeModelProvider: normalizeXbrainModelProvider(runtimeModel?.modelProvider || modelProvider),
-      runtimeModelApi: String(runtimeModel?.modelApi || xbrainProviderApiLabel(runtimeModel?.modelProvider || modelProvider)),
-      runtimeModelSource: String(runtimeModel?.source || 'env:fallback'),
-      runtimeModelCheckedAt: runtimeModel?.checkedAt || null,
-      runtimeModelError: runtimeModel?.error || null,
+      modelAuthConfigured: Boolean(selectedAuth.configured),
+      modelAuthMasked: String(selectedAuth.masked || '(未设置)'),
+      modelAuthSource: String(selectedAuth.source || 'none'),
+      modelAuthError: String(selectedAuth.error || ''),
+      modelAuthType: String(selectedAuth.type || 'apiKey'),
+      providerAuth: providerAuthMap,
+      modelAuthValue: state?.locks?.base?.locked === false
+        ? String(selectedAuth.type === 'apiKey' ? selectedAuth.plain : '')
+        : '',
+      runtimeModelId: String(activeRuntimeModel?.modelId || runtimeModel?.modelId || modelId),
+      runtimeModelProvider: normalizeXbrainModelProvider(activeRuntimeModel?.modelProvider || runtimeModel?.modelProvider || modelProvider),
+      runtimeModelApi: String(activeRuntimeModel?.modelApi || runtimeModel?.modelApi || xbrainProviderApiLabel(runtimeModel?.modelProvider || modelProvider)),
+      runtimeModelSource: String(activeRuntimeModel?.source || runtimeModel?.source || 'env:fallback'),
+      runtimeModelCheckedAt: activeRuntimeModel?.checkedAt || runtimeModel?.checkedAt || null,
+      runtimeModelError: activeRuntimeModel?.error || runtimeModel?.error || null,
       updatedAt: state?.base?.updatedAt || null,
     },
     exchange: {
@@ -844,6 +1287,7 @@ function buildXbrainPublicState(runtimeModelLike = null) {
     },
     locks: {
       base: xbrainLockView(state?.locks?.base),
+      channel: xbrainLockView(state?.locks?.channel),
       exchange: xbrainLockView(state?.locks?.exchange),
       strategy: xbrainLockView(state?.locks?.strategy),
     },
@@ -859,6 +1303,7 @@ function buildXbrainModelContext() {
       runtimeModelId: pub.base.runtimeModelId || pub.base.modelId,
       runtimeModelProvider: pub.base.runtimeModelProvider || pub.base.modelProvider,
       runtimeModelSource: pub.base.runtimeModelSource || null,
+      modelAuthConfigured: pub.base.modelAuthConfigured,
       chatChannel: pub.base.chatChannel,
       telegramConfigured: Boolean(pub.base.telegramConfigured),
       locked: pub.locks.base.locked,
@@ -888,6 +1333,7 @@ function xbrainSectionLock(sectionLike) {
   const section = String(sectionLike || '').trim().toLowerCase();
   const state = ensureXbrainState();
   if (section === 'base') return state.locks.base;
+  if (section === 'channel') return state.locks.channel;
   if (section === 'exchange') return state.locks.exchange;
   if (section === 'strategy') return state.locks.strategy;
   return null;
@@ -934,6 +1380,22 @@ function applyXbrainBasePatch(patchLike, opts = {}) {
     updates.OPENCLAW_MODEL_ID = modelNext;
     changed.modelId = modelNext;
   }
+  if (hasOwn(patch, 'modelRegistry')) {
+    const nextRegistry = normalizeXbrainModelRegistry(patch.modelRegistry);
+    state.base.modelRegistry = nextRegistry.length ? nextRegistry : [state.base.modelId];
+    changed.modelRegistry = state.base.modelRegistry.slice();
+  }
+  if (hasOwn(patch, 'providerCatalog')) {
+    const raw = Array.isArray(patch.providerCatalog) ? patch.providerCatalog : [];
+    const nextCatalog = Array.from(new Set(
+      raw.map((p) => normalizeProviderForUi(p)).filter((p) => XBRAIN_PROVIDER_KEYS.includes(p)),
+    ));
+    if (!nextCatalog.length) {
+      return { ok: false, status: 400, error: '至少保留一个模型厂商。' };
+    }
+    state.base.providerCatalog = nextCatalog;
+    changed.providerCatalog = nextCatalog.slice();
+  }
   if (hasOwn(patch, 'chatChannel')) {
     const v = normalizeXbrainChatChannel(patch.chatChannel);
     state.base.chatChannel = v;
@@ -949,6 +1411,62 @@ function applyXbrainBasePatch(patchLike, opts = {}) {
       updates.THUNDERCLAW_TELEGRAM_PUSH_EVENTS = 'open,close,risk';
     }
     changed.telegramToken = token ? maskMaybeSecret(token) : '(未设置)';
+    telegramRuntimeToken = token;
+    applyTelegramRuntimeSwitch(telegramRuntimeEnabled);
+  }
+  if (hasOwn(patch, 'telegramRelayEnabled')) {
+    const relayEnabled = Boolean(patch.telegramRelayEnabled);
+    updates.THUNDERCLAW_TELEGRAM_ENABLED = relayEnabled ? '1' : '0';
+    changed.telegramRelayEnabled = relayEnabled;
+    applyTelegramRuntimeSwitch(relayEnabled);
+  }
+  if (hasOwn(patch, 'deepseekApiKey')) {
+    const deepseekApiKey = String(patch.deepseekApiKey || '').trim();
+    if (deepseekApiKey && !deepseekApiKey.toLowerCase().startsWith('sk-')) {
+      return { ok: false, status: 400, error: 'DeepSeek key 格式不正确（需 sk- 开头）。' };
+    }
+    updates.DEEPSEEK_API_KEY = deepseekApiKey;
+    changed.deepseekApiKey = deepseekApiKey ? maskMaybeSecret(deepseekApiKey) : '(未设置)';
+  }
+  state.base.updatedAt = now;
+  state.updatedAt = now;
+  if (Object.keys(updates).length) writeEnvLocal(updates);
+  saveXbrainState();
+  return { ok: true, updated: changed, state: buildXbrainPublicState() };
+}
+
+function applyXbrainChannelPatch(patchLike, opts = {}) {
+  const patch = patchLike && typeof patchLike === 'object' ? patchLike : {};
+  if (xbrainIsLocked('channel')) {
+    return { ok: false, status: 423, error: '沟通渠道配置已锁定，请先解锁后再编辑。' };
+  }
+  const state = ensureXbrainState();
+  const now = nowIso();
+  const updates = {};
+  const changed = {};
+  if (hasOwn(patch, 'chatChannel')) {
+    const v = normalizeXbrainChatChannel(patch.chatChannel);
+    state.base.chatChannel = v;
+    updates.THUNDERCLAW_CHAT_CHANNEL = v;
+    changed.chatChannel = v;
+  }
+  if (hasOwn(patch, 'telegramToken')) {
+    const token = String(patch.telegramToken || '').trim();
+    updates.THUNDERCLAW_TELEGRAM_BOT_TOKEN = token;
+    if (token) {
+      updates.THUNDERCLAW_TELEGRAM_AUTO_REPLY = '1';
+      updates.THUNDERCLAW_TELEGRAM_PUSH_TRADES = '1';
+      updates.THUNDERCLAW_TELEGRAM_PUSH_EVENTS = 'open,close,risk';
+    }
+    changed.telegramToken = token ? maskMaybeSecret(token) : '(未设置)';
+    telegramRuntimeToken = token;
+    applyTelegramRuntimeSwitch(telegramRuntimeEnabled);
+  }
+  if (hasOwn(patch, 'telegramRelayEnabled')) {
+    const relayEnabled = Boolean(patch.telegramRelayEnabled);
+    updates.THUNDERCLAW_TELEGRAM_ENABLED = relayEnabled ? '1' : '0';
+    changed.telegramRelayEnabled = relayEnabled;
+    applyTelegramRuntimeSwitch(relayEnabled);
   }
   state.base.updatedAt = now;
   state.updatedAt = now;
@@ -963,7 +1481,30 @@ async function syncXbrainBaseToOpenClaw(baseLike) {
   const modelId = normalizeXbrainModelIdForProvider(provider, base.modelId || '');
   try {
     await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
-    await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+    if (provider === 'deepseek') {
+      const env = envPairsWithFallback();
+      const deepseekApiKey = String(base.deepseekApiKey || env.DEEPSEEK_API_KEY || '').trim();
+      if (deepseekApiKey) {
+        const providerJson = JSON.stringify({
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: deepseekApiKey,
+          api: 'openai-completions',
+          models: [
+            { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+            { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
+          ],
+        });
+        await runOpenClawAdmin(['config', 'set', '--json', 'models.providers.deepseek', providerJson]);
+      }
+    }
+    let modelsSet = false;
+    try {
+      await runOpenClawAdmin(['models', 'set', modelId]);
+      modelsSet = true;
+    } catch {}
+    if (!modelsSet) {
+      await runOpenClawAdmin(['config', 'set', 'agents.defaults.model.primary', modelId]);
+    }
     let scopedPath = null;
     let scopedSet = false;
     try {
@@ -971,9 +1512,32 @@ async function syncXbrainBaseToOpenClaw(baseLike) {
       await runOpenClawAdmin(['config', 'set', scopedPath, modelId]);
       scopedSet = true;
     } catch {}
-    return { ok: true, modelId, scopedPath, scopedSet };
+    return { ok: true, modelId, scopedPath, scopedSet, modelsSet };
   } catch (err) {
     return { ok: false, modelId, error: safeErrMsg(err, 'openclaw config sync failed') };
+  }
+}
+
+async function syncXbrainDeepseekProviderConfig(baseLike) {
+  const base = baseLike && typeof baseLike === 'object' ? baseLike : {};
+  const env = envPairsWithFallback();
+  const deepseekApiKey = String(base.deepseekApiKey || env.DEEPSEEK_API_KEY || '').trim();
+  if (!deepseekApiKey) return { ok: true, skipped: true, reason: 'empty_deepseek_api_key' };
+  try {
+    await runOpenClawAdmin(['config', 'set', 'models.mode', 'merge']);
+    const providerJson = JSON.stringify({
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiKey: deepseekApiKey,
+      api: 'openai-completions',
+      models: [
+        { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+        { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
+      ],
+    });
+    await runOpenClawAdmin(['config', 'set', '--json', 'models.providers.deepseek', providerJson]);
+    return { ok: true, providerConfigured: true };
+  } catch (err) {
+    return { ok: false, providerConfigured: false, error: safeErrMsg(err, 'deepseek provider sync failed') };
   }
 }
 
@@ -1163,8 +1727,8 @@ function releaseTelegramPollLock() {
 }
 
 function acquireTelegramPollLock() {
-  if (!TELEGRAM_ENABLED) return false;
-  const tokenHash = sha1(TELEGRAM_BOT_TOKEN).slice(0, 14);
+  if (!isTelegramEnabledNow()) return false;
+  const tokenHash = sha1(getTelegramRuntimeToken()).slice(0, 14);
   fs.mkdirSync(path.dirname(TELEGRAM_POLL_LOCK_PATH), { recursive: true });
   for (let i = 0; i < 2; i++) {
     try {
@@ -1185,12 +1749,10 @@ function acquireTelegramPollLock() {
       if (String(err?.code || '') !== 'EEXIST') break;
       const existing = readTelegramPollLockFile();
       const ownerPid = Number(existing?.pid);
-      const ownerToken = String(existing?.tokenHash || '');
       const startedAt = Number(existing?.startedAt || 0);
       const staleByPid = !isPidAlive(ownerPid);
       const staleByTime = startedAt > 0 && Date.now() - startedAt > TELEGRAM_POLL_LOCK_STALE_MS;
-      const sameToken = ownerToken && ownerToken === tokenHash;
-      if ((sameToken && (staleByPid || staleByTime)) || (!ownerToken && staleByTime)) {
+      if (staleByPid || staleByTime) {
         try { fs.unlinkSync(TELEGRAM_POLL_LOCK_PATH); } catch {}
         continue;
       }
@@ -1437,6 +1999,32 @@ function claimTelegramInbound(incoming) {
     // Fail-open: if dedupe file unexpectedly errors, don't block normal replies.
     return { claimed: true, key, dedupeError: telegramState.dedupe.lastError };
   }
+}
+
+function normalizeTelegramText(textLike) {
+  return String(textLike || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function getTelegramLoopState(chatIdLike) {
+  const chatId = String(chatIdLike || '').trim() || '_';
+  const now = Date.now();
+  let state = telegramChatLoopGuard.get(chatId);
+  if (!state) {
+    state = {
+      lastInboundNorm: '',
+      lastInboundAt: 0,
+      lastReplyNorm: '',
+      lastReplyAt: 0,
+      repeatEchoCount: 0,
+      mutedUntil: 0,
+    };
+    telegramChatLoopGuard.set(chatId, state);
+  }
+  if (state.mutedUntil > 0 && state.mutedUntil <= now) {
+    state.mutedUntil = 0;
+    state.repeatEchoCount = 0;
+  }
+  return state;
 }
 
 function redactSecrets(textLike) {
@@ -2008,6 +2596,9 @@ function parseStrategyFeedbackIntent(messageLike) {
   const explicit = /^(反馈|策略反馈|strategy\s*feedback)\s*[:：]?\s*/i.test(text);
   const hasStrategyWords = /(策略|strategy|v5_|v4_|retest|reentry|breakout|手动)/i.test(text);
   if (!explicit && !hasStrategyWords) return null;
+  const looksLikeQuestion = /(\?|？|咋样|怎么样|如何|多少|几|吗|查看|看看|查询|统计|表现)/i.test(text);
+  const hasMetricWords = /(胜率|收益|回撤|pnl|drawdown|sharpe|profit\s*factor|表现)/i.test(text);
+  if (!explicit && looksLikeQuestion && hasMetricWords) return null;
 
   let strategy =
     normalizeStrategyName((text.match(/\b(v5_hybrid|v5_retest|v5_reentry|v4_breakout|manual)\b/i) || [])[1]) ||
@@ -2027,6 +2618,9 @@ function parseStrategyFeedbackIntent(messageLike) {
     }
   }
   if (reward == null) {
+    if (!explicit && !/(看好|不看好|喜欢|讨厌|增强|减弱|停用|继续|淘汰|保留|加强|削弱|good|bad|great|poor)/i.test(lower)) {
+      return null;
+    }
     const positive = /(看好|很好|不错|有效|有用|收益|盈利|继续|增强|加强|喜欢|稳|牛|赚|good|great|works?)/i.test(
       lower,
     );
@@ -2618,6 +3212,1589 @@ function listStrategyArtifacts(limit = STRATEGY_ARTIFACTS_TOPK, query = '') {
   return filtered.slice(0, Math.max(1, Math.min(100, Number(limit) || STRATEGY_ARTIFACTS_TOPK)));
 }
 
+function strategyFeatureSeedList() {
+  return [
+    { featureId: 'trend.ema_cross', name: 'EMA 趋势交叉', group: 'trend', kind: 'indicator', description: '用快慢 EMA 判定趋势方向与入场窗口。', paramsDefault: { fast: 12, slow: 48 } },
+    { featureId: 'trend.adx_gate', name: 'ADX 趋势门槛', group: 'trend', kind: 'filter', description: '仅在趋势强度高于阈值时开仓，减少震荡假信号。', paramsDefault: { period: 14, min: 20 } },
+    { featureId: 'momentum.rsi_revert', name: 'RSI 回归因子', group: 'momentum', kind: 'indicator', description: '用 RSI 识别超买超卖，补充趋势或做反转过滤。', paramsDefault: { period: 14, overbought: 70, oversold: 30 } },
+    { featureId: 'momentum.breakout_confirm', name: '突破确认', group: 'momentum', kind: 'filter', description: '突破后要求二次确认，减少假突破。', paramsDefault: { confirmBars: 2 } },
+    { featureId: 'volatility.atr_gate', name: 'ATR 波动过滤', group: 'volatility', kind: 'filter', description: '波动太低不做单，防止横盘磨损。', paramsDefault: { period: 14, minAtrPct: 0.25 } },
+    { featureId: 'volatility.atr_stop', name: 'ATR 止损止盈', group: 'risk', kind: 'risk', description: '用 ATR 动态设置止损止盈。', paramsDefault: { stopAtr: 1.5, tpAtr: 2.8 } },
+    { featureId: 'structure.retest_entry', name: '回踩入场', group: 'structure', kind: 'entry', description: '突破后回踩确认再入场，降低追高风险。', paramsDefault: { window: 16, toleranceAtr: 0.35 } },
+    { featureId: 'structure.reentry', name: '趋势再入', group: 'structure', kind: 'entry', description: '趋势中途回调后再入场，提高趋势段捕获率。', paramsDefault: { window: 40, toleranceAtr: 0.55 } },
+    { featureId: 'session.time_gate', name: '交易时段过滤', group: 'session', kind: 'filter', description: '限定活跃时段交易，过滤低流动性区间。', paramsDefault: { sessions: ['asia', 'eu', 'us'] } },
+    { featureId: 'risk.max_hold', name: '最大持仓时长', group: 'risk', kind: 'risk', description: '超过持仓阈值强制平仓，控制尾部风险。', paramsDefault: { bars: 72 } },
+    { featureId: 'risk.position_sizing', name: '仓位控制', group: 'risk', kind: 'risk', description: '按风险比例动态计算仓位。', paramsDefault: { mode: 'risk', riskPct: 0.015 } },
+  ];
+}
+
+function defaultStrategyFeatureRecord(rawLike = {}) {
+  const raw = rawLike && typeof rawLike === 'object' ? rawLike : {};
+  const now = nowIso();
+  return {
+    featureId: String(raw.featureId || '').trim(),
+    name: truncText(String(raw.name || ''), 64) || '未命名特征',
+    group: truncText(String(raw.group || 'custom'), 32),
+    kind: truncText(String(raw.kind || 'indicator'), 24),
+    description: truncText(String(raw.description || ''), 260) || '',
+    paramsDefault: raw.paramsDefault && typeof raw.paramsDefault === 'object' ? raw.paramsDefault : {},
+    tags: Array.isArray(raw.tags) ? raw.tags.map((x) => truncText(String(x || ''), 24)).filter(Boolean).slice(0, 10) : [],
+    enabled: raw.enabled !== false,
+    usageCount: Math.max(0, Number(raw.usageCount) || 0),
+    createdAt: raw.createdAt || now,
+    updatedAt: raw.updatedAt || now,
+  };
+}
+
+function normalizeStrategyFeature(rawLike = {}) {
+  const src = rawLike && typeof rawLike === 'object' ? rawLike : {};
+  const base = defaultStrategyFeatureRecord(src);
+  let featureId = String(src.featureId || '').trim().toLowerCase();
+  if (!featureId && src.name) {
+    featureId = String(src.name).trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+  if (!featureId) featureId = 'feature_' + sha1(JSON.stringify(src) + ':' + nowIso()).slice(0, 10);
+  base.featureId = truncText(featureId, 64);
+  return base;
+}
+
+function defaultStrategyVersionRecord(rawLike = {}) {
+  const raw = rawLike && typeof rawLike === 'object' ? rawLike : {};
+  const now = nowIso();
+  return {
+    versionId: String(raw.versionId || ''),
+    strategyId: truncText(String(raw.strategyId || 'main'), 32),
+    parentVersionId: raw.parentVersionId ? String(raw.parentVersionId) : null,
+    title: truncText(String(raw.title || '未命名版本'), 80),
+    status: ['draft', 'candidate', 'active', 'archived'].includes(String(raw.status || '')) ? String(raw.status) : 'draft',
+    prompt: truncText(String(raw.prompt || ''), 1200) || '',
+    notes: truncText(String(raw.notes || ''), 1200) || '',
+    tags: Array.isArray(raw.tags) ? raw.tags.map((x) => truncText(String(x || ''), 24)).filter(Boolean).slice(0, 16) : [],
+    dsl: normalizeStrategyDslSpec(raw.dsl || {}),
+    featureAdjustments: Array.isArray(raw.featureAdjustments) ? raw.featureAdjustments.slice(0, 32) : [],
+    metrics: raw.metrics && typeof raw.metrics === 'object' ? raw.metrics : null,
+    score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : null,
+    evalSummary: raw.evalSummary ? truncText(String(raw.evalSummary), 240) : null,
+    createdAt: raw.createdAt || now,
+    updatedAt: raw.updatedAt || now,
+  };
+}
+
+function normalizeStrategyVersionMetrics(metricsLike = {}) {
+  const m = metricsLike && typeof metricsLike === 'object' ? metricsLike : {};
+  return {
+    tradeCount: Math.max(0, Math.round(Number(m.tradeCount != null ? m.tradeCount : m.trades) || 0)),
+    winRate: clampNum(Number(m.winRate), 0, 100) || 0,
+    netPnlPct: clampNum(Number(m.netPnlPct != null ? m.netPnlPct : m.totalPnlPct), -1000, 5000) || 0,
+    maxDrawdownPct: clampNum(Number(m.maxDrawdownPct), 0, 1000) || 0,
+    sharpe: clampNum(Number(m.sharpe), -10, 20) || 0,
+    profitFactor: clampNum(Number(m.profitFactor), 0, 20) || 0,
+  };
+}
+
+function scoreStrategyVersionMetrics(metricsLike = {}) {
+  const m = normalizeStrategyVersionMetrics(metricsLike);
+  const pnl = Math.tanh(m.netPnlPct / 18);
+  const win = Math.max(0, Math.min(100, m.winRate)) / 100;
+  const ddPenalty = Math.tanh((m.maxDrawdownPct || 0) / 24);
+  const sharpe = Math.tanh(m.sharpe / 2.2);
+  const pf = Math.tanh((m.profitFactor - 1) / 1.8);
+  const tradeScore = Math.min(1, m.tradeCount / 220);
+  return Number((clampNum(win * 0.26 + pnl * 0.30 + sharpe * 0.22 + pf * 0.12 + tradeScore * 0.10 - ddPenalty * 0.30, -1, 1) || 0).toFixed(4));
+}
+
+function loadStrategyLabState() {
+  if (strategyLabState.loaded) return;
+  strategyLabState.loaded = true;
+  strategyLabState.features = {};
+  strategyLabState.versions = {};
+  strategyLabState.versionOrder = [];
+  const saved = safeJsonRead(STRATEGY_VERSION_LAB_PATH, {});
+  const savedFeatures = saved?.features && typeof saved.features === 'object' ? saved.features : {};
+  const featureEntries = Object.values(savedFeatures);
+  if (featureEntries.length) {
+    featureEntries.forEach((raw) => {
+      const f = normalizeStrategyFeature(raw);
+      strategyLabState.features[f.featureId] = f;
+    });
+  } else {
+    strategyFeatureSeedList().forEach((raw) => {
+      const f = normalizeStrategyFeature(raw);
+      strategyLabState.features[f.featureId] = f;
+    });
+  }
+  const savedVersions = saved?.versions && typeof saved.versions === 'object' ? saved.versions : {};
+  Object.values(savedVersions).forEach((raw) => {
+    const v = defaultStrategyVersionRecord(raw);
+    if (!v.versionId) return;
+    strategyLabState.versions[v.versionId] = v;
+  });
+  const order = Array.isArray(saved?.versionOrder) ? saved.versionOrder.map((x) => String(x || '')).filter(Boolean) : [];
+  strategyLabState.versionOrder = order.filter((id) => Boolean(strategyLabState.versions[id]));
+  strategyLabState.lastUpdatedAt = saved?.lastUpdatedAt || null;
+  if (!Object.keys(strategyLabState.versions).length) {
+    const seed = defaultStrategyVersionRecord({
+      versionId: 'sv-' + sha1('seed:' + nowIso()).slice(0, 10),
+      strategyId: 'main',
+      title: '基础种子版本',
+      status: 'active',
+      notes: '初始版本（从现有策略能力迁移到可迭代版本图）。',
+    });
+    strategyLabState.versions[seed.versionId] = seed;
+    strategyLabState.versionOrder.push(seed.versionId);
+  }
+  saveStrategyLabState();
+}
+
+function saveStrategyLabState() {
+  loadStrategyLabState();
+  const payload = {
+    version: 1,
+    lastUpdatedAt: nowIso(),
+    features: strategyLabState.features,
+    versions: strategyLabState.versions,
+    versionOrder: strategyLabState.versionOrder.slice(-2000),
+  };
+  const ok = safeJsonWrite(STRATEGY_VERSION_LAB_PATH, payload, true);
+  if (ok) strategyLabState.lastSavedAt = nowIso();
+}
+
+function listStrategyFeatures(filtersLike = {}) {
+  loadStrategyLabState();
+  const filters = filtersLike && typeof filtersLike === 'object' ? filtersLike : {};
+  const q = String(filters.q || '').trim().toLowerCase();
+  const group = String(filters.group || '').trim().toLowerCase();
+  const enabled = typeof filters.enabled === 'boolean' ? filters.enabled : null;
+  return Object.values(strategyLabState.features || {})
+    .filter((f) => {
+      if (group && String(f.group || '').toLowerCase() !== group) return false;
+      if (enabled != null && Boolean(f.enabled) !== enabled) return false;
+      if (!q) return true;
+      const hay = [f.featureId, f.name, f.group, f.kind, f.description, ...(Array.isArray(f.tags) ? f.tags : [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    })
+    .sort((a, b) => String(a.group || '').localeCompare(String(b.group || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+}
+
+function upsertStrategyFeature(featureLike = {}) {
+  loadStrategyLabState();
+  const next = normalizeStrategyFeature(featureLike);
+  if (!next.featureId) return { ok: false, reason: 'invalid_feature_id' };
+  const old = strategyLabState.features[next.featureId] || null;
+  const merged = old
+    ? {
+        ...old,
+        ...next,
+        paramsDefault: next.paramsDefault && Object.keys(next.paramsDefault).length ? next.paramsDefault : (old.paramsDefault || {}),
+        updatedAt: nowIso(),
+      }
+    : next;
+  if (!old) merged.createdAt = nowIso();
+  strategyLabState.features[next.featureId] = merged;
+  strategyLabState.lastUpdatedAt = nowIso();
+  saveStrategyLabState();
+  return { ok: true, feature: merged };
+}
+
+function listStrategyVersions(filtersLike = {}) {
+  loadStrategyLabState();
+  const filters = filtersLike && typeof filtersLike === 'object' ? filtersLike : {};
+  const strategyId = String(filters.strategyId || '').trim();
+  const limit = Math.max(1, Math.min(400, Number(filters.limit) || 50));
+  const rows = strategyLabState.versionOrder
+    .map((id) => strategyLabState.versions[id])
+    .filter(Boolean)
+    .filter((v) => (strategyId ? String(v.strategyId || '') === strategyId : true))
+    .slice(-limit)
+    .reverse();
+  return rows;
+}
+
+function createStrategyVersion(payloadLike = {}) {
+  loadStrategyLabState();
+  const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+  const now = nowIso();
+  const parentVersionId = String(payload.parentVersionId || '').trim();
+  const strategyId = truncText(String(payload.strategyId || strategyLabState.versions[parentVersionId]?.strategyId || 'main'), 32);
+  const versionId = 'sv-' + sha1(JSON.stringify(payload) + ':' + now + ':' + Math.random()).slice(0, 12);
+  const row = defaultStrategyVersionRecord({
+    versionId,
+    strategyId,
+    parentVersionId: parentVersionId || null,
+    title: payload.title || ('候选版本 ' + versionId.slice(-5)),
+    status: payload.status || 'candidate',
+    prompt: payload.prompt || payload.message || '',
+    notes: payload.notes || '',
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    dsl: payload.dsl || {},
+    featureAdjustments: Array.isArray(payload.featureAdjustments) ? payload.featureAdjustments : [],
+    createdAt: now,
+    updatedAt: now,
+  });
+  strategyLabState.versions[versionId] = row;
+  strategyLabState.versionOrder.push(versionId);
+  strategyLabState.lastUpdatedAt = now;
+  saveStrategyLabState();
+  return { ok: true, version: row };
+}
+
+function evaluateStrategyVersion(payloadLike = {}) {
+  loadStrategyLabState();
+  const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+  const versionId = String(payload.versionId || '').trim();
+  const row = strategyLabState.versions[versionId];
+  if (!row) return { ok: false, reason: 'version_not_found' };
+  const metrics = normalizeStrategyVersionMetrics(payload.metrics || payload.result || {});
+  const score = scoreStrategyVersionMetrics(metrics);
+  const summary =
+    'PnL=' + Number(metrics.netPnlPct).toFixed(2) + '% · DD=' + Number(metrics.maxDrawdownPct).toFixed(2) + '% · Win=' + Number(metrics.winRate).toFixed(2) + '% · Score=' + Number(score).toFixed(4);
+  row.metrics = metrics;
+  row.score = score;
+  row.evalSummary = summary;
+  row.updatedAt = nowIso();
+  if (payload.activate === true) row.status = 'active';
+  strategyLabState.lastUpdatedAt = row.updatedAt;
+  saveStrategyLabState();
+  return {
+    ok: true,
+    version: row,
+    report: {
+      versionId,
+      score,
+      summary,
+      metrics,
+    },
+  };
+}
+
+function buildFeatureAdjustmentsFromPrompt(messageLike = '') {
+  const text = String(messageLike || '').toLowerCase();
+  const out = [];
+  if (/回撤|drawdown|稳|风险/.test(text)) {
+    out.push({ featureId: 'volatility.atr_stop', action: 'tighten_risk', params: { stopAtr: 1.2, tpAtr: 2.2 } });
+    out.push({ featureId: 'risk.max_hold', action: 'reduce_hold', params: { bars: 48 } });
+  }
+  if (/胜率|准确率|命中/.test(text)) {
+    out.push({ featureId: 'trend.adx_gate', action: 'raise_threshold', params: { min: 24 } });
+    out.push({ featureId: 'structure.retest_entry', action: 'enable', params: { window: 20, toleranceAtr: 0.28 } });
+  }
+  if (/收益|赚钱|利润|pnl/.test(text)) {
+    out.push({ featureId: 'structure.reentry', action: 'aggressive_reentry', params: { window: 56, toleranceAtr: 0.62 } });
+  }
+  if (/少做单|减少交易|太频繁|频率/.test(text)) {
+    out.push({ featureId: 'session.time_gate', action: 'narrow_sessions', params: { sessions: ['eu', 'us'] } });
+  }
+  return out.slice(0, 6);
+}
+
+function proposeStrategyVersionsByPrompt(payloadLike = {}) {
+  loadStrategyLabState();
+  const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+  const message = String(payload.message || payload.prompt || '').trim();
+  if (!message) return { ok: false, reason: 'empty_prompt' };
+  const baseVersionId = String(payload.baseVersionId || strategyLabState.versionOrder[strategyLabState.versionOrder.length - 1] || '').trim();
+  const base = strategyLabState.versions[baseVersionId] || null;
+  const sharedAdjustments = buildFeatureAdjustmentsFromPrompt(message);
+  const variants = [
+    { suffix: 'A', title: '稳健优化', notes: '偏向降低回撤与过滤噪声。', status: 'candidate' },
+    { suffix: 'B', title: '平衡优化', notes: '在胜率与收益之间折中。', status: 'candidate' },
+    { suffix: 'C', title: '进攻优化', notes: '提升收益上限，允许更高波动。', status: 'candidate' },
+  ];
+  const proposals = variants.map((v, idx) => {
+    const tweaks = sharedAdjustments.slice();
+    if (idx === 2) tweaks.push({ featureId: 'structure.reentry', action: 'expand', params: { window: 72, toleranceAtr: 0.75 } });
+    const created = createStrategyVersion({
+      parentVersionId: baseVersionId || null,
+      strategyId: String(payload.strategyId || base?.strategyId || 'main'),
+      title: v.title + ' · ' + String(baseVersionId || 'seed'),
+      status: v.status,
+      prompt: message,
+      notes: v.notes,
+      tags: ['ai-proposal', 'xstrategy'],
+      featureAdjustments: tweaks,
+      dsl: (base?.dsl && typeof base.dsl === 'object') ? base.dsl : {},
+    });
+    return {
+      branch: v.suffix,
+      rationale: v.notes,
+      featureAdjustments: tweaks,
+      version: created.version || null,
+    };
+  });
+  return { ok: true, baseVersionId: baseVersionId || null, proposals };
+}
+
+function detectStrategyFeatureGroupByText(textLike = '') {
+  const text = String(textLike || '').toLowerCase();
+  if (/(adx|ema|趋势|突破|trend)/.test(text)) return 'trend';
+  if (/(rsi|macd|动量|momentum)/.test(text)) return 'momentum';
+  if (/(atr|波动|volatility)/.test(text)) return 'volatility';
+  if (/(回踩|再入|结构|structure)/.test(text)) return 'structure';
+  if (/(风险|止损|止盈|仓位|risk)/.test(text)) return 'risk';
+  if (/(时段|session|交易时段)/.test(text)) return 'session';
+  return 'custom';
+}
+
+function detectStrategyFeatureKindByText(textLike = '') {
+  const text = String(textLike || '').toLowerCase();
+  if (/(过滤|gate|filter)/.test(text)) return 'filter';
+  if (/(止损|止盈|仓位|风控|risk)/.test(text)) return 'risk';
+  if (/(入场|entry|回踩|再入)/.test(text)) return 'entry';
+  return 'indicator';
+}
+
+function parseStrategyFeatureParamsFromText(textLike = '') {
+  const text = String(textLike || '');
+  const params = {};
+  const adxMin = text.match(/(?:adx|趋势门槛|阈值|门槛)\s*(?:>=|>|为|:|：)?\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (adxMin && adxMin[1]) params.min = Number(adxMin[1]);
+  const fast = text.match(/(?:快|fast)\s*(?:ema)?\s*(?:=|:|：)?\s*([0-9]{1,4})/i);
+  const slow = text.match(/(?:慢|slow)\s*(?:ema)?\s*(?:=|:|：)?\s*([0-9]{1,4})/i);
+  if (fast && fast[1]) params.fast = Math.round(Number(fast[1]));
+  if (slow && slow[1]) params.slow = Math.round(Number(slow[1]));
+  const period = text.match(/(?:周期|period)\s*(?:=|:|：)?\s*([0-9]{1,4})/i);
+  if (period && period[1]) params.period = Math.round(Number(period[1]));
+  const riskPct = text.match(/(?:风险|仓位|risk)\s*(?:=|:|：)?\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
+  if (riskPct && riskPct[1]) params.riskPct = Number(riskPct[1]) / 100;
+  return params;
+}
+
+function parseStrategyFeatureIntent(messageLike = '') {
+  const text = String(messageLike || '').trim();
+  if (!text) return { handled: false };
+  const lower = text.toLowerCase();
+  const hasFeatureWord = /(特征|指标|feature)/i.test(text);
+  if (!hasFeatureWord) return { handled: false };
+
+  const addMatch =
+    text.match(/(?:新增|添加|创建|加入|增加)\s*(?:一个|一条)?\s*(?:交易)?(?:特征|指标)\s*[:：]?\s*(.+)$/i) ||
+    text.match(/(?:特征|指标)\s*[:：]\s*(.+)$/i);
+  if (addMatch && addMatch[1]) {
+    const rawName = String(addMatch[1] || '').trim();
+    if (!rawName) return { handled: false };
+    return {
+      handled: true,
+      type: 'upsert',
+      name: truncText(rawName, 64),
+      description: truncText(text, 260),
+      group: detectStrategyFeatureGroupByText(text),
+      kind: detectStrategyFeatureKindByText(text),
+      paramsDefault: parseStrategyFeatureParamsFromText(text),
+      enabled: true,
+    };
+  }
+
+  const disableMatch = text.match(/(?:禁用|关闭)\s*(?:交易)?(?:特征|指标)\s*[:：]?\s*(.+)$/i);
+  if (disableMatch && disableMatch[1]) {
+    return { handled: true, type: 'toggle', keyword: truncText(String(disableMatch[1]).trim(), 64), enabled: false };
+  }
+  const enableMatch = text.match(/(?:启用|开启)\s*(?:交易)?(?:特征|指标)\s*[:：]?\s*(.+)$/i);
+  if (enableMatch && enableMatch[1]) {
+    return { handled: true, type: 'toggle', keyword: truncText(String(enableMatch[1]).trim(), 64), enabled: true };
+  }
+
+  if (/列出|查看|看看|展示/.test(lower) && hasFeatureWord) {
+    return { handled: true, type: 'list' };
+  }
+  return { handled: false };
+}
+
+function matchStrategyFeatureByKeyword(keywordLike = '') {
+  const key = String(keywordLike || '').trim().toLowerCase();
+  if (!key) return null;
+  const list = listStrategyFeatures({});
+  return list.find((f) => {
+    const hay = [f.featureId, f.name, f.description, f.group, f.kind].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(key);
+  }) || null;
+}
+
+function handleStrategyFeatureIntent(messageLike = '', source = 'dashboard') {
+  const intent = parseStrategyFeatureIntent(messageLike);
+  if (!intent.handled) return { handled: false };
+  if (intent.type === 'list') {
+    const rows = listStrategyFeatures({}).slice(0, 12);
+    const text = rows.length
+      ? ['当前交易特征（Top ' + String(rows.length) + '）：']
+          .concat(rows.map((f, idx) => String(idx + 1) + '. ' + String(f.name) + ' [' + String(f.group) + '/' + String(f.kind) + '] ' + (f.enabled ? '启用' : '关闭')))
+          .join('\n')
+      : '当前还没有交易特征，请先通过对话新增。';
+    return { handled: true, reply: text };
+  }
+  if (intent.type === 'toggle') {
+    const target = matchStrategyFeatureByKeyword(intent.keyword);
+    if (!target) {
+      return { handled: true, reply: '未找到特征：' + String(intent.keyword) + '。可先发送“查看交易特征”。' };
+    }
+    const out = upsertStrategyFeature({
+      featureId: target.featureId,
+      name: target.name,
+      group: target.group,
+      kind: target.kind,
+      description: target.description,
+      paramsDefault: target.paramsDefault,
+      enabled: Boolean(intent.enabled),
+      tags: Array.isArray(target.tags) ? target.tags : [],
+      usageCount: Number(target.usageCount || 0),
+    });
+    if (!out.ok) return { handled: true, reply: '特征状态更新失败：' + String(out.reason || 'unknown') };
+    return { handled: true, reply: '已' + (intent.enabled ? '启用' : '禁用') + '特征：' + String(out.feature?.name || out.feature?.featureId || '-') + '。' };
+  }
+  if (intent.type === 'upsert') {
+    const out = upsertStrategyFeature({
+      name: intent.name,
+      group: intent.group,
+      kind: intent.kind,
+      description: intent.description,
+      paramsDefault: intent.paramsDefault,
+      enabled: intent.enabled,
+      tags: ['from-chat', source],
+    });
+    if (!out.ok) return { handled: true, reply: '特征创建失败：' + String(out.reason || 'unknown') };
+    const feature = out.feature || {};
+    return {
+      handled: true,
+      reply:
+        '已新增交易特征：' +
+        String(feature.name || feature.featureId || '-') +
+        '（' +
+        String(feature.group || '-') +
+        '/' +
+        String(feature.kind || '-') +
+        '）。你可以继续说“基于该特征生成策略候选版本”。',
+    };
+  }
+  return { handled: false };
+}
+
+function shouldUseAiFeatureDesign(messageLike = '') {
+  const text = String(messageLike || '').trim().toLowerCase();
+  if (!text) return false;
+  if (!/(特征|指标|因子|feature|新闻|消息面|情绪|链上|宏观|事件|信号)/i.test(text)) return false;
+  if (/(策略|版本|回测|回验|策略优化|生成策略|候选版本)/i.test(text)) return false;
+  if (/(新增|添加|创建|禁用|启用|查看)\s*(交易)?(特征|指标)/i.test(text)) return false;
+  return true;
+}
+
+function buildFeatureDesignPrompt(messageLike = '', contextLike = {}) {
+  let contextJson = '{}';
+  try {
+    contextJson = JSON.stringify(contextLike || {}, null, 2);
+  } catch {
+    contextJson = '{}';
+  }
+  const msg = String(messageLike || '').trim();
+  return [
+    '你是交易策略工程师，需要把用户的自然语言诉求转成“可落地的交易特征候选”。',
+    '要求：',
+    '1) 优先理解用户真实意图，不要求固定句式；',
+    '2) 输出 1-4 个可执行特征，覆盖趋势/动量/波动/结构/风险/事件类；',
+    '3) 若用户提到新闻、宏观、事件、消息面，请把它们抽象为可计算特征（例如事件强度、情绪分、风险开关等）；',
+    '4) 不要返回交易下单建议，只返回特征设计。',
+    '5) 仅输出 JSON，不要代码块，不要额外解释。',
+    '',
+    'JSON 格式：',
+    '{"summary":"一句话总结","featureCandidates":[{"name":"特征名","group":"trend|momentum|volatility|structure|risk|session|event|custom","kind":"indicator|filter|entry|risk","description":"特征说明","paramsDefault":{"k":"v"},"enabled":true}],"notes":["可选说明"]}',
+    '',
+    '[上下文]',
+    contextJson,
+    '',
+    '[用户输入]',
+    msg,
+  ].join('\n');
+}
+
+async function runOpenClawFeatureDesigner(messageLike = '', contextLike = {}) {
+  const prompt = buildFeatureDesignPrompt(messageLike, contextLike);
+  const cli = resolveOpenClawCli();
+  const args = [
+    ...cli.prefixArgs,
+    'agent',
+    '--agent',
+    OPENCLAW_AGENT_ID,
+    '--message',
+    prompt,
+    '--json',
+    '--timeout',
+    String(Math.max(45, OPENCLAW_TIMEOUT_SEC)),
+  ];
+  const startedAt = Date.now();
+  const designerTimeoutMs = Math.min(65_000, Math.max(35_000, Number(OPENCLAW_CHAT_TIMEOUT_MS) || 55_000));
+  const proc = await runProcess(cli.command, args, designerTimeoutMs);
+  if (proc.timedOut) throw new Error('feature designer timeout');
+  if (proc.code !== 0) {
+    const reason = String(proc.stderr || proc.stdout || '').trim();
+    throw new Error(reason || ('feature designer exit code: ' + proc.code));
+  }
+  const extracted = extractReplyFromOutput(proc.stdout);
+  const parsed = parseJsonLoose(extracted.reply) || parseJsonLoose(proc.stdout) || {};
+  return {
+    parsed: parsed && typeof parsed === 'object' ? parsed : {},
+    elapsedMs: Date.now() - startedAt,
+    commandSource: cli.source,
+  };
+}
+
+function normalizeAiFeatureCandidates(rawLike) {
+  const arr = Array.isArray(rawLike) ? rawLike : [];
+  const out = [];
+  for (const one of arr.slice(0, 6)) {
+    if (!one || typeof one !== 'object') continue;
+    const name = truncText(String(one.name || '').trim(), 64);
+    if (!name) continue;
+    const group = String(one.group || detectStrategyFeatureGroupByText(name)).toLowerCase();
+    const kind = String(one.kind || detectStrategyFeatureKindByText(name)).toLowerCase();
+    out.push({
+      name,
+      group: ['trend', 'momentum', 'volatility', 'structure', 'risk', 'session', 'event', 'custom'].includes(group) ? group : 'custom',
+      kind: ['indicator', 'filter', 'entry', 'risk'].includes(kind) ? kind : 'indicator',
+      description: truncText(String(one.description || ''), 260),
+      paramsDefault: one.paramsDefault && typeof one.paramsDefault === 'object' ? one.paramsDefault : {},
+      enabled: one.enabled !== false,
+    });
+  }
+  return out;
+}
+
+function buildFallbackFeatureCandidates(messageLike = '') {
+  const text = String(messageLike || '').toLowerCase();
+  if (/(news|新闻|宏观|消息面|事件|sentiment|情绪)/i.test(text)) {
+    return [
+      {
+        name: 'news_sentiment_score',
+        group: 'event',
+        kind: 'filter',
+        description: '基于新闻情绪分过滤低质量入场信号。',
+        paramsDefault: { thresholdLong: 0.2, thresholdShort: -0.2, windowHours: 24 },
+        enabled: true,
+      },
+      {
+        name: 'event_intensity',
+        group: 'event',
+        kind: 'indicator',
+        description: '将重大事件强度量化为 1-5 分并注入策略风险层。',
+        paramsDefault: { minLevel: 3, coolDownMinutes: 90 },
+        enabled: true,
+      },
+    ];
+  }
+  return [
+    {
+      name: 'nl_custom_signal_' + sha1(String(messageLike || '')).slice(0, 6),
+      group: 'custom',
+      kind: 'indicator',
+      description: '由自然语言需求自动生成的自定义信号特征。',
+      paramsDefault: {},
+      enabled: true,
+    },
+  ];
+}
+
+async function inferStrategyFeatureIntentByAi(messageLike = '', source = 'dashboard') {
+  const message = String(messageLike || '').trim();
+  if (!shouldUseAiFeatureDesign(message)) return { handled: false };
+  try {
+    const memoryBundle = buildLayeredMemoryBundle(message);
+    const trading = buildTradingContext({ currentView: 'backtest', userIntentHint: 'feature:' + source }, memoryBundle);
+    const aiAny = await Promise.race([
+      runOpenClawFeatureDesigner(message, trading.context)
+        .then((v) => ({ ok: true, value: v }))
+        .catch(() => ({ ok: false })),
+      new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 14_000)),
+    ]);
+    const ai = aiAny?.ok ? aiAny.value : null;
+    const summary = truncText(String(ai?.parsed?.summary || ''), 220);
+    let candidates = normalizeAiFeatureCandidates(ai?.parsed?.featureCandidates);
+    if (!candidates.length) {
+      candidates = buildFallbackFeatureCandidates(message);
+    }
+    const saved = [];
+    for (const c of candidates.slice(0, 4)) {
+      const out = upsertStrategyFeature({
+        name: c.name,
+        group: c.group,
+        kind: c.kind,
+        description: c.description || ('由AI从自然语言生成：' + message),
+        paramsDefault: c.paramsDefault,
+        enabled: c.enabled,
+        tags: ['from-ai', 'from-chat', source],
+      });
+      if (out?.ok && out.feature) saved.push(out.feature);
+    }
+    if (!saved.length) return { handled: false };
+    const lines = [];
+    lines.push(summary || '我已根据你的自然语言需求生成可执行特征候选。');
+    lines.push('已新增特征：');
+    saved.forEach((f, idx) => {
+      lines.push(String(idx + 1) + '. ' + String(f.name) + ' [' + String(f.group) + '/' + String(f.kind) + ']');
+    });
+    lines.push('下一步你可以说：基于这些特征生成策略候选版本。');
+    return { handled: true, reply: lines.join('\n') };
+  } catch (err) {
+    const fallback = buildFallbackFeatureCandidates(message).slice(0, 3);
+    const saved = [];
+    fallback.forEach((c) => {
+      const out = upsertStrategyFeature({
+        name: c.name,
+        group: c.group,
+        kind: c.kind,
+        description: c.description,
+        paramsDefault: c.paramsDefault,
+        enabled: c.enabled,
+        tags: ['from-ai-fallback', source],
+      });
+      if (out?.ok && out.feature) saved.push(out.feature);
+    });
+    if (!saved.length) {
+      return {
+        handled: true,
+        reply: '我理解了你在提特征诉求，但本次 AI 特征设计执行失败：' + safeErrMsg(err, 'feature designer failed') + '。请再说一次，我会重试。',
+      };
+    }
+    return {
+      handled: true,
+      reply:
+        'AI 生成链路本次超时，我先按语义为你沉淀了可执行特征：\n' +
+        saved.map((f, idx) => String(idx + 1) + '. ' + String(f.name) + ' [' + String(f.group) + '/' + String(f.kind) + ']').join('\n') +
+        '\n你可以继续描述目标，我会基于这些特征继续生成策略版本。',
+    };
+  }
+}
+
+function shouldUseAiStrategyVersionDesign(messageLike = '') {
+  const text = String(messageLike || '').trim().toLowerCase();
+  if (!text) return false;
+  if (/(新闻|消息面|宏观|事件|headline|news)/i.test(text) && /(影响|情绪|risk|风险|波动)/i.test(text)) {
+    if (!/(生成|版本|候选|优化策略|产出策略)/i.test(text)) return false;
+  }
+  if (!/(策略|版本|特征组合|因子组合|回测|回验|优化|调优|调参|胜率|回撤|收益|pnl|sharpe|profit\s*factor)/i.test(text)) return false;
+  if (/(新增|添加|创建|禁用|启用|查看)\s*(交易)?(特征|指标)/i.test(text)) return false;
+  const hasIntent = /(生成|产出|设计|构建|做个|做一套|给我|优化|改进|迭代|调整|升级|重构)/i.test(text);
+  const hasStrategyTarget = /(策略|版本|特征组合|因子组合|回测|回验)/i.test(text);
+  return hasIntent || hasStrategyTarget;
+}
+
+function buildStrategyVersionDesignPrompt(messageLike = '', contextLike = {}, optionsLike = {}) {
+  let contextJson = '{}';
+  try {
+    contextJson = JSON.stringify(contextLike || {}, null, 2);
+  } catch {
+    contextJson = '{}';
+  }
+  const message = String(messageLike || '').trim();
+  const enabledFeatures = Array.isArray(optionsLike?.enabledFeatures) ? optionsLike.enabledFeatures : [];
+  const baseVersion = optionsLike?.baseVersion && typeof optionsLike.baseVersion === 'object' ? optionsLike.baseVersion : null;
+  let featureJson = '[]';
+  let baseJson = '{}';
+  try {
+    featureJson = JSON.stringify(
+      enabledFeatures.slice(0, 80).map((f) => ({
+        featureId: f.featureId,
+        name: f.name,
+        group: f.group,
+        kind: f.kind,
+        description: f.description,
+      })),
+      null,
+      2,
+    );
+  } catch {
+    featureJson = '[]';
+  }
+  try {
+    baseJson = JSON.stringify(
+      baseVersion
+        ? {
+            versionId: baseVersion.versionId,
+            title: baseVersion.title,
+            strategyId: baseVersion.strategyId,
+            status: baseVersion.status,
+            notes: baseVersion.notes,
+            featureAdjustments: baseVersion.featureAdjustments,
+          }
+        : {},
+      null,
+      2,
+    );
+  } catch {
+    baseJson = '{}';
+  }
+  return [
+    '你是交易策略版本设计器。目标：把用户自然语言目标转成可执行的“策略版本候选”。',
+    '要求：',
+    '1) 不要求固定句式，先理解意图再设计版本；',
+    '2) 输出 2-4 个候选版本，分别体现稳健/平衡/进攻等差异；',
+    '3) 每个版本必须给出 featureAdjustments，featureId 尽量使用可用特征列表里的ID；',
+    '4) 不输出下单建议，只输出版本设计。',
+    '5) 仅输出 JSON，不要代码块，不要额外解释。',
+    '',
+    'JSON 格式：',
+    '{"summary":"一句话总结","proposals":[{"title":"版本名","notes":"设计理由","status":"candidate","tags":["ai-proposal"],"featureAdjustments":[{"featureId":"xxx","action":"enable|disable|tighten_risk|raise_threshold|expand|tune","params":{"k":"v"}}]}],"nextQuestions":["可选追问"]}',
+    '',
+    '[可用特征]',
+    featureJson,
+    '',
+    '[基础版本]',
+    baseJson,
+    '',
+    '[交易上下文]',
+    contextJson,
+    '',
+    '[用户输入]',
+    message,
+  ].join('\n');
+}
+
+async function runOpenClawStrategyDesigner(messageLike = '', contextLike = {}, optionsLike = {}) {
+  const prompt = buildStrategyVersionDesignPrompt(messageLike, contextLike, optionsLike);
+  const cli = resolveOpenClawCli();
+  const args = [
+    ...cli.prefixArgs,
+    'agent',
+    '--agent',
+    OPENCLAW_AGENT_ID,
+    '--message',
+    prompt,
+    '--json',
+    '--timeout',
+    String(Math.max(45, OPENCLAW_TIMEOUT_SEC)),
+  ];
+  const startedAt = Date.now();
+  const designerTimeoutMs = Math.min(65_000, Math.max(35_000, Number(OPENCLAW_CHAT_TIMEOUT_MS) || 55_000));
+  const proc = await runProcess(cli.command, args, designerTimeoutMs);
+  if (proc.timedOut) throw new Error('strategy designer timeout');
+  if (proc.code !== 0) {
+    const reason = String(proc.stderr || proc.stdout || '').trim();
+    throw new Error(reason || ('strategy designer exit code: ' + proc.code));
+  }
+  const extracted = extractReplyFromOutput(proc.stdout);
+  const parsed = parseJsonLoose(extracted.reply) || parseJsonLoose(proc.stdout) || {};
+  return {
+    parsed: parsed && typeof parsed === 'object' ? parsed : {},
+    elapsedMs: Date.now() - startedAt,
+    commandSource: cli.source,
+  };
+}
+
+function normalizeAiStrategyAdjustments(rawLike, featureMapLike = {}) {
+  const rows = Array.isArray(rawLike) ? rawLike : [];
+  const featureMap = featureMapLike && typeof featureMapLike === 'object' ? featureMapLike : {};
+  const out = [];
+  for (const row of rows.slice(0, 16)) {
+    if (!row || typeof row !== 'object') continue;
+    const action = truncText(String(row.action || 'tune').trim(), 40) || 'tune';
+    let featureId = String(row.featureId || '').trim().toLowerCase();
+    if (!featureId && row.name) {
+      const matched = matchStrategyFeatureByKeyword(String(row.name || '').trim());
+      if (matched?.featureId) featureId = String(matched.featureId).toLowerCase();
+    }
+    if (featureId && !featureMap[featureId]) {
+      const matched = matchStrategyFeatureByKeyword(featureId);
+      if (matched?.featureId) featureId = String(matched.featureId).toLowerCase();
+    }
+    if (!featureId || !featureMap[featureId]) continue;
+    out.push({
+      featureId,
+      action,
+      params: row.params && typeof row.params === 'object' ? row.params : {},
+    });
+  }
+  return out;
+}
+
+function normalizeAiStrategyProposals(rawLike, featureMapLike = {}) {
+  const rows = Array.isArray(rawLike) ? rawLike : [];
+  const out = [];
+  for (const row of rows.slice(0, 6)) {
+    if (!row || typeof row !== 'object') continue;
+    const title = truncText(String(row.title || '').trim(), 80);
+    if (!title) continue;
+    out.push({
+      title,
+      notes: truncText(String(row.notes || ''), 260),
+      status: ['draft', 'candidate', 'active', 'archived'].includes(String(row.status || '').trim())
+        ? String(row.status || '').trim()
+        : 'candidate',
+      tags: Array.isArray(row.tags)
+        ? row.tags.map((x) => truncText(String(x || '').trim(), 24)).filter(Boolean).slice(0, 8)
+        : [],
+      featureAdjustments: normalizeAiStrategyAdjustments(row.featureAdjustments, featureMapLike),
+    });
+  }
+  return out;
+}
+
+async function inferStrategyVersionIntentByAi(messageLike = '', source = 'dashboard') {
+  const message = String(messageLike || '').trim();
+  if (!shouldUseAiStrategyVersionDesign(message)) return { handled: false };
+  try {
+    loadStrategyLabState();
+    const features = listStrategyFeatures({}).filter((f) => f && f.enabled !== false);
+    const featureMap = {};
+    features.forEach((f) => {
+      if (f?.featureId) featureMap[String(f.featureId).toLowerCase()] = f;
+    });
+    const baseVersionId = String(strategyLabState.versionOrder[strategyLabState.versionOrder.length - 1] || '').trim();
+    const baseVersion = strategyLabState.versions[baseVersionId] || null;
+    const memoryBundle = buildLayeredMemoryBundle(message);
+    const trading = buildTradingContext({ currentView: 'backtest', userIntentHint: 'strategy-version:' + source }, memoryBundle);
+    const aiResult = await Promise.race([
+      runOpenClawStrategyDesigner(message, trading.context, { enabledFeatures: features, baseVersion })
+        .then((v) => ({ ok: true, value: v }))
+        .catch((err) => ({ ok: false, error: err })),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ ok: false, timeout: true }), 16_000);
+      }),
+    ]);
+    const aiParsed = aiResult?.ok ? aiResult.value : null;
+    const summary = truncText(String(aiParsed?.parsed?.summary || ''), 240);
+    const proposals = normalizeAiStrategyProposals(aiParsed?.parsed?.proposals, featureMap).slice(0, 4);
+    if (!proposals.length) {
+      const fallback = proposeStrategyVersionsByPrompt({
+        message,
+        baseVersionId: baseVersionId || null,
+        strategyId: String(baseVersion?.strategyId || 'main'),
+      });
+      if (!fallback?.ok) return { handled: false };
+      const fallbackRows = Array.isArray(fallback.proposals) ? fallback.proposals : [];
+      const lines = ['我已根据你的自然语言目标生成策略候选版本（回退方案）。'];
+      fallbackRows.forEach((p, idx) => {
+        const v = p?.version || {};
+        lines.push(String(idx + 1) + '. ' + String(v.title || '-') + '（' + String(v.versionId || '-') + '）');
+      });
+      lines.push('你可以继续说：保留第2个版本思路并进一步降低回撤。');
+      return { handled: true, reply: lines.join('\n'), createdCount: fallbackRows.length };
+    }
+    const createdRows = proposals.map((p) =>
+      createStrategyVersion({
+        parentVersionId: baseVersionId || null,
+        strategyId: String(baseVersion?.strategyId || 'main'),
+        title: p.title,
+        status: p.status,
+        prompt: message,
+        notes: p.notes,
+        tags: ['ai-proposal', 'xstrategy', source].concat(Array.isArray(p.tags) ? p.tags : []).slice(0, 16),
+        featureAdjustments: p.featureAdjustments,
+        dsl: baseVersion?.dsl && typeof baseVersion.dsl === 'object' ? baseVersion.dsl : {},
+      }),
+    );
+    const versions = createdRows.map((x) => x?.version).filter(Boolean);
+    if (!versions.length) return { handled: false };
+    const lines = [];
+    lines.push(summary || '我已根据你的自然语言目标生成新策略版本。');
+    lines.push('新增版本：');
+    versions.forEach((v, idx) => {
+      lines.push(String(idx + 1) + '. ' + String(v.title || '-') + '（' + String(v.versionId || '-') + '）');
+    });
+    lines.push('已写入「交易策略」版本列表；可继续说“把第2个再稳一点”进行迭代分叉。');
+    return {
+      handled: true,
+      reply: lines.join('\n'),
+      createdCount: versions.length,
+      versions,
+    };
+  } catch (err) {
+    return {
+      handled: true,
+      reply: '我理解了你的策略优化意图，但本次版本生成失败：' + safeErrMsg(err, 'strategy designer failed') + '。请再说一次，我会重试。',
+      createdCount: 0,
+    };
+  }
+}
+
+function parseAiToolCalls(rawLike = []) {
+  const rows = Array.isArray(rawLike) ? rawLike : [];
+  const out = [];
+  for (const row of rows.slice(0, 4)) {
+    if (!row || typeof row !== 'object') continue;
+    const tool =
+      truncText(
+        String(
+          row.tool || row.name || row.type || row.function || row.action || '',
+        ).trim(),
+        64,
+      ) || '';
+    if (!tool) continue;
+    const args = row.arguments && typeof row.arguments === 'object'
+      ? row.arguments
+      : row.args && typeof row.args === 'object'
+        ? row.args
+        : {};
+    out.push({ tool, arguments: args });
+  }
+  return out;
+}
+
+function strategyCapabilityCatalog() {
+  return [
+    {
+      name: 'get_market_news_impact',
+      description: '抓取市场新闻并给出事件影响评分与特征候选',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          asset: { type: 'string' },
+          q: { type: 'string' },
+          limit: { type: 'number' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_strategy_metrics',
+      description: '查询策略胜率/收益/回撤等表现指标',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          strategy: { type: 'string', enum: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout', 'manual'] },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'list_strategy_features',
+      description: '查询交易特征列表（可按关键词/分组过滤）',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          q: { type: 'string' },
+          group: { type: 'string' },
+          limit: { type: 'number' },
+          enabledOnly: { type: 'boolean' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'create_strategy_features',
+      description: '创建交易特征',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          features: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                group: { type: 'string' },
+                kind: { type: 'string' },
+                description: { type: 'string' },
+                paramsDefault: { type: 'object' },
+                enabled: { type: 'boolean' },
+              },
+              required: ['name'],
+            },
+          },
+        },
+        required: ['features'],
+      },
+    },
+    {
+      name: 'generate_strategy_versions',
+      description: '基于自然语言目标生成策略版本',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string' },
+          baseVersionId: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'list_strategy_versions',
+      description: '查询策略版本列表',
+      adapters: ['internal', 'mcp'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number' },
+        },
+        additionalProperties: false,
+      },
+    },
+  ];
+}
+
+function buildMcpStyleToolManifest() {
+  const readOnlyTools = new Set([
+    'get_market_news_impact',
+    'get_strategy_metrics',
+    'list_strategy_features',
+    'list_strategy_versions',
+  ]);
+  return {
+    schemaVersion: 'mcp-tool-manifest-v1',
+    namespace: 'thunderclaw.strategy',
+    adapter: resolveToolAdapterMode(),
+    generatedAt: nowIso(),
+    tools: strategyCapabilityCatalog().map((cap) => ({
+      name: String(cap.name || ''),
+      title: String(cap.name || ''),
+      description: String(cap.description || ''),
+      inputSchema: cap.inputSchema && typeof cap.inputSchema === 'object' ? cap.inputSchema : { type: 'object' },
+      annotations: {
+        readOnlyHint: readOnlyTools.has(String(cap.name || '')),
+        destructiveHint: false,
+        idempotentHint: readOnlyTools.has(String(cap.name || '')),
+        adapters: Array.isArray(cap.adapters) ? cap.adapters : ['internal'],
+      },
+    })),
+  };
+}
+
+function resolveToolAdapterMode() {
+  const raw = String(process.env.THUNDERCLAW_TOOL_ADAPTER || 'internal').trim().toLowerCase();
+  if (raw === 'mcp') return 'mcp';
+  return 'internal';
+}
+
+function resolveMcpBridgeConfig() {
+  const url = String(process.env.THUNDERCLAW_MCP_BRIDGE_URL || '').trim();
+  const token = String(process.env.THUNDERCLAW_MCP_BRIDGE_TOKEN || '').trim();
+  const timeoutMs = Math.max(1200, Math.min(12_000, Number(process.env.THUNDERCLAW_MCP_BRIDGE_TIMEOUT_MS || 4500) || 4500));
+  const enabledByFlag = String(process.env.THUNDERCLAW_MCP_BRIDGE_ENABLED || '0').trim() === '1';
+  const enabled = enabledByFlag && /^https?:\/\//i.test(url);
+  return {
+    enabled,
+    enabledByFlag,
+    url,
+    hasToken: Boolean(token),
+    token,
+    timeoutMs,
+  };
+}
+
+async function callMcpBridgeTool(toolName, args, optionsLike = {}) {
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const source = String(options.source || 'dashboard');
+  const mcpCfg = resolveMcpBridgeConfig();
+  if (!mcpCfg.enabled) {
+    return { ok: false, error: 'mcp_bridge_disabled' };
+  }
+  const payload = {
+    namespace: 'thunderclaw.strategy',
+    tool: String(toolName || '').trim(),
+    arguments: args && typeof args === 'object' ? args : {},
+    source,
+    ts: nowIso(),
+  };
+  const ac = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ac.abort();
+    } catch {}
+  }, mcpCfg.timeoutMs);
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (mcpCfg.token) headers.Authorization = 'Bearer ' + mcpCfg.token;
+    const resp = await fetch(mcpCfg.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: ac.signal,
+    });
+    const text = await resp.text().catch(() => '');
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: 'mcp_http_' + String(resp.status),
+        detail: truncText(String(text || ''), 400),
+      };
+    }
+    const summary = truncText(String(json?.summary || json?.reply || ''), 4000);
+    return {
+      ok: true,
+      summary,
+      actions: Array.isArray(json?.actions) ? json.actions : [],
+      data: json?.data && typeof json.data === 'object' ? json.data : null,
+      bridgeMeta: {
+        transport: 'mcp-http',
+        url: mcpCfg.url,
+      },
+    };
+  } catch (err) {
+    const msg = safeErrMsg(err, 'mcp bridge call failed');
+    return { ok: false, error: 'mcp_bridge_call_failed', detail: msg };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function checkMcpBridgeConnectivity() {
+  const cfg = resolveMcpBridgeConfig();
+  if (!cfg.enabled) {
+    return {
+      ok: false,
+      enabled: false,
+      reason: cfg.enabledByFlag ? 'bridge_url_invalid' : 'bridge_disabled',
+      config: {
+        enabledByFlag: cfg.enabledByFlag,
+        url: cfg.url || null,
+        hasToken: cfg.hasToken,
+        timeoutMs: cfg.timeoutMs,
+      },
+    };
+  }
+  const startedAt = Date.now();
+  const ping = await callMcpBridgeTool('get_strategy_metrics', {}, { source: 'healthcheck' });
+  const elapsedMs = Date.now() - startedAt;
+  return {
+    ok: Boolean(ping?.ok),
+    enabled: true,
+    elapsedMs,
+    config: {
+      enabledByFlag: cfg.enabledByFlag,
+      url: cfg.url || null,
+      hasToken: cfg.hasToken,
+      timeoutMs: cfg.timeoutMs,
+    },
+    result: {
+      error: ping?.ok ? null : String(ping?.error || 'bridge_unreachable'),
+      detail: ping?.ok ? null : String(ping?.detail || ''),
+      bridgeMeta: ping?.bridgeMeta || null,
+    },
+  };
+}
+
+function buildCapabilityLinesForPrompt() {
+  return strategyCapabilityCatalog().map((cap) => {
+    let schema = '{}';
+    try {
+      schema = JSON.stringify(cap.inputSchema || {}, null, 0);
+    } catch {
+      schema = '{}';
+    }
+    return '- ' + String(cap.name) + ': ' + String(cap.description || '') + '；参数Schema=' + schema;
+  });
+}
+
+function buildStrategyToolRouterPrompt(messageLike = '', contextLike = {}, planStateLike = {}) {
+  let contextJson = '{}';
+  try {
+    contextJson = JSON.stringify(contextLike || {}, null, 2);
+  } catch {
+    contextJson = '{}';
+  }
+  const msg = String(messageLike || '').trim();
+  const step = Math.max(1, Number(planStateLike?.step) || 1);
+  const maxSteps = Math.max(step, Number(planStateLike?.maxSteps) || 1);
+  let toolResultsJson = '[]';
+  try {
+    toolResultsJson = JSON.stringify(Array.isArray(planStateLike?.toolResults) ? planStateLike.toolResults.slice(-8) : [], null, 2);
+  } catch {
+    toolResultsJson = '[]';
+  }
+  return [
+    '你是交易系统里的语义路由器。目标：理解用户自然语言后，选择工具调用。',
+    '要求：',
+    '1) 不要按固定句式匹配，必须基于语义理解；',
+    '2) 优先调用工具获取真实数据，再回答；',
+    '3) 当前允许多轮规划；如果还需要拿数据，可继续返回 toolCalls；',
+    '4) 仅输出 JSON（不要代码块，不要额外解释）。',
+    '5) 如果信息已足够，toolCalls 返回空数组并在 reply 给出最终答复。',
+    '',
+    '可用工具：',
+    ...buildCapabilityLinesForPrompt(),
+    '',
+    'JSON 格式：',
+    '{"reply":"给用户的中文回复（可简短）","toolCalls":[{"tool":"工具名","arguments":{}}]}',
+    '',
+    '[规划轮次]',
+    'step=' + String(step) + '/' + String(maxSteps),
+    '',
+    '[已执行工具结果]',
+    toolResultsJson,
+    '',
+    '[交易上下文]',
+    contextJson,
+    '',
+    '[用户输入]',
+    msg,
+  ].join('\n');
+}
+
+async function runOpenClawToolRouter(messageLike = '', contextLike = {}, planStateLike = {}) {
+  const prompt = buildStrategyToolRouterPrompt(messageLike, contextLike, planStateLike);
+  const cli = resolveOpenClawCli();
+  const args = [
+    ...cli.prefixArgs,
+    'agent',
+    '--agent',
+    OPENCLAW_AGENT_ID,
+    '--message',
+    prompt,
+    '--json',
+    '--timeout',
+    String(8),
+  ];
+  const proc = await runProcess(cli.command, args, 9_000);
+  if (proc.timedOut) throw new Error('tool router timeout');
+  if (proc.code !== 0) {
+    const reason = String(proc.stderr || proc.stdout || '').trim();
+    throw new Error(reason || ('tool router exit code: ' + proc.code));
+  }
+  const extracted = extractReplyFromOutput(proc.stdout);
+  const parsed = parseJsonLoose(extracted.reply) || parseJsonLoose(proc.stdout) || {};
+  const reply = truncText(String(parsed?.reply || extracted.reply || ''), 1200);
+  const toolCalls = parseAiToolCalls(parsed?.toolCalls || parsed?.calls || parsed?.actions || []);
+  return { reply, toolCalls, parsed };
+}
+
+function queryStrategyMetricsSnapshot(optionsLike = {}) {
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const strategyFilter = normalizeStrategyName(String(options.strategy || '').trim()) || '';
+  const artifacts = listStrategyArtifacts(80);
+  const target = strategyFilter
+    ? artifacts.filter((a) => String(a.strategyType || '') === strategyFilter)
+    : artifacts;
+  const rowsByStrategy = new Map();
+  for (const a of target) {
+    const key = String(a.strategyType || 'unknown');
+    if (!rowsByStrategy.has(key)) rowsByStrategy.set(key, []);
+    rowsByStrategy.get(key).push(a);
+  }
+  const rows = Array.from(rowsByStrategy.entries()).map(([strategy, list]) => {
+    const sorted = list
+      .slice()
+      .sort((x, y) => new Date(String(y.updatedAt || 0)).getTime() - new Date(String(x.updatedAt || 0)).getTime());
+    const latest = sorted[0] || {};
+    return {
+      strategy,
+      winRate: Number(latest.avgWinRate || latest.winRate || 0),
+      netPnlPct: Number(latest.avgNetPnlPct || latest.netPnlPct || 0),
+      maxDrawdownPct: Number(latest.avgDrawdownPct || latest.maxDrawdownPct || 0),
+      tradeCount: Number(latest.totalTrades || latest.tradeCount || 0),
+      updatedAt: latest.updatedAt || latest.createdAt || '',
+    };
+  });
+  rows.sort((a, b) => b.winRate - a.winRate);
+  return {
+    strategy: strategyFilter || null,
+    rows,
+    best: rows[0] || null,
+  };
+}
+
+function formatStrategyMetricsSnapshot(snapshotLike = {}) {
+  const snapshot = snapshotLike && typeof snapshotLike === 'object' ? snapshotLike : {};
+  const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+  if (!rows.length) {
+    return '当前还没有可用的策略评估数据。先跑一轮回验/对比，我就能给你准确结果。';
+  }
+  const lines = [];
+  lines.push(snapshot.strategy ? ('策略 ' + snapshot.strategy + ' 的表现：') : '当前策略表现：');
+  rows.slice(0, 6).forEach((r, idx) => {
+    const pnl = Number(r.netPnlPct || 0);
+    lines.push(
+      String(idx + 1) +
+        '. ' +
+        String(r.strategy || '-') +
+        ' · 胜率=' +
+        Number(r.winRate || 0).toFixed(2) +
+        '% · 净收益=' +
+        (pnl >= 0 ? '+' : '') +
+        pnl.toFixed(2) +
+        '% · 回撤=' +
+        Number(r.maxDrawdownPct || 0).toFixed(2) +
+        '% · 样本=' +
+        String(Math.max(0, Math.round(Number(r.tradeCount || 0)))),
+    );
+  });
+  if (snapshot.best) {
+    lines.push('当前胜率最高：' + String(snapshot.best.strategy || '-') + '（' + Number(snapshot.best.winRate || 0).toFixed(2) + '%）。');
+  }
+  return lines.join('\n');
+}
+
+function strategyToolRegistry(source = 'dashboard', rawMessage = '') {
+  return {
+    get_market_news_impact: async (args) => {
+      const asset = truncText(String(args?.asset || 'BTC').toUpperCase(), 12);
+      const q = truncText(String(args?.q || rawMessage || ''), 80);
+      const fallbackFeatures = buildFallbackFeatureCandidates(q).slice(0, 3);
+      const summary = [
+        '当前为本地降级新闻分析（未启用外部桥接抓取）。',
+        'asset=' + asset + (q ? (' · q=' + q) : ''),
+        '建议先沉淀这些事件特征：',
+      ]
+        .concat(
+          fallbackFeatures.map((f, idx) => String(idx + 1) + '. ' + String(f.name) + ' [' + String(f.group) + '/' + String(f.kind) + ']'),
+        )
+        .join('\n');
+      return {
+        summary,
+        actions: [],
+        data: {
+          asset,
+          q,
+          fallback: true,
+          featureCandidates: fallbackFeatures,
+        },
+      };
+    },
+    get_strategy_metrics: async (args) => {
+      const snapshot = queryStrategyMetricsSnapshot({ strategy: args?.strategy });
+      return {
+        summary: formatStrategyMetricsSnapshot(snapshot),
+        actions: [],
+        data: snapshot,
+      };
+    },
+    list_strategy_features: async (args) => {
+      const q = truncText(String(args?.q || ''), 80);
+      const group = truncText(String(args?.group || ''), 24);
+      let list = listStrategyFeatures({ q, group });
+      if (args?.enabledOnly === true) list = list.filter((f) => f.enabled !== false);
+      const limit = Math.max(1, Math.min(30, Number(args?.limit) || 12));
+      const rows = list.slice(0, limit);
+      const text = rows.length
+        ? ['当前交易特征：']
+            .concat(rows.map((f, idx) => String(idx + 1) + '. ' + String(f.name || f.featureId || '-') + ' [' + String(f.group || '-') + '/' + String(f.kind || '-') + '] ' + (f.enabled === false ? '关闭' : '启用')))
+            .join('\n')
+        : '当前没有符合条件的交易特征。';
+      return { summary: text, actions: [], data: { total: rows.length, rows } };
+    },
+    create_strategy_features: async (args) => {
+      const features = Array.isArray(args?.features) ? args.features : [];
+      const saved = [];
+      features.slice(0, 6).forEach((f) => {
+        if (!f || typeof f !== 'object') return;
+        const out = upsertStrategyFeature({
+          name: String(f.name || '').trim(),
+          group: String(f.group || 'custom').trim(),
+          kind: String(f.kind || 'indicator').trim(),
+          description: String(f.description || '').trim(),
+          paramsDefault: f.paramsDefault && typeof f.paramsDefault === 'object' ? f.paramsDefault : {},
+          enabled: f.enabled !== false,
+          tags: ['from-tool-router', source],
+        });
+        if (out?.ok && out.feature) saved.push(out.feature);
+      });
+      const text = saved.length
+        ? ['已新增特征：']
+            .concat(saved.map((f, idx) => String(idx + 1) + '. ' + String(f.name || '-') + ' [' + String(f.group || '-') + '/' + String(f.kind || '-') + ']'))
+            .join('\n')
+        : '未新增任何特征（可能是参数不完整）。';
+      return { summary: text, actions: [], data: { total: saved.length, rows: saved } };
+    },
+    generate_strategy_versions: async (args) => {
+      const message = String(args?.message || rawMessage || '').trim();
+      const out = await inferStrategyVersionIntentByAi(message, source);
+      return {
+        summary: String(out?.reply || '策略版本生成完成。'),
+        actions: [{ type: 'switch_view', view: 'backtest' }],
+        data: { createdCount: Number(out?.createdCount || 0) },
+      };
+    },
+    list_strategy_versions: async (args) => {
+      const limit = Math.max(1, Math.min(30, Number(args?.limit) || 10));
+      const rows = listStrategyVersions({ limit });
+      const text = rows.length
+        ? ['当前策略版本：']
+            .concat(
+              rows.map((v, idx) => String(idx + 1) + '. ' + String(v.title || v.versionId || '-') + '（' + String(v.versionId || '-') + '）' + (Number.isFinite(Number(v.score)) ? (' · score=' + Number(v.score).toFixed(4)) : '')),
+            )
+            .join('\n')
+        : '当前还没有策略版本。';
+      return { summary: text, actions: [], data: { total: rows.length, rows: rows.slice(0, 12) } };
+    },
+  };
+}
+
+function resolveCapabilityAdapter(optionsLike = {}) {
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const source = String(options.source || 'dashboard');
+  const rawMessage = String(options.rawMessage || '');
+  const registry = strategyToolRegistry(source, rawMessage);
+  const mode = resolveToolAdapterMode();
+  const mcpCfg = resolveMcpBridgeConfig();
+  const mcpBridgeEnabled = mcpCfg.enabled;
+  const mcpBridgePreferredTools = new Set(['get_market_news_impact', 'get_strategy_metrics', 'list_strategy_features']);
+  async function invokeWithMode(toolName, args) {
+    const runner = registry[toolName];
+    if (typeof runner !== 'function') {
+      return { ok: false, error: 'tool_not_found', summary: '' };
+    }
+    // MCP adapter: prefer external bridge for selected tools, fallback to internal on failure.
+    if (mode === 'mcp') {
+      if (mcpBridgeEnabled && mcpBridgePreferredTools.has(toolName)) {
+        const bridged = await callMcpBridgeTool(toolName, args, { source });
+        if (bridged?.ok) {
+          return {
+            ok: true,
+            summary: String(bridged.summary || ''),
+            actions: Array.isArray(bridged.actions) ? bridged.actions : [],
+            data: bridged.data && typeof bridged.data === 'object' ? bridged.data : null,
+            adapterMeta: {
+              mode: 'mcp',
+              transport: 'mcp-bridge',
+              fallbackToInternal: false,
+              bridgeEnabled: true,
+            },
+          };
+        }
+      }
+      const out = await runner(args);
+      return {
+        ok: true,
+        ...(out && typeof out === 'object' ? out : {}),
+        adapterMeta: {
+          mode: 'mcp',
+          transport: mcpBridgeEnabled ? 'mcp-bridge-fallback-internal' : 'mcp-skeleton-fallback',
+          fallbackToInternal: true,
+          bridgeEnabled: mcpBridgeEnabled,
+        },
+      };
+    }
+    const out = await runner(args);
+    return {
+      ok: true,
+      ...(out && typeof out === 'object' ? out : {}),
+      adapterMeta: {
+        mode: 'internal',
+        transport: 'inproc',
+        fallbackToInternal: false,
+      },
+    };
+  }
+  return {
+    mode,
+    listTools() {
+      const tools = buildMcpStyleToolManifest().tools;
+      return tools.filter((tool) => {
+        const adapters = Array.isArray(tool?.annotations?.adapters) ? tool.annotations.adapters : ['internal'];
+        return adapters.includes(mode);
+      });
+    },
+    async invokeTool(toolNameLike, argsLike) {
+      const toolName = String(toolNameLike || '').trim();
+      const args = argsLike && typeof argsLike === 'object' ? argsLike : {};
+      return invokeWithMode(toolName, args);
+    },
+  };
+}
+
+async function executeStrategyToolCalls(toolCallsLike = [], source = 'dashboard', rawMessage = '') {
+  const calls = Array.isArray(toolCallsLike) ? toolCallsLike : [];
+  const summaries = [];
+  const actions = [];
+  const toolResults = [];
+  const adapter = resolveCapabilityAdapter({ source, rawMessage });
+  const capabilitySet = new Set(adapter.listTools().map((x) => String(x?.name || '').trim()));
+  for (const call of calls.slice(0, 4)) {
+    const tool = String(call?.tool || '').trim();
+    const args = call?.arguments && typeof call.arguments === 'object' ? call.arguments : {};
+    if (!tool) continue;
+    if (!capabilitySet.has(tool)) continue;
+    const out = await adapter.invokeTool(tool, args);
+    if (out?.ok === false) continue;
+    const summary = truncText(String(out?.summary || ''), 4000);
+    if (summary) summaries.push(summary);
+    if (Array.isArray(out?.actions)) out.actions.forEach((a) => actions.push(a));
+    toolResults.push({
+      tool,
+      arguments: args,
+      summary,
+      data: out?.data && typeof out.data === 'object' ? out.data : null,
+      adapter: adapter.mode,
+      adapterMeta: out?.adapterMeta && typeof out.adapterMeta === 'object' ? out.adapterMeta : null,
+    });
+  }
+  return { summaries, actions, toolResults };
+}
+
+async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard') {
+  const message = String(messageLike || '').trim();
+  if (!message) return { handled: false };
+  if (/^(\/|记忆状态|工件状态|使用工件|反馈工件|反馈\s)/i.test(message)) return { handled: false };
+  try {
+    const memoryBundle = buildLayeredMemoryBundle(message);
+    const trading = buildTradingContext({ currentView: 'dashboard', userIntentHint: 'tool-router:' + source }, memoryBundle);
+    const maxSteps = 3;
+    const routeDeadlineAt = Date.now() + 18_000;
+    const planState = {
+      toolResults: [],
+    };
+    const replies = [];
+    const allSummaries = [];
+    const allActions = [];
+    for (let step = 1; step <= maxSteps; step += 1) {
+      const remainMs = routeDeadlineAt - Date.now();
+      if (remainMs <= 1200) break;
+      const routedAny = await Promise.race([
+        runOpenClawToolRouter(message, trading.context, {
+          step,
+          maxSteps,
+          toolResults: planState.toolResults,
+        })
+          .then((v) => ({ ok: true, value: v }))
+          .catch(() => ({ ok: false })),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), Math.max(1000, Math.min(3500, remainMs - 300)))),
+      ]);
+      if (!routedAny || routedAny.ok !== true || !routedAny.value) break;
+      const routed = routedAny.value;
+      if (routed.reply) replies.push(String(routed.reply));
+      if (!Array.isArray(routed.toolCalls) || !routed.toolCalls.length) break;
+      const executed = await executeStrategyToolCalls(routed.toolCalls, source, message);
+      if (Array.isArray(executed.summaries)) {
+        executed.summaries.filter(Boolean).forEach((s) => allSummaries.push(String(s)));
+      }
+      if (Array.isArray(executed.actions)) {
+        executed.actions.forEach((a) => allActions.push(a));
+      }
+      if (Array.isArray(executed.toolResults) && executed.toolResults.length) {
+        planState.toolResults = planState.toolResults.concat(executed.toolResults).slice(-12);
+      }
+      if (!executed.toolResults || !executed.toolResults.length) break;
+    }
+    const parts = replies.concat(allSummaries);
+    const reply = parts.filter(Boolean).join('\n\n').trim();
+    const replyPayload = {
+      handled: Boolean(reply),
+      reply: reply || '已处理你的请求。',
+      actions: allActions,
+    };
+    if (!replyPayload.handled) {
+      const lower = message.toLowerCase();
+      if (/(新闻|消息面|宏观|事件|headline|news)/i.test(lower) && /(影响|情绪|risk|风险|波动)/i.test(lower)) {
+        const assetMatch = message.match(/\b(BTC|ETH|SOL|BNB|XRP|DOGE)\b/i);
+        const fallbackExec = await executeStrategyToolCalls(
+          [{ tool: 'get_market_news_impact', arguments: { asset: assetMatch ? String(assetMatch[1]).toUpperCase() : 'BTC', q: '', limit: 6 } }],
+          source,
+          message,
+        );
+        const fbReply = (fallbackExec.summaries || []).join('\n\n').trim();
+        if (fbReply) {
+          return {
+            handled: true,
+            reply: fbReply,
+            actions: Array.isArray(fallbackExec.actions) ? fallbackExec.actions : [],
+          };
+        }
+      }
+    }
+    return replyPayload;
+  } catch {
+    return { handled: false };
+  }
+}
+
 function strategyArtifactToAction(recordLike) {
   const rec = recordLike && typeof recordLike === 'object' ? recordLike : null;
   if (!rec) return null;
@@ -2813,6 +4990,118 @@ function buildStrategyArtifactStatusReply(limit = 6) {
     '使用方式：发送「使用工件 art-xxxxxx」即可直接执行该工件策略。',
     '反馈方式：发送「反馈工件 art-xxxxxx +0.6」可强化闭环学习。',
   ].join('\n');
+}
+
+function parseStrategyPerformanceIntent(messageLike = '') {
+  const text = String(messageLike || '').trim();
+  if (!text) return { handled: false };
+  if (/(新闻|消息面|宏观|事件|headline|news)/i.test(text) && /(影响|情绪|risk|风险|波动)/i.test(text)) {
+    return { handled: false };
+  }
+  const asks = /(\?|？|咋样|怎么样|如何|多少|几|吗|查看|看看|查询|统计|表现|总结|汇总)/i.test(text);
+  const hasDomain = /(策略|strategy|胜率|收益|回撤|pnl|drawdown|sharpe|profit\s*factor|表现)/i.test(text);
+  if (!hasDomain) return { handled: false };
+  if (!asks && !/(胜率|收益|回撤|表现|总结|汇总)/i.test(text)) return { handled: false };
+  const strategy =
+    normalizeStrategyName((text.match(/\b(v5_hybrid|v5_retest|v5_reentry|v4_breakout|manual)\b/i) || [])[1]) ||
+    detectStrategyFromText(text, null) ||
+    null;
+  return {
+    handled: true,
+    strategy,
+    askWinRate: /(胜率|命中|win\s*rate)/i.test(text),
+    askPnl: /(收益|盈利|pnl|净收益)/i.test(text),
+    askDrawdown: /(回撤|drawdown|风险)/i.test(text),
+  };
+}
+
+function buildStrategyPerformanceReply(messageLike = '') {
+  const intent = parseStrategyPerformanceIntent(messageLike);
+  if (!intent.handled) return { handled: false };
+  const artifacts = listStrategyArtifacts(80);
+  const versions = listStrategyVersions({ limit: 80 }).filter((v) => v && v.metrics);
+  const strategyFilter = intent.strategy ? String(intent.strategy) : '';
+  const targetArtifacts = strategyFilter
+    ? artifacts.filter((a) => String(a.strategyType || '') === strategyFilter)
+    : artifacts;
+  const targetVersions = strategyFilter
+    ? versions.filter((v) => String(v.strategyId || 'main') === 'main')
+    : versions;
+
+  if (!targetArtifacts.length && !targetVersions.length) {
+    return {
+      handled: true,
+      reply: '当前还没有可用的策略评估数据。先运行一次“策略对比回验”，我就能给你准确的胜率/收益/回撤。',
+      actions: [
+        {
+          type: 'run_backtest_compare',
+          strategies: ['v5_hybrid', 'v5_retest', 'v5_reentry', 'v4_breakout'],
+          tf: '1h',
+          bars: 900,
+          feeBps: 5,
+          stopAtr: 1.8,
+          tpAtr: 3,
+          maxHold: 72,
+        },
+      ],
+    };
+  }
+
+  const rowsByStrategy = new Map();
+  for (const a of targetArtifacts) {
+    const key = String(a.strategyType || 'unknown');
+    if (!rowsByStrategy.has(key)) rowsByStrategy.set(key, []);
+    rowsByStrategy.get(key).push(a);
+  }
+  const list = Array.from(rowsByStrategy.entries()).slice(0, 6).map(([strategy, rows]) => {
+    const sorted = rows
+      .slice()
+      .sort((x, y) => new Date(String(y.updatedAt || 0)).getTime() - new Date(String(x.updatedAt || 0)).getTime());
+    const latest = sorted[0] || {};
+    const win = Number(latest.avgWinRate || latest.winRate || 0);
+    const pnl = Number(latest.avgNetPnlPct || latest.netPnlPct || 0);
+    const dd = Number(latest.avgDrawdownPct || latest.maxDrawdownPct || 0);
+    const trades = Number(latest.totalTrades || latest.tradeCount || 0);
+    return {
+      strategy,
+      win,
+      pnl,
+      dd,
+      trades,
+      updatedAt: latest.updatedAt || latest.createdAt || '',
+    };
+  });
+
+  list.sort((a, b) => b.win - a.win);
+  const best = list[0] || null;
+  const lines = [];
+  lines.push(strategyFilter ? ('策略 ' + strategyFilter + ' 的当前表现：') : '当前策略表现（基于最新回验工件）：');
+  list.forEach((r, idx) => {
+    lines.push(
+      String(idx + 1) +
+        '. ' +
+        r.strategy +
+        ' · 胜率=' +
+        Number(r.win).toFixed(2) +
+        '% · 净收益=' +
+        (r.pnl >= 0 ? '+' : '') +
+        Number(r.pnl).toFixed(2) +
+        '% · 回撤=' +
+        Number(r.dd).toFixed(2) +
+        '% · 样本=' +
+        String(Math.max(0, Math.round(r.trades))),
+    );
+  });
+  if (best) {
+    lines.push('');
+    lines.push('当前胜率最高：' + best.strategy + '（' + Number(best.win).toFixed(2) + '%）。');
+  }
+  lines.push('你可以继续说：基于当前最优策略再降回撤 20%。');
+  return {
+    handled: true,
+    reply: lines.join('\n'),
+    actions: [],
+  };
 }
 
 function buildMidTermMemoryProfile() {
@@ -4191,9 +6480,12 @@ function parseTelegramIncoming(update) {
   };
 }
 
-async function telegramApiCall(methodPath, payload, timeoutMs = 30_000) {
-  if (!TELEGRAM_ENABLED) throw new Error('telegram disabled');
-  const url = TELEGRAM_API_BASE + '/' + String(methodPath || '');
+async function telegramApiCall(methodPath, payload, timeoutMs = 30_000, tokenOverride = '') {
+  const override = String(tokenOverride || '').trim();
+  const token = override || getTelegramRuntimeToken();
+  if (!token) throw new Error('telegram disabled');
+  const apiBase = getTelegramApiBaseFromToken(token);
+  const url = apiBase + '/' + String(methodPath || '');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), Math.max(2_000, timeoutMs));
   try {
@@ -4205,7 +6497,21 @@ async function telegramApiCall(methodPath, payload, timeoutMs = 30_000) {
           signal: ctrl.signal,
         }
       : { method: 'GET', signal: ctrl.signal };
-    const resp = await fetch(url, opts);
+    let resp = null;
+    try {
+      resp = await fetch(url, opts);
+    } catch (err) {
+      const raw = String(err?.name || '') + ' ' + String(err?.message || '');
+      if (/abort/i.test(raw)) {
+        throw new Error(
+          'telegram timeout: method=' +
+            String(methodPath || '') +
+            ', timeoutMs=' +
+            String(Math.max(2_000, timeoutMs)),
+        );
+      }
+      throw err;
+    }
     const text = await resp.text();
     let json = null;
     try {
@@ -4237,20 +6543,52 @@ async function sendTelegramText(chatId, text) {
 
 async function handleTelegramIncoming(incoming) {
   if (!incoming || !incoming.text) return;
-  const dedupe = claimTelegramInbound(incoming);
-  if (!dedupe.claimed) {
+  const nowMs = Date.now();
+  const loopState = getTelegramLoopState(incoming.chatId);
+  const inboundNorm = normalizeTelegramText(incoming.text);
+  if (loopState.mutedUntil > nowMs) {
     pushTelegramEvent({
       role: 'system',
       chatId: incoming.chatId,
-      from: 'thunderclaw-dedupe',
-      text: '[去重] 忽略重复 Telegram 消息: ' + truncText(incoming.text, 120),
+      from: 'thunderclaw-guard',
+      text: '[防循环] 当前会话已临时静默，忽略入站消息。',
       direction: 'inbound',
       ok: true,
     });
     return;
   }
+  if (
+    inboundNorm &&
+    loopState.lastReplyNorm &&
+    inboundNorm === loopState.lastReplyNorm &&
+    nowMs - Number(loopState.lastReplyAt || 0) < 120_000
+  ) {
+    loopState.repeatEchoCount = Number(loopState.repeatEchoCount || 0) + 1;
+    if (loopState.repeatEchoCount >= 2) {
+      loopState.mutedUntil = nowMs + 10 * 60_000;
+      telegramState.lastError = '检测到 Telegram 回声循环，已对该会话静默 10 分钟';
+      pushTelegramEvent({
+        role: 'system',
+        chatId: incoming.chatId,
+        from: 'thunderclaw-guard',
+        text: '[防循环] 检测到消息回声，已临时静默 10 分钟。',
+        direction: 'inbound',
+        ok: true,
+      });
+      return;
+    }
+  } else {
+    loopState.repeatEchoCount = 0;
+  }
+  const dedupe = claimTelegramInbound(incoming);
+  if (!dedupe.claimed) {
+    return;
+  }
   telegramState.lastInboundAt = nowIso();
-  if (incoming.chatId) telegramKnownChatIds.add(String(incoming.chatId));
+  if (incoming.chatId) {
+    telegramLastInboundChatId = String(incoming.chatId);
+    telegramKnownChatIds.add(String(incoming.chatId));
+  }
   pushTelegramEvent({
     role: 'user',
     chatId: incoming.chatId,
@@ -4265,14 +6603,125 @@ async function handleTelegramIncoming(incoming) {
     tags: ['telegram', 'user'],
     content: '用户: ' + redactSecrets(incoming.text),
   });
+  if (
+    inboundNorm &&
+    loopState.lastInboundNorm === inboundNorm &&
+    nowMs - Number(loopState.lastInboundAt || 0) < 4_000
+  ) {
+    pushTelegramEvent({
+      role: 'system',
+      chatId: incoming.chatId,
+      from: 'thunderclaw-guard',
+      text: '[防循环] 短时间内重复入站消息，已忽略。',
+      direction: 'inbound',
+      ok: true,
+    });
+    return;
+  }
+  loopState.lastInboundNorm = inboundNorm;
+  loopState.lastInboundAt = nowMs;
 
-  const artifactFeedback = applyUserStrategyArtifactFeedback(incoming.text, 'telegram');
-  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
-    const replyText = String(artifactFeedback.reply || '已记录工件反馈。');
+  const nlTools = await handleNaturalLanguageToolOrchestration(incoming.text, 'telegram');
+  if (nlTools?.handled) {
+    const replyText = String(nlTools.reply || '已处理你的请求。');
     let ok = true;
     try {
       await sendTelegramText(incoming.chatId, replyText);
       telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = normalizeTelegramText(replyText);
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'tool-router'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
+
+  const perfIntent = buildStrategyPerformanceReply(incoming.text);
+  if (perfIntent?.handled) {
+    const replyText = String(perfIntent.reply || '已返回策略表现。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = normalizeTelegramText(replyText);
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'strategy', 'metrics'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
+
+  const artifactFeedback = applyUserStrategyArtifactFeedback(incoming.text, 'telegram');
+  if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
+    const replyText = String(artifactFeedback.reply || '已记录工件反馈。');
+    const replyNorm = normalizeTelegramText(replyText);
+    if (replyNorm && inboundNorm && replyNorm === inboundNorm) {
+      pushTelegramEvent({
+        role: 'system',
+        chatId: incoming.chatId,
+        from: 'thunderclaw-guard',
+        text: '[防循环] 已阻止回声式回复（回复内容与入站消息一致）。',
+        direction: 'outbound',
+        ok: true,
+      });
+      return;
+    }
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = replyNorm;
+      loopState.lastReplyAt = Date.now();
     } catch (err) {
       ok = false;
       const errMsg = safeErrMsg(err, 'send failed');
@@ -4306,10 +6755,24 @@ async function handleTelegramIncoming(incoming) {
   const feedback = applyUserStrategyFeedback(incoming.text, 'telegram');
   if (feedback?.handled && feedback?.explicit) {
     const replyText = String(feedback.reply || '已记录策略反馈。');
+    const replyNorm = normalizeTelegramText(replyText);
+    if (replyNorm && inboundNorm && replyNorm === inboundNorm) {
+      pushTelegramEvent({
+        role: 'system',
+        chatId: incoming.chatId,
+        from: 'thunderclaw-guard',
+        text: '[防循环] 已阻止回声式回复（回复内容与入站消息一致）。',
+        direction: 'outbound',
+        ok: true,
+      });
+      return;
+    }
     let ok = true;
     try {
       await sendTelegramText(incoming.chatId, replyText);
       telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = replyNorm;
+      loopState.lastReplyAt = Date.now();
     } catch (err) {
       ok = false;
       const errMsg = safeErrMsg(err, 'send failed');
@@ -4341,6 +6804,124 @@ async function handleTelegramIncoming(incoming) {
     return;
   }
 
+  const featureIntent = handleStrategyFeatureIntent(incoming.text, 'telegram');
+  if (featureIntent?.handled) {
+    const replyText = String(featureIntent.reply || '已处理特征指令。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = normalizeTelegramText(replyText);
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'feature'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
+  const aiFeatureIntent = await inferStrategyFeatureIntentByAi(incoming.text, 'telegram');
+  if (aiFeatureIntent?.handled) {
+    const replyText = String(aiFeatureIntent.reply || '已处理特征设计请求。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = normalizeTelegramText(replyText);
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'feature', 'ai'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
+  const aiStrategyIntent = await inferStrategyVersionIntentByAi(incoming.text, 'telegram');
+  if (aiStrategyIntent?.handled) {
+    const replyText = String(aiStrategyIntent.reply || '已处理策略版本生成请求。');
+    let ok = true;
+    try {
+      await sendTelegramText(incoming.chatId, replyText);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = normalizeTelegramText(replyText);
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      pushTelegramEvent({
+        role: 'bot',
+        chatId: incoming.chatId,
+        from: 'thunderclaw',
+        text: replyText + '\n(发送到 Telegram 失败: ' + errMsg + ')',
+        direction: 'outbound',
+        ok: false,
+      });
+      return;
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: replyText,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'strategy', 'ai'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(replyText),
+    });
+    return;
+  }
+
   if (!TELEGRAM_AUTO_REPLY) return;
 
   const memoryBundle = buildLayeredMemoryBundle(incoming.text);
@@ -4358,10 +6939,24 @@ async function handleTelegramIncoming(incoming) {
     ok = false;
     reply = '收到，但处理消息失败：' + safeErrMsg(err, 'unknown');
   }
+  const replyNorm = normalizeTelegramText(reply);
+  if (replyNorm && inboundNorm && replyNorm === inboundNorm) {
+    pushTelegramEvent({
+      role: 'system',
+      chatId: incoming.chatId,
+      from: 'thunderclaw-guard',
+      text: '[防循环] 已阻止回声式回复（回复内容与入站消息一致）。',
+      direction: 'outbound',
+      ok: true,
+    });
+    return;
+  }
 
   try {
     await sendTelegramText(incoming.chatId, reply);
     telegramState.lastOutboundAt = nowIso();
+    loopState.lastReplyNorm = replyNorm;
+    loopState.lastReplyAt = Date.now();
   } catch (err) {
     ok = false;
     const errMsg = safeErrMsg(err, 'send failed');
@@ -4390,7 +6985,7 @@ async function handleTelegramIncoming(incoming) {
 }
 
 function scheduleTelegramPoll(delayMs) {
-  if (!TELEGRAM_ENABLED) return;
+  if (!isTelegramEnabledNow()) return;
   if (telegramPollTimer) clearTimeout(telegramPollTimer);
   const waitMs = Math.max(220, Number(delayMs) || 0);
   telegramPollTimer = setTimeout(() => {
@@ -4412,7 +7007,7 @@ function scheduleTelegramPoll(delayMs) {
 }
 
 async function pollTelegramOnce() {
-  if (!TELEGRAM_ENABLED) return;
+  if (!isTelegramEnabledNow()) return;
   if (!telegramPollLockAcquired) {
     const got = acquireTelegramPollLock();
     if (!got) {
@@ -4488,6 +7083,69 @@ function resolveTelegramPushTargets() {
   TELEGRAM_ALLOWED_CHAT_IDS.forEach((x) => out.add(x));
   telegramKnownChatIds.forEach((x) => out.add(x));
   return Array.from(out);
+}
+
+function resolveTelegramMessageTarget(preferredChatIdLike) {
+  const targets = listTelegramMessageTargets(preferredChatIdLike);
+  return targets.length ? String(targets[0]) : '';
+}
+
+function listTelegramMessageTargets(preferredChatIdLike) {
+  const out = [];
+  const seen = new Set();
+  function add(v) {
+    const chatId = String(v || '').trim();
+    if (!chatId || seen.has(chatId)) return;
+    seen.add(chatId);
+    out.push(chatId);
+  }
+  add(preferredChatIdLike);
+  add(telegramLastInboundChatId);
+  telegramKnownChatIds.forEach(add);
+  resolveTelegramPushTargets().forEach(add);
+  return out;
+}
+
+function isTelegramChatNotFoundError(errLike) {
+  return /chat not found/i.test(String(errLike?.message || errLike || ''));
+}
+
+function explainTelegramSendError(errLike) {
+  const msg = safeErrMsg(errLike, 'telegram send failed');
+  if (/chat not found/i.test(msg)) {
+    return '未找到可发送会话：请先在 Telegram 给机器人发送 /start 或任意消息，再重试。';
+  }
+  if (/telegram timeout|operation was aborted|abort/i.test(msg)) {
+    return 'Telegram 请求超时（网络抖动或 Telegram API 暂时不稳定），请 3-5 秒后重试。';
+  }
+  return msg;
+}
+
+function applyTelegramRuntimeSwitch(enabledLike) {
+  telegramRuntimeEnabled = Boolean(enabledLike);
+  telegramState.enabled = isTelegramEnabledNow();
+  telegramState.push.enabled = telegramState.enabled && TELEGRAM_PUSH_TRADES;
+  if (!telegramState.enabled) {
+    if (telegramPollTimer) {
+      clearTimeout(telegramPollTimer);
+      telegramPollTimer = null;
+    }
+    telegramState.pollActive = false;
+    telegramState.connected = false;
+    releaseTelegramPollLock();
+    return;
+  }
+  const lockOk = acquireTelegramPollLock();
+  if (lockOk) {
+    telegramState.lastError = null;
+    scheduleTelegramPoll(120);
+    if (telegramState.push.enabled) {
+      primeTelegramTradePushBaseline();
+      scheduleTelegramTradePush(600);
+    }
+  } else {
+    telegramState.lastError = 'telegram poll lock busy';
+  }
 }
 
 function buildTradePushCandidates() {
@@ -4806,6 +7464,72 @@ function runProcess(command, args, timeoutMs) {
   });
 }
 
+function xbrainAuthStatusView() {
+  return xbrainAuthService.buildAuthStatusView(xbrainAuthState);
+}
+
+function startXbrainModelAuth(providerLike) {
+  const provider = xbrainAuthService.normalizeOAuthProvider(providerLike);
+  if (!provider) {
+    return { ok: false, status: 400, error: '仅支持 openai/anthropic 的一键登录。', statusView: xbrainAuthStatusView() };
+  }
+  if (xbrainAuthState.running) {
+    return { ok: true, alreadyRunning: true, statusView: xbrainAuthStatusView() };
+  }
+  const cli = resolveOpenClawCli();
+  const launch = xbrainAuthService.resolveXbrainAuthLaunch(provider, cli, {
+    nodePath: process.execPath,
+    openaiRunner: XBRAIN_OPENAI_OAUTH_RUNNER,
+  });
+  const authSpawnOptions = xbrainAuthService.buildAuthSpawnOptions(WORKDIR, process.env);
+  const refreshXbrainAuthRuntime = () => {
+    void probeXbrainRuntimeModel(true).catch(() => {});
+    void probeXbrainProviderAuth(true).catch(() => {});
+  };
+  const onAuthProcessFinalize = () => {
+    xbrainAuthProc = null;
+    refreshXbrainAuthRuntime();
+  };
+  try {
+    const started = xbrainAuthService.startAuthProcessByMode({
+      launch,
+      provider,
+      authState: xbrainAuthState,
+      spawnFn: spawn,
+      spawnOptions: authSpawnOptions,
+      startedAt: nowIso,
+      nowFn: nowIso,
+      errFormatter: safeErrMsg,
+      fallbackCommand: cli.command,
+      parseUrlByProvider: xbrainAuthService.parseAuthUrlFromOutputByProvider,
+      runnerHandlers: {
+        saveOpenAICodexOAuthCredentials: xbrainAuthService.saveOpenAICodexOAuthCredentials,
+        safeErrMsg,
+      },
+      onFinalize: onAuthProcessFinalize,
+    });
+    xbrainAuthProc = started.processHandle || null;
+    return { ok: true, started: true, statusView: xbrainAuthStatusView() };
+  } catch (err) {
+    return { ok: false, status: 500, error: safeErrMsg(err, 'auth login start failed'), statusView: xbrainAuthStatusView() };
+  }
+}
+
+function sendXbrainAuthInput(inputLike) {
+  const out = xbrainAuthService.executeAuthInput(xbrainAuthState, xbrainAuthProc, inputLike, {
+    errFormatter: safeErrMsg,
+  });
+  if (!out.ok) {
+    return {
+      ok: false,
+      status: Number(out.status || 400),
+      error: String(out.error || '输入失败'),
+      statusView: xbrainAuthStatusView(),
+    };
+  }
+  return { ok: true, statusView: xbrainAuthStatusView() };
+}
+
 async function runOpenClawChat(message, context) {
   const prompt = buildOpenClawPrompt(message, context);
   if (!prompt) {
@@ -4824,7 +7548,12 @@ async function runOpenClawChat(message, context) {
     String(OPENCLAW_TIMEOUT_SEC),
   ];
   if (OPENCLAW_CHANNEL) args.push('--channel', OPENCLAW_CHANNEL);
-  if (OPENCLAW_AGENT_LOCAL) args.push('--local');
+  const xstate = ensureXbrainState();
+  const selectedProvider = normalizeXbrainModelProvider(
+    xstate?.base?.modelProvider || inferXbrainProviderFromModelId(xstate?.base?.modelId || ''),
+  );
+  const shouldUseLocalMode = OPENCLAW_AGENT_LOCAL && selectedProvider === 'deepseek';
+  if (shouldUseLocalMode) args.push('--local');
   if (OPENCLAW_THINKING) args.push('--thinking', OPENCLAW_THINKING);
   if (OPENCLAW_VERBOSE) args.push('--verbose', OPENCLAW_VERBOSE);
   if (OPENCLAW_SESSION_ID) args.push('--session-id', OPENCLAW_SESSION_ID);
@@ -4847,11 +7576,23 @@ async function runOpenClawChat(message, context) {
   if (!extracted.reply) {
     throw new Error('OpenClaw 返回为空');
   }
+  captureXbrainRuntimeFromAgentResult(extracted.parsed);
+  const agentMeta = extracted?.parsed?.result?.meta?.agentMeta && typeof extracted.parsed.result.meta.agentMeta === 'object'
+    ? extracted.parsed.result.meta.agentMeta
+    : null;
   return {
     reply: extracted.reply,
     parsed: extracted.parsed,
+    agentMeta: agentMeta
+      ? {
+          provider: String(agentMeta.provider || ''),
+          model: String(agentMeta.model || ''),
+          sessionId: String(agentMeta.sessionId || ''),
+        }
+      : null,
     elapsedMs: Date.now() - startedAt,
     commandSource: cli.source,
+    localMode: shouldUseLocalMode,
   };
 }
 
@@ -5376,6 +8117,54 @@ async function handleChatApi(req, res) {
     });
     return;
   }
+  const nlTools = await handleNaturalLanguageToolOrchestration(message, 'dashboard');
+  if (nlTools?.handled) {
+    const reply = String(nlTools.reply || '已处理你的请求。');
+    sendJson(res, 200, {
+      ok: true,
+      source: 'nl-tool-router',
+      reply,
+      actions: Array.isArray(nlTools.actions) ? nlTools.actions : [],
+      contextDigest: null,
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant', 'tool-router'],
+      content: '用户: ' + redactSecrets(message) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
+  const perfIntent = buildStrategyPerformanceReply(message);
+  if (perfIntent?.handled) {
+    const reply = String(perfIntent.reply || '已返回策略表现。');
+    sendJson(res, 200, {
+      ok: true,
+      source: 'strategy-metrics',
+      reply,
+      actions: Array.isArray(perfIntent.actions) ? perfIntent.actions : [],
+      contextDigest: null,
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant', 'strategy', 'metrics'],
+      content: '用户: ' + redactSecrets(message) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
   const artifactFeedback = applyUserStrategyArtifactFeedback(message, 'dashboard');
   if (artifactFeedback?.handled && (artifactFeedback?.explicit || artifactFeedback?.applied)) {
     sendJson(res, 200, {
@@ -5421,6 +8210,81 @@ async function handleChatApi(req, res) {
     });
     return;
   }
+  const featureIntent = handleStrategyFeatureIntent(message, 'dashboard');
+  if (featureIntent?.handled) {
+    const reply = String(featureIntent.reply || '已处理特征指令。');
+    sendJson(res, 200, {
+      ok: true,
+      source: 'strategy-feature-intent',
+      reply,
+      actions: [],
+      contextDigest: null,
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant', 'feature'],
+      content: '用户: ' + redactSecrets(message) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
+  const aiFeatureIntent = await inferStrategyFeatureIntentByAi(message, 'dashboard');
+  if (aiFeatureIntent?.handled) {
+    const reply = String(aiFeatureIntent.reply || '已处理特征设计请求。');
+    sendJson(res, 200, {
+      ok: true,
+      source: 'strategy-feature-ai',
+      reply,
+      actions: [],
+      contextDigest: null,
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant', 'feature', 'ai'],
+      content: '用户: ' + redactSecrets(message) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
+  const aiStrategyIntent = await inferStrategyVersionIntentByAi(message, 'dashboard');
+  if (aiStrategyIntent?.handled) {
+    const reply = String(aiStrategyIntent.reply || '已处理策略版本生成请求。');
+    sendJson(res, 200, {
+      ok: true,
+      source: 'strategy-version-ai',
+      reply,
+      actions: [{ type: 'switch_view', view: 'backtest' }],
+      contextDigest: null,
+      meta: {
+        createdCount: Number(aiStrategyIntent.createdCount || 0),
+      },
+    });
+    appendChatHistoryEvent({
+      source: 'dashboard',
+      role: 'bot',
+      direction: 'outbound',
+      text: reply,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'assistant', 'strategy', 'ai'],
+      content: '用户: ' + redactSecrets(message) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
   const clientContext =
     body.value?.clientContext && typeof body.value.clientContext === 'object'
       ? body.value.clientContext
@@ -5454,6 +8318,9 @@ async function handleChatApi(req, res) {
         elapsedMs: result.elapsedMs,
         commandSource: result.commandSource,
         agentId: OPENCLAW_AGENT_ID,
+        provider: String(result?.agentMeta?.provider || ''),
+        model: String(result?.agentMeta?.model || ''),
+        localMode: Boolean(result?.localMode),
       },
     });
     appendChatHistoryEvent({
@@ -5534,9 +8401,152 @@ async function handleXbrainStateApi(req, res) {
   const url = new URL(req.url || '/', 'http://localhost');
   const refresh = String(url.searchParams.get('refresh') || '') === '1';
   const runtimeModel = await probeXbrainRuntimeModel(refresh);
+  const providerAuth = await probeXbrainProviderAuth(refresh);
   sendJson(res, 200, {
     ok: true,
-    state: buildXbrainPublicState(runtimeModel),
+    state: buildXbrainPublicState(runtimeModel, providerAuth),
+  });
+}
+
+async function handleXbrainAuthStatusApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'GET');
+    res.end('Method Not Allowed');
+    return;
+  }
+  sendJson(res, 200, { ok: true, status: xbrainAuthStatusView() });
+}
+
+async function handleXbrainAuthStartApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const provider = String(body.value?.provider || '').trim();
+  const out = startXbrainModelAuth(provider);
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), { ok: false, error: String(out.error || '启动登录失败'), status: out.statusView });
+    return;
+  }
+  sendJson(res, 200, { ok: true, started: Boolean(out.started), alreadyRunning: Boolean(out.alreadyRunning), status: out.statusView });
+}
+
+async function handleXbrainAuthDisconnectApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const provider = String(body.value?.provider || '').trim();
+  const out = xbrainAuthService.disconnectOAuthCredentials(provider);
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), { ok: false, error: String(out.error || '断开失败') });
+    return;
+  }
+  const providerUi = normalizeProviderForUi(provider);
+  const state = ensureXbrainState();
+  const currentRegistry = Array.isArray(state?.base?.modelRegistry) ? state.base.modelRegistry : [];
+  const nextRegistry = normalizeXbrainModelRegistry(
+    currentRegistry.filter((modelRef) => normalizeProviderForUi(inferXbrainProviderFromModelId(modelRef)) !== providerUi),
+  );
+  state.base.modelRegistry = nextRegistry;
+  state.base.updatedAt = nowIso();
+  state.updatedAt = state.base.updatedAt;
+  saveXbrainState();
+  const runtimeModel = await probeXbrainRuntimeModel(true);
+  const providerAuth = await probeXbrainProviderAuth(true);
+  sendJson(res, 200, { ok: true, removed: Number(out.removed || 0), state: buildXbrainPublicState(runtimeModel, providerAuth) });
+}
+
+async function handleXbrainProviderRemoveApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const provider = String(body.value?.provider || '').trim();
+  const password = String(body.value?.password || '').trim();
+  const out = xbrainStateService.removeProviderFromXbrain(provider, password);
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), { ok: false, error: String(out.error || '删除厂商失败'), state: buildXbrainPublicState() });
+    return;
+  }
+  const runtimeModel = await probeXbrainRuntimeModel(true);
+  const providerAuth = await probeXbrainProviderAuth(true);
+  sendJson(res, 200, { ok: true, removedProvider: String(out.removedProvider || ''), state: buildXbrainPublicState(runtimeModel, providerAuth) });
+}
+
+async function handleXbrainAuthInputApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const input = String(body.value?.input || '').trim();
+  const out = sendXbrainAuthInput(input);
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), { ok: false, error: String(out.error || '输入失败'), status: out.statusView });
+    return;
+  }
+  sendJson(res, 200, { ok: true, status: out.statusView });
+}
+
+async function handleXbrainModelSwitchApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const out = await xbrainConfigService.switchModel({
+    modelId: body.value?.modelId,
+    modelProvider: body.value?.modelProvider,
+  });
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), {
+      ok: false,
+      error: String(out.error || '切换失败'),
+      state: out.state || buildXbrainPublicState(),
+    });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    modelId: out.modelId,
+    modelProvider: out.modelProvider,
+    state: out.state,
+    openclawModelSync: out.openclawModelSync,
   });
 }
 
@@ -5555,42 +8565,27 @@ async function handleXbrainUpdateApi(req, res) {
   const section = String(body.value?.section || '').trim().toLowerCase();
   const values = body.value?.values && typeof body.value.values === 'object' ? body.value.values : {};
   const password = String(body.value?.password || '').trim();
-  let out = null;
-  if (section === 'base') out = applyXbrainBasePatch(values, { password });
-  else if (section === 'exchange') out = applyXbrainExchangePatch(values, { password });
-  else if (section === 'strategy') out = applyXbrainStrategyPatch(values, { password });
-  else {
-    sendJson(res, 400, { ok: false, error: 'section 必须是 base/exchange/strategy' });
-    return;
-  }
-  if (!out || out.ok !== true) {
-    sendJson(res, Number(out?.status || 400), {
+  const out = await xbrainConfigService.updateSection({ section, values, password });
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), {
       ok: false,
-      error: String(out?.error || '更新失败'),
-      state: buildXbrainPublicState(),
+      error: String(out.error || '更新失败'),
+      state: out.state || buildXbrainPublicState(),
     });
     return;
   }
-  let openclawModelSync = null;
-  if (section === 'base' && (hasOwn(values, 'modelProvider') || hasOwn(values, 'modelId'))) {
-    openclawModelSync = await syncXbrainBaseToOpenClaw(out.state?.base || values);
-  }
-  const runtimeModel = section === 'base' ? await probeXbrainRuntimeModel(true) : null;
-  const stateForReply = section === 'base'
-    ? buildXbrainPublicState(runtimeModel)
-    : (out.state || buildXbrainPublicState());
   appendTraderMemory({
     kind: 'config',
     channel: 'dashboard',
-    tags: ['xbrain', section, 'update'],
-    content: '虾脑配置更新: section=' + section + ' keys=' + Object.keys(out.updated || {}).join(','),
+    tags: ['xbrain', out.section, 'update'],
+    content: '虾脑配置更新: section=' + out.section + ' keys=' + Object.keys(out.updated || {}).join(','),
   });
   sendJson(res, 200, {
     ok: true,
-    section,
+    section: out.section,
     updated: out.updated || {},
-    state: stateForReply,
-    openclawModelSync,
+    state: out.state,
+    openclawModelSync: out.openclawModelSync,
   });
 }
 
@@ -5610,75 +8605,42 @@ async function handleXbrainLockApi(req, res) {
   const action = String(body.value?.action || '').trim().toLowerCase();
   const password = String(body.value?.password || '').trim();
   const currentPassword = String(body.value?.currentPassword || '').trim();
-  const lock = xbrainSectionLock(section);
-  if (!lock) {
-    sendJson(res, 400, { ok: false, error: '仅支持 base/exchange/strategy 的锁管理。' });
+  const out = xbrainConfigService.manageLock({ section, action, password, currentPassword });
+  if (!out.ok) {
+    sendJson(res, Number(out.status || 400), {
+      ok: false,
+      error: String(out.error || '锁操作失败'),
+      state: out.state || buildXbrainPublicState(),
+    });
     return;
   }
-
-  if (action === 'unlock') {
-    if (!xbrainVerifyPassword(section, password)) {
-      sendJson(res, 403, { ok: false, error: '密码错误，无法解锁。', state: buildXbrainPublicState() });
-      return;
-    }
-    setXbrainSectionLock(section, false);
-    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+  sendJson(res, 200, { ok: true, section: out.section, action: out.action, state: out.state || buildXbrainPublicState() });
+  if (out.action === 'unlock') {
     appendTraderMemory({
       kind: 'config',
       channel: 'dashboard',
-      tags: ['xbrain', section, 'unlock'],
-      content: '虾脑配置区已解锁: ' + section,
+      tags: ['xbrain', out.section, 'unlock'],
+      content: '虾脑配置区已解锁: ' + out.section,
     });
     return;
   }
-  if (action === 'lock') {
-    if (password) {
-      const setPwd = setXbrainSectionPassword(section, password, currentPassword);
-      if (!setPwd.ok) {
-        sendJson(res, Number(setPwd.status || 400), {
-          ok: false,
-          error: String(setPwd.error || '设置密码失败'),
-          state: buildXbrainPublicState(),
-        });
-        return;
-      }
-    } else {
-      setXbrainSectionLock(section, true);
-    }
-    sendJson(res, 200, { ok: true, section, action, state: buildXbrainPublicState() });
+  if (out.action === 'lock') {
     appendTraderMemory({
       kind: 'config',
       channel: 'dashboard',
-      tags: ['xbrain', section, 'lock'],
-      content: '虾脑配置区已锁定: ' + section,
+      tags: ['xbrain', out.section, 'lock'],
+      content: '虾脑配置区已锁定: ' + out.section,
     });
     return;
   }
-  if (action === 'set_password') {
-    const setPwd = setXbrainSectionPassword(section, password, currentPassword);
-    if (!setPwd.ok) {
-      sendJson(res, Number(setPwd.status || 400), {
-        ok: false,
-        error: String(setPwd.error || '设置密码失败'),
-        state: buildXbrainPublicState(),
-      });
-      return;
-    }
-    sendJson(res, 200, {
-      ok: true,
-      section,
-      action,
-      state: setPwd.state || buildXbrainPublicState(),
-    });
+  if (out.action === 'set_password') {
     appendTraderMemory({
       kind: 'config',
       channel: 'dashboard',
-      tags: ['xbrain', section, 'password'],
-      content: '虾脑配置区密码已更新: ' + section,
+      tags: ['xbrain', out.section, 'password'],
+      content: '虾脑配置区密码已更新: ' + out.section,
     });
-    return;
   }
-  sendJson(res, 400, { ok: false, error: 'action 必须是 lock/unlock/set_password' });
 }
 
 function handleTelegramEventsApi(req, res) {
@@ -5693,7 +8655,7 @@ function handleTelegramEventsApi(req, res) {
   const limit = Number(url.searchParams.get('limit') || '80');
   sendJson(res, 200, {
     ok: true,
-    enabled: TELEGRAM_ENABLED,
+    enabled: isTelegramEnabledNow(),
     autoReply: TELEGRAM_AUTO_REPLY,
     latestEventId: telegramEventSeq,
     events: listTelegramEvents(afterId, limit),
@@ -5710,7 +8672,7 @@ function handleTelegramHealthApi(req, res) {
   sendJson(res, 200, {
     ok: true,
     provider: 'telegram-bot-api',
-    enabled: TELEGRAM_ENABLED,
+    enabled: isTelegramEnabledNow(),
     autoReply: TELEGRAM_AUTO_REPLY,
     connected: telegramState.connected,
     pollActive: telegramState.pollActive,
@@ -5759,6 +8721,138 @@ function handleTelegramHealthApi(req, res) {
   });
 }
 
+async function handleTelegramTestApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const tokenInput = String(body.value?.token || '').trim();
+  const preferredChatId = String(body.value?.chatId || '').trim();
+  const sendProbe = Boolean(body.value?.sendProbe);
+  const token = tokenInput || getTelegramRuntimeToken();
+  if (!token) {
+    sendJson(res, 400, { ok: false, error: '请先填写 Telegram Token。' });
+    return;
+  }
+  try {
+    const me = await telegramApiCall('getMe', null, 12_000, token);
+    let probe = null;
+    if (sendProbe) {
+      const candidates = listTelegramMessageTargets(preferredChatId);
+      if (!candidates.length) {
+        throw new Error('未找到可发送会话：请先在 Telegram 给机器人发送 /start 或任意消息。');
+      }
+      let sentChatId = '';
+      let lastErr = null;
+      for (const chatId of candidates) {
+        try {
+          await telegramApiCall('sendMessage', {
+            chat_id: chatId,
+            text: 'ThunderClaw 连接测试成功（' + new Date().toLocaleString('zh-CN', { hour12: false }) + '）',
+          }, 15_000, token);
+          sentChatId = chatId;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (!isTelegramChatNotFoundError(err)) throw err;
+        }
+      }
+      if (!sentChatId) throw lastErr || new Error('未找到可发送会话');
+      probe = { sent: true, chatId: sentChatId };
+    }
+    sendJson(res, 200, {
+      ok: true,
+      testedWith: tokenInput ? 'input' : 'runtime',
+      bot: {
+        id: me?.id || null,
+        username: me?.username || '',
+        firstName: me?.first_name || '',
+      },
+      probe,
+      relay: {
+        enabled: isTelegramEnabledNow(),
+        connected: telegramState.connected,
+        lastError: telegramState.lastError,
+      },
+    });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, error: explainTelegramSendError(err) });
+  }
+}
+
+async function handleTelegramHandshakeApi(req, res) {
+  if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end('Method Not Allowed');
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!body.ok) {
+    sendJson(res, body.error === 'payload too large' ? 413 : 400, { ok: false, error: body.error });
+    return;
+  }
+  const tokenInput = String(body.value?.token || '').trim();
+  const token = tokenInput || getTelegramRuntimeToken();
+  if (!token) {
+    sendJson(res, 400, { ok: false, error: '请先配置 Telegram Token。' });
+    return;
+  }
+  const preferredChatId = String(body.value?.chatId || '').trim();
+  const candidates = listTelegramMessageTargets(preferredChatId);
+  if (!candidates.length) {
+    sendJson(res, 400, { ok: false, error: '未找到可发送会话：请先在 Telegram 给机器人发送 /start 或任意消息。' });
+    return;
+  }
+  const textInput = String(body.value?.text || '').trim();
+  const text = textInput || ('ThunderClaw 已连接 Telegram（握手成功）\\n时间：' + new Date().toLocaleString('zh-CN', { hour12: false }));
+  try {
+    let sentChatId = '';
+    let lastErr = null;
+    for (const chatId of candidates) {
+      try {
+        await telegramApiCall('sendMessage', {
+          chat_id: chatId,
+          text: truncText(text, 4000),
+          disable_web_page_preview: true,
+        }, 20_000, token);
+        sentChatId = chatId;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (!isTelegramChatNotFoundError(err)) throw err;
+      }
+    }
+    if (!sentChatId) throw lastErr || new Error('未找到可发送会话');
+    telegramState.lastOutboundAt = nowIso();
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: sentChatId,
+      from: 'thunderclaw',
+      text: text,
+      direction: 'outbound',
+      ok: true,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      chatId: sentChatId,
+      text,
+      echoedToDashboard: true,
+    });
+  } catch (err) {
+    const errMsg = explainTelegramSendError(err);
+    telegramState.lastError = errMsg;
+    sendJson(res, 400, { ok: false, error: errMsg });
+  }
+}
+
 function handleMemoryHealthApi(req, res) {
   if (String(req.method || 'GET').toUpperCase() !== 'GET') {
     res.statusCode = 405;
@@ -5798,6 +8892,12 @@ function handleMemoryHealthApi(req, res) {
       total: Object.keys(strategyArtifactState.artifacts || {}).length,
       lastUpdatedAt: strategyArtifactState.lastUpdatedAt,
       ranking: listStrategyArtifacts(STRATEGY_ARTIFACTS_TOPK),
+    },
+    strategyLab: {
+      totalFeatures: Object.keys(strategyLabState.features || {}).length,
+      totalVersions: Object.keys(strategyLabState.versions || {}).length,
+      latestVersions: listStrategyVersions({ limit: 5 }),
+      lastUpdatedAt: strategyLabState.lastUpdatedAt,
     },
     xbrain: buildXbrainPublicState(),
   });
@@ -5909,6 +9009,41 @@ async function handleStatic(req, res, pathname) {
   }
 }
 
+function setupConversationRuntime() {
+  try {
+    conversationRuntime = createConversationRuntime({
+      workspaceDir: WORKDIR,
+      sendJson,
+      readJsonBody,
+      appendChatHistoryEvent,
+      runOpenClawChat,
+      buildTradingContext,
+      buildLayeredMemoryBundle,
+      handleNaturalLanguageToolOrchestration,
+      executeStrategyToolCalls,
+      buildMcpStyleToolManifest,
+      checkMcpBridgeConnectivity,
+      resolveToolAdapterMode,
+      toolTimeoutMs: Math.max(1500, positiveInt(process.env.THUNDERCLAW_RUNTIME_TOOL_TIMEOUT_MS, 6000)),
+      schedulerTickMs: Math.max(500, positiveInt(process.env.THUNDERCLAW_RUNTIME_SCHEDULER_TICK_MS, 1000)),
+      approvalSecurity: String(process.env.THUNDERCLAW_RUNTIME_APPROVAL_SECURITY || 'allowlist'),
+      approvalAsk: String(process.env.THUNDERCLAW_RUNTIME_APPROVAL_ASK || 'on-miss'),
+      approvalAllowlist: String(process.env.THUNDERCLAW_RUNTIME_APPROVAL_ALLOWLIST || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+      sessionStorePath: path.resolve(WORKDIR, 'memory/runtime-sessions.json'),
+      taskStorePath: path.resolve(WORKDIR, 'memory/runtime-tasks.json'),
+      schedulerStorePath: path.resolve(WORKDIR, 'memory/runtime-schedules.json'),
+      auditPath: path.resolve(WORKDIR, 'memory/runtime-audit.jsonl'),
+    });
+    console.log('[runtime] conversation runtime initialized');
+  } catch (err) {
+    conversationRuntime = null;
+    console.warn('[runtime] conversation runtime init failed:', safeErrMsg(err, 'unknown'));
+  }
+}
+
 const server = http.createServer((req, res) => {
   void (async () => {
     const url = new URL(req.url || '/', 'http://localhost');
@@ -5939,6 +9074,12 @@ const server = http.createServer((req, res) => {
         thinking: OPENCLAW_THINKING || null,
         verbose: OPENCLAW_VERBOSE || null,
         timeoutSec: OPENCLAW_TIMEOUT_SEC,
+        toolAdapter: {
+          mode: resolveToolAdapterMode(),
+          mcpBridgeEnabled: resolveMcpBridgeConfig().enabled,
+          mcpBridgeConfigured: resolveMcpBridgeConfig().enabledByFlag,
+          mcpBridgeUrl: resolveMcpBridgeConfig().url || null,
+        },
         commandSource: cli.source,
         contextDigest: trading.digest,
         memory: {
@@ -5962,7 +9103,7 @@ const server = http.createServer((req, res) => {
           },
         },
         telegram: {
-          enabled: TELEGRAM_ENABLED,
+          enabled: isTelegramEnabledNow(),
           autoReply: TELEGRAM_AUTO_REPLY,
           connected: telegramState.connected,
           lastError: telegramState.lastError,
@@ -5981,68 +9122,42 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    if (url.pathname === '/api/telegram/events') {
-      handleTelegramEventsApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/telegram/health') {
-      handleTelegramHealthApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/xbrain/state') {
-      await handleXbrainStateApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/xbrain/update') {
-      await handleXbrainUpdateApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/xbrain/lock') {
-      await handleXbrainLockApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/memory/health') {
-      handleMemoryHealthApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/strategy/artifacts') {
-      handleStrategyArtifactsApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/strategy/artifacts/report') {
-      await handleStrategyArtifactReportApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/chat/history') {
-      handleChatHistoryApi(req, res);
-      return;
-    }
-    if (url.pathname === '/api/ai/context') {
+    if (url.pathname === '/api/ai/tools') {
       if (String(req.method || 'GET').toUpperCase() !== 'GET') {
         res.statusCode = 405;
         res.setHeader('Allow', 'GET');
         res.end('Method Not Allowed');
         return;
       }
-      const contextMemory = buildLayeredMemoryBundle('');
-      const trading = buildTradingContext(undefined, contextMemory);
-      const full = url.searchParams.get('full') === '1';
       sendJson(res, 200, {
         ok: true,
-        binding: 'trading-context-v2',
-        contextDigest: trading.digest,
-        context: full ? trading.context : undefined,
+        manifest: buildMcpStyleToolManifest(),
+        runtime: {
+          adapterMode: resolveToolAdapterMode(),
+          mcpBridgeEnabled: resolveMcpBridgeConfig().enabled,
+          mcpBridgeConfigured: resolveMcpBridgeConfig().enabledByFlag,
+          mcpBridgeUrl: resolveMcpBridgeConfig().url || null,
+          mcpBridgeHasToken: resolveMcpBridgeConfig().hasToken,
+        },
       });
       return;
     }
-    if (url.pathname === '/api/config/chat') {
-      await handleConfigChatApi(req, res);
+    if (url.pathname === '/api/ai/bridge/check') {
+      if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Allow', 'GET');
+        res.end('Method Not Allowed');
+        return;
+      }
+      const out = await checkMcpBridgeConnectivity();
+      sendJson(res, 200, {
+        ok: true,
+        check: out,
+      });
       return;
     }
-    if (url.pathname === '/api/ai/chat') {
-      await handleChatApi(req, res);
-      return;
-    }
+    const apiHandled = await handleApiRoute(url, req, res, serveApiDeps);
+    if (apiHandled) return;
     await handleStatic(req, res, url.pathname);
   })().catch(() => {
     res.statusCode = 500;
@@ -6072,11 +9187,13 @@ loadTraderMemory();
 loadShortTermMemory();
 loadStrategyFeedbackState();
 loadStrategyArtifactState();
+loadStrategyLabState();
 loadXbrainState();
 rememberTradeOutcomesToMemory();
 learnStrategyWeightsFromTrades();
 buildMidTermMemoryProfile();
 cleanupTelegramInboundDedupe(true);
+setupConversationRuntime();
 
 server.listen(PORT, () => {
   console.log('Report server: http://localhost:' + PORT);
@@ -6101,11 +9218,21 @@ server.listen(PORT, () => {
   if (OPENCLAW_REPLY_ACCOUNT) routingParts.push('replyAccount=' + OPENCLAW_REPLY_ACCOUNT);
   if (routingParts.length) console.log('AI routing:', routingParts.join(' | '));
   console.log('AI context: GET /api/ai/context');
+  console.log('AI tools manifest: GET /api/ai/tools');
+  console.log('AI bridge check: GET /api/ai/bridge/check');
+  console.log(
+    'AI tool adapter: mode=' +
+      resolveToolAdapterMode() +
+      ' | mcpBridge=' +
+      (resolveMcpBridgeConfig().enabled ? 'on' : 'off') +
+      (resolveMcpBridgeConfig().url ? (' | url=' + resolveMcpBridgeConfig().url) : ''),
+  );
   console.log('AI config channel: POST /api/config/chat');
   console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Memory health: GET /api/memory/health?q=...');
   console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
+  console.log('Strategy lab: GET /api/strategy/features | POST /api/strategy/features/upsert | GET /api/strategy/versions | POST /api/strategy/versions/create | POST /api/strategy/versions/propose | POST /api/strategy/versions/evaluate');
   console.log(
     'Memory layers: short=' +
       TRADER_SHORT_MEMORY_PATH +
@@ -6116,8 +9243,9 @@ server.listen(PORT, () => {
   );
   console.log('Strategy feedback: ' + STRATEGY_WEIGHTS_PATH);
   console.log('Strategy artifacts state: ' + STRATEGY_ARTIFACTS_STATE_PATH);
+  console.log('Strategy version lab: ' + STRATEGY_VERSION_LAB_PATH);
   console.log('XBrain state: ' + XBRAIN_STATE_PATH);
-  if (TELEGRAM_ENABLED) {
+  if (isTelegramEnabledNow()) {
     const allow = telegramState.allowedChatIds.length
       ? telegramState.allowedChatIds.join(',')
       : 'ALL';
