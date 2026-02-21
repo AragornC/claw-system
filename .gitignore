@@ -18,6 +18,7 @@ memory/tmp-*
 memory/last-*
 memory/*.tmp
 memory/*.lock
+memory/runtime/
 memory/.telegram-inbound-dedupe*
 memory/*.html
 memory/*.md
