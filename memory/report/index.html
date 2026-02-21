@@ -1796,7 +1796,7 @@
   </div>
 
   <script>
-    const REPORT_BUILD_ID = "2026-02-21T17:46:45.519Z";
+    const REPORT_BUILD_ID = "2026-02-21T18:06:51.289Z";
     const TF_CONFIG = [{"key":"1m","label":"分时(1分钟)","seconds":60},{"key":"5m","label":"5分钟","seconds":300},{"key":"15m","label":"15分钟","seconds":900},{"key":"1h","label":"1小时","seconds":3600},{"key":"4h","label":"4小时","seconds":14400},{"key":"1d","label":"日线","seconds":86400}];
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
     const VIEW_TITLE_MAP = {"dashboard":"ThunderClaw","runtime":"ThunderClaw","kline":"虾线","history":"虾线","backtest":"虾策","xsea":"虾海","xbrain":"虾脑"};
@@ -2137,7 +2137,47 @@
     monitorXbrainAuthCompletion,
   };
 };
-    const XSEA_SEED = [{"id":"seed-v5-retest","title":"BTC 回踩确认 + 成交量过滤","author":"虾策实验室","summary":"顺趋势优先，回踩结构确认后再入场，降低假突破。","plan":"入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏","createdAtOffsetHours":-6,"createdAt":"2026-02-21T11:46:45.519Z"},{"id":"seed-v5-reentry","title":"趋势再入 + 分批加仓","author":"Aragorn","summary":"主趋势确认后等待二次发力，再入场并限制最大持仓时间。","plan":"入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场","createdAtOffsetHours":-26,"createdAt":"2026-02-20T15:46:45.519Z"}];
+    const XSEA_SEED = [{"id":"seed-v5-retest","title":"BTC 回踩确认 + 成交量过滤","author":"虾策实验室","summary":"顺趋势优先，回踩结构确认后再入场，降低假突破。","plan":"入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏","createdAtOffsetHours":-6,"createdAt":"2026-02-21T12:06:51.289Z"},{"id":"seed-v5-reentry","title":"趋势再入 + 分批加仓","author":"Aragorn","summary":"主趋势确认后等待二次发力，再入场并限制最大持仓时间。","plan":"入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场","createdAtOffsetHours":-26,"createdAt":"2026-02-20T16:06:51.289Z"}];
+    const normalizeExecutionTrace = function normalizeExecutionTrace(traceLike) {
+  if (!Array.isArray(traceLike)) return [];
+  return traceLike
+    .map((x) => {
+      if (!x || typeof x !== 'object') return null;
+      return {
+        step: String(x.step || x.type || 'runtime'),
+        ts: String(x.ts || ''),
+        summary: String(x.summary || ''),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+};
+    const buildExecutionTraceHtml = function buildExecutionTraceHtml(traceLike) {
+  const rows = normalizeExecutionTrace(traceLike);
+  if (!rows.length) return '';
+  const items = rows
+    .map(
+      (x, i) =>
+        `<div class="ai-trace-item"><span class="ai-trace-idx">${i + 1}</span><span class="ai-trace-step">${esc(
+          x.step,
+        )}</span><span class="ai-trace-summary">${esc(x.summary)}</span></div>`,
+    )
+    .join('');
+  return `<div class="ai-trace-block">${items}</div>`;
+};
+    const formatExecutionTrace = function formatExecutionTrace(traceLike) {
+  const rows = normalizeExecutionTrace(traceLike);
+  if (!rows.length) return '';
+  return rows
+    .map((item, idx) => {
+      const title = `${idx + 1}) ${item.step}`;
+      if (!item.summary && !item.ts) return title;
+      if (!item.ts) return `${title}: ${item.summary}`;
+      if (!item.summary) return `${title}: ${item.ts}`;
+      return `${title}: ${item.summary} @ ${item.ts}`;
+    })
+    .join('\n');
+};
 
 function createChatHistoryStateRuntime(globalKeyLike) {
   const key = String(globalKeyLike || '__thunderclawChatHistoryState');
@@ -2428,6 +2468,173 @@ function bindChatInputEnterRuntime(inputLike, onEnterLike) {
     ev.preventDefault();
     onEnter();
   });
+  return true;
+}
+
+
+function looksLikeConfigIntentRuntime(queryLike) {
+  const text = String(queryLike || '').trim();
+  if (!text) return false;
+  if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
+  if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
+  if (/(杠杆|leverage|单次|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|聊天通道|channel)/i.test(text)) {
+    return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|模式|运行|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
+  }
+  if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
+    return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
+  }
+  return false;
+}
+
+
+function createChatApiClientRuntime(optionsLike = {}) {
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const routes = options.routes && typeof options.routes === 'object' ? options.routes : {};
+  const buildClientContext = typeof options.buildClientContext === 'function' ? options.buildClientContext : () => ({});
+  const setAiLinkStatus = typeof options.setAiLinkStatus === 'function' ? options.setAiLinkStatus : () => {};
+
+  async function askOpenClaw(queryLike) {
+    const query = String(queryLike || '').trim();
+    const resp = await fetch(String(routes.aiChat || '/api/ai/chat'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        message: query,
+        clientContext: buildClientContext(),
+      }),
+    });
+    let payload = null;
+    try {
+      payload = await resp.json();
+    } catch {}
+    if (!resp.ok || !payload || payload.ok !== true || !String(payload.reply || '').trim()) {
+      const reason = payload && payload.error ? String(payload.error) : 'HTTP ' + resp.status;
+      throw new Error(reason);
+    }
+    setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
+    return {
+      reply: String(payload.reply || '').trim(),
+      actions: Array.isArray(payload.actions) ? payload.actions : [],
+      source: String(payload.source || 'openclaw'),
+      executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
+    };
+  }
+
+  async function askConfigChannel(queryLike) {
+    const query = String(queryLike || '').trim();
+    const resp = await fetch(String(routes.configChat || '/api/config/chat'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ message: query }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const payload = await resp.json().catch(function() {
+      return null;
+    });
+    if (!payload || payload.ok !== true) throw new Error('invalid payload');
+    return {
+      handled: Boolean(payload.handled),
+      reply: String(payload.reply || '').trim(),
+    };
+  }
+
+  return {
+    askOpenClaw,
+    askConfigChannel,
+  };
+}
+
+
+function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
+  const row = rowLike || null;
+  if (!row) return false;
+  const items = normalizeExecutionTrace(traceLike);
+  if (!items.length) return false;
+
+  const container = document.createElement('div');
+  container.className = 'ai-trace-runtime';
+  container.style.marginTop = '8px';
+  container.style.fontSize = '12px';
+  container.style.color = '#8b949e';
+
+  const controls = document.createElement('div');
+  controls.style.display = 'flex';
+  controls.style.alignItems = 'center';
+  controls.style.gap = '8px';
+
+  const replayBtn = document.createElement('button');
+  replayBtn.type = 'button';
+  replayBtn.textContent = '回放执行轨迹';
+  replayBtn.style.border = '1px solid #2d3a4f';
+  replayBtn.style.background = 'rgba(0,0,0,0.2)';
+  replayBtn.style.color = '#8b949e';
+  replayBtn.style.borderRadius = '999px';
+  replayBtn.style.padding = '2px 8px';
+  replayBtn.style.cursor = 'pointer';
+
+  const status = document.createElement('span');
+  status.textContent = '0/' + String(items.length);
+  status.style.fontVariantNumeric = 'tabular-nums';
+
+  controls.appendChild(replayBtn);
+  controls.appendChild(status);
+
+  const body = document.createElement('div');
+  body.className = 'ai-trace-runtime-body';
+  body.style.marginTop = '6px';
+  body.style.whiteSpace = 'pre-wrap';
+  body.style.lineHeight = '1.35';
+  body.style.display = 'none';
+
+  container.appendChild(controls);
+  container.appendChild(body);
+
+  const host = row.querySelector('.ai-msg') || row;
+  host.appendChild(container);
+
+  let playing = false;
+  let timer = null;
+
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    playing = false;
+    replayBtn.textContent = '回放执行轨迹';
+  }
+
+  replayBtn.addEventListener('click', function() {
+    if (playing) {
+      stop();
+      return;
+    }
+    playing = true;
+    replayBtn.textContent = '停止回放';
+    body.style.display = '';
+    body.textContent = '';
+    let idx = 0;
+    timer = setInterval(function() {
+      const item = items[idx];
+      if (!item) {
+        stop();
+        return;
+      }
+      const line =
+        String(idx + 1) +
+        ') ' +
+        String(item.step || 'step') +
+        (item.summary ? ': ' + String(item.summary) : '') +
+        (item.ts ? ' @ ' + String(item.ts) : '');
+      body.textContent += (idx === 0 ? '' : '\n') + line;
+      idx += 1;
+      status.textContent = String(Math.min(idx, items.length)) + '/' + String(items.length);
+      if (idx >= items.length) {
+        stop();
+      }
+    }, 280);
+  });
+
   return true;
 }
 
@@ -5094,7 +5301,7 @@ function bindChatInputEnterRuntime(inputLike, onEnterLike) {
           aiLinkStatusEl.textContent = text;
         }
         function formatExecutionTraceLocal(traceLike) {
-          return formatExecutionTraceRuntime(traceLike, 12);
+          return formatExecutionTrace(traceLike);
         }
         const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
         const DEEPSEEK_MODEL = 'deepseek-chat';
@@ -6351,59 +6558,19 @@ function bindChatInputEnterRuntime(inputLike, onEnterLike) {
           return notes.join('；');
         }
 
+        const chatApiClient = createChatApiClientRuntime({
+          routes: CHAT_ROUTES,
+          buildClientContext: buildClientContext,
+          setAiLinkStatus: setAiLinkStatus,
+        });
         async function askOpenClaw(q) {
-          const resp = await fetch(CHAT_ROUTES.aiChat, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({
-              message: q,
-              clientContext: buildClientContext(),
-            }),
-          });
-          let payload = null;
-          try {
-            payload = await resp.json();
-          } catch {}
-          if (!resp.ok || !payload || payload.ok !== true || !String(payload.reply || '').trim()) {
-            const reason = (payload && payload.error) ? String(payload.error) : ('HTTP ' + resp.status);
-            throw new Error(reason);
-          }
-          setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
-          return {
-            reply: String(payload.reply || '').trim(),
-            actions: Array.isArray(payload.actions) ? payload.actions : [],
-            source: String(payload.source || 'openclaw'),
-            executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
-          };
+          return chatApiClient.askOpenClaw(q);
         }
         function looksLikeConfigIntentLocal(q) {
-          const text = String(q || '').trim();
-          if (!text) return false;
-          if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
-          if (/^\/(config|配置|设置|setup)\b/i.test(text)) return true;
-          if (/(杠杆|leverage|单次|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|聊天通道|channel)/i.test(text)) {
-            return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|模式|运行|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
-          }
-          if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
-            return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
-          }
-          return false;
+          return looksLikeConfigIntentRuntime(q);
         }
         async function askConfigChannel(q) {
-          const resp = await fetch(CHAT_ROUTES.configChat, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({ message: q }),
-          });
-          if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          const payload = await resp.json().catch(function() { return null; });
-          if (!payload || payload.ok !== true) throw new Error('invalid payload');
-          return {
-            handled: Boolean(payload.handled),
-            reply: String(payload.reply || '').trim(),
-          };
+          return chatApiClient.askConfigChannel(q);
         }
         async function answer(q) {
           const cmd = handleLocalCmd(q);
@@ -6470,6 +6637,7 @@ function bindChatInputEnterRuntime(inputLike, onEnterLike) {
                 maxDurationMs: 2400,
                 onDone: function() { finishRowPendingState(thinking); },
               });
+              attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
               appendLocalChatLog({
                 ts: new Date().toISOString(),
                 role: 'bot',
@@ -6485,6 +6653,7 @@ function bindChatInputEnterRuntime(inputLike, onEnterLike) {
                   maxDurationMs: 2000,
                   onDone: function() { finishRowPendingState(thinking); },
                 });
+                attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
                 appendLocalChatLog({
                   ts: new Date().toISOString(),
                   role: 'bot',
