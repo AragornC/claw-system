@@ -1796,7 +1796,7 @@
   </div>
 
   <script>
-    const REPORT_BUILD_ID = "2026-02-21T18:32:35.438Z";
+    const REPORT_BUILD_ID = "2026-02-21T18:33:40.794Z";
     const TF_CONFIG = [{"key":"1m","label":"分时(1分钟)","seconds":60},{"key":"5m","label":"5分钟","seconds":300},{"key":"15m","label":"15分钟","seconds":900},{"key":"1h","label":"1小时","seconds":3600},{"key":"4h","label":"4小时","seconds":14400},{"key":"1d","label":"日线","seconds":86400}];
     const TF_SECONDS = Object.fromEntries(TF_CONFIG.map(t => [t.key, t.seconds]));
     const VIEW_TITLE_MAP = {"dashboard":"ThunderClaw","runtime":"ThunderClaw","kline":"虾线","history":"虾线","backtest":"虾策","xsea":"虾海","xbrain":"虾脑"};
@@ -2137,7 +2137,7 @@
     monitorXbrainAuthCompletion,
   };
 };
-    const XSEA_SEED = [{"id":"seed-v5-retest","title":"BTC 回踩确认 + 成交量过滤","author":"虾策实验室","summary":"顺趋势优先，回踩结构确认后再入场，降低假突破。","plan":"入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏","createdAtOffsetHours":-6,"createdAt":"2026-02-21T12:32:35.438Z"},{"id":"seed-v5-reentry","title":"趋势再入 + 分批加仓","author":"Aragorn","summary":"主趋势确认后等待二次发力，再入场并限制最大持仓时间。","plan":"入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场","createdAtOffsetHours":-26,"createdAt":"2026-02-20T16:32:35.438Z"}];
+    const XSEA_SEED = [{"id":"seed-v5-retest","title":"BTC 回踩确认 + 成交量过滤","author":"虾策实验室","summary":"顺趋势优先，回踩结构确认后再入场，降低假突破。","plan":"入场：15m EMA20 上方回踩 + RSI 回升 + 量能放大\\n风控：1.8 ATR 止损 + 新闻门控\\n退出：3.0 ATR 止盈或趋势破坏","createdAtOffsetHours":-6,"createdAt":"2026-02-21T12:33:40.794Z"},{"id":"seed-v5-reentry","title":"趋势再入 + 分批加仓","author":"Aragorn","summary":"主趋势确认后等待二次发力，再入场并限制最大持仓时间。","plan":"入场：1h 趋势方向一致 + 5m 动量二次放量\\n风控：固定 notional + 2.0 ATR 止损\\n退出：时间止盈 + 结构反转强制离场","createdAtOffsetHours":-26,"createdAt":"2026-02-20T16:33:40.794Z"}];
     const normalizeExecutionTrace = function normalizeExecutionTrace(traceLike) {
   if (!Array.isArray(traceLike)) return [];
   return traceLike
@@ -5638,7 +5638,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           }
           if (lower === '/deepseek clear') {
             clearDeepSeekKey();
-            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
             return { reply: '已清除本地 DeepSeek Key。', actions: [] };
           }
           if (lower.startsWith('/deepseek ')) {

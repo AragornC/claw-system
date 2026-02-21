@@ -4947,7 +4947,7 @@ ${CHAT_RUNTIME_TRACE_SNIPPET}
           }
           if (lower === '/deepseek clear') {
             clearDeepSeekKey();
-            setAiLinkStatus('warn', 'OpenClaw: 离线(本地兜底)');
+            setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
             return { reply: '已清除本地 DeepSeek Key。', actions: [] };
           }
           if (lower.startsWith('/deepseek ')) {
