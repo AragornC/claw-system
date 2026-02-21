@@ -140,6 +140,13 @@ async function runChecks() {
     results.push(['approval-allowlist-add', 'FAIL', 'HTTP ' + allowlistAdd.status]);
   }
 
+  const auditOut = await requestJson('/api/runtime/audit?limit=30');
+  if (auditOut.ok && auditOut.payload?.ok === true && Array.isArray(auditOut.payload?.rows)) {
+    results.push(['runtime-audit-list', 'PASS', '审计日志可查询']);
+  } else {
+    results.push(['runtime-audit-list', 'FAIL', 'HTTP ' + auditOut.status]);
+  }
+
   if (jobId) {
     const deleteOut = await post('/api/runtime/schedules/delete', { id: jobId });
     if (deleteOut.ok && deleteOut.payload?.ok === true) {

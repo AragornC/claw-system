@@ -525,6 +525,21 @@ export function createConversationRuntime(options = {}) {
           return true;
         }
         const value = safeObj(parsed.value);
+        const approval = approvalGate.evaluate({
+          type: 'tool_call',
+          action: `task.execute:${text(value.tool)}`,
+          tool: text(value.tool),
+          summary: `runtime_api_task:${text(value.tool)}:${JSON.stringify(safeObj(value.args))}`,
+        });
+        if (!approval.allowed) {
+          sendJson(res, 403, {
+            ok: false,
+            error: 'approval_required',
+            reason: approval.reason || 'approval_required',
+            approvalId: approval.approvalId || null,
+          });
+          return true;
+        }
         const task = taskEngine.createTask({
           title: text(value.title || value.tool || 'runtime-task'),
           type: text(value.type || 'tool'),
@@ -558,6 +573,25 @@ export function createConversationRuntime(options = {}) {
         return true;
       }
       const id = text(parsed.value?.id);
+      const existing = taskEngine.getTask?.(id);
+      if (existing) {
+        const approval = approvalGate.evaluate({
+          type: 'tool_call',
+          action: `task.retry:${existing.tool || ''}`,
+          tool: existing.tool || '',
+          summary: `runtime_api_task_retry:${existing.id || id}`,
+        });
+        if (!approval.allowed) {
+          sendJson(res, 403, {
+            ok: false,
+            error: 'approval_required',
+            reason: approval.reason || 'approval_required',
+            approvalId: approval.approvalId || null,
+            task: existing,
+          });
+          return true;
+        }
+      }
       const out = await taskEngine.retryTask(id);
       sendJson(res, out.ok ? 200 : 400, { ok: out.ok, error: out.error || null, task: out.task || null });
       return true;
@@ -574,7 +608,23 @@ export function createConversationRuntime(options = {}) {
           sendJson(res, 400, { ok: false, error: parsed.error || 'invalid_json' });
           return true;
         }
-        const job = schedulerRuntime.createJob(parsed.value || {});
+        const value = safeObj(parsed.value);
+        const approval = approvalGate.evaluate({
+          type: 'scheduler',
+          action: 'scheduler.create',
+          tool: text(value.tool),
+          summary: `runtime_api_schedule:${text(value.scheduleText || value.schedule || value.cron || '')}`,
+        });
+        if (!approval.allowed) {
+          sendJson(res, 403, {
+            ok: false,
+            error: 'approval_required',
+            reason: approval.reason || 'approval_required',
+            approvalId: approval.approvalId || null,
+          });
+          return true;
+        }
+        const job = schedulerRuntime.createJob(value);
         if (job?.ok === false || !job?.id) {
           sendJson(res, 400, { ok: false, error: job?.error || 'schedule_invalid', expected: job?.expected || null });
           return true;
@@ -696,6 +746,19 @@ export function createConversationRuntime(options = {}) {
       }
       const config = approvalGate.updateConfig?.(safeObj(parsed.value)) || approvalGate.getSnapshot?.() || {};
       sendJson(res, 200, { ok: true, config });
+      return true;
+    }
+
+    if (pathname === '/api/runtime/audit' && method === 'GET') {
+      const limit = Math.max(1, Math.min(1000, Number(url?.searchParams?.get('limit') || '120') || 120));
+      const event = text(url?.searchParams?.get('event') || '');
+      const rows = typeof audit?.list === 'function' ? audit.list({ limit, event }) : [];
+      sendJson(res, 200, {
+        ok: true,
+        filePath: audit?.filePath || null,
+        total: Array.isArray(rows) ? rows.length : 0,
+        rows: Array.isArray(rows) ? rows : [],
+      });
       return true;
     }
 

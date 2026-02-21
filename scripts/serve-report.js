@@ -4248,6 +4248,9 @@ function buildMcpStyleToolManifest() {
       title: String(cap.name || ''),
       description: String(cap.description || ''),
       inputSchema: cap.inputSchema && typeof cap.inputSchema === 'object' ? cap.inputSchema : { type: 'object' },
+      permissionLevel: readOnlyTools.has(String(cap.name || '')) ? 'read' : 'write',
+      visibility: 'global',
+      idempotent: readOnlyTools.has(String(cap.name || '')),
       annotations: {
         readOnlyHint: readOnlyTools.has(String(cap.name || '')),
         destructiveHint: false,
@@ -4268,6 +4271,8 @@ function resolveMcpBridgeConfig() {
   const url = String(process.env.THUNDERCLAW_MCP_BRIDGE_URL || '').trim();
   const token = String(process.env.THUNDERCLAW_MCP_BRIDGE_TOKEN || '').trim();
   const timeoutMs = Math.max(1200, Math.min(12_000, Number(process.env.THUNDERCLAW_MCP_BRIDGE_TIMEOUT_MS || 4500) || 4500));
+  const retry = Math.max(0, Math.min(3, Number(process.env.THUNDERCLAW_MCP_BRIDGE_RETRY || 1) || 1));
+  const fallback = String(process.env.THUNDERCLAW_MCP_BRIDGE_FALLBACK || 'internal').trim().toLowerCase();
   const enabledByFlag = String(process.env.THUNDERCLAW_MCP_BRIDGE_ENABLED || '0').trim() === '1';
   const enabled = enabledByFlag && /^https?:\/\//i.test(url);
   return {
@@ -4277,6 +4282,8 @@ function resolveMcpBridgeConfig() {
     hasToken: Boolean(token),
     token,
     timeoutMs,
+    retry,
+    fallback: fallback === 'none' ? 'none' : 'internal',
   };
 }
 
@@ -4287,11 +4294,19 @@ async function callMcpBridgeTool(toolName, args, optionsLike = {}) {
   if (!mcpCfg.enabled) {
     return { ok: false, error: 'mcp_bridge_disabled' };
   }
+  const traceId = String(options.traceId || ('mcp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)));
+  const timeoutMs = Math.max(800, Math.min(20_000, Number(options.timeoutMs || mcpCfg.timeoutMs) || mcpCfg.timeoutMs));
+  const retry = Math.max(0, Math.min(3, Number(options.retry ?? mcpCfg.retry) || mcpCfg.retry));
+  const fallback = String(options.fallback || mcpCfg.fallback || 'internal').trim().toLowerCase();
   const payload = {
     namespace: 'thunderclaw.strategy',
     tool: String(toolName || '').trim(),
     arguments: args && typeof args === 'object' ? args : {},
     source,
+    traceId,
+    timeoutMs,
+    retry,
+    fallback,
     ts: nowIso(),
   };
   const ac = new AbortController();
@@ -4299,7 +4314,7 @@ async function callMcpBridgeTool(toolName, args, optionsLike = {}) {
     try {
       ac.abort();
     } catch {}
-  }, mcpCfg.timeoutMs);
+  }, timeoutMs);
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (mcpCfg.token) headers.Authorization = 'Bearer ' + mcpCfg.token;
@@ -4319,24 +4334,53 @@ async function callMcpBridgeTool(toolName, args, optionsLike = {}) {
     if (!resp.ok) {
       return {
         ok: false,
+        traceId,
         error: 'mcp_http_' + String(resp.status),
         detail: truncText(String(text || ''), 400),
       };
     }
-    const summary = truncText(String(json?.summary || json?.reply || ''), 4000);
+    if (!json || typeof json !== 'object') {
+      return {
+        ok: false,
+        traceId,
+        error: 'mcp_invalid_payload',
+      };
+    }
+    if (json.ok === false) {
+      return {
+        ok: false,
+        traceId: String(json.traceId || traceId),
+        error: String(json.error || 'mcp_invoke_failed'),
+        detail: truncText(String(json.detail || ''), 400),
+        attempts: Array.isArray(json.attempts) ? json.attempts : [],
+        canFallback: json.canFallback === true,
+      };
+    }
+    const summary = truncText(String(json?.summary || json?.result?.summary || json?.reply || ''), 4000);
     return {
       ok: true,
+      traceId: String(json.traceId || traceId),
       summary,
-      actions: Array.isArray(json?.actions) ? json.actions : [],
-      data: json?.data && typeof json.data === 'object' ? json.data : null,
+      actions: Array.isArray(json?.actions) ? json.actions : Array.isArray(json?.result?.actions) ? json.result.actions : [],
+      data:
+        (json?.data && typeof json.data === 'object')
+          ? json.data
+          : (json?.result?.data && typeof json.result.data === 'object')
+            ? json.result.data
+            : null,
+      attempts: Array.isArray(json?.attempts) ? json.attempts : [],
+      retryCount: Number(json?.retryCount || 0),
       bridgeMeta: {
         transport: 'mcp-http',
         url: mcpCfg.url,
+        timeoutMs,
+        retry,
+        fallback,
       },
     };
   } catch (err) {
     const msg = safeErrMsg(err, 'mcp bridge call failed');
-    return { ok: false, error: 'mcp_bridge_call_failed', detail: msg };
+    return { ok: false, traceId, error: 'mcp_bridge_call_failed', detail: msg };
   } finally {
     clearTimeout(timer);
   }
@@ -4354,6 +4398,8 @@ async function checkMcpBridgeConnectivity() {
         url: cfg.url || null,
         hasToken: cfg.hasToken,
         timeoutMs: cfg.timeoutMs,
+        retry: cfg.retry,
+        fallback: cfg.fallback,
       },
     };
   }
@@ -4369,6 +4415,8 @@ async function checkMcpBridgeConnectivity() {
       url: cfg.url || null,
       hasToken: cfg.hasToken,
       timeoutMs: cfg.timeoutMs,
+      retry: cfg.retry,
+      fallback: cfg.fallback,
     },
     result: {
       error: ping?.ok ? null : String(ping?.error || 'bridge_unreachable'),
@@ -4639,8 +4687,9 @@ function resolveCapabilityAdapter(optionsLike = {}) {
     }
     // MCP adapter: prefer external bridge for selected tools, fallback to internal on failure.
     if (mode === 'mcp') {
+      let bridged = null;
       if (mcpBridgeEnabled && mcpBridgePreferredTools.has(toolName)) {
-        const bridged = await callMcpBridgeTool(toolName, args, { source });
+        bridged = await callMcpBridgeTool(toolName, args, { source });
         if (bridged?.ok) {
           return {
             ok: true,
@@ -4652,6 +4701,9 @@ function resolveCapabilityAdapter(optionsLike = {}) {
               transport: 'mcp-bridge',
               fallbackToInternal: false,
               bridgeEnabled: true,
+              traceId: bridged.traceId || null,
+              retryCount: Number(bridged.retryCount || 0),
+              attempts: Array.isArray(bridged.attempts) ? bridged.attempts.slice(0, 4) : [],
             },
           };
         }
@@ -4665,6 +4717,8 @@ function resolveCapabilityAdapter(optionsLike = {}) {
           transport: mcpBridgeEnabled ? 'mcp-bridge-fallback-internal' : 'mcp-skeleton-fallback',
           fallbackToInternal: true,
           bridgeEnabled: mcpBridgeEnabled,
+          bridgeError: bridged?.ok ? null : String(bridged?.error || ''),
+          bridgeTraceId: bridged?.traceId || null,
         },
       };
     }
@@ -9240,6 +9294,7 @@ server.listen(PORT, () => {
   console.log('AI config channel: POST /api/config/chat');
   console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
+  console.log('Runtime API: GET /api/runtime/sessions | /tasks | /schedules | /approvals | /audit');
   console.log('Memory health: GET /api/memory/health?q=...');
   console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
   console.log('Strategy lab: GET /api/strategy/features | POST /api/strategy/features/upsert | GET /api/strategy/versions | POST /api/strategy/versions/create | POST /api/strategy/versions/propose | POST /api/strategy/versions/evaluate');

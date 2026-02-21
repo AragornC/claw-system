@@ -69,6 +69,10 @@ import {
   SUPPORTED_TIMEFRAMES,
 } from '../frontend/src/modules/chat/config.js';
 import { CHAT_API_ROUTES, CHAT_DEFAULTS } from '../frontend/src/modules/chat/config.js';
+import { CHAT_RUNTIME_STATE_SNIPPET } from '../frontend/src/modules/chat/runtime-state-snippet.js';
+import { CHAT_RUNTIME_RENDER_SNIPPET } from '../frontend/src/modules/chat/runtime-render-snippet.js';
+import { CHAT_RUNTIME_EVENTS_SNIPPET } from '../frontend/src/modules/chat/runtime-events-snippet.js';
+import { CHAT_RUNTIME_INPUT_SNIPPET } from '../frontend/src/modules/chat/runtime-input-snippet.js';
 
 const XSEA_SEED = XSEA_SEED_DEF.map((item) => ({
   ...item,
@@ -1925,6 +1929,10 @@ const HTML = `<!DOCTYPE html>
     const buildXbrainFlowDeps = ${buildXbrainFlowDeps.toString()};
     const createXbrainFlowHelpers = ${createXbrainFlowHelpers.toString()};
     const XSEA_SEED = ${JSON.stringify(XSEA_SEED)};
+${CHAT_RUNTIME_STATE_SNIPPET}
+${CHAT_RUNTIME_RENDER_SNIPPET}
+${CHAT_RUNTIME_EVENTS_SNIPPET}
+${CHAT_RUNTIME_INPUT_SNIPPET}
     const XBRAIN_MODEL_OPTIONS = {
       deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
       chatgpt: ['openai-codex/gpt-5.3-codex', 'openai-codex/gpt-5.2-codex', 'openai-codex/gpt-5.1-codex'],
@@ -4472,162 +4480,34 @@ const HTML = `<!DOCTYPE html>
         const SUPPORTED_TIMEFRAME_SET = new Set(SUPPORTED_TIMEFRAME_LIST);
         const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
         const CHAT_LOG_MAX = ${CHAT_LOG_MAX_DEFAULT};
-        const chatHistoryState = (function() {
-          const existing = window.__thunderclawChatHistoryState;
-          if (existing && typeof existing === 'object') return existing;
-          const state = {
-            started: false,
-            busy: false,
-            afterId: 0,
-            timer: null,
-            seenIds: new Set(),
-            bootRendered: false,
-            pendingUserEchoes: [],
-            pendingSeq: 0,
-          };
-          window.__thunderclawChatHistoryState = state;
-          return state;
-        })();
+        const chatHistoryState = createChatHistoryStateRuntime('__thunderclawChatHistoryState');
+        const chatLogStore = createChatLogStoreRuntime(CHAT_LOG_KEY, CHAT_LOG_MAX);
         function loadLocalChatLog() {
-          try {
-            const raw = localStorage.getItem(CHAT_LOG_KEY);
-            if (!raw) return [];
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-          } catch (_) {
-            return [];
-          }
+          return chatLogStore.load();
         }
         function saveLocalChatLog(rows) {
-          const arr = Array.isArray(rows) ? rows.slice(-CHAT_LOG_MAX) : [];
-          try { localStorage.setItem(CHAT_LOG_KEY, JSON.stringify(arr)); } catch (_) {}
+          chatLogStore.save(rows);
         }
         function fmtChatTs(tsLike) {
-          const ms = Number.isFinite(Date.parse(String(tsLike || ''))) ? Date.parse(String(tsLike || '')) : Date.now();
-          const d = new Date(ms);
-          const hh = String(d.getHours()).padStart(2, '0');
-          const mm = String(d.getMinutes()).padStart(2, '0');
-          const ss = String(d.getSeconds()).padStart(2, '0');
-          return hh + ':' + mm + ':' + ss;
+          return fmtChatTsRuntime(tsLike);
         }
         function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass) {
-          const row = document.createElement('div');
-          row.className = 'ai-msg-row ' + roleClass;
-          if (pendingKey) row.setAttribute('data-pending-key', String(pendingKey));
-          const div = document.createElement('div');
-          div.className = 'ai-msg ' + roleClass;
-          const textEl = document.createElement('div');
-          textEl.className = 'ai-msg-text';
-          textEl.textContent = String(text || '').trim();
-          const metaEl = document.createElement('div');
-          metaEl.className = 'ai-msg-meta';
-          const tsEl = document.createElement('span');
-          tsEl.className = 'ai-msg-time';
-          tsEl.textContent = fmtChatTs(tsLike);
-          metaEl.appendChild(tsEl);
-          if (statusText) {
-            const statusEl = document.createElement('span');
-            statusEl.className = 'ai-msg-status ' + String(statusClass || 'sending');
-            statusEl.textContent = String(statusText);
-            metaEl.appendChild(statusEl);
-          }
-          div.appendChild(textEl);
-          row.appendChild(metaEl);
-          row.appendChild(div);
-          return row;
+          return createChatMessageElementRuntime(roleClass, text, tsLike, statusText, pendingKey, statusClass);
         }
         function finishRowPendingState(row) {
-          if (!row) return;
-          row.classList.remove('pending');
-          row.removeAttribute('data-pending-key');
-          const statusEl = row.querySelector('.ai-msg-status');
-          if (statusEl) statusEl.remove();
+          finishRowPendingStateRuntime(row);
         }
         function setRowTextWithTypewriter(row, textLike, optionsLike) {
-          const rowEl = row || null;
-          const textEl = rowEl ? rowEl.querySelector('.ai-msg-text') : null;
-          if (!rowEl || !textEl) return;
-          const text = String(textLike || '');
-          const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
-          const enabled = options.enabled !== false;
-          const onDone = typeof options.onDone === 'function' ? options.onDone : null;
-          if (!enabled || !text) {
-            textEl.textContent = text;
-            if (onDone) onDone();
-            return;
-          }
-          const len = text.length;
-          const tickMs = Math.max(10, Number(options.tickMs) || 14);
-          const maxDurationMs = Math.max(700, Number(options.maxDurationMs) || 2600);
-          const step = Math.max(1, Math.ceil(len / Math.max(1, Math.floor(maxDurationMs / tickMs))));
-          let cursor = 0;
-          textEl.textContent = '';
-          (function draw() {
-            cursor = Math.min(len, cursor + step);
-            textEl.textContent = text.slice(0, cursor);
-            if (cursor >= len) {
-              if (onDone) onDone();
-              return;
-            }
-            window.setTimeout(draw, tickMs);
-          })();
+          setRowTextWithTypewriterRuntime(row, textLike, optionsLike);
         }
         function appendLocalChatLog(rowLike) {
-          const row = rowLike && typeof rowLike === 'object' ? rowLike : null;
-          if (!row) return;
-          const text = String(row.text || '').trim();
-          if (!text) return;
-          const idNum = Number(row.id);
-          const current = loadLocalChatLog();
-          current.push({
-            id: Number.isFinite(idNum) && idNum > 0 ? idNum : null,
-            ts: row.ts || new Date().toISOString(),
-            role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'bot',
-            source: String(row.source || 'dashboard'),
-            text: text,
-          });
-          saveLocalChatLog(current);
+          chatLogStore.append(rowLike);
         }
         function ackLocalUserEcho(text, tsLike, idLike) {
-          const t = String(text || '').trim();
-          if (!t) return;
-          const idNum = Number(idLike);
-          const tsMs = Number.isFinite(Date.parse(String(tsLike || ''))) ? Date.parse(String(tsLike || '')) : Date.now();
-          const rows = loadLocalChatLog();
-          for (let i = rows.length - 1; i >= 0; i -= 1) {
-            const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
-            if (!row) continue;
-            if (String(row.role || '') !== 'user') continue;
-            if (String(row.text || '').trim() !== t) continue;
-            const rowMs = Number.isFinite(Date.parse(String(row.ts || ''))) ? Date.parse(String(row.ts || '')) : tsMs;
-            if (Math.abs(tsMs - rowMs) > 120000) continue;
-            if (Number.isFinite(Number(row.id)) && Number(row.id) > 0) continue;
-            row.id = Number.isFinite(idNum) && idNum > 0 ? idNum : null;
-            row.ts = tsLike || row.ts;
-            saveLocalChatLog(rows);
-            return;
-          }
-          appendLocalChatLog({
-            source: 'dashboard',
-            ts: tsLike || null,
-            id: Number.isFinite(idNum) ? idNum : null,
-            role: 'user',
-            text: t,
-          });
+          chatLogStore.ackUserEcho(text, tsLike, idLike);
         }
         function markPendingDelivered(pendingKey, tsLike) {
-          if (!pendingKey) return;
-          const selector = '.ai-msg-row.user[data-pending-key="' + String(pendingKey).replace(/"/g, '\\"') + '"]';
-          const node = box.querySelector(selector);
-          if (!node) return;
-          node.removeAttribute('data-pending-key');
-          const metaEl = node.querySelector('.ai-msg-meta');
-          if (metaEl) {
-            const statusEl = metaEl.querySelector('.ai-msg-status');
-            if (statusEl) statusEl.remove();
-            const tsEl = metaEl.querySelector('.ai-msg-time');
-            if (tsEl) tsEl.textContent = fmtChatTs(tsLike);
-          }
+          markPendingDeliveredRuntime(box, pendingKey, tsLike);
         }
         function renderStoredChatLog() {
           const rows = loadLocalChatLog();
@@ -4716,21 +4596,7 @@ const HTML = `<!DOCTYPE html>
           aiLinkStatusEl.textContent = text;
         }
         function formatExecutionTraceLocal(traceLike) {
-          const trace = Array.isArray(traceLike) ? traceLike : [];
-          if (!trace.length) return '';
-          const lines = [];
-          trace.slice(0, 12).forEach(function(item, idx) {
-            const row = item && typeof item === 'object' ? item : null;
-            if (!row) return;
-            const step = String(row.step || 'step');
-            const summary = String(row.summary || '').trim();
-            const ts = String(row.ts || '').trim();
-            if (summary && ts) lines.push(String(idx + 1) + ') ' + step + ': ' + summary + ' @ ' + ts);
-            else if (summary) lines.push(String(idx + 1) + ') ' + step + ': ' + summary);
-            else if (ts) lines.push(String(idx + 1) + ') ' + step + ': ' + ts);
-            else lines.push(String(idx + 1) + ') ' + step);
-          });
-          return lines.join('\n');
+          return formatExecutionTraceRuntime(traceLike, 12);
         }
         const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
         const DEEPSEEK_MODEL = 'deepseek-chat';
@@ -6077,7 +5943,7 @@ const HTML = `<!DOCTYPE html>
             }
           }
         }
-        let inFlight = false;
+        const chatInputGuard = createChatInputGuardRuntime();
         async function runTurn(text) {
           const localPendingKey = 'local-thinking:' + String(Date.now());
           const thinking = createChatMessageElement(
@@ -6150,8 +6016,8 @@ const HTML = `<!DOCTYPE html>
         }
         async function send() {
           const text = input.value.trim();
-          if (!text || inFlight) return;
-          inFlight = true;
+          if (!text || chatInputGuard.isLocked()) return;
+          if (!chatInputGuard.lock()) return;
           sendBtn.disabled = true;
           const nowTs = Date.now();
           chatHistoryState.pendingUserEchoes.push({
@@ -6173,28 +6039,16 @@ const HTML = `<!DOCTYPE html>
           try {
             await runTurn(text);
           } finally {
-            inFlight = false;
+            chatInputGuard.unlock();
             sendBtn.disabled = false;
           }
         }
         sendBtn.addEventListener('click', function() { void send(); });
-        input.addEventListener('keydown', function(ev) {
-          if (ev.key === 'Enter') {
-            ev.preventDefault();
-            void send();
-          }
-        });
+        bindChatInputEnterRuntime(input, function() { void send(); });
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
           if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
-          if (Number.isFinite(idNum)) {
-            chatHistoryState.seenIds.add(idNum);
-            chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
-            if (chatHistoryState.seenIds.size > 3000) {
-              const sorted = Array.from(chatHistoryState.seenIds).sort((a, b) => b - a);
-              chatHistoryState.seenIds = new Set(sorted.slice(0, 1800));
-            }
-          }
+          rememberSeenEventIdRuntime(chatHistoryState, idNum, 3000, 1800);
           const text = String(ev?.text || '').trim();
           if (!text) return;
           const role = ev?.role === 'user' ? 'user' : 'bot';
@@ -6214,12 +6068,7 @@ const HTML = `<!DOCTYPE html>
             const eventTsMs = Number.isFinite(Date.parse(String(ev?.ts || '')))
               ? Date.parse(String(ev?.ts || ''))
               : Date.now();
-            const idx = chatHistoryState.pendingUserEchoes.findIndex(function(item) {
-              if (!item || typeof item !== 'object') return false;
-              if (String(item.text || '').trim() !== finalText) return false;
-              const ageMs = Math.abs(eventTsMs - Number(item.createdAt || 0));
-              return ageMs <= 120000;
-            });
+            const idx = findPendingEchoIndexRuntime(chatHistoryState.pendingUserEchoes, finalText, eventTsMs, 120000);
             if (idx >= 0) {
               const pending = chatHistoryState.pendingUserEchoes[idx];
               chatHistoryState.pendingUserEchoes.splice(idx, 1);

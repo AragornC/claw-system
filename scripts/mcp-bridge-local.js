@@ -6,6 +6,102 @@ const PORT = Math.max(1, Math.min(65535, Number(process.argv[2] || process.env.T
 const HOST = process.env.THUNDERCLAW_MCP_BRIDGE_HOST || '127.0.0.1';
 const TARGET_BASE = (process.env.THUNDERCLAW_MCP_BRIDGE_TARGET || 'http://127.0.0.1:8765').replace(/\/+$/, '');
 const BRIDGE_TOKEN = String(process.env.THUNDERCLAW_MCP_BRIDGE_TOKEN || '').trim();
+const DEFAULT_INVOKE_TIMEOUT_MS = Math.max(1200, Math.min(15000, Number(process.env.THUNDERCLAW_MCP_BRIDGE_INVOKE_TIMEOUT_MS || 6000) || 6000));
+const DEFAULT_INVOKE_RETRY = Math.max(0, Math.min(3, Number(process.env.THUNDERCLAW_MCP_BRIDGE_INVOKE_RETRY || 1) || 1));
+const DEFAULT_FALLBACK_MODE = String(process.env.THUNDERCLAW_MCP_BRIDGE_FALLBACK || 'internal').trim().toLowerCase();
+
+const TOOL_DEFINITIONS = Object.freeze([
+  {
+    name: 'get_market_news_impact',
+    description: '抓取宏观/币圈新闻并生成影响评估',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset: { type: 'string' },
+        q: { type: 'string' },
+        limit: { type: 'number' },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'read',
+    visibility: 'global',
+    idempotent: true,
+  },
+  {
+    name: 'get_strategy_metrics',
+    description: '读取策略工件并聚合关键指标',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        strategy: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'read',
+    visibility: 'global',
+    idempotent: true,
+  },
+  {
+    name: 'list_strategy_features',
+    description: '列出已注册策略特征',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        group: { type: 'string' },
+        enabledOnly: { type: 'boolean' },
+        limit: { type: 'number' },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'read',
+    visibility: 'global',
+    idempotent: true,
+  },
+  {
+    name: 'create_strategy_features',
+    description: '创建/更新策略特征',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        features: { type: 'array', items: { type: 'object' } },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'write',
+    visibility: 'global',
+    idempotent: false,
+  },
+  {
+    name: 'generate_strategy_versions',
+    description: '基于提示词生成策略版本候选',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        baseVersionId: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'write',
+    visibility: 'global',
+    idempotent: false,
+  },
+  {
+    name: 'list_strategy_versions',
+    description: '列出策略版本',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number' },
+      },
+      additionalProperties: false,
+    },
+    permissionLevel: 'read',
+    visibility: 'global',
+    idempotent: true,
+  },
+]);
 
 function sendJson(res, code, payload) {
   res.statusCode = code;
@@ -17,6 +113,52 @@ function clampNum(v, min, max) {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, n));
+}
+
+function createTraceId() {
+  return `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function withTimeout(promise, timeoutMs) {
+  const ms = Math.max(600, Number(timeoutMs || DEFAULT_INVOKE_TIMEOUT_MS) || DEFAULT_INVOKE_TIMEOUT_MS);
+  let timer = null;
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('invoke_timeout')), ms);
+    }),
+  ]);
+}
+
+function buildToolsManifest() {
+  return {
+    schemaVersion: 'mcp-tool-manifest-v2',
+    namespace: 'thunderclaw.strategy',
+    generatedAt: new Date().toISOString(),
+    tools: TOOL_DEFINITIONS.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      permissionLevel: tool.permissionLevel,
+      visibility: tool.visibility,
+      idempotent: tool.idempotent,
+    })),
+  };
+}
+
+function normalizeInvokeOptions(bodyLike = {}) {
+  const body = bodyLike && typeof bodyLike === 'object' ? bodyLike : {};
+  const timeoutMs = clampNum(body.timeoutMs != null ? body.timeoutMs : DEFAULT_INVOKE_TIMEOUT_MS, 800, 20000);
+  const retry = clampNum(body.retry != null ? body.retry : DEFAULT_INVOKE_RETRY, 0, 3);
+  const fallback = String(body.fallback || DEFAULT_FALLBACK_MODE || 'internal').trim().toLowerCase();
+  return {
+    traceId: String(body.traceId || createTraceId()),
+    timeoutMs,
+    retry,
+    fallback: fallback === 'none' ? 'none' : 'internal',
+  };
 }
 
 function decodeHtml(s) {
@@ -408,6 +550,79 @@ async function invokeTool(tool, args) {
   throw new Error('tool_not_supported: ' + tool);
 }
 
+async function invokeToolWithPolicy(toolName, args, policyLike = {}) {
+  const policy = policyLike && typeof policyLike === 'object' ? policyLike : {};
+  const traceId = String(policy.traceId || createTraceId());
+  const timeoutMs = clampNum(policy.timeoutMs != null ? policy.timeoutMs : DEFAULT_INVOKE_TIMEOUT_MS, 800, 20000);
+  const retry = clampNum(policy.retry != null ? policy.retry : DEFAULT_INVOKE_RETRY, 0, 3);
+  const fallback = String(policy.fallback || DEFAULT_FALLBACK_MODE || 'internal').trim().toLowerCase();
+
+  const attempts = [];
+  const startedAt = Date.now();
+  for (let attempt = 0; attempt <= retry; attempt += 1) {
+    const aStarted = Date.now();
+    try {
+      const result = await withTimeout(invokeTool(toolName, args), timeoutMs);
+      const summary = String(result?.summary || '').trim();
+      const actions = Array.isArray(result?.actions) ? result.actions : [];
+      const data = result?.data && typeof result.data === 'object' ? result.data : null;
+      attempts.push({
+        attempt,
+        ok: true,
+        elapsedMs: Date.now() - aStarted,
+      });
+      return {
+        ok: true,
+        traceId,
+        tool: toolName,
+        elapsedMs: Date.now() - startedAt,
+        retryCount: attempt,
+        timeoutMs,
+        fallback,
+        attempts,
+        summary,
+        actions,
+        data,
+        result: {
+          summary,
+          actions,
+          data,
+        },
+        meta: {
+          adapter: 'mcp-local',
+          source: 'bridge-local',
+        },
+      };
+    } catch (err) {
+      attempts.push({
+        attempt,
+        ok: false,
+        elapsedMs: Date.now() - aStarted,
+        error: String(err?.message || err || 'invoke_failed'),
+      });
+    }
+  }
+
+  const last = attempts[attempts.length - 1] || null;
+  return {
+    ok: false,
+    traceId,
+    tool: toolName,
+    elapsedMs: Date.now() - startedAt,
+    timeoutMs,
+    retry,
+    fallback,
+    attempts,
+    error: String(last?.error || 'tool_invoke_failed'),
+    detail: fallback === 'internal' ? 'fallback_to_internal_recommended' : '',
+    canFallback: fallback === 'internal',
+    meta: {
+      adapter: 'mcp-local',
+      source: 'bridge-local',
+    },
+  };
+}
+
 const server = http.createServer((req, res) => {
   void (async () => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -418,19 +633,17 @@ const server = http.createServer((req, res) => {
         service: 'mcp-bridge-local',
         target: TARGET_BASE,
         tokenRequired: Boolean(BRIDGE_TOKEN),
+        invokePolicy: {
+          timeoutMs: DEFAULT_INVOKE_TIMEOUT_MS,
+          retry: DEFAULT_INVOKE_RETRY,
+          fallback: DEFAULT_FALLBACK_MODE,
+        },
       });
     }
-    if (url.pathname === '/tools') {
+    if (url.pathname === '/tools' || url.pathname === '/tool/manifest') {
       return sendJson(res, 200, {
         ok: true,
-        tools: [
-          'get_market_news_impact',
-          'get_strategy_metrics',
-          'list_strategy_features',
-          'create_strategy_features',
-          'generate_strategy_versions',
-          'list_strategy_versions',
-        ],
+        ...buildToolsManifest(),
       });
     }
     if (url.pathname !== '/tool/invoke') return sendJson(res, 404, { ok: false, error: 'not_found' });
@@ -445,13 +658,20 @@ const server = http.createServer((req, res) => {
     if (!body.ok) return sendJson(res, 400, { ok: false, error: body.error || 'invalid_body' });
     const tool = String(body.value?.tool || '').trim();
     if (!tool) return sendJson(res, 400, { ok: false, error: 'tool_required' });
+    const invokeOptions = normalizeInvokeOptions(body.value);
     try {
-      const out = await invokeTool(tool, body.value?.arguments || {});
-      return sendJson(res, 200, { ok: true, ...out });
+      const out = await invokeToolWithPolicy(tool, body.value?.arguments || {}, invokeOptions);
+      return sendJson(res, 200, out);
     } catch (err) {
-      return sendJson(res, 500, {
+      return sendJson(res, 200, {
         ok: false,
+        traceId: invokeOptions.traceId,
+        tool,
         error: String(err?.message || err),
+        timeoutMs: invokeOptions.timeoutMs,
+        retry: invokeOptions.retry,
+        fallback: invokeOptions.fallback,
+        canFallback: invokeOptions.fallback === 'internal',
       });
     }
   })().catch((err) => {

@@ -10,6 +10,12 @@
 npm run test:verify:runtime
 ```
 
+MCP 桥接协议（manifest + invoke envelope）可单独复验：
+
+```bash
+npm run test:smoke:mcp-bridge
+```
+
 ## Smoke 覆盖（`test:smoke:runtime`）
 
 - `GET /api/runtime/sessions`
@@ -18,6 +24,8 @@ npm run test:verify:runtime
 - `POST /api/runtime/tasks`
 - `POST /api/runtime/tasks/retry`（非法 ID 校验）
 - `POST /api/runtime/schedules`
+- `GET /api/runtime/approvals`
+- `GET /api/runtime/tools/manifest`
 
 ## E2E 覆盖（`test:e2e:runtime`）
 
@@ -29,6 +37,7 @@ npm run test:verify:runtime
 - `POST /api/ai/chat`：审批拦截分支（`approvalId`）
 - `POST /api/runtime/approvals/decide`
 - `POST /api/runtime/approvals/allowlist/add`
+- `GET /api/runtime/audit`
 - `POST /api/runtime/schedules/delete`
 - `POST /api/runtime/sessions/reset`
 - `POST /api/runtime/sessions/resume`
@@ -39,4 +48,5 @@ npm run test:verify:runtime
 2. `openclaw-native` 模式下 `/api/ai/chat` 能走 runtime 内核
 3. 调度 patch/delete 接口路径正确
 4. 审批配置与待审批列表可查询，审批决策可落地
-5. smoke + e2e 均通过
+5. 审计日志可查询（`/api/runtime/audit`）
+6. smoke + e2e 均通过；MCP bridge smoke 通过

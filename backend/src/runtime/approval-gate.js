@@ -20,8 +20,22 @@ function toWords(inputLike) {
     .filter(Boolean);
 }
 
-function isHighRisk(summaryLike) {
-  const words = toWords(summaryLike);
+function isHighRisk(inputLike = {}) {
+  const input = inputLike && typeof inputLike === 'object' ? inputLike : {};
+  const action = String(input.action || '').trim().toLowerCase();
+  const tool = String(input.tool || '').trim().toLowerCase();
+  const type = String(input.type || '').trim().toLowerCase();
+  const summary = String(input.summary || '').trim();
+  const command = String(input.command || '').trim().toLowerCase();
+  const externalUrl = String(input.url || '').trim().toLowerCase();
+  if (type === 'shell' || type === 'file_write' || type === 'external_request') return true;
+  if (action.includes('shell') || action.includes('file_write') || action.includes('external')) return true;
+  if (tool.includes('shell') || tool.includes('write') || tool.includes('delete') || tool.includes('http')) return true;
+  if (command) {
+    if (/(rm|mv|curl|wget|chmod|chown|docker|kubectl|ssh|scp)\b/i.test(command)) return true;
+  }
+  if (/^https?:\/\//i.test(externalUrl)) return true;
+  const words = toWords(`${action} ${tool} ${summary} ${command} ${externalUrl}`);
   return (
     words.includes('bash') ||
     words.includes('shell') ||
@@ -74,7 +88,14 @@ export function createApprovalGate(options = {}) {
     const summary = String(input.summary || action || '').trim();
     const security = normalizeSecurity(input.security || baseSecurity);
     const ask = normalizeAsk(input.ask || baseAsk);
-    const highRisk = isHighRisk(summary);
+    const highRisk = isHighRisk({
+      action,
+      tool: input.tool,
+      type: input.type,
+      summary,
+      command: input.command,
+      url: input.url,
+    });
     const allowlisted = isAllowlisted(`${action} ${summary}`);
 
     let allowed = false;
