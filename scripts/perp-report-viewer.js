@@ -69,10 +69,18 @@ import {
   SUPPORTED_TIMEFRAMES,
 } from '../frontend/src/modules/chat/config.js';
 import { CHAT_API_ROUTES, CHAT_DEFAULTS } from '../frontend/src/modules/chat/config.js';
+import {
+  normalizeExecutionTrace as normalizeExecutionTraceShared,
+  buildExecutionTraceHtml as buildExecutionTraceHtmlShared,
+  formatExecutionTrace as formatExecutionTraceShared,
+} from '../frontend/src/modules/chat/trace.js';
 import { CHAT_RUNTIME_STATE_SNIPPET } from '../frontend/src/modules/chat/runtime-state-snippet.js';
 import { CHAT_RUNTIME_RENDER_SNIPPET } from '../frontend/src/modules/chat/runtime-render-snippet.js';
 import { CHAT_RUNTIME_EVENTS_SNIPPET } from '../frontend/src/modules/chat/runtime-events-snippet.js';
 import { CHAT_RUNTIME_INPUT_SNIPPET } from '../frontend/src/modules/chat/runtime-input-snippet.js';
+import { CHAT_RUNTIME_INTENT_SNIPPET } from '../frontend/src/modules/chat/runtime-intent-snippet.js';
+import { CHAT_RUNTIME_API_SNIPPET } from '../frontend/src/modules/chat/runtime-api-snippet.js';
+import { CHAT_RUNTIME_TRACE_SNIPPET } from '../frontend/src/modules/chat/runtime-trace-snippet.js';
 
 const XSEA_SEED = XSEA_SEED_DEF.map((item) => ({
   ...item,
@@ -1929,10 +1937,16 @@ const HTML = `<!DOCTYPE html>
     const buildXbrainFlowDeps = ${buildXbrainFlowDeps.toString()};
     const createXbrainFlowHelpers = ${createXbrainFlowHelpers.toString()};
     const XSEA_SEED = ${JSON.stringify(XSEA_SEED)};
+    const normalizeExecutionTrace = ${normalizeExecutionTraceShared.toString()};
+    const buildExecutionTraceHtml = ${buildExecutionTraceHtmlShared.toString()};
+    const formatExecutionTrace = ${formatExecutionTraceShared.toString()};
 ${CHAT_RUNTIME_STATE_SNIPPET}
 ${CHAT_RUNTIME_RENDER_SNIPPET}
 ${CHAT_RUNTIME_EVENTS_SNIPPET}
 ${CHAT_RUNTIME_INPUT_SNIPPET}
+${CHAT_RUNTIME_INTENT_SNIPPET}
+${CHAT_RUNTIME_API_SNIPPET}
+${CHAT_RUNTIME_TRACE_SNIPPET}
     const XBRAIN_MODEL_OPTIONS = {
       deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
       chatgpt: ['openai-codex/gpt-5.3-codex', 'openai-codex/gpt-5.2-codex', 'openai-codex/gpt-5.1-codex'],
@@ -4596,7 +4610,7 @@ ${CHAT_RUNTIME_INPUT_SNIPPET}
           aiLinkStatusEl.textContent = text;
         }
         function formatExecutionTraceLocal(traceLike) {
-          return formatExecutionTraceRuntime(traceLike, 12);
+          return formatExecutionTrace(traceLike);
         }
         const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
         const DEEPSEEK_MODEL = 'deepseek-chat';
@@ -5853,59 +5867,19 @@ ${CHAT_RUNTIME_INPUT_SNIPPET}
           return notes.join('；');
         }
 
+        const chatApiClient = createChatApiClientRuntime({
+          routes: CHAT_ROUTES,
+          buildClientContext: buildClientContext,
+          setAiLinkStatus: setAiLinkStatus,
+        });
         async function askOpenClaw(q) {
-          const resp = await fetch(CHAT_ROUTES.aiChat, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({
-              message: q,
-              clientContext: buildClientContext(),
-            }),
-          });
-          let payload = null;
-          try {
-            payload = await resp.json();
-          } catch {}
-          if (!resp.ok || !payload || payload.ok !== true || !String(payload.reply || '').trim()) {
-            const reason = (payload && payload.error) ? String(payload.error) : ('HTTP ' + resp.status);
-            throw new Error(reason);
-          }
-          setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
-          return {
-            reply: String(payload.reply || '').trim(),
-            actions: Array.isArray(payload.actions) ? payload.actions : [],
-            source: String(payload.source || 'openclaw'),
-            executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
-          };
+          return chatApiClient.askOpenClaw(q);
         }
         function looksLikeConfigIntentLocal(q) {
-          const text = String(q || '').trim();
-          if (!text) return false;
-          if (/查看配置|当前配置|配置状态|^配置$|^设置$/.test(text)) return true;
-          if (/^\\/(config|配置|设置|setup)\\b/i.test(text)) return true;
-          if (/(杠杆|leverage|单次|仓位|risk|风险比例|dryrun|dry-run|实盘|live|运行模式|聊天通道|channel)/i.test(text)) {
-            return /配置|设置|绑定|连接|修改|切换|设为|改成|调整|参数|模式|运行|channel|通道|杠杆|仓位|风险|dryrun|live/i.test(text);
-          }
-          if (/telegram|tg|deepseek|codex|chatgpt|模型|model|token|apikey|api key/i.test(text)) {
-            return /配置|设置|绑定|连接|修改|切换|登录|login|token|apikey|api key|模型|model/i.test(text);
-          }
-          return false;
+          return looksLikeConfigIntentRuntime(q);
         }
         async function askConfigChannel(q) {
-          const resp = await fetch(CHAT_ROUTES.configChat, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({ message: q }),
-          });
-          if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          const payload = await resp.json().catch(function() { return null; });
-          if (!payload || payload.ok !== true) throw new Error('invalid payload');
-          return {
-            handled: Boolean(payload.handled),
-            reply: String(payload.reply || '').trim(),
-          };
+          return chatApiClient.askConfigChannel(q);
         }
         async function answer(q) {
           const cmd = handleLocalCmd(q);
@@ -5972,6 +5946,7 @@ ${CHAT_RUNTIME_INPUT_SNIPPET}
                 maxDurationMs: 2400,
                 onDone: function() { finishRowPendingState(thinking); },
               });
+              attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
               appendLocalChatLog({
                 ts: new Date().toISOString(),
                 role: 'bot',
@@ -5987,6 +5962,7 @@ ${CHAT_RUNTIME_INPUT_SNIPPET}
                   maxDurationMs: 2000,
                   onDone: function() { finishRowPendingState(thinking); },
                 });
+                attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
                 appendLocalChatLog({
                   ts: new Date().toISOString(),
                   role: 'bot',

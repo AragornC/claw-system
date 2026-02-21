@@ -20,6 +20,8 @@ import { buildServeApiDeps } from '../backend/src/routes/api-deps.js';
 import { createXbrainAuthService } from '../backend/src/services/xbrain-auth-service.js';
 import { createXbrainStateService } from '../backend/src/services/xbrain-state-service.js';
 import { createXbrainConfigService } from '../backend/src/services/xbrain-config-service.js';
+import { createChatToolOrchestrationService } from '../backend/src/services/chat-tool-orchestration-service.js';
+import { createChatLegacyFacadeService } from '../backend/src/services/chat-legacy-facade-service.js';
 import { XBRAIN_PROVIDER_MODEL_OPTIONS, XBRAIN_PROVIDER_KEYS } from '../backend/src/models/xbrain-providers.js';
 import { createOpenClawRuntime } from '../backend/src/runtime/index.js';
 
@@ -46,6 +48,8 @@ let xbrainConfigService = null;
 let serveApiDeps = null;
 let conversationRuntime = null;
 let openclawRuntime = null;
+let chatToolOrchestrationService = null;
+let legacyChatFacadeService = null;
 const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
@@ -371,6 +375,7 @@ xbrainConfigService = createXbrainConfigService({
   setXbrainSectionLock,
   setXbrainSectionPassword,
 });
+const chatLegacyFacade = getLegacyChatFacadeService();
 serveApiDeps = buildServeApiDeps({
   handleTelegramEventsApi,
   handleTelegramHealthApi,
@@ -398,9 +403,9 @@ serveApiDeps = buildServeApiDeps({
     return conversationRuntime.handleRuntimeApi(req, res, url);
   },
   handleConfigChatApi,
-  handleChatApi,
+  handleChatApi: (req, res) => chatLegacyFacade.handleChatApi(req, res),
   handleChatApiOpenClaw: async (req, res) => {
-    if (!conversationRuntime) return handleChatApi(req, res);
+    if (!conversationRuntime) return chatLegacyFacade.handleChatApi(req, res);
     return conversationRuntime.handleChatApi(req, res);
   },
   handleRuntimeTasksApi: async (req, res) => {
@@ -424,13 +429,16 @@ serveApiDeps = buildServeApiDeps({
     return conversationRuntime.handleRuntimeApi(req, res, { pathname: '/api/runtime/schedules/delete' });
   },
   legacyHandleConfigChatApi: handleConfigChatApi,
-  legacyHandleChatApi: handleChatApi,
-  buildLayeredMemoryBundle,
+  legacyHandleChatApi: (req, res) => chatLegacyFacade.handleChatApi(req, res),
+  buildLayeredMemoryBundle: (queryText) => chatLegacyFacade.buildLayeredMemoryBundle(queryText),
   buildTradingContext,
   executeStrategyToolCalls,
   buildMcpStyleToolManifest,
   checkMcpBridgeConnectivity,
   resolveToolAdapterMode,
+  resolveCapabilityAdapter: (optionsLike) => chatLegacyFacade.resolveCapabilityAdapter(optionsLike),
+  handleNaturalLanguageToolOrchestration: (messageLike, source) =>
+    chatLegacyFacade.handleNaturalLanguageToolOrchestration(messageLike, source),
   handleXbrainStateApi,
   handleXbrainAuthStatusApi,
   handleXbrainAuthStartApi,
@@ -4671,188 +4679,44 @@ function strategyToolRegistry(source = 'dashboard', rawMessage = '') {
   };
 }
 
+function getChatToolOrchestrationService() {
+  if (chatToolOrchestrationService) return chatToolOrchestrationService;
+  chatToolOrchestrationService = createChatToolOrchestrationService({
+    strategyToolRegistry,
+    resolveToolAdapterMode,
+    resolveMcpBridgeConfig,
+    callMcpBridgeTool,
+    buildMcpStyleToolManifest,
+    truncText,
+    buildLayeredMemoryBundle,
+    buildTradingContext,
+    runOpenClawToolRouter,
+  });
+  return chatToolOrchestrationService;
+}
+
+function getLegacyChatFacadeService() {
+  if (legacyChatFacadeService) return legacyChatFacadeService;
+  legacyChatFacadeService = createChatLegacyFacadeService({
+    buildLayeredMemoryBundleImpl: (queryText) => buildLayeredMemoryBundle(queryText),
+    resolveCapabilityAdapterImpl: (optionsLike) => resolveCapabilityAdapter(optionsLike),
+    handleNaturalLanguageToolOrchestrationImpl: (messageLike, source) =>
+      handleNaturalLanguageToolOrchestration(messageLike, source),
+    handleChatApiImpl: (req, res) => handleChatApi(req, res),
+  });
+  return legacyChatFacadeService;
+}
+
 function resolveCapabilityAdapter(optionsLike = {}) {
-  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
-  const source = String(options.source || 'dashboard');
-  const rawMessage = String(options.rawMessage || '');
-  const registry = strategyToolRegistry(source, rawMessage);
-  const mode = resolveToolAdapterMode();
-  const mcpCfg = resolveMcpBridgeConfig();
-  const mcpBridgeEnabled = mcpCfg.enabled;
-  const mcpBridgePreferredTools = new Set(['get_market_news_impact', 'get_strategy_metrics', 'list_strategy_features']);
-  async function invokeWithMode(toolName, args) {
-    const runner = registry[toolName];
-    if (typeof runner !== 'function') {
-      return { ok: false, error: 'tool_not_found', summary: '' };
-    }
-    // MCP adapter: prefer external bridge for selected tools, fallback to internal on failure.
-    if (mode === 'mcp') {
-      let bridged = null;
-      if (mcpBridgeEnabled && mcpBridgePreferredTools.has(toolName)) {
-        bridged = await callMcpBridgeTool(toolName, args, { source });
-        if (bridged?.ok) {
-          return {
-            ok: true,
-            summary: String(bridged.summary || ''),
-            actions: Array.isArray(bridged.actions) ? bridged.actions : [],
-            data: bridged.data && typeof bridged.data === 'object' ? bridged.data : null,
-            adapterMeta: {
-              mode: 'mcp',
-              transport: 'mcp-bridge',
-              fallbackToInternal: false,
-              bridgeEnabled: true,
-              traceId: bridged.traceId || null,
-              retryCount: Number(bridged.retryCount || 0),
-              attempts: Array.isArray(bridged.attempts) ? bridged.attempts.slice(0, 4) : [],
-            },
-          };
-        }
-      }
-      const out = await runner(args);
-      return {
-        ok: true,
-        ...(out && typeof out === 'object' ? out : {}),
-        adapterMeta: {
-          mode: 'mcp',
-          transport: mcpBridgeEnabled ? 'mcp-bridge-fallback-internal' : 'mcp-skeleton-fallback',
-          fallbackToInternal: true,
-          bridgeEnabled: mcpBridgeEnabled,
-          bridgeError: bridged?.ok ? null : String(bridged?.error || ''),
-          bridgeTraceId: bridged?.traceId || null,
-        },
-      };
-    }
-    const out = await runner(args);
-    return {
-      ok: true,
-      ...(out && typeof out === 'object' ? out : {}),
-      adapterMeta: {
-        mode: 'internal',
-        transport: 'inproc',
-        fallbackToInternal: false,
-      },
-    };
-  }
-  return {
-    mode,
-    listTools() {
-      const tools = buildMcpStyleToolManifest().tools;
-      return tools.filter((tool) => {
-        const adapters = Array.isArray(tool?.annotations?.adapters) ? tool.annotations.adapters : ['internal'];
-        return adapters.includes(mode);
-      });
-    },
-    async invokeTool(toolNameLike, argsLike) {
-      const toolName = String(toolNameLike || '').trim();
-      const args = argsLike && typeof argsLike === 'object' ? argsLike : {};
-      return invokeWithMode(toolName, args);
-    },
-  };
+  return getChatToolOrchestrationService().resolveCapabilityAdapter(optionsLike);
 }
 
 async function executeStrategyToolCalls(toolCallsLike = [], source = 'dashboard', rawMessage = '') {
-  const calls = Array.isArray(toolCallsLike) ? toolCallsLike : [];
-  const summaries = [];
-  const actions = [];
-  const toolResults = [];
-  const adapter = resolveCapabilityAdapter({ source, rawMessage });
-  const capabilitySet = new Set(adapter.listTools().map((x) => String(x?.name || '').trim()));
-  for (const call of calls.slice(0, 4)) {
-    const tool = String(call?.tool || '').trim();
-    const args = call?.arguments && typeof call.arguments === 'object' ? call.arguments : {};
-    if (!tool) continue;
-    if (!capabilitySet.has(tool)) continue;
-    const out = await adapter.invokeTool(tool, args);
-    if (out?.ok === false) continue;
-    const summary = truncText(String(out?.summary || ''), 4000);
-    if (summary) summaries.push(summary);
-    if (Array.isArray(out?.actions)) out.actions.forEach((a) => actions.push(a));
-    toolResults.push({
-      tool,
-      arguments: args,
-      summary,
-      data: out?.data && typeof out.data === 'object' ? out.data : null,
-      adapter: adapter.mode,
-      adapterMeta: out?.adapterMeta && typeof out.adapterMeta === 'object' ? out.adapterMeta : null,
-    });
-  }
-  return { summaries, actions, toolResults };
+  return getChatToolOrchestrationService().executeStrategyToolCalls(toolCallsLike, source, rawMessage);
 }
 
 async function handleNaturalLanguageToolOrchestration(messageLike = '', source = 'dashboard') {
-  const message = String(messageLike || '').trim();
-  if (!message) return { handled: false };
-  if (/^(\/|记忆状态|工件状态|使用工件|反馈工件|反馈\s)/i.test(message)) return { handled: false };
-  try {
-    const memoryBundle = buildLayeredMemoryBundle(message);
-    const trading = buildTradingContext({ currentView: 'dashboard', userIntentHint: 'tool-router:' + source }, memoryBundle);
-    const maxSteps = 3;
-    const routeDeadlineAt = Date.now() + 18_000;
-    const planState = {
-      toolResults: [],
-    };
-    const replies = [];
-    const allSummaries = [];
-    const allActions = [];
-    for (let step = 1; step <= maxSteps; step += 1) {
-      const remainMs = routeDeadlineAt - Date.now();
-      if (remainMs <= 1200) break;
-      const routedAny = await Promise.race([
-        runOpenClawToolRouter(message, trading.context, {
-          step,
-          maxSteps,
-          toolResults: planState.toolResults,
-        })
-          .then((v) => ({ ok: true, value: v }))
-          .catch(() => ({ ok: false })),
-        new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), Math.max(1000, Math.min(3500, remainMs - 300)))),
-      ]);
-      if (!routedAny || routedAny.ok !== true || !routedAny.value) break;
-      const routed = routedAny.value;
-      if (routed.reply) replies.push(String(routed.reply));
-      if (!Array.isArray(routed.toolCalls) || !routed.toolCalls.length) break;
-      const executed = await executeStrategyToolCalls(routed.toolCalls, source, message);
-      if (Array.isArray(executed.summaries)) {
-        executed.summaries.filter(Boolean).forEach((s) => allSummaries.push(String(s)));
-      }
-      if (Array.isArray(executed.actions)) {
-        executed.actions.forEach((a) => allActions.push(a));
-      }
-      if (Array.isArray(executed.toolResults) && executed.toolResults.length) {
-        planState.toolResults = planState.toolResults.concat(executed.toolResults).slice(-12);
-      }
-      if (!executed.toolResults || !executed.toolResults.length) break;
-    }
-    const parts = replies.concat(allSummaries);
-    const reply = parts.filter(Boolean).join('\n\n').trim();
-    const replyPayload = {
-      handled: Boolean(reply),
-      reply: reply || '已处理你的请求。',
-      actions: allActions,
-    };
-    if (!replyPayload.handled) {
-      const lower = message.toLowerCase();
-      if (/(新闻|消息面|宏观|事件|headline|news)/i.test(lower) && /(影响|情绪|risk|风险|波动)/i.test(lower)) {
-        const assetMatch = message.match(/\b(BTC|ETH|SOL|BNB|XRP|DOGE)\b/i);
-        const fallbackExec = await executeStrategyToolCalls(
-          [{ tool: 'get_market_news_impact', arguments: { asset: assetMatch ? String(assetMatch[1]).toUpperCase() : 'BTC', q: '', limit: 6 } }],
-          source,
-          message,
-        );
-        const fbReply = (fallbackExec.summaries || []).join('\n\n').trim();
-        if (fbReply) {
-          return {
-            handled: true,
-            reply: fbReply,
-            actions: Array.isArray(fallbackExec.actions) ? fallbackExec.actions : [],
-          };
-        }
-      }
-    }
-    return replyPayload;
-  } catch {
-    return { handled: false };
-  }
+  return getChatToolOrchestrationService().handleNaturalLanguageToolOrchestration(messageLike, source);
 }
 
 function strategyArtifactToAction(recordLike) {
@@ -9074,6 +8938,7 @@ function setupConversationRuntime() {
     try {
       openclawRuntime?.shutdown?.();
     } catch {}
+    const chatFacade = getLegacyChatFacadeService();
     openclawRuntime = createOpenClawRuntime({
       workspaceDir: WORKDIR,
       sendJson,
@@ -9081,8 +8946,9 @@ function setupConversationRuntime() {
       appendChatHistoryEvent,
       runOpenClawChat,
       buildTradingContext,
-      buildLayeredMemoryBundle,
-      handleNaturalLanguageToolOrchestration,
+      buildLayeredMemoryBundle: (queryText) => chatFacade.buildLayeredMemoryBundle(queryText),
+      handleNaturalLanguageToolOrchestration: (messageLike, source) =>
+        chatFacade.handleNaturalLanguageToolOrchestration(messageLike, source),
       executeStrategyToolCalls,
       buildMcpStyleToolManifest,
       checkMcpBridgeConnectivity,
