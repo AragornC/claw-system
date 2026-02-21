@@ -52,7 +52,7 @@ function parseTaskIntent(messageLike = '') {
     if (!tool) return null;
     return { tool, args: safeObj(args), title: `task:${tool}` };
   }
-  if (/^(创建任务|run task)\b/i.test(message)) {
+  if (/^(创建任务|run task)(?:\s|$)/i.test(message)) {
     return {
       tool: 'get_market_news_impact',
       args: { limit: 6 },
@@ -87,7 +87,7 @@ function parseScheduleIntent(messageLike = '') {
     };
   }
 
-  if (/^(创建定时|创建调度|定时任务)\b/i.test(message)) {
+  if (/^(创建定时|创建调度|定时任务)(?:\s|$)/i.test(message)) {
     const remain = message.replace(/^(创建定时|创建调度|定时任务)\s*/i, '');
     return {
       tool: 'get_market_news_impact',
@@ -253,7 +253,7 @@ export function createConversationRuntime(options = {}) {
     const memoryHits = memoryManager.search(message, { maxResults: 8, minScore: 0.12 });
     executionTrace.push(trace('memory_search', `hits=${memoryHits.length}`));
 
-    if (/^(memory_search|记忆检索)\b/i.test(message)) {
+    if (/^(memory_search|记忆检索)(?:\s|$)/i.test(message)) {
       const reply = memoryHits.length
         ? memoryHits.map((x, i) => `${i + 1}. ${x.path}#L${x.startLine} ${x.snippet}`).join('\n')
         : '未检索到相关记忆。';
@@ -268,7 +268,7 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    if (/^(memory_get|读取记忆)\b/i.test(message)) {
+    if (/^(memory_get|读取记忆)(?:\s|$)/i.test(message)) {
       const m = message.match(/^(?:memory_get|读取记忆)\s+(\S+)(?:\s+(\d+))?(?:\s+(\d+))?/i);
       const targetPath = text(m?.[1] || 'MEMORY.md');
       const from = Number(m?.[2] || 1) || 1;
@@ -288,7 +288,7 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    if (/^(reset session|会话重置)\b/i.test(message)) {
+    if (/^(reset session|会话重置)(?:\s|$)/i.test(message)) {
       const next = sessionManager.reset(sessionKey);
       sendJson(res, 200, {
         ok: true,
