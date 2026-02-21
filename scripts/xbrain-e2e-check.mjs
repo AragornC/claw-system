@@ -81,6 +81,8 @@ async function runChecks() {
     });
     if (switchOut.ok && switchOut.payload?.ok === true) {
       results.push(['model-switch-current', 'PASS', '模型切换链路可用']);
+    } else if (switchOut.status === 423 || switchOut.status === 403) {
+      results.push(['model-switch-current', 'GUARDED', '模型切换被锁保护生效']);
     } else if (switchOut.status === 400) {
       const reason = String(switchOut.payload?.error || '');
       if (/未上线|未在当前厂商可用列表/.test(reason)) {
