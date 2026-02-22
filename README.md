@@ -20,12 +20,14 @@ npm run thunderclaw:start
 默认访问：
 
 - `http://127.0.0.1:3456`
+- `http://127.0.0.1:3456/onboarding.html`（简化 OpenClaw 配置向导）
 
-打开页面后按向导：
+默认首页已恢复为 ThunderClaw 原功能页（虾脑 / 虾线 / 虾海 / 虾策）。  
+如需快速配置 OpenClaw，再打开向导页：
 
 1. 粘贴 DeepSeek API Key  
 2. 点击“一键完成基础配置”  
-3. 直接在页面下方聊天
+3. 回到主页面直接聊天
 
 ---
 
@@ -48,7 +50,10 @@ node scripts/thunderclaw-cli.js start --port 3456
 ## 3. 当前功能（第一步）
 
 后端：`scripts/thunderclaw-server.js`  
-前端：`web/index.html`
+前端：
+
+- `memory/report/index.html`（主页面）
+- `web/index.html`（配置向导）
 
 提供 API：
 
@@ -60,6 +65,10 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `POST /api/gateway/start`：启动 Gateway
 - `POST /api/gateway/stop`：停止 Gateway
 - `POST /api/chat`：通过 `openclaw agent --json` 发起对话
+- `POST /api/ai/chat`：旧主页面聊天入口兼容
+- `GET /api/chat/history`：旧主页面聊天历史轮询
+- `GET /api/ai/health`：旧主页面 AI 链路健康检查
+- `GET/POST /api/xbrain/*`：旧主页面虾脑配置接口兼容
 
 已支持认证路径：
 

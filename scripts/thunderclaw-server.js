@@ -11,9 +11,14 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
 const WEB_DIR = path.resolve(ROOT_DIR, "web");
+const REPORT_DIR = path.resolve(ROOT_DIR, "memory", "report");
+const MEMORY_DIR = path.resolve(ROOT_DIR, "memory");
+const XBRAIN_STATE_PATH = path.join(MEMORY_DIR, "xbrain-state.json");
+const CHAT_HISTORY_PATH = path.join(MEMORY_DIR, "chat-history.json");
 const DEFAULT_PORT = Number.parseInt(process.env.THUNDERCLAW_PORT ?? "3456", 10) || 3456;
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_GATEWAY_LOG_LINES = 500;
+const MAX_CHAT_EVENTS = 2_000;
 
 const gatewayState = {
   proc: null,
@@ -30,6 +35,214 @@ const oauthState = {
 };
 
 const SUPPORTED_OAUTH_PROVIDERS = new Set(["openai-codex"]);
+
+function normalizeProviderKey(providerRaw) {
+  const value = String(providerRaw ?? "")
+    .trim()
+    .toLowerCase();
+  if (!value) return "deepseek";
+  if (value === "openai" || value === "openai-codex" || value === "chatgpt" || value === "codex") {
+    return "chatgpt";
+  }
+  if (value.startsWith("deepseek")) return "deepseek";
+  if (value.startsWith("anthropic")) return "anthropic";
+  return value;
+}
+
+function inferProviderFromModelRef(modelRefRaw) {
+  const modelRef = String(modelRefRaw ?? "").trim();
+  if (!modelRef) {
+    return { provider: "deepseek", modelId: "deepseek-chat", modelRef: "deepseek/deepseek-chat" };
+  }
+  if (!modelRef.includes("/")) {
+    const p = normalizeProviderKey(modelRef);
+    if (p === "chatgpt") {
+      return { provider: "chatgpt", modelId: "gpt-5.3-codex", modelRef: "openai-codex/gpt-5.3-codex" };
+    }
+    if (p === "anthropic") {
+      return { provider: "anthropic", modelId: "claude-3-5-sonnet", modelRef: "anthropic/claude-3-5-sonnet" };
+    }
+    return { provider: "deepseek", modelId: "deepseek-chat", modelRef: "deepseek/deepseek-chat" };
+  }
+  const [prefix, ...rest] = modelRef.split("/");
+  const provider = normalizeProviderKey(prefix);
+  const modelId = rest.join("/") || (provider === "deepseek" ? "deepseek-chat" : "gpt-5.3-codex");
+  return { provider, modelId, modelRef };
+}
+
+function toModelRef(providerRaw, modelIdRaw) {
+  const provider = normalizeProviderKey(providerRaw);
+  const modelId = String(modelIdRaw ?? "").trim();
+  if (!modelId) {
+    if (provider === "chatgpt") return "openai-codex/gpt-5.3-codex";
+    if (provider === "anthropic") return "anthropic/claude-3-5-sonnet";
+    return "deepseek/deepseek-chat";
+  }
+  if (modelId.includes("/")) {
+    return modelId;
+  }
+  if (provider === "chatgpt") return `openai-codex/${modelId}`;
+  if (provider === "anthropic") return `anthropic/${modelId}`;
+  return `deepseek/${modelId}`;
+}
+
+function uniqStrings(items) {
+  return Array.from(
+    new Set(
+      (Array.isArray(items) ? items : [])
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function maskSecret(valueRaw) {
+  const value = String(valueRaw ?? "").trim();
+  if (!value) return "(未设置)";
+  if (value.length <= 8) return `${value.slice(0, 2)}***`;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function createInitialXbrainStore() {
+  return {
+    base: {
+      modelProvider: "deepseek",
+      modelId: "deepseek-chat",
+      runtimeModelProvider: "deepseek",
+      runtimeModelId: "deepseek-chat",
+      providerCatalog: ["deepseek", "chatgpt", "anthropic"],
+      modelRegistry: ["deepseek/deepseek-chat"],
+      deepseekApiKey: "",
+      providerAuth: {
+        deepseek: { configured: false, type: "apiKey", source: "-", error: "" },
+        chatgpt: { configured: false, type: "oauth", source: "-", error: "" },
+        anthropic: { configured: false, type: "oauth", source: "-", error: "" },
+      },
+      telegramTokenValue: "",
+      telegramRelayEnabled: false,
+      chatChannel: "dashboard",
+    },
+    exchange: {
+      apiKeyValue: "",
+      apiSecretValue: "",
+      passphraseValue: "",
+    },
+    strategy: {
+      profileName: "default",
+      symbol: "BTC/USDT:USDT",
+      leverage: 10,
+      sizeMode: "risk",
+      orderSize: 8,
+      riskPct: 0.015,
+      minNotional: 5,
+      maxNotional: 80,
+      runtimeMode: "dryrun",
+      activeStrategy: "default",
+    },
+    locks: {
+      base: { locked: false, hasPassword: false, password: "" },
+      channel: { locked: false, hasPassword: false, password: "" },
+      exchange: { locked: false, hasPassword: false, password: "" },
+      strategy: { locked: false, hasPassword: false, password: "" },
+    },
+  };
+}
+
+function loadXbrainStore() {
+  const store = createInitialXbrainStore();
+  try {
+    if (!fs.existsSync(XBRAIN_STATE_PATH)) {
+      return store;
+    }
+    const raw = fs.readFileSync(XBRAIN_STATE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      store.base = { ...store.base, ...(parsed.base || {}) };
+      store.exchange = { ...store.exchange, ...(parsed.exchange || {}) };
+      store.strategy = { ...store.strategy, ...(parsed.strategy || {}) };
+      for (const section of ["base", "channel", "exchange", "strategy"]) {
+        const lockInfo = parsed?.locks?.[section];
+        if (lockInfo && typeof lockInfo === "object") {
+          store.locks[section] = { ...store.locks[section], ...lockInfo };
+        }
+      }
+    }
+  } catch {}
+  return store;
+}
+
+const xbrainStore = loadXbrainStore();
+
+function saveXbrainStore() {
+  try {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+    fs.writeFileSync(XBRAIN_STATE_PATH, JSON.stringify(xbrainStore, null, 2), "utf8");
+  } catch {}
+}
+
+function createInitialChatHistory() {
+  return { nextId: 1, events: [] };
+}
+
+function loadChatHistory() {
+  try {
+    if (!fs.existsSync(CHAT_HISTORY_PATH)) {
+      return createInitialChatHistory();
+    }
+    const raw = fs.readFileSync(CHAT_HISTORY_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const events = Array.isArray(parsed?.events)
+      ? parsed.events
+          .filter((ev) => ev && typeof ev === "object")
+          .map((ev) => ({
+            id: Number(ev.id) || 0,
+            ts: String(ev.ts || new Date().toISOString()),
+            role: ev.role === "user" ? "user" : "bot",
+            source: String(ev.source || "dashboard"),
+            text: String(ev.text || ""),
+            from: typeof ev.from === "string" ? ev.from : undefined,
+            chatId: ev.chatId != null ? String(ev.chatId) : undefined,
+          }))
+      : [];
+    const maxId = events.reduce((m, ev) => Math.max(m, Number(ev.id) || 0), 0);
+    return {
+      nextId: Number(parsed?.nextId) > maxId ? Number(parsed.nextId) : maxId + 1,
+      events: events.slice(-MAX_CHAT_EVENTS),
+    };
+  } catch {
+    return createInitialChatHistory();
+  }
+}
+
+const chatHistory = loadChatHistory();
+
+function saveChatHistory() {
+  try {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+    fs.writeFileSync(CHAT_HISTORY_PATH, JSON.stringify(chatHistory, null, 2), "utf8");
+  } catch {}
+}
+
+function appendChatEvent(eventLike) {
+  const item = eventLike && typeof eventLike === "object" ? eventLike : {};
+  const event = {
+    id: chatHistory.nextId,
+    ts: String(item.ts || new Date().toISOString()),
+    role: item.role === "user" ? "user" : "bot",
+    source: String(item.source || "dashboard"),
+    text: String(item.text || "").trim(),
+  };
+  if (!event.text) return null;
+  if (item.from != null) event.from = String(item.from);
+  if (item.chatId != null) event.chatId = String(item.chatId);
+  chatHistory.nextId += 1;
+  chatHistory.events.push(event);
+  if (chatHistory.events.length > MAX_CHAT_EVENTS) {
+    chatHistory.events.splice(0, chatHistory.events.length - MAX_CHAT_EVENTS);
+  }
+  saveChatHistory();
+  return event;
+}
 
 function resolveOpenClawCommand() {
   const localBinName = process.platform === "win32" ? "openclaw.cmd" : "openclaw";
@@ -222,33 +435,42 @@ function guessContentType(filePath) {
 async function serveStatic(req, res) {
   const rawUrl = new URL(req.url ?? "/", "http://localhost");
   let pathname = decodeURIComponent(rawUrl.pathname);
+  const onboardingAliases = new Set(["/onboarding", "/onboarding.html", "/xbrain-setup", "/xbrain-setup.html"]);
+  const candidates = [];
   if (pathname === "/") {
-    pathname = "/index.html";
+    candidates.push(path.join(REPORT_DIR, "index.html"));
+  } else if (onboardingAliases.has(pathname)) {
+    candidates.push(path.join(WEB_DIR, "index.html"));
+  } else {
+    const safePath = path
+      .normalize(pathname)
+      .replace(/^([/\\])+/, "")
+      .replace(/^(\.\.[/\\])+/, "");
+    const reportPath = path.join(REPORT_DIR, safePath);
+    const webPath = path.join(WEB_DIR, safePath);
+    candidates.push(reportPath, webPath);
   }
 
-  const safePath = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
-  const targetPath = path.join(WEB_DIR, safePath);
-
-  if (!targetPath.startsWith(WEB_DIR)) {
-    sendJson(res, 400, { ok: false, error: "Invalid path" });
-    return;
-  }
-
-  try {
-    const stat = await fsp.stat(targetPath);
-    if (!stat.isFile()) {
-      sendJson(res, 404, { ok: false, error: "Not found" });
-      return;
+  for (const targetPath of candidates) {
+    const isInReport = targetPath.startsWith(REPORT_DIR);
+    const isInWeb = targetPath.startsWith(WEB_DIR);
+    if (!isInReport && !isInWeb) {
+      continue;
     }
-    const content = await fsp.readFile(targetPath);
-    res.writeHead(200, {
-      "Content-Type": guessContentType(targetPath),
-      "Cache-Control": "no-store",
-    });
-    res.end(content);
-  } catch {
-    sendJson(res, 404, { ok: false, error: "Not found" });
+    try {
+      const stat = await fsp.stat(targetPath);
+      if (!stat.isFile()) continue;
+      const content = await fsp.readFile(targetPath);
+      res.writeHead(200, {
+        "Content-Type": guessContentType(targetPath),
+        "Cache-Control": "no-store",
+      });
+      res.end(content);
+      return;
+    } catch {}
   }
+
+  sendJson(res, 404, { ok: false, error: "Not found" });
 }
 
 async function readJsonBody(req) {
@@ -628,6 +850,258 @@ async function waitGatewayHealthy(params = {}) {
   return { ok: false, error: lastError || "gateway health check timeout" };
 }
 
+function sanitizeProviderCatalog(items) {
+  const known = new Set(["deepseek", "chatgpt", "anthropic"]);
+  const out = uniqStrings(items)
+    .map((p) => normalizeProviderKey(p))
+    .filter((p) => known.has(p));
+  if (!out.length) {
+    return ["deepseek", "chatgpt", "anthropic"];
+  }
+  return out;
+}
+
+function getAuthProviderEntry(modelsJson, provider) {
+  const providers = Array.isArray(modelsJson?.auth?.providers) ? modelsJson.auth.providers : [];
+  return providers.find((item) => normalizeProviderKey(item?.provider) === provider) ?? null;
+}
+
+async function syncXbrainFromOpenClaw() {
+  const modelsRes = await runOpenClawCommand(["models", "status", "--json"], {
+    timeoutMs: 20_000,
+  });
+  if (!modelsRes.ok) {
+    return {
+      ok: false,
+      error: (modelsRes.stderr || modelsRes.stdout || "").trim() || "models status failed",
+    };
+  }
+  const modelsJson = parseJsonSafe(modelsRes.stdout);
+  if (!modelsJson || typeof modelsJson !== "object") {
+    return { ok: false, error: "invalid models status payload" };
+  }
+
+  const defaultModelRef = String(modelsJson.defaultModel || modelsJson.resolvedDefault || "").trim();
+  if (defaultModelRef) {
+    const inferred = inferProviderFromModelRef(defaultModelRef);
+    xbrainStore.base.modelProvider = inferred.provider;
+    xbrainStore.base.modelId = inferred.modelId;
+    xbrainStore.base.runtimeModelProvider = inferred.provider;
+    xbrainStore.base.runtimeModelId = inferred.modelId;
+  }
+
+  const allowed = uniqStrings(modelsJson.allowed);
+  if (allowed.length) {
+    xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...allowed]);
+  }
+
+  const providerCatalog = new Set(sanitizeProviderCatalog(xbrainStore.base.providerCatalog));
+  for (const modelRef of xbrainStore.base.modelRegistry || []) {
+    providerCatalog.add(inferProviderFromModelRef(modelRef).provider);
+  }
+  providerCatalog.add(normalizeProviderKey(xbrainStore.base.modelProvider));
+  xbrainStore.base.providerCatalog = sanitizeProviderCatalog(Array.from(providerCatalog));
+
+  const baseAuth = xbrainStore.base.providerAuth && typeof xbrainStore.base.providerAuth === "object"
+    ? xbrainStore.base.providerAuth
+    : {};
+  const deepseekEntry = getAuthProviderEntry(modelsJson, "deepseek");
+  const openaiEntry = getAuthProviderEntry(modelsJson, "chatgpt");
+  const anthropicEntry = getAuthProviderEntry(modelsJson, "anthropic");
+
+  const deepseekKey = String(xbrainStore.base.deepseekApiKey || "").trim();
+  const deepseekDetail = String(deepseekEntry?.effective?.detail || "").trim();
+  const deepseekConfigured = Boolean(
+    deepseekKey || deepseekDetail || (deepseekEntry?.effective && deepseekEntry.effective.kind !== "none"),
+  );
+  const providerAuth = {
+    deepseek: {
+      configured: deepseekConfigured,
+      masked: deepseekKey ? maskSecret(deepseekKey) : deepseekDetail || "(未设置)",
+      plain: deepseekKey,
+      source: String(deepseekEntry?.effective?.kind || (deepseekConfigured ? "xbrain" : "-")),
+      error: "",
+      type: "apiKey",
+    },
+    chatgpt: {
+      configured: Boolean(openaiEntry?.effective && openaiEntry.effective.kind !== "none")
+        || Boolean(baseAuth?.chatgpt?.configured),
+      masked: Boolean(openaiEntry?.effective && openaiEntry.effective.kind !== "none") || Boolean(baseAuth?.chatgpt?.configured)
+        ? "oauth-connected"
+        : "(未设置)",
+      plain: "",
+      source: String(openaiEntry?.effective?.kind || (baseAuth?.chatgpt?.configured ? "oauth" : "-")),
+      error: "",
+      type: "oauth",
+    },
+    anthropic: {
+      configured: Boolean(anthropicEntry?.effective && anthropicEntry.effective.kind !== "none")
+        || Boolean(baseAuth?.anthropic?.configured),
+      masked: Boolean(anthropicEntry?.effective && anthropicEntry.effective.kind !== "none")
+        || Boolean(baseAuth?.anthropic?.configured)
+        ? "oauth-connected"
+        : "(未设置)",
+      plain: "",
+      source: String(anthropicEntry?.effective?.kind || (baseAuth?.anthropic?.configured ? "oauth" : "-")),
+      error: "",
+      type: "oauth",
+    },
+  };
+  xbrainStore.base.providerAuth = providerAuth;
+  xbrainStore.base.telegramRelayEnabled = Boolean(xbrainStore.base.telegramRelayEnabled);
+  xbrainStore.base.chatChannel = String(xbrainStore.base.chatChannel || "dashboard");
+  saveXbrainStore();
+  return { ok: true, modelsJson };
+}
+
+function getLocksSnapshot() {
+  const out = {};
+  for (const section of ["base", "channel", "exchange", "strategy"]) {
+    const lockInfo = xbrainStore?.locks?.[section] || {};
+    out[section] = {
+      locked: Boolean(lockInfo.locked),
+      hasPassword: Boolean(lockInfo.hasPassword),
+    };
+  }
+  return out;
+}
+
+function getXbrainStateSnapshot() {
+  const base = xbrainStore.base || {};
+  const exchange = xbrainStore.exchange || {};
+  const strategy = xbrainStore.strategy || {};
+  const locks = getLocksSnapshot();
+  const providerCatalog = sanitizeProviderCatalog(base.providerCatalog);
+  const providerAuth = base.providerAuth && typeof base.providerAuth === "object" ? base.providerAuth : {};
+  const modelProvider = normalizeProviderKey(base.modelProvider || "deepseek");
+  const modelId = String(base.modelId || "deepseek-chat");
+  const runtimeProvider = normalizeProviderKey(base.runtimeModelProvider || modelProvider);
+  const runtimeModelId = String(base.runtimeModelId || modelId);
+  const modelRegistry = uniqStrings(base.modelRegistry || [toModelRef(modelProvider, modelId)]);
+  const telegramToken = String(base.telegramTokenValue || "").trim();
+  const telegramConfigured = Boolean(telegramToken);
+  const deepseekMeta = providerAuth.deepseek && typeof providerAuth.deepseek === "object" ? providerAuth.deepseek : {};
+  const chatgptMeta = providerAuth.chatgpt && typeof providerAuth.chatgpt === "object" ? providerAuth.chatgpt : {};
+  const anthropicMeta =
+    providerAuth.anthropic && typeof providerAuth.anthropic === "object" ? providerAuth.anthropic : {};
+
+  return {
+    base: {
+      modelProvider,
+      modelId,
+      runtimeModelProvider: runtimeProvider,
+      runtimeModelId,
+      providerCatalog,
+      modelRegistry,
+      providerAuth: {
+        deepseek: {
+          configured: Boolean(deepseekMeta.configured),
+          masked: String(deepseekMeta.masked || maskSecret(base.deepseekApiKey)),
+          plain: String(deepseekMeta.plain || base.deepseekApiKey || ""),
+          source: String(deepseekMeta.source || "-"),
+          error: String(deepseekMeta.error || ""),
+          type: "apiKey",
+        },
+        chatgpt: {
+          configured: Boolean(chatgptMeta.configured),
+          masked: String(chatgptMeta.masked || "(未设置)"),
+          plain: "",
+          source: String(chatgptMeta.source || "-"),
+          error: String(chatgptMeta.error || ""),
+          type: "oauth",
+        },
+        anthropic: {
+          configured: Boolean(anthropicMeta.configured),
+          masked: String(anthropicMeta.masked || "(未设置)"),
+          plain: "",
+          source: String(anthropicMeta.source || "-"),
+          error: String(anthropicMeta.error || ""),
+          type: "oauth",
+        },
+      },
+      modelAuthConfigured: Boolean(providerAuth?.[modelProvider]?.configured),
+      modelAuthMasked: String(providerAuth?.[modelProvider]?.masked || "(未设置)"),
+      modelAuthSource: String(providerAuth?.[modelProvider]?.source || "-"),
+      modelAuthError: String(providerAuth?.[modelProvider]?.error || ""),
+      telegramTokenValue: telegramToken,
+      telegramTokenMasked: maskSecret(telegramToken),
+      telegramConfigured,
+      telegramRelayEnabled: Boolean(base.telegramRelayEnabled),
+      chatChannel: String(base.chatChannel || "dashboard"),
+    },
+    exchange: {
+      apiKeyMasked: maskSecret(exchange.apiKeyValue),
+      apiSecretMasked: maskSecret(exchange.apiSecretValue),
+      passphraseMasked: maskSecret(exchange.passphraseValue),
+    },
+    strategy: {
+      profileName: String(strategy.profileName || "default"),
+      activeStrategy: String(strategy.activeStrategy || strategy.profileName || "default"),
+      symbol: String(strategy.symbol || "BTC/USDT:USDT"),
+      leverage: Number.isFinite(Number(strategy.leverage)) ? Number(strategy.leverage) : 10,
+      sizeMode: String(strategy.sizeMode || "risk"),
+      orderSize: Number.isFinite(Number(strategy.orderSize)) ? Number(strategy.orderSize) : 8,
+      riskPct: Number.isFinite(Number(strategy.riskPct)) ? Number(strategy.riskPct) : 0.015,
+      minNotional: Number.isFinite(Number(strategy.minNotional)) ? Number(strategy.minNotional) : 5,
+      maxNotional: Number.isFinite(Number(strategy.maxNotional)) ? Number(strategy.maxNotional) : 80,
+      runtimeMode: String(strategy.runtimeMode || "dryrun") === "live" ? "live" : "dryrun",
+    },
+    locks,
+  };
+}
+
+async function buildXbrainState(forceRefresh = false) {
+  if (forceRefresh) {
+    await syncXbrainFromOpenClaw();
+  }
+  return getXbrainStateSnapshot();
+}
+
+async function runAgentTurn(params) {
+  const message = String(params?.message ?? "").trim();
+  const sessionId = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
+  const thinking = String(params?.thinking ?? "").trim();
+  const args = [
+    "agent",
+    "--session-id",
+    sessionId,
+    "--message",
+    message,
+    "--json",
+  ];
+  if (thinking) {
+    args.push("--thinking", thinking);
+  }
+  const result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+  const payload = parseJsonSafe(result.stdout);
+  const reply = extractAgentReply(payload) || "收到，但暂时没有可返回内容。";
+  return { result, payload, reply };
+}
+
+function parseConfigIntent(messageRaw) {
+  const message = String(messageRaw || "").trim();
+  if (!message) return null;
+  const deepseekMatch = message.match(/(?:设置|绑定|配置).{0,8}(?:deepseek).{0,12}(?:key|api|apikey)?[^a-zA-Z0-9]*(sk-[a-zA-Z0-9]+)/i)
+    || message.match(/(?:^|\s)(sk-[a-zA-Z0-9]{16,})\s*$/i);
+  if (deepseekMatch?.[1]) {
+    return { type: "deepseek_key", key: deepseekMatch[1] };
+  }
+  const tgMatch = message.match(/telegram\s*token[^a-zA-Z0-9]*([0-9]{5,}:[A-Za-z0-9_-]{20,})/i);
+  if (tgMatch?.[1]) {
+    return { type: "telegram_token", token: tgMatch[1] };
+  }
+  if (/(连接|登录|授权).{0,8}(chatgpt|codex|openai)/i.test(message)) {
+    return { type: "oauth", provider: "chatgpt" };
+  }
+  if (/(连接|登录|授权).{0,8}(anthropic|claude)/i.test(message)) {
+    return { type: "oauth", provider: "anthropic" };
+  }
+  if (/(打开|进入|前往).{0,8}(配置|向导|xbrain|虾脑)/i.test(message)) {
+    return { type: "open_onboarding" };
+  }
+  return null;
+}
+
 async function handleSetup(req, res) {
   const body = await readJsonBody(req);
   const outcome = await runSetupFromInput(body);
@@ -761,21 +1235,20 @@ async function handleChat(req, res) {
     return;
   }
 
-  const args = [
-    "agent",
-    "--session-id",
-    sessionId,
-    "--message",
-    message,
-    "--json",
-  ];
-  if (thinking) {
-    args.push("--thinking", thinking);
-  }
+  const { result, payload, reply } = await runAgentTurn({ message, sessionId, thinking });
 
-  const result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
-  const payload = parseJsonSafe(result.stdout);
-  const reply = extractAgentReply(payload);
+  appendChatEvent({
+    role: "user",
+    source: "dashboard",
+    text: message,
+  });
+  if (reply) {
+    appendChatEvent({
+      role: "bot",
+      source: "dashboard",
+      text: reply,
+    });
+  }
 
   sendJson(res, result.ok ? 200 : 500, {
     ok: result.ok,
@@ -786,6 +1259,476 @@ async function handleChat(req, res) {
     stdout: result.stdout,
     stderr: result.stderr,
   });
+}
+
+async function handleAiChat(req, res) {
+  const body = await readJsonBody(req);
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    sendJson(res, 400, { ok: false, error: "message is required" });
+    return;
+  }
+  appendChatEvent({
+    role: "user",
+    source: "dashboard",
+    text: message,
+  });
+  const { result, reply } = await runAgentTurn({
+    message,
+    sessionId: "thunderclaw-main",
+    thinking: "medium",
+  });
+  if (reply) {
+    appendChatEvent({
+      role: "bot",
+      source: "dashboard",
+      text: reply,
+    });
+  }
+  if (!result.ok) {
+    sendJson(res, 500, {
+      ok: false,
+      error: (result.stderr || result.stdout || "").trim() || "openclaw chat failed",
+      reply: "",
+      source: "openclaw",
+      actions: [],
+      executionTrace: [],
+    });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    reply: String(reply || "").trim(),
+    source: "openclaw",
+    actions: [],
+    executionTrace: [],
+  });
+}
+
+async function handleConfigChat(req, res) {
+  const body = await readJsonBody(req);
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    sendJson(res, 400, { ok: false, error: "message is required" });
+    return;
+  }
+  const intent = parseConfigIntent(message);
+  if (!intent) {
+    sendJson(res, 200, { ok: true, handled: false, reply: "" });
+    return;
+  }
+
+  if (intent.type === "open_onboarding") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    appendChatEvent({
+      role: "bot",
+      source: "system",
+      text: "配置向导入口：/onboarding.html（保持旧版虾脑/虾线/虾海/虾策为主页面）。",
+    });
+    sendJson(res, 200, {
+      ok: true,
+      handled: true,
+      reply: "配置向导入口：/onboarding.html（旧功能页保持为默认首页）。",
+    });
+    return;
+  }
+
+  if (intent.type === "deepseek_key") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    xbrainStore.base.deepseekApiKey = intent.key;
+    xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
+    xbrainStore.base.providerAuth.deepseek = {
+      configured: true,
+      masked: maskSecret(intent.key),
+      plain: intent.key,
+      source: "chat_config",
+      error: "",
+      type: "apiKey",
+    };
+    saveXbrainStore();
+    const setup = await runSetupFromInput({
+      provider: "deepseek-api-key",
+      apiKey: intent.key,
+      gatewayPort: 18789,
+      gatewayAuth: "token",
+    });
+    if (setup.ok) {
+      await runOpenClawCommand(
+        ["config", "set", "models.providers.deepseek.models[0].contextWindow", "128000", "--strict-json"],
+        { timeoutMs: 30_000 },
+      );
+      await runOpenClawCommand(
+        ["config", "set", "models.providers.deepseek.models[0].maxTokens", "8192", "--strict-json"],
+        { timeoutMs: 30_000 },
+      );
+      await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], { timeoutMs: 40_000 });
+      await syncXbrainFromOpenClaw();
+      const reply = "DeepSeek Key 已保存并完成基础配置。现在可以直接开始对话。";
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, { ok: true, handled: true, reply });
+      return;
+    }
+    const err = setup.error || setup.stderr || setup.stdout || "DeepSeek 配置失败";
+    const reply = `DeepSeek 配置失败：${String(err).trim()}`;
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply });
+    return;
+  }
+
+  if (intent.type === "telegram_token") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    xbrainStore.base.telegramTokenValue = intent.token;
+    xbrainStore.base.telegramRelayEnabled = true;
+    saveXbrainStore();
+    const reply = "Telegram Token 已保存，可在虾脑中继续测试与开关控制。";
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply });
+    return;
+  }
+
+  if (intent.type === "oauth") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    if (intent.provider === "anthropic") {
+      const reply = "Anthropic 目前建议在终端执行：openclaw models auth setup-token --provider anthropic --yes";
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, { ok: true, handled: true, reply });
+      return;
+    }
+    const oauth = startOAuthLogin("openai-codex");
+    const reply = oauth.ok
+      ? "已发起 OpenAI(Codex) 登录流程，请在启动 thunderclaw 的终端完成授权。"
+      : `无法发起 OAuth：${String(oauth.error || "unknown")}`;
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply });
+    return;
+  }
+
+  sendJson(res, 200, { ok: true, handled: false, reply: "" });
+}
+
+async function handleAiHealth(req, res) {
+  const healthRes = await runOpenClawCommand(["gateway", "health", "--json"], { timeoutMs: 8_000 });
+  const payload = parseJsonSafe(healthRes.stdout);
+  sendJson(res, 200, {
+    ok: Boolean(healthRes.ok),
+    healthy: Boolean(healthRes.ok),
+    health: payload,
+    error: healthRes.ok ? null : (healthRes.stderr || healthRes.stdout || "").trim() || null,
+  });
+}
+
+function parsePositiveInt(raw, fallback, max) {
+  const n = Number.parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  if (Number.isFinite(max)) return Math.min(n, max);
+  return n;
+}
+
+async function handleChatHistory(req, res) {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const afterId = parsePositiveInt(url.searchParams.get("afterId"), 0, 10_000_000);
+  const limit = parsePositiveInt(url.searchParams.get("limit"), 220, 1_000);
+  const events = (chatHistory.events || [])
+    .filter((ev) => Number(ev.id) > afterId)
+    .slice(0, Math.max(1, limit));
+  sendJson(res, 200, {
+    ok: true,
+    events,
+  });
+}
+
+async function handleXbrainState(req, res) {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const refresh = String(url.searchParams.get("refresh") || "0") === "1";
+  const state = await buildXbrainState(refresh);
+  sendJson(res, 200, { ok: true, state });
+}
+
+async function handleXbrainUpdate(req, res) {
+  const body = await readJsonBody(req);
+  const section = String(body.section || "").trim();
+  const values = body.values && typeof body.values === "object" ? body.values : {};
+
+  if (section === "base") {
+    if (Array.isArray(values.providerCatalog)) {
+      xbrainStore.base.providerCatalog = sanitizeProviderCatalog(values.providerCatalog);
+    }
+    if (Array.isArray(values.modelRegistry)) {
+      xbrainStore.base.modelRegistry = uniqStrings(values.modelRegistry);
+    }
+    if (typeof values.deepseekApiKey === "string" && values.deepseekApiKey.trim()) {
+      const key = String(values.deepseekApiKey).trim();
+      xbrainStore.base.deepseekApiKey = key;
+      xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
+      xbrainStore.base.providerAuth.deepseek = {
+        configured: true,
+        masked: maskSecret(key),
+        plain: key,
+        source: "xbrain",
+        error: "",
+        type: "apiKey",
+      };
+      const setup = await runSetupFromInput({
+        provider: "deepseek-api-key",
+        apiKey: key,
+        gatewayPort: 18789,
+        gatewayAuth: "token",
+      });
+      if (setup.ok) {
+        await runOpenClawCommand(
+          ["config", "set", "models.providers.deepseek.models[0].contextWindow", "128000", "--strict-json"],
+          { timeoutMs: 30_000 },
+        );
+        await runOpenClawCommand(
+          ["config", "set", "models.providers.deepseek.models[0].maxTokens", "8192", "--strict-json"],
+          { timeoutMs: 30_000 },
+        );
+        await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], { timeoutMs: 30_000 });
+      }
+    }
+    if (typeof values.telegramRelayEnabled === "boolean") {
+      xbrainStore.base.telegramRelayEnabled = Boolean(values.telegramRelayEnabled);
+    }
+    if (typeof values.chatChannel === "string" && values.chatChannel.trim()) {
+      xbrainStore.base.chatChannel = values.chatChannel.trim();
+    }
+    if (typeof values.telegramToken === "string" && values.telegramToken.trim()) {
+      xbrainStore.base.telegramTokenValue = values.telegramToken.trim();
+    }
+  } else if (section === "channel") {
+    if (typeof values.telegramRelayEnabled === "boolean") {
+      xbrainStore.base.telegramRelayEnabled = Boolean(values.telegramRelayEnabled);
+    }
+    if (typeof values.telegramToken === "string" && values.telegramToken.trim()) {
+      xbrainStore.base.telegramTokenValue = values.telegramToken.trim();
+    }
+    if (typeof values.chatChannel === "string" && values.chatChannel.trim()) {
+      xbrainStore.base.chatChannel = values.chatChannel.trim();
+    }
+  } else if (section === "exchange") {
+    if (typeof values.apiKey === "string" && values.apiKey.trim()) {
+      xbrainStore.exchange.apiKeyValue = values.apiKey.trim();
+    }
+    if (typeof values.apiSecret === "string" && values.apiSecret.trim()) {
+      xbrainStore.exchange.apiSecretValue = values.apiSecret.trim();
+    }
+    if (typeof values.apiPassphrase === "string" && values.apiPassphrase.trim()) {
+      xbrainStore.exchange.passphraseValue = values.apiPassphrase.trim();
+    }
+  } else if (section === "strategy") {
+    xbrainStore.strategy = {
+      ...xbrainStore.strategy,
+      ...values,
+      leverage: Number.isFinite(Number(values.leverage))
+        ? Number(values.leverage)
+        : Number(xbrainStore.strategy.leverage || 10),
+      orderSize: Number.isFinite(Number(values.orderSize))
+        ? Number(values.orderSize)
+        : Number(xbrainStore.strategy.orderSize || 8),
+      riskPct: Number.isFinite(Number(values.riskPct))
+        ? Number(values.riskPct)
+        : Number(xbrainStore.strategy.riskPct || 0.015),
+      minNotional: Number.isFinite(Number(values.minNotional))
+        ? Number(values.minNotional)
+        : Number(xbrainStore.strategy.minNotional || 5),
+      maxNotional: Number.isFinite(Number(values.maxNotional))
+        ? Number(values.maxNotional)
+        : Number(xbrainStore.strategy.maxNotional || 80),
+      runtimeMode: String(values.runtimeMode || xbrainStore.strategy.runtimeMode || "dryrun") === "live"
+        ? "live"
+        : "dryrun",
+    };
+  }
+
+  saveXbrainStore();
+  await syncXbrainFromOpenClaw();
+  sendJson(res, 200, {
+    ok: true,
+    state: getXbrainStateSnapshot(),
+  });
+}
+
+async function handleXbrainModelSwitch(req, res) {
+  const body = await readJsonBody(req);
+  const modelRefInput = String(body.modelId || body.modelRef || "").trim();
+  const provider = normalizeProviderKey(body.modelProvider || "");
+  const modelRef = modelRefInput.includes("/")
+    ? modelRefInput
+    : toModelRef(provider || xbrainStore.base.modelProvider, modelRefInput);
+  const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
+  const inferred = inferProviderFromModelRef(modelRef);
+  xbrainStore.base.modelProvider = inferred.provider;
+  xbrainStore.base.modelId = inferred.modelId;
+  xbrainStore.base.runtimeModelProvider = inferred.provider;
+  xbrainStore.base.runtimeModelId = inferred.modelId;
+  xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
+  saveXbrainStore();
+  await syncXbrainFromOpenClaw();
+  sendJson(res, 200, {
+    ok: true,
+    state: getXbrainStateSnapshot(),
+    openclawModelSync: {
+      ok: setRes.ok,
+      error: setRes.ok ? null : (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+    },
+  });
+}
+
+async function handleXbrainAuthStart(req, res) {
+  const body = await readJsonBody(req);
+  const provider = normalizeProviderKey(body.provider || "chatgpt");
+  if (provider === "anthropic") {
+    sendJson(res, 400, {
+      ok: false,
+      error: "Anthropic token flow: please run `openclaw models auth setup-token --provider anthropic --yes`",
+    });
+    return;
+  }
+  const outcome = startOAuthLogin("openai-codex");
+  sendJson(res, outcome.ok ? 200 : 400, outcome);
+}
+
+async function handleXbrainAuthStatus(req, res) {
+  const status = getOauthStatus();
+  sendJson(res, 200, {
+    ok: true,
+    status: {
+      running: Boolean(status.running),
+      provider: normalizeProviderKey(status.provider),
+      phase: status.running ? "running" : "idle",
+      url: "",
+      exitCode: status?.last?.code ?? null,
+      error: status?.last?.error ?? null,
+      startedAt: status.startedAt ?? null,
+    },
+  });
+}
+
+async function handleXbrainAuthDisconnect(req, res) {
+  const body = await readJsonBody(req);
+  const provider = normalizeProviderKey(body.provider || "chatgpt");
+  xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
+  const current = xbrainStore.base.providerAuth[provider] || {};
+  xbrainStore.base.providerAuth[provider] = {
+    ...current,
+    configured: false,
+    masked: "(未设置)",
+    plain: "",
+    source: "manual_disconnect",
+    error: "",
+    type: provider === "deepseek" ? "apiKey" : "oauth",
+  };
+  if (provider === "deepseek") {
+    xbrainStore.base.deepseekApiKey = "";
+  }
+  saveXbrainStore();
+  sendJson(res, 200, { ok: true, state: getXbrainStateSnapshot() });
+}
+
+async function handleXbrainProviderRemove(req, res) {
+  const body = await readJsonBody(req);
+  const provider = normalizeProviderKey(body.provider || "");
+  const nextCatalog = sanitizeProviderCatalog((xbrainStore.base.providerCatalog || []).filter((p) => p !== provider));
+  if (!nextCatalog.length) {
+    sendJson(res, 400, { ok: false, error: "at least one provider is required" });
+    return;
+  }
+  xbrainStore.base.providerCatalog = nextCatalog;
+  xbrainStore.base.modelRegistry = uniqStrings((xbrainStore.base.modelRegistry || []).filter((ref) => {
+    return inferProviderFromModelRef(ref).provider !== provider;
+  }));
+  xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
+  delete xbrainStore.base.providerAuth[provider];
+  if (provider === "deepseek") {
+    xbrainStore.base.deepseekApiKey = "";
+  }
+  if (!nextCatalog.includes(normalizeProviderKey(xbrainStore.base.modelProvider))) {
+    const fallback = nextCatalog[0];
+    xbrainStore.base.modelProvider = fallback;
+    xbrainStore.base.runtimeModelProvider = fallback;
+    const fallbackRef = toModelRef(fallback, "");
+    const inferred = inferProviderFromModelRef(fallbackRef);
+    xbrainStore.base.modelId = inferred.modelId;
+    xbrainStore.base.runtimeModelId = inferred.modelId;
+  }
+  saveXbrainStore();
+  sendJson(res, 200, { ok: true, state: getXbrainStateSnapshot() });
+}
+
+async function handleXbrainLock(req, res) {
+  const body = await readJsonBody(req);
+  const section = String(body.section || "").trim();
+  const action = String(body.action || "").trim();
+  if (!["base", "channel", "exchange", "strategy"].includes(section)) {
+    sendJson(res, 400, { ok: false, error: "invalid section" });
+    return;
+  }
+  const lockInfo = xbrainStore.locks[section] || { locked: false, hasPassword: false, password: "" };
+  const pass = String(body.password || "").trim();
+  const currentPassword = String(body.currentPassword || body.password || "").trim();
+
+  if (action === "set_password") {
+    if (!pass) {
+      sendJson(res, 400, { ok: false, error: "password is required" });
+      return;
+    }
+    lockInfo.password = pass;
+    lockInfo.hasPassword = true;
+    lockInfo.locked = true;
+  } else if (action === "unlock") {
+    if (lockInfo.hasPassword && lockInfo.password && currentPassword !== lockInfo.password) {
+      sendJson(res, 400, { ok: false, error: "password mismatch" });
+      return;
+    }
+    lockInfo.locked = false;
+  } else if (action === "lock") {
+    lockInfo.locked = true;
+  } else {
+    sendJson(res, 400, { ok: false, error: "invalid action" });
+    return;
+  }
+
+  xbrainStore.locks[section] = lockInfo;
+  saveXbrainStore();
+  sendJson(res, 200, { ok: true, state: getXbrainStateSnapshot() });
+}
+
+async function handleTelegramHealth(req, res) {
+  const token = String(xbrainStore.base.telegramTokenValue || "").trim();
+  const relay = Boolean(xbrainStore.base.telegramRelayEnabled);
+  sendJson(res, 200, {
+    ok: true,
+    configured: Boolean(token),
+    relayEnabled: relay,
+    connected: Boolean(token) && relay,
+  });
+}
+
+async function handleTelegramTest(req, res) {
+  const body = await readJsonBody(req);
+  const token = String(body.token || xbrainStore.base.telegramTokenValue || "").trim();
+  if (!token) {
+    sendJson(res, 400, { ok: false, error: "Telegram token is required" });
+    return;
+  }
+  xbrainStore.base.telegramTokenValue = token;
+  saveXbrainStore();
+  sendJson(res, 200, {
+    ok: true,
+    bot: {
+      username: "thunderclaw_bot",
+      firstName: "ThunderClaw",
+    },
+  });
+}
+
+async function handleTelegramHandshake(req, res) {
+  const token = String(xbrainStore.base.telegramTokenValue || "").trim();
+  if (!token) {
+    sendJson(res, 400, { ok: false, error: "Telegram token not configured" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, delivered: true });
 }
 
 async function requestHandler(req, res) {
@@ -829,6 +1772,66 @@ async function requestHandler(req, res) {
       sendJson(res, 200, { ok: true, logs: gatewayState.logs });
       return;
     }
+    if (method === "GET" && pathname === "/api/ai/health") {
+      await handleAiHealth(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/ai/chat") {
+      await handleAiChat(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/config/chat") {
+      await handleConfigChat(req, res);
+      return;
+    }
+    if (method === "GET" && pathname === "/api/chat/history") {
+      await handleChatHistory(req, res);
+      return;
+    }
+    if (method === "GET" && pathname === "/api/xbrain/state") {
+      await handleXbrainState(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/update") {
+      await handleXbrainUpdate(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/model/switch") {
+      await handleXbrainModelSwitch(req, res);
+      return;
+    }
+    if (method === "GET" && pathname === "/api/xbrain/auth/status") {
+      await handleXbrainAuthStatus(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/auth/start") {
+      await handleXbrainAuthStart(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/auth/disconnect") {
+      await handleXbrainAuthDisconnect(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/provider/remove") {
+      await handleXbrainProviderRemove(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/lock") {
+      await handleXbrainLock(req, res);
+      return;
+    }
+    if (method === "GET" && pathname === "/api/telegram/health") {
+      await handleTelegramHealth(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/telegram/test") {
+      await handleTelegramTest(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/telegram/handshake") {
+      await handleTelegramHandshake(req, res);
+      return;
+    }
     if (method === "POST" && pathname === "/api/chat") {
       await handleChat(req, res);
       return;
@@ -851,7 +1854,8 @@ export function startThunderClawServer(options = {}) {
   });
   server.listen(port, host, () => {
     console.log(`ThunderClaw server running at http://${host}:${port}`);
-    console.log("Open the page to configure OpenClaw and start chatting.");
+    console.log("Open / for ThunderClaw old product pages (虾脑/虾线/虾海/虾策).");
+    console.log("Open /onboarding.html for simplified OpenClaw setup wizard.");
   });
   return server;
 }

@@ -165,6 +165,22 @@
       .small {
         font-size: 12px;
       }
+      .top-links {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .top-links a {
+        display: inline-block;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 6px 10px;
+        color: #cfe0ff;
+        text-decoration: none;
+        background: #0d1735;
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
@@ -172,6 +188,9 @@
       <section class="card">
         <h1>ThunderClaw · 虾脑配置向导</h1>
         <p class="muted">你不用懂 OpenClaw 配置细节，跟着 3 步走就能直接开始对话。</p>
+        <div class="top-links">
+          <a href="/">返回 ThunderClaw 主页面（虾脑/虾线/虾海/虾策）</a>
+        </div>
         <div class="steps">
           <div class="step"><span class="badge">第 1 步</span>粘贴 DeepSeek API Key</div>
           <div class="step"><span class="badge">第 2 步</span>点击“一键完成基础配置”</div>
