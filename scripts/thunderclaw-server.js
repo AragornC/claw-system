@@ -1167,10 +1167,11 @@ async function handleQuickSetup(req, res) {
 
   const gatewayStart = startGateway();
   const gatewayHealth = await waitGatewayHealthy({ timeoutMs: 25_000, pollMs: 1_500 });
+  const gatewayWarning = !gatewayHealth.ok;
 
-  sendJson(res, gatewayHealth.ok ? 200 : 500, {
-    ok: gatewayHealth.ok,
-    stage: gatewayHealth.ok ? "ready" : "gateway",
+  sendJson(res, 200, {
+    ok: true,
+    stage: gatewayWarning ? "ready_with_gateway_warning" : "ready",
     provider,
     configured: true,
     gateway: {
@@ -1179,6 +1180,9 @@ async function handleQuickSetup(req, res) {
       pid: gatewayStart.pid ?? null,
       healthy: gatewayHealth.ok,
       error: gatewayHealth.ok ? null : gatewayHealth.error,
+      warning: gatewayWarning
+        ? "Gateway 未就绪（不影响基础登录与页面对话，可稍后在状态页排查）。"
+        : null,
     },
     model: modelSetResult
       ? {
@@ -1188,9 +1192,9 @@ async function handleQuickSetup(req, res) {
         }
       : { attempted: false, ok: null, stderr: null },
     deepseekTune,
-    next: gatewayHealth.ok
-      ? "基础配置已完成，直接在下方聊天区发送消息即可。"
-      : "基础配置完成，但 Gateway 启动异常，请点击“刷新状态”查看错误。",
+    next: gatewayWarning
+      ? "基础配置已完成。Gateway 当前未就绪，但不影响在页面内继续对话；可稍后再排查 Gateway。"
+      : "基础配置已完成，直接在下方聊天区发送消息即可。",
   });
 }
 
