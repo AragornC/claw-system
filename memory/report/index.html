@@ -666,7 +666,45 @@
       color: var(--text);
     }
     #xbrain-model-center-model {
-      min-height: 220px;
+      min-height: 36px;
+    }
+    .xbrain-model-selected {
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.16);
+      padding: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: flex-start;
+    }
+    .xbrain-model-selected-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid rgba(88,166,255,0.55);
+      border-radius: 999px;
+      background: rgba(88,166,255,0.12);
+      color: #cfe8ff;
+      font-size: 0.62rem;
+      padding: 2px 7px;
+      max-width: 100%;
+    }
+    .xbrain-model-selected-item .text {
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .xbrain-model-selected-item button {
+      border: none;
+      background: transparent;
+      color: #ffaba8;
+      font-size: 0.7rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
     }
     .xbrain-model-center-toolbar {
       display: flex;
@@ -826,6 +864,10 @@
       display: flex;
       flex-direction: column;
       gap: 5px;
+    }
+    .xbrain-model-provider-group.collapsed .xbrain-model-provider-key,
+    .xbrain-model-provider-group.collapsed .xbrain-model-provider-list {
+      display: none;
     }
     .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
     .xbrain-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.71rem; color: var(--muted); }
@@ -2114,11 +2156,12 @@
                     </label>
                   </div>
                   <label>模型
-                    <select id="xbrain-model-center-model" multiple size="10"></select>
+                    <select id="xbrain-model-center-model"></select>
                   </label>
+                  <div id="xbrain-model-center-selected" class="xbrain-model-selected"></div>
                   <div class="xbrain-actions">
-                    <button id="xbrain-model-center-select-all-btn" type="button">全选当前列表</button>
-                    <button id="xbrain-model-center-clear-select-btn" type="button">清空选择</button>
+                    <button id="xbrain-model-center-pick-btn" type="button">添加当前模型</button>
+                    <button id="xbrain-model-center-clear-select-btn" type="button">清空已选</button>
                   </div>
                   <label id="xbrain-model-center-api-wrap">API Key（支持时填写）
                     <div class="xbrain-secret-wrap">
@@ -4384,6 +4427,8 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       let xbrainUiProviderOverride = '';
       const XBRAIN_PROVIDER_CHECKS_KEY = 'thunderclaw.xbrain.provider-checks.v1';
       const XBRAIN_OAUTH_CONNECTED_KEY = 'thunderclaw.xbrain.oauth-connected.v1';
+      const XBRAIN_MODEL_CENTER_SELECTED_KEY = 'thunderclaw.xbrain.model-center.selected.v1';
+      const XBRAIN_PROVIDER_COLLAPSE_KEY = 'thunderclaw.xbrain.model-center.provider-collapse.v1';
       const xbrainProviderChecks = safeLocalJsonRead(XBRAIN_PROVIDER_CHECKS_KEY, {});
       const xbrainOauthConnected = safeLocalJsonRead(XBRAIN_OAUTH_CONNECTED_KEY, {});
       let xbrainAuthMonitorRunning = false;
@@ -4401,6 +4446,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         selectedProvider: 'all',
         search: '',
         oauthMonitorRunning: false,
+        selectedModelRefs: Array.isArray(safeLocalJsonRead(XBRAIN_MODEL_CENTER_SELECTED_KEY, []))
+          ? safeLocalJsonRead(XBRAIN_MODEL_CENTER_SELECTED_KEY, []).map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+          : [],
+        providerCollapsed: (safeLocalJsonRead(XBRAIN_PROVIDER_COLLAPSE_KEY, {}) || {}),
       };
 
       function safeLocalJsonRead(key, fallback) {
@@ -4638,12 +4687,67 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       }
 
       function getSelectedModelCenterModelRefs() {
-        const modelSelect = document.getElementById('xbrain-model-center-model');
-        if (!modelSelect) return [];
-        const refs = Array.from(modelSelect.selectedOptions || [])
-          .map(function(opt) { return String(opt.value || '').trim(); })
-          .filter(Boolean);
-        return Array.from(new Set(refs));
+        const refs = Array.isArray(xbrainModelCenterState.selectedModelRefs)
+          ? xbrainModelCenterState.selectedModelRefs
+          : [];
+        return Array.from(new Set(refs.map(function(v) { return String(v || '').trim(); }).filter(Boolean)));
+      }
+
+      function setSelectedModelCenterModelRefs(nextRefsLike) {
+        const refs = Array.isArray(nextRefsLike) ? nextRefsLike : [];
+        xbrainModelCenterState.selectedModelRefs = Array.from(new Set(
+          refs.map(function(v) { return String(v || '').trim(); }).filter(Boolean),
+        ));
+        safeLocalJsonWrite(XBRAIN_MODEL_CENTER_SELECTED_KEY, xbrainModelCenterState.selectedModelRefs);
+      }
+
+      function addSelectedModelCenterModelRef(modelRefLike) {
+        const modelRef = String(modelRefLike || '').trim();
+        if (!modelRef) return;
+        const next = getSelectedModelCenterModelRefs();
+        next.push(modelRef);
+        setSelectedModelCenterModelRefs(next);
+      }
+
+      function removeSelectedModelCenterModelRef(modelRefLike) {
+        const modelRef = String(modelRefLike || '').trim();
+        const next = getSelectedModelCenterModelRefs().filter(function(ref) { return ref !== modelRef; });
+        setSelectedModelCenterModelRefs(next);
+      }
+
+      function isModelCenterProviderCollapsed(providerLike) {
+        const provider = normalizeProviderKey(providerLike);
+        const map = xbrainModelCenterState.providerCollapsed && typeof xbrainModelCenterState.providerCollapsed === 'object'
+          ? xbrainModelCenterState.providerCollapsed
+          : {};
+        return Boolean(map[provider]);
+      }
+
+      function setModelCenterProviderCollapsed(providerLike, collapsed) {
+        const provider = normalizeProviderKey(providerLike);
+        const map = xbrainModelCenterState.providerCollapsed && typeof xbrainModelCenterState.providerCollapsed === 'object'
+          ? xbrainModelCenterState.providerCollapsed
+          : {};
+        map[provider] = Boolean(collapsed);
+        xbrainModelCenterState.providerCollapsed = map;
+        safeLocalJsonWrite(XBRAIN_PROVIDER_COLLAPSE_KEY, map);
+      }
+
+      function renderXbrainModelCenterSelected() {
+        const box = document.getElementById('xbrain-model-center-selected');
+        if (!box) return;
+        const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
+        const refs = getSelectedModelCenterModelRefs();
+        if (!refs.length) {
+          box.innerHTML = '<span class="xbrain-hint">未选择模型。请从下拉框选择后点击“添加当前模型”。</span>';
+          return;
+        }
+        box.innerHTML = refs.map(function(ref) {
+          return '<span class="xbrain-model-selected-item">'
+            + '<span class="text">' + escapeHtml(ref) + '</span>'
+            + '<button type="button" data-model-selected-remove="' + escapeHtml(ref) + '" aria-label="移除"' + (lockBase ? ' disabled' : '') + '>×</button>'
+            + '</span>';
+        }).join('');
       }
 
       function renderXbrainModelCenterCatalog() {
@@ -4660,7 +4764,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           xbrainModelCenterState.selectedProvider = 'all';
         }
         const selectedProvider = String(xbrainModelCenterState.selectedProvider || 'all');
-        const previousSelected = getSelectedModelCenterModelRefs();
+        const previousDropdownValue = String(modelSelect?.value || '').trim();
         const search = String(searchInput?.value || xbrainModelCenterState.search || '').trim().toLowerCase();
         xbrainModelCenterState.search = search;
         providerSelect.innerHTML =
@@ -4674,6 +4778,16 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             .map(function(item) { return String(item?.key || '').trim(); })
             .filter(Boolean),
         );
+        const allCatalogKeys = new Set(
+          (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
+            .map(function(item) { return String(item?.key || '').trim(); })
+            .filter(Boolean),
+        );
+        const selectedRefs = getSelectedModelCenterModelRefs();
+        const selectedFiltered = selectedRefs.filter(function(ref) { return allCatalogKeys.has(ref); });
+        if (selectedFiltered.length !== selectedRefs.length) {
+          setSelectedModelCenterModelRefs(selectedFiltered);
+        }
         const filtered = (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
           .filter(function(item) {
             const providerMatch = selectedProvider === 'all' || normalizeProviderKey(item?.provider) === selectedProvider;
@@ -4685,6 +4799,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           });
         if (!filtered.length) {
           modelSelect.innerHTML = '<option value="">当前筛选无模型</option>';
+          renderXbrainModelCenterSelected();
           syncXbrainModelCenterAuthUi();
           return;
         }
@@ -4692,22 +4807,23 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const key = String(item.key || '').trim();
           const name = String(item.name || key).trim();
           const provider = normalizeProviderKey(item.provider || inferProviderFromModelRef(key));
+          const authMeta = xbrainModelCenterState.providerState?.[provider]?.auth || {};
+          const providerConnected = Boolean(authMeta?.configured);
           const markers = [];
-          if (configuredSet.has(key)) markers.push('已配置');
+          if (configuredSet.has(key) && providerConnected) markers.push('已配置');
+          else if (configuredSet.has(key) && !providerConnected) markers.push('历史配置');
           if (item?.missing === true) markers.push('缺失');
           const suffix = markers.length ? (' [' + markers.join(' / ') + ']') : '';
           return '<option value="' + escapeHtml(key) + '" data-provider="' + escapeHtml(provider) + '">' + escapeHtml(name + ' (' + key + ')' + suffix) + '</option>';
         }).join('');
-        if (previousSelected.length) {
-          Array.from(modelSelect.options || []).forEach(function(opt) {
-            if (previousSelected.includes(String(opt.value || ''))) {
-              opt.selected = true;
-            }
-          });
+        const dropdownCandidates = Array.from(modelSelect.options || []).map(function(opt) { return String(opt.value || '').trim(); });
+        const nextDropdown = dropdownCandidates.includes(previousDropdownValue)
+          ? previousDropdownValue
+          : (dropdownCandidates[0] || '');
+        if (nextDropdown) {
+          modelSelect.value = nextDropdown;
         }
-        if (!getSelectedModelCenterModelRefs().length && modelSelect.options.length) {
-          modelSelect.options[0].selected = true;
-        }
+        renderXbrainModelCenterSelected();
         syncXbrainModelCenterAuthUi();
       }
 
@@ -4730,11 +4846,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const hasMixedProviders = selectedProviders.length > 1;
         const hasSelectedModel = selectedRefs.length > 0;
         if (hasMixedProviders) {
-          if (tipEl) tipEl.textContent = '当前多选包含多个 Provider，请改为单 Provider 选择后再连接。';
+          if (tipEl) tipEl.textContent = '当前多选包含多个 Provider。可直接“仅注册”，若要建连请改为单 Provider。';
           if (apiWrap) apiWrap.style.display = 'none';
           if (connectBtn) connectBtn.disabled = true;
           if (connectOnlyBtn) connectOnlyBtn.disabled = true;
-          if (registerBtn) registerBtn.disabled = true;
+          if (registerBtn) registerBtn.disabled = lockBase || !hasSelectedModel;
           return;
         }
         const support = xbrainModelCenterState.authSupport?.[selectedProvider] || {};
@@ -4803,6 +4919,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const canApiKey = Boolean(support.apiKey);
           const canOauth = Boolean(support.oauth);
           const removeProviderDisabled = lockBase || providerKeys.length <= 1;
+          const collapsed = isModelCenterProviderCollapsed(provider);
           const providerHeader = '<div class="xbrain-model-provider-head">'
             + '<div><div class="xbrain-model-provider-title">'
             + escapeHtml(providerLabel(provider))
@@ -4822,6 +4939,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               : '')
             + '<button type="button" data-provider-action="disconnect-auth" data-model-center-provider="' + escapeHtml(provider) + '"' + (lockBase ? ' disabled' : '') + '>断开连接</button>'
             + '<button type="button" class="warn" data-provider-action="remove-provider" data-model-center-provider="' + escapeHtml(provider) + '"' + (removeProviderDisabled ? ' disabled' : '') + '>删除 Provider</button>'
+            + '<button type="button" data-provider-action="toggle-collapse" data-model-center-provider="' + escapeHtml(provider) + '">' + (collapsed ? '展开' : '折叠') + '</button>'
             + '</div></div>';
           const providerKeyInput = canApiKey
             ? '<div class="xbrain-model-provider-key">'
@@ -4829,7 +4947,8 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               + '</div>'
             : '';
           const rows = refs.map(function(ref) {
-            const configured = configuredMap.has(ref);
+            const configured = authConfigured && configuredMap.has(ref);
+            const historicalConfigured = !authConfigured && configuredMap.has(ref);
             const isCurrent = ref === currentRef;
             const info = catalogMap.get(ref) || {};
             const infoItems = [];
@@ -4840,7 +4959,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const infoText = infoItems.join(' | ') || '-';
             const badges = []
               .concat(isCurrent ? ['<span class="xbrain-model-center-badge ok">当前</span>'] : [])
-              .concat(configured ? ['<span class="xbrain-model-center-badge ok">已建连</span>'] : ['<span class="xbrain-model-center-badge warn">待确认</span>'])
+              .concat(configured
+                ? ['<span class="xbrain-model-center-badge ok">已建连</span>']
+                : historicalConfigured
+                  ? ['<span class="xbrain-model-center-badge warn">历史配置</span>']
+                  : ['<span class="xbrain-model-center-badge warn">待确认</span>'])
               .join('');
             return '<div class="xbrain-model-center-item">'
               + '<div class="meta"><div class="name">' + escapeHtml(ref) + '</div><div>'
@@ -4852,7 +4975,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               + '<button class="warn" type="button" data-model-center-action="remove" data-model-ref="' + escapeHtml(ref) + '"' + (lockBase ? ' disabled' : '') + '>移除</button>'
               + '</div></div>';
           }).join('');
-          return '<div class="xbrain-model-provider-group">' + providerHeader + providerKeyInput + '<div class="xbrain-model-provider-list">' + rows + '</div></div>';
+          return '<div class="xbrain-model-provider-group' + (collapsed ? ' collapsed' : '') + '">' + providerHeader + providerKeyInput + '<div class="xbrain-model-provider-list">' + rows + '</div></div>';
         }).join('');
       }
 
@@ -5170,7 +5293,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             'xbrain-model-center-connect-btn',
             'xbrain-model-center-connect-only-btn',
             'xbrain-model-center-register-btn',
-            'xbrain-model-center-select-all-btn',
+            'xbrain-model-center-pick-btn',
             'xbrain-model-center-clear-select-btn',
             'xbrain-guide-deepseek-key',
             'xbrain-guide-deepseek-eye',
@@ -5198,6 +5321,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             });
             connectedList.querySelectorAll('input[data-provider-api-input]').forEach(function(input) {
               input.disabled = disabled;
+            });
+          }
+          const selectedBox = document.getElementById('xbrain-model-center-selected');
+          if (selectedBox) {
+            selectedBox.querySelectorAll('button[data-model-selected-remove]').forEach(function(btn) {
+              btn.disabled = disabled;
             });
           }
         }
@@ -5808,8 +5937,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const modelCenterConnectBtn = document.getElementById('xbrain-model-center-connect-btn');
         const modelCenterConnectOnlyBtn = document.getElementById('xbrain-model-center-connect-only-btn');
         const modelCenterRegisterBtn = document.getElementById('xbrain-model-center-register-btn');
-        const modelCenterSelectAllBtn = document.getElementById('xbrain-model-center-select-all-btn');
+        const modelCenterPickBtn = document.getElementById('xbrain-model-center-pick-btn');
         const modelCenterClearSelectBtn = document.getElementById('xbrain-model-center-clear-select-btn');
+        const modelCenterSelectedBox = document.getElementById('xbrain-model-center-selected');
         const modelCenterConnectedList = document.getElementById('xbrain-model-center-connected-list');
         const initialModelCenterCatalogPromise = refreshXbrainModelCenterCatalog(false).catch(function(err) {
           setXbrainModelCenterStatus('模型目录加载失败：' + String(err?.message || err), 'err');
@@ -5849,12 +5979,18 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const provider = normalizeProviderKey(providerLike || 'chatgpt');
           xbrainModelCenterState.oauthMonitorRunning = true;
           const startedAt = Date.now();
+          let shownUrl = '';
           setXbrainModelCenterStatus('OAuth 已发起，正在等待授权完成...', 'ok');
           try {
             while (Date.now() - startedAt < 5 * 60 * 1000) {
               await new Promise(function(resolve) { setTimeout(resolve, 1200); });
               const authPayload = await requestXbrainAuthStatus(fetch, REPORT_BUILD_ID).catch(function() { return null; });
               const running = Boolean(authPayload?.status?.running);
+              const loginUrl = String(authPayload?.status?.url || '').trim();
+              if (running && loginUrl && loginUrl !== shownUrl) {
+                shownUrl = loginUrl;
+                setXbrainModelCenterStatus('请在新窗口完成 OAuth 授权：' + loginUrl, 'ok');
+              }
               if (running) continue;
               await fetchXbrainState(true);
               await refreshXbrainModelCenterCatalog(true);
@@ -5862,7 +5998,13 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               if (configured) {
                 setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
               } else {
-                setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 流程已结束，请检查授权结果。', 'err');
+                const oauthErr = String(authPayload?.status?.error || '').trim();
+                const oauthHint = String(authPayload?.status?.commandHint || '').trim();
+                const reason = oauthErr || 'OAuth 流程已结束，请检查授权结果。';
+                setXbrainModelCenterStatus(
+                  providerLabel(provider) + ' OAuth 未完成：' + reason + (oauthHint ? ('\n' + oauthHint) : ''),
+                  'err',
+                );
               }
               return;
             }
@@ -5980,17 +6122,36 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             syncXbrainModelCenterAuthUi();
           });
         }
-        if (modelCenterSelectAllBtn && modelCenterModelEl) {
-          modelCenterSelectAllBtn.addEventListener('click', function(ev) {
+        if (modelCenterPickBtn && modelCenterModelEl) {
+          modelCenterPickBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            Array.from(modelCenterModelEl.options || []).forEach(function(opt) { opt.selected = true; });
+            const modelRef = String(modelCenterModelEl.value || '').trim();
+            if (!modelRef) {
+              setXbrainModelCenterStatus('请先选择一个模型后再添加。', 'err');
+              return;
+            }
+            addSelectedModelCenterModelRef(modelRef);
+            renderXbrainModelCenterSelected();
             syncXbrainModelCenterAuthUi();
           });
         }
-        if (modelCenterClearSelectBtn && modelCenterModelEl) {
+        if (modelCenterClearSelectBtn) {
           modelCenterClearSelectBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            Array.from(modelCenterModelEl.options || []).forEach(function(opt) { opt.selected = false; });
+            setSelectedModelCenterModelRefs([]);
+            renderXbrainModelCenterSelected();
+            syncXbrainModelCenterAuthUi();
+          });
+        }
+        if (modelCenterSelectedBox) {
+          modelCenterSelectedBox.addEventListener('click', function(ev) {
+            const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-model-selected-remove]') : null;
+            if (!btn) return;
+            ev.preventDefault();
+            const modelRef = String(btn.getAttribute('data-model-selected-remove') || '').trim();
+            if (!modelRef) return;
+            removeSelectedModelCenterModelRef(modelRef);
+            renderXbrainModelCenterSelected();
             syncXbrainModelCenterAuthUi();
           });
         }
@@ -6053,6 +6214,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               const action = String(providerBtn.getAttribute('data-provider-action') || '').trim();
               const provider = normalizeProviderKey(providerBtn.getAttribute('data-model-center-provider') || '');
               if (!provider) return;
+              if (action === 'toggle-collapse') {
+                setModelCenterProviderCollapsed(provider, !isModelCenterProviderCollapsed(provider));
+                renderXbrainModelCenterConnected(xbrainClientState.data || {});
+                return;
+              }
               providerBtn.disabled = true;
               if (action === 'remove-provider') {
                 setXbrainModelCenterStatus('正在删除 Provider：' + providerLabel(provider), 'ok');

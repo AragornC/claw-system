@@ -32,6 +32,9 @@ const oauthState = {
   provider: null,
   startedAt: null,
   last: null,
+  logs: [],
+  url: "",
+  commandHint: "",
 };
 
 const SUPPORTED_OAUTH_PROVIDERS = new Set(["openai-codex"]);
@@ -603,6 +606,58 @@ function sendJson(res, statusCode, data) {
   res.end(body);
 }
 
+function stripAnsi(textLike) {
+  return String(textLike || "").replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "");
+}
+
+function shellQuoteArg(argLike) {
+  const arg = String(argLike ?? "");
+  if (!arg) return "''";
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+function extractUrlFromText(textLike) {
+  const text = stripAnsi(textLike);
+  const m = text.match(/https?:\/\/[^\s"'<>]+/i);
+  return m ? String(m[0] || "").trim() : "";
+}
+
+function pushOauthLog(stream, chunkLike) {
+  const raw = String(chunkLike || "");
+  const lines = stripAnsi(raw)
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    oauthState.logs.push({
+      ts: new Date().toISOString(),
+      stream,
+      line,
+    });
+    const u = extractUrlFromText(line);
+    if (u) oauthState.url = u;
+  }
+  if (oauthState.logs.length > 500) {
+    oauthState.logs.splice(0, oauthState.logs.length - 500);
+  }
+}
+
+function detectOauthErrorFromLogs(logsLike) {
+  const logs = Array.isArray(logsLike) ? logsLike : [];
+  const recent = logs.slice(-120).map((item) => String(item?.line || "").trim()).filter(Boolean);
+  if (!recent.length) return "";
+  const explicit = recent.find((line) => /^error[:\s]/i.test(line));
+  if (explicit) return explicit;
+  const providerMissing = recent.find((line) => /No provider plugins found/i.test(line));
+  if (providerMissing) {
+    return "No provider plugins found. 请先安装并启用对应 OAuth provider 插件。";
+  }
+  const generic = recent.find((line) => /\b(failed|failure|invalid|denied|forbidden|unauthorized|timeout)\b/i.test(line));
+  if (generic) return generic;
+  return "";
+}
+
 function guessContentType(filePath) {
   if (filePath.endsWith(".html")) {
     return "text/html; charset=utf-8";
@@ -704,6 +759,9 @@ function getOauthStatus() {
     provider: oauthState.provider,
     startedAt: oauthState.startedAt,
     last: oauthState.last,
+    url: String(oauthState.url || ""),
+    commandHint: String(oauthState.commandHint || ""),
+    logsTail: Array.isArray(oauthState.logs) ? oauthState.logs.slice(-80) : [],
     interactiveSupported: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   };
 }
@@ -727,33 +785,64 @@ function startOAuthLogin(providerIdRaw) {
     };
   }
 
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  const resolved = resolveOpenClawCommand();
+  const oauthArgs = [...resolved.prefixArgs, "models", "auth", "login", "--provider", providerId, "--set-default"];
+  const commandHint = `openclaw models auth login --provider ${providerId} --set-default`;
+  const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const useScriptPty = !hasTty && process.platform !== "win32";
+  let child;
+  let launchMode = "direct";
+  if (useScriptPty) {
+    launchMode = "script-pty";
+    const cmdline = [resolved.command, ...oauthArgs].map((arg) => shellQuoteArg(arg)).join(" ");
+    child = spawn("script", ["-q", "-f", "-c", cmdline, "/dev/null"], {
+      cwd: ROOT_DIR,
+      env: process.env,
+      stdio: "pipe",
+    });
+  } else if (hasTty) {
+    child = spawn(resolved.command, oauthArgs, {
+      cwd: ROOT_DIR,
+      env: process.env,
+      stdio: "inherit",
+    });
+  } else {
     return {
       ok: false,
-      error: "OAuth login requires an interactive terminal (TTY).",
-      commandHint: `openclaw models auth login --provider ${providerId} --set-default`,
+      error: "OAuth login requires TTY on this OS (script pty is unavailable).",
+      commandHint,
     };
   }
-
-  const resolved = resolveOpenClawCommand();
-  const args = [...resolved.prefixArgs, "models", "auth", "login", "--provider", providerId, "--set-default"];
-  const child = spawn(resolved.command, args, {
-    cwd: ROOT_DIR,
-    env: process.env,
-    stdio: "inherit",
-  });
 
   oauthState.proc = child;
   oauthState.provider = providerId;
   oauthState.startedAt = new Date().toISOString();
   oauthState.last = null;
+  oauthState.url = "";
+  oauthState.commandHint = commandHint;
+  oauthState.logs = [];
+  pushOauthLog("system", `oauth start mode=${launchMode}`);
+  pushOauthLog("system", `oauth command: ${commandHint}`);
+
+  if (launchMode === "script-pty") {
+    child.stdout.on("data", (chunk) => {
+      pushOauthLog("stdout", chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      pushOauthLog("stderr", chunk);
+    });
+  }
 
   child.on("error", (error) => {
+    const errText = String(error || "");
+    pushOauthLog("system", `oauth process error: ${errText}`);
     oauthState.last = {
       provider: providerId,
       code: null,
       signal: null,
-      error: String(error),
+      error: errText,
+      commandHint,
+      url: String(oauthState.url || ""),
       finishedAt: new Date().toISOString(),
     };
     oauthState.proc = null;
@@ -762,11 +851,18 @@ function startOAuthLogin(providerIdRaw) {
   });
 
   child.on("close", (code, signal) => {
+    const parsedFromLogs = detectOauthErrorFromLogs(oauthState.logs);
+    const parsedError = parsedFromLogs || (code === 0 ? null : `OAuth exited with code ${code}`);
+    if (parsedError && !parsedFromLogs) {
+      pushOauthLog("system", `oauth exit error: ${parsedError}`);
+    }
     oauthState.last = {
       provider: providerId,
       code,
       signal: signal ?? null,
-      error: null,
+      error: parsedError,
+      commandHint,
+      url: String(oauthState.url || ""),
       finishedAt: new Date().toISOString(),
     };
     oauthState.proc = null;
@@ -777,9 +873,13 @@ function startOAuthLogin(providerIdRaw) {
   return {
     ok: true,
     started: true,
-    message: "OAuth login started. Continue in terminal prompts.",
+    message: useScriptPty
+      ? "OAuth login started in pseudo-tty. 完成授权后状态会自动回写到页面。"
+      : "OAuth login started. Continue in terminal prompts.",
     provider: providerId,
-    command: ["openclaw", "models", "auth", "login", "--provider", providerId, "--set-default"].join(" "),
+    command: commandHint,
+    launchMode,
+    commandHint,
   };
 }
 
@@ -2275,10 +2375,12 @@ async function handleXbrainAuthStatus(req, res) {
       running: Boolean(status.running),
       provider: normalizeProviderKey(status.provider),
       phase: status.running ? "running" : "idle",
-      url: "",
+      url: String(status.url || status?.last?.url || ""),
+      commandHint: String(status.commandHint || status?.last?.commandHint || ""),
       exitCode: status?.last?.code ?? null,
       error: status?.last?.error ?? null,
       startedAt: status.startedAt ?? null,
+      logsTail: Array.isArray(status.logsTail) ? status.logsTail : [],
     },
   });
 }
