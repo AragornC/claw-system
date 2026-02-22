@@ -1,17 +1,26 @@
 {
   "name": "thunderclaw",
   "version": "0.0.1",
-  "description": "ThunderClaw shell assets only",
+  "description": "ThunderClaw OpenClaw onboarding shell",
   "bin": {
     "thunderclaw": "scripts/thunderclaw-cli.js"
   },
   "scripts": {
     "thunderclaw:help": "node scripts/thunderclaw-cli.js help",
+    "thunderclaw:start": "node scripts/thunderclaw-cli.js start",
+    "thunderclaw:status": "node scripts/thunderclaw-cli.js status",
     "thunderclaw:assets": "node scripts/thunderclaw-cli.js assets",
     "thunderclaw:idea": "node scripts/thunderclaw-cli.js idea"
   },
-  "keywords": ["thunderclaw", "shell", "assets"],
+  "keywords": [
+    "thunderclaw",
+    "openclaw",
+    "onboarding"
+  ],
   "author": "ThunderClaw",
   "license": "ISC",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "openclaw": "^2026.2.21-2"
+  }
 }
