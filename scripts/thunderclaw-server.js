@@ -657,7 +657,38 @@ async function handleQuickSetup(req, res) {
   }
 
   let modelSetResult = null;
+  let deepseekTune = null;
   if (provider === "deepseek-api-key") {
+    const tuneContext = await runOpenClawCommand(
+      [
+        "config",
+        "set",
+        "models.providers.deepseek.models[0].contextWindow",
+        "128000",
+        "--strict-json",
+      ],
+      { timeoutMs: 30_000 },
+    );
+    const tuneMaxTokens = await runOpenClawCommand(
+      [
+        "config",
+        "set",
+        "models.providers.deepseek.models[0].maxTokens",
+        "8192",
+        "--strict-json",
+      ],
+      { timeoutMs: 30_000 },
+    );
+    deepseekTune = {
+      contextWindowOk: tuneContext.ok,
+      maxTokensOk: tuneMaxTokens.ok,
+      error: [
+        tuneContext.ok ? "" : (tuneContext.stderr || tuneContext.stdout || "").trim(),
+        tuneMaxTokens.ok ? "" : (tuneMaxTokens.stderr || tuneMaxTokens.stdout || "").trim(),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
     modelSetResult = await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], {
       timeoutMs: 40_000,
     });
@@ -685,6 +716,7 @@ async function handleQuickSetup(req, res) {
           stderr: modelSetResult.ok ? null : (modelSetResult.stderr || modelSetResult.stdout || "").trim(),
         }
       : { attempted: false, ok: null, stderr: null },
+    deepseekTune,
     next: gatewayHealth.ok
       ? "基础配置已完成，直接在下方聊天区发送消息即可。"
       : "基础配置完成，但 Gateway 启动异常，请点击“刷新状态”查看错误。",
