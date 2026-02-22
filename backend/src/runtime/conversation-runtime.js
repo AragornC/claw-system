@@ -106,6 +106,35 @@ function parseScheduleIntent(messageLike = '') {
   return null;
 }
 
+function looksLikeTradingDomainMessage(messageLike = '') {
+  const message = text(messageLike).toLowerCase();
+  if (!message) return false;
+  return (
+    /(交易|策略|回测|回验|复盘|仓位|杠杆|止盈|止损|开仓|平仓|风险|收益|胜率|做多|做空|行情|币圈|现货|合约|永续|资金费率|btc|eth|sol|x线|虾线|虾策|虾海|虾脑)/i.test(
+      message,
+    ) ||
+    /\b(run_backtest|run_custom_backtest|run_backtest_compare|run_strategy_dsl)\b/i.test(message)
+  );
+}
+
+function parseStructuredModelReply(replyLike = '') {
+  const raw = text(replyLike);
+  if (!raw) return { reply: '', actions: [] };
+  let parsed = safeJsonParse(raw, null);
+  if (!parsed || typeof parsed !== 'object') {
+    const block = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (block?.[1]) parsed = safeJsonParse(String(block[1]).trim(), null);
+  }
+  if (parsed && typeof parsed === 'object') {
+    const reply = text(parsed.reply) || raw;
+    const actions = Array.isArray(parsed.actions)
+      ? parsed.actions.filter((x) => x && typeof x === 'object').slice(0, 8)
+      : [];
+    return { reply, actions };
+  }
+  return { reply: raw, actions: [] };
+}
+
 function formatTaskReply(out) {
   const task = out?.task;
   if (!task) return out?.ok ? '任务执行完成。' : `任务执行失败：${text(out?.error) || 'unknown_error'}`;
@@ -325,6 +354,8 @@ export function createConversationRuntime(options = {}) {
           }));
         };
   const workspaceDir = String(options.workspaceDir || process.cwd());
+  const legacyChatIntents = Boolean(options.legacyChatIntents);
+  const tradingPluginEnabled = options.tradingPluginEnabled !== false;
 
   const compatState = {
     config: {
@@ -1722,7 +1753,7 @@ export function createConversationRuntime(options = {}) {
     const memoryHits = memoryManager.search(message, { maxResults: 8, minScore: 0.12 });
     executionTrace.push(trace('memory_search', `hits=${memoryHits.length}`));
 
-    if (/^(memory_search|记忆检索)(?:\s|$)/i.test(message)) {
+    if (legacyChatIntents && /^(memory_search|记忆检索)(?:\s|$)/i.test(message)) {
       const reply = memoryHits.length
         ? memoryHits.map((x, i) => `${i + 1}. ${x.path}#L${x.startLine} ${x.snippet}`).join('\n')
         : '未检索到相关记忆。';
@@ -1738,7 +1769,7 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    if (/^(memory_get|读取记忆)(?:\s|$)/i.test(message)) {
+    if (legacyChatIntents && /^(memory_get|读取记忆)(?:\s|$)/i.test(message)) {
       const m = message.match(/^(?:memory_get|读取记忆)\s+(\S+)(?:\s+(\d+))?(?:\s+(\d+))?/i);
       const targetPath = text(m?.[1] || 'MEMORY.md');
       const from = Number(m?.[2] || 1) || 1;
@@ -1760,7 +1791,7 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    if (/^(reset session|会话重置)(?:\s|$)/i.test(message)) {
+    if (legacyChatIntents && /^(reset session|会话重置)(?:\s|$)/i.test(message)) {
       const next = sessionManager.reset(sessionKey);
       const reply = `会话已重置：${next.key}`;
       rememberConversation(sessionKey, message, reply, 'runtime-session');
@@ -1792,33 +1823,41 @@ export function createConversationRuntime(options = {}) {
       memoryBundle,
     );
 
-    const routed = await handleNaturalLanguageToolOrchestration(
-      message,
-      String(clientContext.source || 'dashboard'),
-      {
-        currentView: String(clientContext.currentView || 'dashboard'),
-        sessionKey,
-        sessionPreview,
-      },
-    );
-    if (routed?.handled) {
-      executionTrace.push(trace('tool_router', 'handled=true'));
-      const reply = text(routed.reply || routed.summary || '') || '已处理';
-      sessionManager.appendEvent?.(sessionKey, { type: 'tool_router', role: 'bot', detail: reply });
-      appendChatHistoryEvent({ source: String(routed.source || 'runtime'), role: 'bot', direction: 'outbound', text: reply });
-      rememberConversation(sessionKey, message, reply, String(routed.source || 'runtime'));
-      sendJson(res, 200, {
-        ok: true,
-        source: String(routed.source || 'runtime'),
-        reply,
-        actions: Array.isArray(routed.actions) ? routed.actions : [],
-        contextDigest: trading?.digest || null,
-        executionTrace,
-      });
-      return;
+    const shouldRouteTools = legacyChatIntents || (tradingPluginEnabled && looksLikeTradingDomainMessage(message));
+    if (shouldRouteTools) {
+      const routed = await handleNaturalLanguageToolOrchestration(
+        message,
+        String(clientContext.source || 'dashboard'),
+        {
+          currentView: String(clientContext.currentView || 'dashboard'),
+          sessionKey,
+          sessionPreview,
+        },
+      );
+      if (routed?.handled) {
+        executionTrace.push(trace('tool_router', 'handled=true'));
+        const reply = text(routed.reply || routed.summary || '') || '已处理';
+        sessionManager.appendEvent?.(sessionKey, { type: 'tool_router', role: 'bot', detail: reply });
+        appendChatHistoryEvent({
+          source: String(routed.source || 'runtime'),
+          role: 'bot',
+          direction: 'outbound',
+          text: reply,
+        });
+        rememberConversation(sessionKey, message, reply, String(routed.source || 'runtime'));
+        sendJson(res, 200, {
+          ok: true,
+          source: String(routed.source || 'runtime'),
+          reply,
+          actions: Array.isArray(routed.actions) ? routed.actions : [],
+          contextDigest: trading?.digest || null,
+          executionTrace,
+        });
+        return;
+      }
     }
 
-    const taskIntent = parseTaskIntent(message);
+    const taskIntent = legacyChatIntents ? parseTaskIntent(message) : null;
     if (taskIntent) {
       const approved = approvalGate.evaluate({
         action: `task.execute:${taskIntent.tool}`,
@@ -1861,7 +1900,7 @@ export function createConversationRuntime(options = {}) {
       return;
     }
 
-    const scheduleIntent = parseScheduleIntent(message);
+    const scheduleIntent = legacyChatIntents ? parseScheduleIntent(message) : null;
     if (scheduleIntent) {
       const approved = approvalGate.evaluate({ action: 'scheduler.create', summary: message });
       executionTrace.push(trace('approval', `scheduler:${approved.reason}`, { approvalId: approved.approvalId || null }));
@@ -1926,7 +1965,9 @@ export function createConversationRuntime(options = {}) {
 
     try {
       const out = await runOpenClawChat(message, trading.context);
-      const reply = text(out?.reply) || '模型暂无回复。';
+      const structured = parseStructuredModelReply(out?.reply);
+      const reply = text(structured.reply) || '模型暂无回复。';
+      const actions = Array.isArray(structured.actions) ? structured.actions : [];
       sessionManager.appendEvent?.(sessionKey, { type: 'chat', role: 'bot', detail: reply });
       appendChatHistoryEvent({ source: 'openclaw', role: 'bot', direction: 'outbound', text: reply });
       rememberConversation(sessionKey, message, reply, 'openclaw');
@@ -1934,10 +1975,16 @@ export function createConversationRuntime(options = {}) {
         ok: true,
         source: 'openclaw',
         reply,
-        actions: [],
+        actions,
         contextDigest: trading.digest || null,
         executionTrace,
-        meta: { sessionKey: session.key },
+        meta: {
+          sessionKey: session.key,
+          provider: text(out?.agentMeta?.provider || ''),
+          model: text(out?.agentMeta?.model || ''),
+          elapsedMs: toNum(out?.elapsedMs, 0),
+          commandSource: text(out?.commandSource || ''),
+        },
       });
     } catch (err) {
       const messageText = text(err?.message || err) || 'model_invoke_failed';

@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -716,6 +716,7 @@ function inferXbrainProviderFromModelId(modelIdLike) {
   const modelId = String(modelIdLike || '').trim().toLowerCase();
   if (!modelId) return 'deepseek';
   if (modelId.startsWith('deepseek/')) return 'deepseek';
+  if (modelId.startsWith('deepseek-')) return 'deepseek';
   if (modelId.startsWith('openai-codex/')) return 'codex';
   if (modelId.startsWith('openai/') || modelId.startsWith('gpt-')) return 'chatgpt';
   if (modelId.startsWith('anthropic/')) return 'anthropic';
@@ -727,7 +728,7 @@ function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
   const provider = normalizeXbrainModelProvider(providerLike);
   const raw = String(modelIdLike || '').trim();
   if (!raw) {
-    if (provider === 'deepseek') return 'deepseek/deepseek-chat';
+    if (provider === 'deepseek') return 'deepseek-chat';
     if (provider === 'anthropic') return 'anthropic/claude-3-5-sonnet';
     if (provider === 'codex') return 'openai-codex/gpt-5.3-codex';
     return 'openai/gpt-4o-mini';
@@ -737,7 +738,7 @@ function normalizeXbrainModelIdForProvider(providerLike, modelIdLike) {
     const prefix = String(segs[0] || '').toLowerCase();
     const tail = segs.slice(1).join('/').trim();
     if (!tail) return raw;
-    if (provider === 'deepseek') return 'deepseek/' + tail;
+    if (provider === 'deepseek') return normalizeDeepSeekModelId(tail);
     if (provider === 'anthropic') return 'anthropic/' + tail;
     if (provider === 'codex') {
       if (prefix === 'openai-codex') return raw;
@@ -892,7 +893,7 @@ async function probeXbrainRuntimeModel(force = false) {
   }
   if (!modelId) {
     const env = envPairsWithFallback();
-    modelId = String(env.OPENCLAW_MODEL_ID || '').trim() || 'deepseek/deepseek-chat';
+    modelId = String(env.OPENCLAW_MODEL_ID || '').trim() || 'deepseek-chat';
     source = errorMsg ? 'env:fallback(error)' : 'env:fallback';
   }
   const provider = inferXbrainProviderFromModelId(modelId);
@@ -5820,6 +5821,18 @@ function buildTradingContext(clientContext, memoryContext) {
 }
 
 function resolveOpenClawCli() {
+  const commandExists = (cmdLike) => {
+    const cmd = String(cmdLike || '').trim();
+    if (!cmd) return false;
+    try {
+      const out = spawnSync('bash', ['-lc', 'command -v ' + JSON.stringify(cmd)], {
+        stdio: 'pipe',
+      });
+      return Number(out?.status) === 0;
+    } catch {
+      return false;
+    }
+  };
   const explicit = (process.env.OPENCLAW_CLI_BIN || '').trim();
   if (explicit) {
     return { command: explicit, prefixArgs: [], source: 'env:OPENCLAW_CLI_BIN' };
@@ -5831,7 +5844,14 @@ function resolveOpenClawCli() {
       source: 'workspace:openclaw/openclaw.mjs',
     };
   }
-  return { command: 'openclaw', prefixArgs: [], source: 'system:openclaw' };
+  if (commandExists('openclaw')) {
+    return { command: 'openclaw', prefixArgs: [], source: 'system:openclaw' };
+  }
+  return {
+    command: 'npx',
+    prefixArgs: ['-y', 'openclaw@latest'],
+    source: 'fallback:npx-openclaw@latest',
+  };
 }
 
 function parseJsonLoose(text) {
@@ -7663,7 +7683,8 @@ function normalizeOpenClawSessionToken(textLike = '') {
   const raw = String(textLike || '').trim().toLowerCase();
   if (!raw) return '';
   return raw
-    .replace(/[^a-z0-9:_-]+/g, '-')
+    .replace(/:+/g, '-')
+    .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 56);
@@ -7706,6 +7727,21 @@ function isOpenClawSessionLockError(textLike = '') {
     /\.jsonl\.lock/.test(text) ||
     /timeout.*lock/.test(text) ||
     /lane task error/.test(text)
+  );
+}
+
+function isOpenClawAuthError(textLike = '') {
+  const text = String(textLike || '').toLowerCase();
+  if (!text) return false;
+  return (
+    /no api key found/.test(text) ||
+    /unknown model/.test(text) ||
+    /invalid model/.test(text) ||
+    /deepseek\/deepseek-chat/.test(text) ||
+    /configure auth/.test(text) ||
+    /auth profile/.test(text) ||
+    /provider .* not configured/.test(text) ||
+    /models?.*auth/.test(text)
   );
 }
 
@@ -7991,11 +8027,44 @@ async function runOpenClawChat(message, context) {
   if (OPENCLAW_REPLY_ACCOUNT) args.push('--reply-account', OPENCLAW_REPLY_ACCOUNT);
 
   const startedAt = Date.now();
-  const proc = await runOpenClawInLane(laneKey, () =>
-    runOpenClawProcessWithRetry(cli.command, args, OPENCLAW_CHAT_TIMEOUT_MS, {
-      maxAttempts: OPENCLAW_SESSION_LOCK_RETRY,
-    }),
-  );
+  const executeRun = () =>
+    runOpenClawInLane(laneKey, () =>
+      runOpenClawProcessWithRetry(cli.command, args, OPENCLAW_CHAT_TIMEOUT_MS, {
+        maxAttempts: OPENCLAW_SESSION_LOCK_RETRY,
+      }),
+    );
+  let proc = null;
+  try {
+    proc = await executeRun();
+  } catch (err) {
+    const rawMsg = String(err?.message || err || '');
+    const shouldAutoRepairAuth = isOpenClawAuthError(rawMsg);
+    if (shouldAutoRepairAuth) {
+      const xstateNow = ensureXbrainState();
+      const synced = await syncXbrainBaseToOpenClaw(xstateNow?.base || {}).catch(() => ({ ok: false }));
+      if (synced?.ok) {
+        try {
+          proc = await executeRun();
+        } catch (retryErr) {
+          const retryMsg = String(retryErr?.message || retryErr || '');
+          if (isOpenClawAuthError(retryMsg)) {
+            throw new Error(
+              (retryMsg || rawMsg || 'OpenClaw auth failed') +
+                '\n请先配置模型授权：可在聊天发送“设置 DeepSeek key sk-xxxx”，或执行 openclaw models auth login --set-default。',
+            );
+          }
+          throw retryErr;
+        }
+      } else {
+        throw new Error(
+          (rawMsg || 'OpenClaw auth failed') +
+            '\n请先配置模型授权：可在聊天发送“设置 DeepSeek key sk-xxxx”，或执行 openclaw models auth login --set-default。',
+        );
+      }
+    } else {
+      throw err;
+    }
+  }
   const extracted = extractReplyFromOutput(proc.stdout);
   if (!extracted.reply) {
     throw new Error('OpenClaw 返回为空');
@@ -8180,9 +8249,10 @@ function buildConfigStatusReply() {
 
 function normalizeDeepSeekModelId(modelLike) {
   const raw = String(modelLike || '').trim();
-  if (!raw) return 'deepseek/deepseek-chat';
-  if (raw.includes('/')) return raw;
-  return 'deepseek/' + raw;
+  if (!raw) return 'deepseek-chat';
+  if (!raw.includes('/')) return raw;
+  const tail = raw.split('/').slice(-1)[0];
+  return String(tail || 'deepseek-chat').trim() || 'deepseek-chat';
 }
 
 async function handleConfigIntent(intent) {
@@ -9560,6 +9630,8 @@ function setupConversationRuntime() {
         }));
         return rows.slice(-limit);
       },
+      legacyChatIntents: THUNDERCLAW_LEGACY_CHAT_INTENTS,
+      tradingPluginEnabled: THUNDERCLAW_TRADING_PLUGIN_ENABLED,
       toolTimeoutMs: Math.max(1500, positiveInt(process.env.THUNDERCLAW_RUNTIME_TOOL_TIMEOUT_MS, 6000)),
       schedulerTickMs: Math.max(500, positiveInt(process.env.THUNDERCLAW_RUNTIME_SCHEDULER_TICK_MS, 1000)),
       approvalSecurity: String(process.env.THUNDERCLAW_RUNTIME_APPROVAL_SECURITY || 'allowlist'),

@@ -55,9 +55,7 @@ case "${MODEL_SETUP_MODE}" in
     fi
     if [[ -n "${DEEPSEEK_API_KEY}" ]]; then
       DEEPSEEK_MODEL_ID="$(prompt_default "DeepSeek 主模型ID" "deepseek-chat")"
-    if [[ "${DEEPSEEK_MODEL_ID}" != */* ]]; then
-      DEEPSEEK_MODEL_ID="deepseek/${DEEPSEEK_MODEL_ID}"
-    fi
+      DEEPSEEK_MODEL_ID="${DEEPSEEK_MODEL_ID#deepseek/}"
       echo "[init] 写入 DeepSeek 模型配置..."
       "${OPENCLAW_BIN}" config set "models.mode" "merge" >/dev/null 2>&1 || true
       DEEPSEEK_PROVIDER_JSON="$(
