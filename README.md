@@ -20,14 +20,13 @@ npm run thunderclaw:start
 默认访问：
 
 - `http://127.0.0.1:3456`
-- `http://127.0.0.1:3456/onboarding.html`（简化 OpenClaw 配置向导）
 
 默认首页已恢复为 ThunderClaw 原功能页（虾脑 / 虾线 / 虾海 / 虾策）。  
-如需快速配置 OpenClaw，再打开向导页：
+如需快速配置 OpenClaw，直接进入「虾脑」里的快速登录引导：
 
 1. 粘贴 DeepSeek API Key  
 2. 点击“一键完成基础配置”  
-3. 回到主页面直接聊天
+3. 完成后直接在主聊天区对话
 
 ---
 
@@ -53,7 +52,6 @@ node scripts/thunderclaw-cli.js start --port 3456
 前端：
 
 - `memory/report/index.html`（主页面）
-- `web/index.html`（配置向导）
 
 提供 API：
 

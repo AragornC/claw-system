@@ -435,12 +435,9 @@ function guessContentType(filePath) {
 async function serveStatic(req, res) {
   const rawUrl = new URL(req.url ?? "/", "http://localhost");
   let pathname = decodeURIComponent(rawUrl.pathname);
-  const onboardingAliases = new Set(["/onboarding", "/onboarding.html", "/xbrain-setup", "/xbrain-setup.html"]);
   const candidates = [];
   if (pathname === "/") {
     candidates.push(path.join(REPORT_DIR, "index.html"));
-  } else if (onboardingAliases.has(pathname)) {
-    candidates.push(path.join(WEB_DIR, "index.html"));
   } else {
     const safePath = path
       .normalize(pathname)
@@ -1097,7 +1094,7 @@ function parseConfigIntent(messageRaw) {
     return { type: "oauth", provider: "anthropic" };
   }
   if (/(打开|进入|前往).{0,8}(配置|向导|xbrain|虾脑)/i.test(message)) {
-    return { type: "open_onboarding" };
+    return { type: "open_xbrain" };
   }
   return null;
 }
@@ -1318,17 +1315,17 @@ async function handleConfigChat(req, res) {
     return;
   }
 
-  if (intent.type === "open_onboarding") {
+  if (intent.type === "open_xbrain") {
     appendChatEvent({ role: "user", source: "dashboard", text: message });
     appendChatEvent({
       role: "bot",
       source: "system",
-      text: "配置向导入口：/onboarding.html（保持旧版虾脑/虾线/虾海/虾策为主页面）。",
+      text: "请进入「虾脑」页面使用内置快速登录引导（DeepSeek 一键登录 / OpenAI OAuth）。",
     });
     sendJson(res, 200, {
       ok: true,
       handled: true,
-      reply: "配置向导入口：/onboarding.html（旧功能页保持为默认首页）。",
+      reply: "请进入「虾脑」页面使用内置快速登录引导（DeepSeek 一键登录 / OpenAI OAuth）。",
     });
     return;
   }
@@ -1855,7 +1852,7 @@ export function startThunderClawServer(options = {}) {
   server.listen(port, host, () => {
     console.log(`ThunderClaw server running at http://${host}:${port}`);
     console.log("Open / for ThunderClaw old product pages (虾脑/虾线/虾海/虾策).");
-    console.log("Open /onboarding.html for simplified OpenClaw setup wizard.");
+    console.log("Open 虾脑 view to use embedded OpenClaw quick login.");
   });
   return server;
 }

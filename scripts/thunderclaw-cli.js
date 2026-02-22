@@ -22,7 +22,7 @@ function printHelp() {
       "  thunderclaw idea",
       "",
       "说明:",
-      "  start: 启动 ThunderClaw 本地控制台（/ 默认旧功能页，/onboarding.html 为新配置向导）。",
+      "  start: 启动 ThunderClaw 本地控制台（/ 默认旧功能页，虾脑内含快速登录引导）。",
       "  status: 检查 OpenClaw CLI 是否已就绪。",
     ].join("\n"),
   );
@@ -60,7 +60,6 @@ if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   process.exit(1);
 } else if (cmd === "assets") {
   console.log(path.resolve(root, "memory/report/index.html"));
-  console.log(path.resolve(root, "web/index.html"));
   console.log(path.resolve(root, "memory/report/app-icon.svg"));
   console.log(path.resolve(root, "memory/report/app-icon-maskable.svg"));
   process.exit(0);
