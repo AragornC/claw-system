@@ -22,7 +22,7 @@ function printHelp() {
       "  thunderclaw idea",
       "",
       "说明:",
-      "  start: 启动 ThunderClaw 本地控制台（/ 默认旧功能页，虾脑内含快速登录引导）。",
+      "  start: 启动 ThunderClaw 本地控制台（/ 默认旧功能页，虾脑内含模型注册中心）。",
       "  status: 检查 OpenClaw CLI 是否已就绪。",
     ].join("\n"),
   );

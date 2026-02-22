@@ -28,11 +28,11 @@ npm run thunderclaw:start
 2. ThunderClaw 配置（交易所 API、运行策略）
 3. OpenClaw 配置台（cron 管理 + config 路径读写）
 
-如需快速配置 OpenClaw，直接进入「虾脑」第 1 个 Tab 的快速登录引导：
+如需快速配置 OpenClaw，直接进入「虾脑」第 1 个 Tab 的模型注册中心：
 
-1. 粘贴 DeepSeek API Key  
-2. 点击“一键完成基础配置”  
-3. 完成后直接在主聊天区对话
+1. 从 OpenClaw 全模型目录中选择模型（DeepSeek / ChatGPT / Anthropic / 其他 provider）  
+2. 按 provider 类型执行“连接并注册”或“仅注册”  
+3. 注册成功后即可在 ThunderClaw 顶部模型切换器中切换
 
 ---
 
@@ -73,6 +73,9 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `GET /api/chat/history`：旧主页面聊天历史轮询
 - `GET /api/ai/health`：旧主页面 AI 链路健康检查
 - `GET/POST /api/xbrain/*`：旧主页面虾脑配置接口兼容
+- `GET /api/xbrain/models/catalog`：获取 OpenClaw 全模型目录（含 provider 能力）
+- `POST /api/xbrain/models/connect`：连接并注册模型（支持 API Key / OAuth / 仅注册）
+- `POST /api/xbrain/models/disconnect`：从虾脑模型列表移除已注册模型
 - `GET /api/openclaw/status`：OpenClaw 配置台状态摘要
 - `GET /api/openclaw/cron/list`：Cron 列表
 - `POST /api/openclaw/cron/add|remove|toggle`：Cron 新增/删除/启停
