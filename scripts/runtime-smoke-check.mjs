@@ -29,6 +29,24 @@ async function post(pathname, body) {
   });
 }
 
+async function postRpc(method, params, opts = {}) {
+  const mode = String(opts.mode || 'jsonrpc').trim().toLowerCase();
+  if (mode === 'frame') {
+    return post('/api/runtime/rpc', {
+      type: 'req',
+      id: opts.id || 'smoke-frame-' + Date.now(),
+      method,
+      params: params && typeof params === 'object' ? params : {},
+    });
+  }
+  return post('/api/runtime/rpc', {
+    jsonrpc: '2.0',
+    id: opts.id || 'smoke-rpc-' + Date.now(),
+    method,
+    params: params && typeof params === 'object' ? params : {},
+  });
+}
+
 async function waitUntilReady(maxMs = 30000) {
   const started = Date.now();
   while (Date.now() - started < maxMs) {
@@ -55,6 +73,23 @@ async function runChecks() {
 
   const approvals = await requestJson('/api/runtime/approvals');
   assertCondition(approvals.ok && approvals.payload?.ok === true, 'GET /api/runtime/approvals 失败');
+
+  const rpcMethods = await requestJson('/api/runtime/methods');
+  assertCondition(rpcMethods.ok && rpcMethods.payload?.ok === true, 'GET /api/runtime/methods 失败');
+  assertCondition(Array.isArray(rpcMethods.payload?.methods), 'runtime methods 列表非法');
+
+  const rpcSessionList = await postRpc('sessions.list', { limit: 4 });
+  assertCondition(rpcSessionList.ok, 'RPC sessions.list 调用失败');
+  assertCondition(Array.isArray(rpcSessionList.payload?.result?.sessions), 'RPC sessions.list 响应非法');
+
+  const rpcChat = await postRpc(
+    'chat.send',
+    { message: 'memory_search runtime', sessionKey: 'smoke:rpc', source: 'smoke' },
+    { mode: 'frame' },
+  );
+  assertCondition(rpcChat.ok, 'RPC chat.send 调用失败');
+  assertCondition(rpcChat.payload?.ok === true, 'RPC chat.send 未返回 ok=true');
+  assertCondition(typeof rpcChat.payload?.payload?.reply === 'string', 'RPC chat.send reply 非法');
 
   const createdTask = await post('/api/runtime/tasks', {
     title: 'smoke-task',

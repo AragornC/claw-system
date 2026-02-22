@@ -34,6 +34,24 @@ async function post(pathname, body) {
   });
 }
 
+async function postRpc(method, params, opts = {}) {
+  const mode = String(opts.mode || 'jsonrpc').trim().toLowerCase();
+  if (mode === 'frame') {
+    return post('/api/runtime/rpc', {
+      type: 'req',
+      id: opts.id || 'e2e-frame-' + Date.now(),
+      method,
+      params: params && typeof params === 'object' ? params : {},
+    });
+  }
+  return post('/api/runtime/rpc', {
+    jsonrpc: '2.0',
+    id: opts.id || 'e2e-rpc-' + Date.now(),
+    method,
+    params: params && typeof params === 'object' ? params : {},
+  });
+}
+
 async function postChat(message, sessionKey = 'e2e:runtime') {
   return post('/api/ai/chat', {
     message,
@@ -60,6 +78,24 @@ async function runChecks() {
   const results = [];
   const sessionKey = 'e2e:runtime';
 
+  const rpcSessionList = await postRpc('sessions.list', { limit: 3 });
+  if (rpcSessionList.ok && Array.isArray(rpcSessionList.payload?.result?.sessions)) {
+    results.push(['rpc-sessions-list', 'PASS', 'gateway method 路由可用']);
+  } else {
+    results.push(['rpc-sessions-list', 'FAIL', 'HTTP ' + rpcSessionList.status]);
+  }
+
+  const rpcChatSend = await postRpc(
+    'chat.send',
+    { message: 'memory_search runtime', sessionKey, source: 'e2e' },
+    { mode: 'frame' },
+  );
+  if (rpcChatSend.ok && rpcChatSend.payload?.ok === true && typeof rpcChatSend.payload?.payload?.reply === 'string') {
+    results.push(['rpc-chat-send', 'PASS', 'frame 协议可用']);
+  } else {
+    results.push(['rpc-chat-send', 'FAIL', 'HTTP ' + rpcChatSend.status]);
+  }
+
   const memGet = await postChat('memory_get USER.md 1 8', sessionKey);
   if (memGet.ok && memGet.payload?.ok === true && typeof memGet.payload?.reply === 'string') {
     results.push(['chat-memory-get', 'PASS', 'memory_get 分支可用']);
@@ -75,7 +111,21 @@ async function runChecks() {
     results.push(['chat-schedule-create', 'FAIL', 'HTTP ' + scheduleCreate.status]);
   }
 
+  const rpcCronStatus = await postRpc('cron.status', {});
+  if (rpcCronStatus.ok && rpcCronStatus.payload?.result?.ok === true) {
+    results.push(['rpc-cron-status', 'PASS', 'cron.status 可用']);
+  } else {
+    results.push(['rpc-cron-status', 'FAIL', 'HTTP ' + rpcCronStatus.status]);
+  }
+
   if (jobId) {
+    const rpcRun = await postRpc('cron.run', { id: jobId });
+    if (rpcRun.ok && rpcRun.payload?.result?.ok !== false) {
+      results.push(['rpc-cron-run', 'PASS', 'cron.run 可触发执行']);
+    } else {
+      results.push(['rpc-cron-run', 'FAIL', 'HTTP ' + rpcRun.status]);
+    }
+
     const patchOut = await post('/api/runtime/schedules/patch', {
       id: jobId,
       patch: { enabled: false, resetNextRunAt: true },

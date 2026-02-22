@@ -72,6 +72,13 @@ export async function handleChatRoute(url, req, res, deps) {
     }
     return true;
   }
+  if (pathname === '/api/openclaw/rpc' || pathname === '/api/gateway/rpc') {
+    if (typeof d.runtimeHandleRoute === 'function') {
+      const handled = await d.runtimeHandleRoute(url, req, res);
+      return handled !== false;
+    }
+    return false;
+  }
   if (pathname.startsWith('/api/runtime/')) {
     if (typeof d.runtimeHandleRoute === 'function') {
       const handled = await d.runtimeHandleRoute(url, req, res);

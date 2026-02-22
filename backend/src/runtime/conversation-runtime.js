@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { createAuditLog } from './audit-log.js';
 import { createApprovalGate } from './approval-gate.js';
 import { createMemoryManager } from './memory-manager.js';
@@ -26,6 +27,16 @@ function safeJsonParse(rawLike, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function toNum(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : Number(fallback || 0);
+}
+
+function toPosInt(v, fallback, min = 1, max = 1000) {
+  const n = Math.floor(toNum(v, fallback));
+  return Math.max(min, Math.min(max, n));
 }
 
 function trace(step, summary, extra = {}) {
@@ -239,6 +250,516 @@ export function createConversationRuntime(options = {}) {
       fs.appendFileSync(learningPath, line, 'utf8');
       emitAudit('memory.remember.turn', { sessionKey, source, path: learningPath });
     } catch {}
+  }
+
+  function normalizeRpcRequest(payloadLike = {}) {
+    const payload = safeObj(payloadLike);
+    const protocol =
+      String(payload.jsonrpc || '').trim() === '2.0'
+        ? 'jsonrpc'
+        : String(payload.type || '').trim().toLowerCase() === 'req'
+          ? 'frame'
+          : 'plain';
+    const id = payload.id ?? null;
+    const method = text(payload.method);
+    let params = payload.params;
+    if (params == null) params = {};
+    if (typeof params === 'string') {
+      params = { message: params };
+    }
+    if (!params || typeof params !== 'object') {
+      params = {};
+    }
+    return { protocol, id, method, params };
+  }
+
+  function buildRpcSuccess(protocol, id, result) {
+    if (protocol === 'jsonrpc') {
+      return { jsonrpc: '2.0', id, result };
+    }
+    if (protocol === 'frame') {
+      return { type: 'res', id, ok: true, payload: result };
+    }
+    return { ok: true, id, payload: result };
+  }
+
+  function buildRpcError(protocol, id, errorLike = {}) {
+    const error = safeObj(errorLike);
+    const code = text(error.code || 'runtime_error') || 'runtime_error';
+    const message = text(error.message || 'runtime_error') || 'runtime_error';
+    const statusCode = toPosInt(error.statusCode, 400, 200, 599);
+    const details = error.data && typeof error.data === 'object' ? error.data : null;
+    if (protocol === 'jsonrpc') {
+      const numericCode =
+        code === 'invalid_request'
+          ? -32600
+          : code === 'method_not_found'
+            ? -32601
+            : code === 'invalid_params'
+              ? -32602
+              : -32000;
+      return {
+        statusCode,
+        body: { jsonrpc: '2.0', id, error: { code: numericCode, message, data: details } },
+      };
+    }
+    if (protocol === 'frame') {
+      return {
+        statusCode,
+        body: { type: 'res', id, ok: false, error: { code, message, details } },
+      };
+    }
+    return {
+      statusCode,
+      body: { ok: false, id, error: { code, message, details } },
+    };
+  }
+
+  function normalizeChatSendParams(paramsLike = {}) {
+    const params = safeObj(paramsLike);
+    const message = text(params.message || params.text || params.prompt);
+    const mergedClientContext = {
+      ...(safeObj(params.clientContext) || {}),
+    };
+    const sessionKey = text(params.sessionKey || params.key || mergedClientContext.sessionKey || '');
+    const source = text(params.source || mergedClientContext.source || 'gateway-rpc');
+    const currentView = text(params.currentView || mergedClientContext.currentView || 'dashboard');
+    if (sessionKey) mergedClientContext.sessionKey = sessionKey;
+    if (source) mergedClientContext.source = source;
+    if (currentView) mergedClientContext.currentView = currentView;
+    return {
+      message,
+      clientContext: mergedClientContext,
+    };
+  }
+
+  async function invokeChatThroughRuntime(messageLike, clientContextLike = {}) {
+    const message = text(messageLike);
+    if (!message) {
+      return { statusCode: 400, body: { ok: false, error: 'message is required' } };
+    }
+    const req = new EventEmitter();
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json' };
+    req.destroy = () => {};
+    let ended = false;
+    let statusCode = 200;
+    let rawBody = '';
+    let resolveDone = null;
+    const done = new Promise((resolve) => {
+      resolveDone = resolve;
+    });
+    const res = {
+      statusCode: 200,
+      setHeader() {},
+      end(chunkLike) {
+        if (ended) return;
+        ended = true;
+        statusCode = toPosInt(this.statusCode, 200, 100, 599);
+        rawBody = chunkLike == null ? '' : String(chunkLike);
+        resolveDone?.();
+      },
+    };
+
+    const pending = handleChatApi(req, res).catch((err) => {
+      if (ended) return;
+      ended = true;
+      statusCode = 500;
+      rawBody = JSON.stringify({ ok: false, error: text(err?.message || err) || 'chat_send_failed' });
+      resolveDone?.();
+    });
+    process.nextTick(() => {
+      const body = JSON.stringify({
+        message,
+        clientContext: safeObj(clientContextLike),
+      });
+      req.emit('data', Buffer.from(body, 'utf8'));
+      req.emit('end');
+    });
+    await done;
+    await pending;
+    return {
+      statusCode,
+      body: safeJsonParse(rawBody, { ok: statusCode < 400, raw: rawBody }),
+    };
+  }
+
+  async function runJobNow(jobIdLike) {
+    const id = text(jobIdLike);
+    if (!id) {
+      return { ok: false, error: 'job_id_required' };
+    }
+    const job = schedulerRuntime.getJob?.(id);
+    if (!job) {
+      return { ok: false, error: 'job_not_found' };
+    }
+    if (!job.tool) {
+      return { ok: false, error: 'job_tool_required', job };
+    }
+    const task = taskEngine.createTask({
+      title: `scheduled:${text(job.title || 'runtime-job')}`,
+      type: 'scheduled-tool',
+      tool: text(job.tool),
+      args: safeObj(job.args),
+      sessionKey: text(job.sessionKey || 'dashboard:main'),
+    });
+    const out = await taskEngine.runTask(task.id);
+    job.lastTaskId = task.id;
+    job.lastRunAt = nowIso();
+    job.lastStatus = out?.ok ? 'success' : 'failed';
+    job.lastError = out?.ok ? null : text(out?.error || 'scheduled_task_failed');
+    job.updatedAt = nowIso();
+    schedulerRuntime.patchJob?.(job.id, { resetNextRunAt: true });
+    emitAudit('scheduler.job.run_manual', {
+      id: job.id,
+      taskId: task.id,
+      status: job.lastStatus,
+      error: job.lastError,
+    });
+    return {
+      ok: out?.ok !== false,
+      error: out?.ok ? null : text(out?.error || ''),
+      job,
+      task: taskEngine.getTask?.(task.id) || null,
+    };
+  }
+
+  async function dispatchGatewayMethod(methodLike, paramsLike = {}) {
+    const method = text(methodLike);
+    const params = safeObj(paramsLike);
+    if (!method) {
+      throw { code: 'invalid_request', message: 'method is required', statusCode: 400 };
+    }
+
+    if (method === 'chat.send') {
+      const normalized = normalizeChatSendParams(params);
+      if (!normalized.message) {
+        throw { code: 'invalid_params', message: 'chat.send requires message', statusCode: 400 };
+      }
+      const out = await invokeChatThroughRuntime(normalized.message, normalized.clientContext);
+      if (!out.body || out.body.ok === false || out.statusCode >= 400) {
+        throw {
+          code: 'runtime_error',
+          message: text(out.body?.error || 'chat_send_failed'),
+          statusCode: toPosInt(out.statusCode, 502, 200, 599),
+          data: out.body || null,
+        };
+      }
+      return {
+        ok: true,
+        reply: text(out.body?.reply || ''),
+        source: text(out.body?.source || 'runtime'),
+        actions: Array.isArray(out.body?.actions) ? out.body.actions : [],
+        executionTrace: Array.isArray(out.body?.executionTrace) ? out.body.executionTrace : [],
+        contextDigest: out.body?.contextDigest || null,
+        meta: out.body?.meta && typeof out.body.meta === 'object' ? out.body.meta : {},
+      };
+    }
+
+    if (method === 'sessions.list') {
+      const limit = toPosInt(params.limit, 120, 1, 800);
+      return { ts: Date.now(), sessions: sessionManager.list(limit) };
+    }
+    if (method === 'sessions.get') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const session = sessionManager.get?.(key);
+      if (!session) {
+        throw { code: 'not_found', message: 'session_not_found', statusCode: 404 };
+      }
+      return { key, session };
+    }
+    if (method === 'sessions.resolve') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey || params.label);
+      return { ok: true, key };
+    }
+    if (method === 'sessions.patch') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const patch = safeObj(params.patch || params);
+      const session = sessionManager.ensureSession?.(key, {
+        meta: safeObj(patch.meta),
+        status: patch.status ? text(patch.status) : undefined,
+      });
+      return { ok: true, key, session };
+    }
+    if (method === 'sessions.reset') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const session = sessionManager.reset(key);
+      return { ok: true, key, session };
+    }
+    if (method === 'sessions.compact') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const keepEvents = toPosInt(params.keepEvents, 160, 10, 1200);
+      const session = sessionManager.compact(key, { keepEvents });
+      return { ok: true, key, session };
+    }
+    if (method === 'sessions.resume') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const session = sessionManager.resume(key);
+      return { ok: true, key, session };
+    }
+
+    if (method === 'tasks.list') {
+      const limit = toPosInt(params.limit, 120, 1, 1000);
+      const filter = {
+        sessionKey: text(params.sessionKey || ''),
+        status: text(params.status || ''),
+      };
+      return { tasks: taskEngine.listTasks(limit, filter) };
+    }
+    if (method === 'tasks.create') {
+      const input = safeObj(params);
+      const tool = text(input.tool);
+      if (!tool) {
+        throw { code: 'invalid_params', message: 'tasks.create requires tool', statusCode: 400 };
+      }
+      const approval = approvalGate.evaluate({
+        type: 'tool_call',
+        action: `task.execute:${tool}`,
+        tool,
+        summary: `gateway_rpc_task:${tool}:${JSON.stringify(safeObj(input.args))}`,
+      });
+      if (!approval.allowed) {
+        throw {
+          code: 'approval_required',
+          message: text(approval.reason || 'approval_required'),
+          statusCode: 403,
+          data: { approvalId: approval.approvalId || null },
+        };
+      }
+      const task = taskEngine.createTask({
+        title: text(input.title || tool || 'runtime-task'),
+        type: text(input.type || 'tool'),
+        tool,
+        args: safeObj(input.args),
+        sessionKey: text(input.sessionKey || 'dashboard:main'),
+        maxRetries: toPosInt(input.maxRetries, 1, 0, 12),
+      });
+      if (input.runNow !== false) {
+        await taskEngine.runTask(task.id);
+      }
+      return { ok: true, task: taskEngine.getTask(task.id) };
+    }
+    if (method === 'tasks.retry') {
+      const id = text(params.id || params.taskId);
+      if (!id) {
+        throw { code: 'invalid_params', message: 'tasks.retry requires id', statusCode: 400 };
+      }
+      const existing = taskEngine.getTask?.(id);
+      if (existing) {
+        const approval = approvalGate.evaluate({
+          type: 'tool_call',
+          action: `task.retry:${existing.tool || ''}`,
+          tool: existing.tool || '',
+          summary: `gateway_rpc_task_retry:${existing.id || id}`,
+        });
+        if (!approval.allowed) {
+          throw {
+            code: 'approval_required',
+            message: text(approval.reason || 'approval_required'),
+            statusCode: 403,
+            data: { approvalId: approval.approvalId || null },
+          };
+        }
+      }
+      const out = await taskEngine.retryTask(id);
+      if (!out.ok) {
+        throw { code: 'runtime_error', message: text(out.error || 'task_retry_failed'), statusCode: 400, data: out };
+      }
+      return { ok: true, task: out.task || null };
+    }
+
+    if (method === 'cron.list') {
+      const limit = toPosInt(params.limit, 120, 1, 1000);
+      const includeDisabled = params.includeDisabled === true;
+      const jobs = includeDisabled
+        ? schedulerRuntime.listJobs(limit)
+        : schedulerRuntime.listJobs(limit).filter((job) => job?.enabled !== false);
+      return { jobs };
+    }
+    if (method === 'cron.status') {
+      const jobs = schedulerRuntime.listJobs(1000);
+      const now = Date.now();
+      const dueJobs = jobs.filter((job) => {
+        const dueAt = new Date(String(job?.nextRunAt || 0)).getTime();
+        return job?.enabled !== false && Number.isFinite(dueAt) && dueAt <= now;
+      });
+      return {
+        ok: true,
+        jobs: jobs.length,
+        enabledJobs: jobs.filter((x) => x?.enabled !== false).length,
+        dueJobs: dueJobs.length,
+      };
+    }
+    if (method === 'cron.add') {
+      const input = safeObj(params);
+      const approval = approvalGate.evaluate({
+        type: 'scheduler',
+        action: 'scheduler.create',
+        tool: text(input.tool),
+        summary: `gateway_rpc_schedule:${text(input.scheduleText || input.schedule || input.cron || '')}`,
+      });
+      if (!approval.allowed) {
+        throw {
+          code: 'approval_required',
+          message: text(approval.reason || 'approval_required'),
+          statusCode: 403,
+          data: { approvalId: approval.approvalId || null },
+        };
+      }
+      const job = schedulerRuntime.createJob({
+        id: text(input.id || input.jobId || ''),
+        title: text(input.title || input.tool || 'runtime-job'),
+        tool: text(input.tool || ''),
+        args: safeObj(input.args),
+        sessionKey: text(input.sessionKey || 'dashboard:main'),
+        scheduleText: text(input.scheduleText || input.schedule || ''),
+        schedule: text(input.schedule || ''),
+        cron: text(input.cron || ''),
+        everyMinutes: toNum(input.everyMinutes, 0) || undefined,
+        everySeconds: toNum(input.everySeconds, 0) || undefined,
+      });
+      if (job?.ok === false || !job?.id) {
+        throw {
+          code: 'invalid_params',
+          message: text(job?.error || 'schedule_invalid'),
+          statusCode: 400,
+          data: job?.expected ? { expected: job.expected } : null,
+        };
+      }
+      return { job };
+    }
+    if (method === 'cron.update') {
+      const id = text(params.id || params.jobId);
+      if (!id) throw { code: 'invalid_params', message: 'cron.update requires id', statusCode: 400 };
+      const patch = safeObj(params.patch || params);
+      const job = schedulerRuntime.patchJob(id, patch);
+      if (!job) throw { code: 'not_found', message: 'job_not_found', statusCode: 404 };
+      return { job };
+    }
+    if (method === 'cron.remove') {
+      const id = text(params.id || params.jobId);
+      if (!id) throw { code: 'invalid_params', message: 'cron.remove requires id', statusCode: 400 };
+      const ok = schedulerRuntime.removeJob(id);
+      if (!ok) throw { code: 'not_found', message: 'job_not_found', statusCode: 404 };
+      return { ok: true, id };
+    }
+    if (method === 'cron.run') {
+      const id = text(params.id || params.jobId);
+      const out = await runJobNow(id);
+      if (!out.ok) {
+        throw { code: 'runtime_error', message: text(out.error || 'cron_run_failed'), statusCode: 400, data: out };
+      }
+      return out;
+    }
+    if (method === 'cron.runs') {
+      const id = text(params.id || params.jobId);
+      if (!id) throw { code: 'invalid_params', message: 'cron.runs requires id', statusCode: 400 };
+      const limit = toPosInt(params.limit, 20, 1, 120);
+      const rows = typeof audit?.list === 'function' ? audit.list({ limit: Math.max(limit * 8, 120) }) : [];
+      const entries = rows
+        .filter((row) => {
+          const event = text(row?.event || '');
+          const payload = safeObj(row?.payload);
+          return (
+            (event === 'scheduler.job.executed' || event === 'scheduler.job.run_manual') &&
+            text(payload.id || payload.jobId) === id
+          );
+        })
+        .slice(0, limit);
+      return { entries };
+    }
+
+    if (method === 'tools.manifest') {
+      return { manifest: toolRuntime.getManifest() };
+    }
+    if (method === 'tools.bridge-check') {
+      return { check: await toolRuntime.checkBridge() };
+    }
+
+    if (method === 'approvals.list') {
+      return {
+        config: approvalGate.getSnapshot?.() || {},
+        pending: approvalGate.listPending?.(200) || [],
+      };
+    }
+    if (method === 'approvals.decide') {
+      const approvalId = text(params.approvalId || params.id);
+      const decision = text(params.decision || 'deny');
+      if (!approvalId) {
+        throw { code: 'invalid_params', message: 'approvals.decide requires approvalId', statusCode: 400 };
+      }
+      const approval = approvalGate.decide?.(approvalId, decision);
+      if (!approval) {
+        throw { code: 'not_found', message: 'approval_not_found', statusCode: 404 };
+      }
+      return { approval };
+    }
+    if (method === 'approvals.allowlist.add') {
+      const pattern = text(params.pattern);
+      if (!pattern) {
+        throw { code: 'invalid_params', message: 'approvals.allowlist.add requires pattern', statusCode: 400 };
+      }
+      const ok = approvalGate.grantAlways?.(pattern);
+      if (!ok) {
+        throw { code: 'invalid_params', message: 'pattern_required', statusCode: 400 };
+      }
+      return { ok: true, config: approvalGate.getSnapshot?.() || {} };
+    }
+    if (method === 'approvals.config') {
+      const config = approvalGate.updateConfig?.(safeObj(params)) || approvalGate.getSnapshot?.() || {};
+      return { config };
+    }
+
+    if (method === 'audit.list' || method === 'runtime.audit.list') {
+      const limit = toPosInt(params.limit, 120, 1, 1000);
+      const event = text(params.event || '');
+      const rows = typeof audit?.list === 'function' ? audit.list({ limit, event }) : [];
+      return {
+        filePath: audit?.filePath || null,
+        total: Array.isArray(rows) ? rows.length : 0,
+        rows: Array.isArray(rows) ? rows : [],
+      };
+    }
+
+    throw { code: 'method_not_found', message: `unknown method: ${method}`, statusCode: 404 };
+  }
+
+  async function handleRuntimeRpc(req, res) {
+    if (String(req?.method || 'GET').toUpperCase() !== 'POST') {
+      res.statusCode = 405;
+      res.setHeader('Allow', 'POST');
+      res.end('Method Not Allowed');
+      return true;
+    }
+    const parsed = await readJsonBody(req);
+    if (!parsed.ok) {
+      const err = buildRpcError('plain', null, {
+        code: 'invalid_request',
+        message: parsed.error || 'invalid_json',
+        statusCode: parsed.error === 'payload too large' ? 413 : 400,
+      });
+      sendJson(res, err.statusCode, err.body);
+      return true;
+    }
+    const request = normalizeRpcRequest(parsed.value);
+    if (!request.method) {
+      const err = buildRpcError(request.protocol, request.id, {
+        code: 'invalid_request',
+        message: 'method is required',
+        statusCode: 400,
+      });
+      sendJson(res, err.statusCode, err.body);
+      return true;
+    }
+    try {
+      const result = await dispatchGatewayMethod(request.method, request.params);
+      sendJson(res, 200, buildRpcSuccess(request.protocol, request.id, result));
+      return true;
+    } catch (errorLike) {
+      const err = buildRpcError(request.protocol, request.id, errorLike);
+      sendJson(res, err.statusCode, err.body);
+      return true;
+    }
   }
 
   async function handleChatApi(req, res) {
@@ -508,6 +1029,58 @@ export function createConversationRuntime(options = {}) {
   async function handleRuntimeApi(req, res, url) {
     const pathname = String(url?.pathname || '');
     const method = String(req?.method || 'GET').toUpperCase();
+
+    if (
+      (pathname === '/api/runtime/rpc' || pathname === '/api/openclaw/rpc' || pathname === '/api/gateway/rpc') &&
+      method === 'GET'
+    ) {
+      sendJson(res, 200, {
+        ok: true,
+        protocol: 'gateway-rpc-v1',
+        accepts: ['plain', 'jsonrpc', 'openclaw-frame'],
+        endpoint: pathname,
+      });
+      return true;
+    }
+
+    if (pathname === '/api/runtime/rpc' || pathname === '/api/openclaw/rpc' || pathname === '/api/gateway/rpc') {
+      return handleRuntimeRpc(req, res);
+    }
+
+    if (pathname === '/api/runtime/methods' && method === 'GET') {
+      sendJson(res, 200, {
+        ok: true,
+        methods: [
+          'chat.send',
+          'sessions.list',
+          'sessions.get',
+          'sessions.resolve',
+          'sessions.patch',
+          'sessions.reset',
+          'sessions.compact',
+          'sessions.resume',
+          'tasks.list',
+          'tasks.create',
+          'tasks.retry',
+          'cron.list',
+          'cron.status',
+          'cron.add',
+          'cron.update',
+          'cron.remove',
+          'cron.run',
+          'cron.runs',
+          'tools.manifest',
+          'tools.bridge-check',
+          'approvals.list',
+          'approvals.decide',
+          'approvals.allowlist.add',
+          'approvals.config',
+          'audit.list',
+          'runtime.audit.list',
+        ],
+      });
+      return true;
+    }
 
     if (pathname === '/api/runtime/sessions' && method === 'GET') {
       sendJson(res, 200, { ok: true, sessions: sessionManager.list(300) });
