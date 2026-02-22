@@ -82,6 +82,15 @@ async function runChecks() {
   assertCondition(rpcSessionList.ok, 'RPC sessions.list 调用失败');
   assertCondition(Array.isArray(rpcSessionList.payload?.result?.sessions), 'RPC sessions.list 响应非法');
 
+  const rpcAlias = await post('/api/openclaw/rpc', {
+    type: 'req',
+    id: 'smoke-openclaw-alias',
+    method: 'sessions.list',
+    params: { limit: 2 },
+  });
+  assertCondition(rpcAlias.ok, 'RPC /api/openclaw/rpc 别名调用失败');
+  assertCondition(rpcAlias.payload?.ok === true, 'RPC /api/openclaw/rpc 返回格式非法');
+
   const rpcChat = await postRpc(
     'chat.send',
     { message: 'memory_search runtime', sessionKey: 'smoke:rpc', source: 'smoke' },
