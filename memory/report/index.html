@@ -665,6 +665,9 @@
       font-size: 0.74rem;
       color: var(--text);
     }
+    #xbrain-model-center-model {
+      min-height: 220px;
+    }
     .xbrain-model-center-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -747,6 +750,82 @@
     .xbrain-model-center-badge.err {
       border-color: rgba(248,81,73,0.6);
       color: #ffaba8;
+    }
+    .xbrain-model-provider-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.14);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .xbrain-model-provider-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .xbrain-model-provider-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .xbrain-model-provider-meta {
+      font-size: 0.64rem;
+      color: var(--muted);
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .xbrain-model-provider-actions {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .xbrain-model-provider-actions button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      font-size: 0.62rem;
+      padding: 4px 9px;
+      cursor: pointer;
+    }
+    .xbrain-model-provider-actions button.warn {
+      border-color: rgba(248,81,73,0.5);
+      color: #ffaba8;
+    }
+    .xbrain-model-provider-actions button.primary {
+      border-color: rgba(88,166,255,0.6);
+      color: #79c0ff;
+    }
+    .xbrain-model-provider-key {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .xbrain-model-provider-key input {
+      flex: 1 1 160px;
+      min-width: 120px;
+      background: rgba(0,0,0,0.22);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 6px 7px;
+      font-size: 0.66rem;
+    }
+    .xbrain-model-provider-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
     }
     .xbrain-form { display: flex; flex-direction: column; gap: 7px; }
     .xbrain-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.71rem; color: var(--muted); }
@@ -2035,8 +2114,12 @@
                     </label>
                   </div>
                   <label>模型
-                    <select id="xbrain-model-center-model"></select>
+                    <select id="xbrain-model-center-model" multiple size="10"></select>
                   </label>
+                  <div class="xbrain-actions">
+                    <button id="xbrain-model-center-select-all-btn" type="button">全选当前列表</button>
+                    <button id="xbrain-model-center-clear-select-btn" type="button">清空选择</button>
+                  </div>
                   <label id="xbrain-model-center-api-wrap">API Key（支持时填写）
                     <div class="xbrain-secret-wrap">
                       <input id="xbrain-model-center-api-key" type="password" autocomplete="off" placeholder="sk-..." />
@@ -2046,7 +2129,8 @@
                   <div id="xbrain-model-center-tip" class="xbrain-hint">选择模型后会自动显示可用连接方式。</div>
                   <div class="xbrain-actions">
                     <button id="xbrain-model-center-connect-btn" class="primary" type="button">连接并注册</button>
-                    <button id="xbrain-model-center-register-btn" type="button">仅注册（不建连）</button>
+                    <button id="xbrain-model-center-connect-only-btn" type="button">仅连接（不注册）</button>
+                    <button id="xbrain-model-center-register-btn" type="button">仅注册（已有连接）</button>
                   </div>
                   <div id="xbrain-model-center-status" class="xbrain-status"></div>
                 </div>
@@ -4313,8 +4397,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         configured: [],
         providers: [],
         authSupport: {},
+        providerState: {},
         selectedProvider: 'all',
         search: '',
+        oauthMonitorRunning: false,
       };
 
       function safeLocalJsonRead(key, fallback) {
@@ -4551,6 +4637,15 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         return buildModelRefFromProvider(runtimeProvider, runtimeModel);
       }
 
+      function getSelectedModelCenterModelRefs() {
+        const modelSelect = document.getElementById('xbrain-model-center-model');
+        if (!modelSelect) return [];
+        const refs = Array.from(modelSelect.selectedOptions || [])
+          .map(function(opt) { return String(opt.value || '').trim(); })
+          .filter(Boolean);
+        return Array.from(new Set(refs));
+      }
+
       function renderXbrainModelCenterCatalog() {
         const providerSelect = document.getElementById('xbrain-model-center-provider');
         const modelSelect = document.getElementById('xbrain-model-center-model');
@@ -4565,6 +4660,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           xbrainModelCenterState.selectedProvider = 'all';
         }
         const selectedProvider = String(xbrainModelCenterState.selectedProvider || 'all');
+        const previousSelected = getSelectedModelCenterModelRefs();
         const search = String(searchInput?.value || xbrainModelCenterState.search || '').trim().toLowerCase();
         xbrainModelCenterState.search = search;
         providerSelect.innerHTML =
@@ -4602,42 +4698,65 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const suffix = markers.length ? (' [' + markers.join(' / ') + ']') : '';
           return '<option value="' + escapeHtml(key) + '" data-provider="' + escapeHtml(provider) + '">' + escapeHtml(name + ' (' + key + ')' + suffix) + '</option>';
         }).join('');
+        if (previousSelected.length) {
+          Array.from(modelSelect.options || []).forEach(function(opt) {
+            if (previousSelected.includes(String(opt.value || ''))) {
+              opt.selected = true;
+            }
+          });
+        }
+        if (!getSelectedModelCenterModelRefs().length && modelSelect.options.length) {
+          modelSelect.options[0].selected = true;
+        }
         syncXbrainModelCenterAuthUi();
       }
 
       function syncXbrainModelCenterAuthUi() {
+        const providerSelect = document.getElementById('xbrain-model-center-provider');
         const modelSelect = document.getElementById('xbrain-model-center-model');
         const apiWrap = document.getElementById('xbrain-model-center-api-wrap');
         const tipEl = document.getElementById('xbrain-model-center-tip');
         const connectBtn = document.getElementById('xbrain-model-center-connect-btn');
+        const connectOnlyBtn = document.getElementById('xbrain-model-center-connect-only-btn');
         const registerBtn = document.getElementById('xbrain-model-center-register-btn');
         const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
-        const selectedModel = String(modelSelect?.value || '').trim();
-        if (!selectedModel) {
+        const selectedRefs = getSelectedModelCenterModelRefs();
+        const selectedProviders = Array.from(new Set(selectedRefs.map(function(ref) {
+          return inferProviderFromModelRef(ref);
+        })));
+        const selectedProvider = selectedProviders.length === 1
+          ? selectedProviders[0]
+          : normalizeProviderKey(providerSelect?.value || 'deepseek');
+        const hasMixedProviders = selectedProviders.length > 1;
+        const hasSelectedModel = selectedRefs.length > 0;
+        if (hasMixedProviders) {
+          if (tipEl) tipEl.textContent = '当前多选包含多个 Provider，请改为单 Provider 选择后再连接。';
           if (apiWrap) apiWrap.style.display = 'none';
-          if (tipEl) tipEl.textContent = '请先选择模型。';
           if (connectBtn) connectBtn.disabled = true;
+          if (connectOnlyBtn) connectOnlyBtn.disabled = true;
           if (registerBtn) registerBtn.disabled = true;
           return;
         }
-        const provider = inferProviderFromModelRef(selectedModel);
-        const support = xbrainModelCenterState.authSupport?.[provider] || {};
+        const support = xbrainModelCenterState.authSupport?.[selectedProvider] || {};
         const canApiKey = Boolean(support.apiKey);
         const canOauth = Boolean(support.oauth);
         if (apiWrap) apiWrap.style.display = canApiKey ? '' : 'none';
         if (tipEl) {
-          let tip = '可执行连接并注册。';
-          if (canApiKey && canOauth) tip = providerLabel(provider) + ' 支持 API Key 或 OAuth。填写 Key 将走 API Key；留空可仅注册。';
-          else if (canApiKey) tip = providerLabel(provider) + ' 支持 API Key 建连。';
-          else if (canOauth) tip = providerLabel(provider) + ' 支持 OAuth 建连（会在终端发起授权）。';
-          else tip = providerLabel(provider) + ' 暂无内建建连流程，可先仅注册（前提是 OpenClaw 侧已有凭证）。';
+          let tip = '连接并注册：建连后把所选模型加入顶部切换器；仅连接：只更新 Provider 连接，不加入切换器；仅注册：不改连接，仅加入切换器。';
+          if (canApiKey && canOauth) tip = providerLabel(selectedProvider) + ' 支持 API Key / OAuth。' + tip;
+          else if (canApiKey) tip = providerLabel(selectedProvider) + ' 支持 API Key。' + tip;
+          else if (canOauth) tip = providerLabel(selectedProvider) + ' 支持 OAuth。' + tip;
+          else tip = providerLabel(selectedProvider) + ' 暂无页面内建连能力，可使用“仅注册”。';
           tipEl.textContent = tip;
         }
         if (connectBtn) {
-          connectBtn.disabled = lockBase || !selectedModel;
+          connectBtn.disabled = lockBase || !hasSelectedModel;
+        }
+        if (connectOnlyBtn) {
+          connectOnlyBtn.disabled = lockBase || !selectedProvider || selectedProvider === 'all';
         }
         if (registerBtn) {
-          registerBtn.disabled = lockBase || !selectedModel;
+          registerBtn.disabled = lockBase || !hasSelectedModel;
         }
       }
 
@@ -4647,36 +4766,93 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         if (!listEl || !summaryEl) return;
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
         const registry = Array.isArray(base.modelRegistry)
           ? base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
           : [];
         const currentRef = getCurrentRuntimeModelRef(state);
         const lockBase = Boolean(state?.locks?.base?.locked);
-        summaryEl.textContent = '已注册模型：' + String(registry.length) + ' 个';
+        const providerGroups = {};
+        registry.forEach(function(ref) {
+          const provider = inferProviderFromModelRef(ref);
+          if (!providerGroups[provider]) providerGroups[provider] = [];
+          providerGroups[provider].push(ref);
+        });
+        const providerKeys = Object.keys(providerGroups).sort();
+        summaryEl.textContent = '已注册模型：' + String(registry.length) + ' 个 ｜ Provider：' + String(providerKeys.length) + ' 个';
         if (!registry.length) {
           listEl.innerHTML = '<div class="xbrain-hint">尚未注册模型。请先从上方目录选择并连接。</div>';
           return;
         }
-        listEl.innerHTML = registry.map(function(ref) {
-          const provider = inferProviderFromModelRef(ref);
-          const configured = (Array.isArray(xbrainModelCenterState.configured) ? xbrainModelCenterState.configured : [])
-            .some(function(item) { return String(item?.key || '').trim() === ref; });
-          const isCurrent = ref === currentRef;
-          const badges = []
-            .concat(isCurrent ? ['<span class="xbrain-model-center-badge ok">当前</span>'] : [])
-            .concat(configured ? ['<span class="xbrain-model-center-badge ok">已建连</span>'] : ['<span class="xbrain-model-center-badge warn">待确认</span>'])
-            .join('');
-          const switchDisabled = lockBase || isCurrent;
-          const removeDisabled = lockBase;
-          return '<div class="xbrain-model-center-item">'
-            + '<div class="meta"><div class="name">' + escapeHtml(ref) + '</div><div>'
-            + badges
-            + '<span class="xbrain-model-center-badge">' + escapeHtml(providerLabel(provider)) + '</span>'
+        const configuredMap = new Map(
+          (Array.isArray(xbrainModelCenterState.configured) ? xbrainModelCenterState.configured : [])
+            .map(function(item) { return [String(item?.key || '').trim(), item || {}]; }),
+        );
+        const catalogMap = new Map(
+          (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
+            .map(function(item) { return [String(item?.key || '').trim(), item || {}]; }),
+        );
+        listEl.innerHTML = providerKeys.map(function(provider) {
+          const refs = providerGroups[provider] || [];
+          const authMeta = providerAuth?.[provider] || {};
+          const authType = String(authMeta.type || (xbrainModelCenterState.authSupport?.[provider]?.oauth ? 'oauth' : 'apiKey'));
+          const authConfigured = Boolean(authMeta.configured);
+          const authMasked = String(authMeta.masked || '(未设置)');
+          const authSource = String(authMeta.source || '-');
+          const support = xbrainModelCenterState.authSupport?.[provider] || {};
+          const canApiKey = Boolean(support.apiKey);
+          const canOauth = Boolean(support.oauth);
+          const removeProviderDisabled = lockBase || providerKeys.length <= 1;
+          const providerHeader = '<div class="xbrain-model-provider-head">'
+            + '<div><div class="xbrain-model-provider-title">'
+            + escapeHtml(providerLabel(provider))
+            + '<span class="xbrain-model-center-badge">' + escapeHtml(provider) + '</span>'
+            + '<span class="xbrain-model-center-badge' + (authConfigured ? ' ok' : ' warn') + '">'
+            + (authConfigured ? '已连接' : '未连接')
+            + '</span>'
+            + '</div><div class="xbrain-model-provider-meta">'
+            + escapeHtml('鉴权方式: ' + authType + ' | 凭证: ' + authMasked + ' | source: ' + authSource + ' | 模型数: ' + refs.length)
             + '</div></div>'
-            + '<div class="actions">'
-            + '<button class="primary" type="button" data-model-center-action="switch" data-model-ref="' + escapeHtml(ref) + '"' + (switchDisabled ? ' disabled' : '') + '>设为当前</button>'
-            + '<button class="warn" type="button" data-model-center-action="remove" data-model-ref="' + escapeHtml(ref) + '"' + (removeDisabled ? ' disabled' : '') + '>移除</button>'
+            + '<div class="xbrain-model-provider-actions">'
+            + (canApiKey
+              ? '<button type="button" class="primary" data-provider-action="update-api" data-model-center-provider="' + escapeHtml(provider) + '"' + (lockBase ? ' disabled' : '') + '>更新 API</button>'
+              : '')
+            + (canOauth
+              ? '<button type="button" class="primary" data-provider-action="start-oauth" data-model-center-provider="' + escapeHtml(provider) + '"' + (lockBase ? ' disabled' : '') + '>OAuth 登录</button>'
+              : '')
+            + '<button type="button" data-provider-action="disconnect-auth" data-model-center-provider="' + escapeHtml(provider) + '"' + (lockBase ? ' disabled' : '') + '>断开连接</button>'
+            + '<button type="button" class="warn" data-provider-action="remove-provider" data-model-center-provider="' + escapeHtml(provider) + '"' + (removeProviderDisabled ? ' disabled' : '') + '>删除 Provider</button>'
             + '</div></div>';
+          const providerKeyInput = canApiKey
+            ? '<div class="xbrain-model-provider-key">'
+              + '<input type="password" autocomplete="off" placeholder="输入新的 API Key（不填则保持现状）" data-provider-api-input="1" data-model-center-provider="' + escapeHtml(provider) + '" />'
+              + '</div>'
+            : '';
+          const rows = refs.map(function(ref) {
+            const configured = configuredMap.has(ref);
+            const isCurrent = ref === currentRef;
+            const info = catalogMap.get(ref) || {};
+            const infoItems = [];
+            if (info?.input) infoItems.push('输入:' + String(info.input));
+            if (Number.isFinite(Number(info?.contextWindow))) infoItems.push('上下文:' + String(info.contextWindow));
+            if (info?.local === true) infoItems.push('local');
+            if (info?.missing === true) infoItems.push('missing');
+            const infoText = infoItems.join(' | ') || '-';
+            const badges = []
+              .concat(isCurrent ? ['<span class="xbrain-model-center-badge ok">当前</span>'] : [])
+              .concat(configured ? ['<span class="xbrain-model-center-badge ok">已建连</span>'] : ['<span class="xbrain-model-center-badge warn">待确认</span>'])
+              .join('');
+            return '<div class="xbrain-model-center-item">'
+              + '<div class="meta"><div class="name">' + escapeHtml(ref) + '</div><div>'
+              + badges
+              + '<span class="xbrain-model-center-badge">' + escapeHtml(infoText) + '</span>'
+              + '</div></div>'
+              + '<div class="actions">'
+              + '<button class="primary" type="button" data-model-center-action="switch" data-model-ref="' + escapeHtml(ref) + '"' + (lockBase || isCurrent ? ' disabled' : '') + '>设为当前</button>'
+              + '<button class="warn" type="button" data-model-center-action="remove" data-model-ref="' + escapeHtml(ref) + '"' + (lockBase ? ' disabled' : '') + '>移除</button>'
+              + '</div></div>';
+          }).join('');
+          return '<div class="xbrain-model-provider-group">' + providerHeader + providerKeyInput + '<div class="xbrain-model-provider-list">' + rows + '</div></div>';
         }).join('');
       }
 
@@ -4694,6 +4870,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           : [];
         xbrainModelCenterState.authSupport = payload.authSupport && typeof payload.authSupport === 'object'
           ? payload.authSupport
+          : {};
+        xbrainModelCenterState.providerState = payload.providerState && typeof payload.providerState === 'object'
+          ? payload.providerState
           : {};
         renderXbrainModelCenterCatalog();
         renderXbrainModelCenterConnected(xbrainClientState.data || {});
@@ -4989,7 +5168,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             'xbrain-model-center-api-key',
             'xbrain-model-center-api-eye',
             'xbrain-model-center-connect-btn',
+            'xbrain-model-center-connect-only-btn',
             'xbrain-model-center-register-btn',
+            'xbrain-model-center-select-all-btn',
+            'xbrain-model-center-clear-select-btn',
             'xbrain-guide-deepseek-key',
             'xbrain-guide-deepseek-eye',
             'xbrain-guide-deepseek-login-btn',
@@ -5010,6 +5192,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           if (connectedList) {
             connectedList.querySelectorAll('button[data-model-center-action]').forEach(function(btn) {
               btn.disabled = disabled;
+            });
+            connectedList.querySelectorAll('button[data-provider-action]').forEach(function(btn) {
+              btn.disabled = disabled;
+            });
+            connectedList.querySelectorAll('input[data-provider-api-input]').forEach(function(input) {
+              input.disabled = disabled;
             });
           }
         }
@@ -5618,43 +5806,138 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const modelCenterApiKeyEl = document.getElementById('xbrain-model-center-api-key');
         const modelCenterApiEyeBtn = document.getElementById('xbrain-model-center-api-eye');
         const modelCenterConnectBtn = document.getElementById('xbrain-model-center-connect-btn');
+        const modelCenterConnectOnlyBtn = document.getElementById('xbrain-model-center-connect-only-btn');
         const modelCenterRegisterBtn = document.getElementById('xbrain-model-center-register-btn');
+        const modelCenterSelectAllBtn = document.getElementById('xbrain-model-center-select-all-btn');
+        const modelCenterClearSelectBtn = document.getElementById('xbrain-model-center-clear-select-btn');
         const modelCenterConnectedList = document.getElementById('xbrain-model-center-connected-list');
         const initialModelCenterCatalogPromise = refreshXbrainModelCenterCatalog(false).catch(function(err) {
           setXbrainModelCenterStatus('模型目录加载失败：' + String(err?.message || err), 'err');
         });
 
-        async function runModelCenterConnect(registerOnly) {
-          const modelRef = String(modelCenterModelEl?.value || '').trim();
-          if (!modelRef) {
-            setXbrainModelCenterStatus('请先选择模型。', 'err');
+        function getModelCenterCurrentProvider() {
+          const refs = getSelectedModelCenterModelRefs();
+          if (refs.length) {
+            const providerSet = Array.from(new Set(refs.map(function(ref) { return inferProviderFromModelRef(ref); })));
+            if (providerSet.length === 1) return providerSet[0];
+            return '';
+          }
+          const fromSelect = normalizeProviderKey(modelCenterProviderEl?.value || '');
+          if (fromSelect && fromSelect !== 'all') return fromSelect;
+          return '';
+        }
+
+        async function requestModelCenterConnect(payloadLike) {
+          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          const resp = await fetch('/api/xbrain/models/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify(payload),
+          });
+          const json = await resp.json().catch(function() { return null; });
+          if (!resp.ok || !json || json.ok !== true) {
+            const reason = String(json?.error || ('HTTP ' + resp.status));
+            const hint = String(json?.commandHint || '').trim();
+            throw new Error(hint ? (reason + '\n' + hint) : reason);
+          }
+          return json;
+        }
+
+        async function monitorModelCenterOauth(providerLike) {
+          if (xbrainModelCenterState.oauthMonitorRunning) return;
+          const provider = normalizeProviderKey(providerLike || 'chatgpt');
+          xbrainModelCenterState.oauthMonitorRunning = true;
+          const startedAt = Date.now();
+          setXbrainModelCenterStatus('OAuth 已发起，正在等待授权完成...', 'ok');
+          try {
+            while (Date.now() - startedAt < 5 * 60 * 1000) {
+              await new Promise(function(resolve) { setTimeout(resolve, 1200); });
+              const authPayload = await requestXbrainAuthStatus(fetch, REPORT_BUILD_ID).catch(function() { return null; });
+              const running = Boolean(authPayload?.status?.running);
+              if (running) continue;
+              await fetchXbrainState(true);
+              await refreshXbrainModelCenterCatalog(true);
+              const configured = Boolean(xbrainClientState.data?.base?.providerAuth?.[provider]?.configured);
+              if (configured) {
+                setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
+              } else {
+                setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 流程已结束，请检查授权结果。', 'err');
+              }
+              return;
+            }
+            setXbrainModelCenterStatus('OAuth 等待超时，请在完成授权后点击“刷新模型目录”。', 'err');
+          } finally {
+            xbrainModelCenterState.oauthMonitorRunning = false;
+          }
+        }
+
+        async function runModelCenterConnect(modeLike, providerOverrideLike) {
+          const mode = String(modeLike || 'connect_register').trim();
+          const selectedRefs = getSelectedModelCenterModelRefs();
+          const provider = normalizeProviderKey(providerOverrideLike || getModelCenterCurrentProvider() || '');
+          if (!provider || provider === 'all') {
+            setXbrainModelCenterStatus('请先选择单一 Provider。', 'err');
             return;
           }
-          const provider = inferProviderFromModelRef(modelRef);
+          if (mode !== 'connect_only' && !selectedRefs.length) {
+            setXbrainModelCenterStatus('请先选择至少一个模型。', 'err');
+            return;
+          }
+          const mixedProviders = mode !== 'connect_only'
+            && selectedRefs.some(function(ref) { return inferProviderFromModelRef(ref) !== provider; });
+          if (mixedProviders) {
+            setXbrainModelCenterStatus('多选模型必须属于同一个 Provider。', 'err');
+            return;
+          }
+          const payloadModelRefs = mode === 'connect_only' ? [] : selectedRefs;
           const support = xbrainModelCenterState.authSupport?.[provider] || {};
           const apiKey = String(modelCenterApiKeyEl?.value || '').trim();
-          let authMethod = 'register';
-          if (!registerOnly) {
+          const providerConfigured = Boolean(xbrainClientState.data?.base?.providerAuth?.[provider]?.configured);
+          let authMethod = '';
+          if (mode === 'register_only') {
+            authMethod = 'register';
+          } else if (mode === 'connect_only') {
+            if (support.apiKey) authMethod = 'api-key';
+            else if (support.oauth) authMethod = 'oauth';
+            else {
+              setXbrainModelCenterStatus(providerLabel(provider) + ' 暂不支持页面内建连。', 'err');
+              return;
+            }
+          } else {
             if (support.apiKey && apiKey) authMethod = 'api-key';
-            else if (support.oauth && !support.apiKey) authMethod = 'oauth';
-            else if (support.oauth && !apiKey) authMethod = 'oauth';
-            else if (support.apiKey && !apiKey) {
-              setXbrainModelCenterStatus('该 Provider 需要 API Key。若暂不建连，可点击“仅注册（不建连）”。', 'err');
+            else if (support.apiKey && !providerConfigured && !support.oauth) {
+              setXbrainModelCenterStatus('该 Provider 需要 API Key，请先填写后再连接。', 'err');
+              return;
+            } else if (support.oauth && !providerConfigured && !apiKey) {
+              authMethod = 'oauth';
+            } else if (support.apiKey && !providerConfigured && !apiKey) {
+              setXbrainModelCenterStatus('该 Provider 需要先配置 API Key（或先完成 OAuth）。', 'err');
               return;
             }
           }
-          const btn = registerOnly ? modelCenterRegisterBtn : modelCenterConnectBtn;
+          const btn = mode === 'connect_only'
+            ? modelCenterConnectOnlyBtn
+            : mode === 'register_only'
+              ? modelCenterRegisterBtn
+              : modelCenterConnectBtn;
           if (!btn || btn.disabled) return;
-          const oldText = String(btn.textContent || (registerOnly ? '仅注册（不建连）' : '连接并注册'));
+          const oldText = String(btn.textContent || '');
           btn.disabled = true;
-          btn.textContent = registerOnly ? '注册中...' : '连接中...';
-          setXbrainModelCenterStatus('正在处理模型：' + modelRef, 'ok');
+          btn.textContent = mode === 'connect_only'
+            ? '连接中...'
+            : mode === 'register_only'
+              ? '注册中...'
+              : '处理中...';
+          setXbrainModelCenterStatus('正在处理 Provider：' + providerLabel(provider), 'ok');
           try {
-            const payload = await requestXbrainJson(fetch, '/api/xbrain/models/connect', {
-              modelRef: modelRef,
+            const payload = await requestModelCenterConnect({
+              modelRefs: payloadModelRefs,
               provider: provider,
-              authMethod: authMethod,
+              authMethod: authMethod || undefined,
               apiKey: apiKey,
+              registerModel: mode !== 'connect_only',
+              setAsCurrent: mode === 'connect_register',
             });
             if (modelCenterApiKeyEl && authMethod === 'api-key') {
               modelCenterApiKeyEl.value = '';
@@ -5666,9 +5949,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             }
             await fetchXbrainState(true);
             await refreshXbrainModelCenterCatalog(false);
-            const msg = String(payload?.message || '').trim()
-              || (authMethod === 'register' ? '模型已注册。' : '模型连接并注册完成。');
+            const msg = String(payload?.message || '').trim() || '操作完成。';
             setXbrainModelCenterStatus(msg, 'ok');
+            if (authMethod === 'oauth' && payload?.oauth?.ok) {
+              void monitorModelCenterOauth(provider);
+            }
           } catch (err) {
             setXbrainModelCenterStatus('模型处理失败：' + String(err?.message || err), 'err');
           } finally {
@@ -5695,6 +5980,20 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             syncXbrainModelCenterAuthUi();
           });
         }
+        if (modelCenterSelectAllBtn && modelCenterModelEl) {
+          modelCenterSelectAllBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            Array.from(modelCenterModelEl.options || []).forEach(function(opt) { opt.selected = true; });
+            syncXbrainModelCenterAuthUi();
+          });
+        }
+        if (modelCenterClearSelectBtn && modelCenterModelEl) {
+          modelCenterClearSelectBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            Array.from(modelCenterModelEl.options || []).forEach(function(opt) { opt.selected = false; });
+            syncXbrainModelCenterAuthUi();
+          });
+        }
         if (modelCenterApiEyeBtn) {
           modelCenterApiEyeBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
@@ -5708,13 +6007,19 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         if (modelCenterConnectBtn) {
           modelCenterConnectBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            void runModelCenterConnect(false);
+            void runModelCenterConnect('connect_register');
+          });
+        }
+        if (modelCenterConnectOnlyBtn) {
+          modelCenterConnectOnlyBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            void runModelCenterConnect('connect_only');
           });
         }
         if (modelCenterRegisterBtn) {
           modelCenterRegisterBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
-            void runModelCenterConnect(true);
+            void runModelCenterConnect('register_only');
           });
         }
         if (modelCenterRefreshBtn) {
@@ -5741,6 +6046,92 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         }
         if (modelCenterConnectedList) {
           modelCenterConnectedList.addEventListener('click', function(ev) {
+            const providerBtn = ev.target && ev.target.closest ? ev.target.closest('button[data-provider-action][data-model-center-provider]') : null;
+            if (providerBtn) {
+              if (providerBtn.disabled) return;
+              ev.preventDefault();
+              const action = String(providerBtn.getAttribute('data-provider-action') || '').trim();
+              const provider = normalizeProviderKey(providerBtn.getAttribute('data-model-center-provider') || '');
+              if (!provider) return;
+              providerBtn.disabled = true;
+              if (action === 'remove-provider') {
+                setXbrainModelCenterStatus('正在删除 Provider：' + providerLabel(provider), 'ok');
+                void requestXbrainJson(fetch, '/api/xbrain/provider/remove', { provider: provider })
+                  .then(function() {
+                    return fetchXbrainState(true);
+                  })
+                  .then(function() {
+                    return refreshXbrainModelCenterCatalog(true);
+                  })
+                  .then(function() {
+                    setXbrainModelCenterStatus('Provider 已删除：' + providerLabel(provider), 'ok');
+                  })
+                  .catch(function(err) {
+                    setXbrainModelCenterStatus('删除 Provider 失败：' + String(err?.message || err), 'err');
+                  })
+                  .finally(function() {
+                    providerBtn.disabled = false;
+                  });
+                return;
+              }
+              if (action === 'disconnect-auth') {
+                setXbrainModelCenterStatus('正在断开 Provider 连接：' + providerLabel(provider), 'ok');
+                void requestXbrainJson(fetch, '/api/xbrain/auth/disconnect', { provider: provider })
+                  .then(function() {
+                    return fetchXbrainState(true);
+                  })
+                  .then(function() {
+                    return refreshXbrainModelCenterCatalog(false);
+                  })
+                  .then(function() {
+                    setXbrainModelCenterStatus('连接已断开：' + providerLabel(provider), 'ok');
+                  })
+                  .catch(function(err) {
+                    setXbrainModelCenterStatus('断开失败：' + String(err?.message || err), 'err');
+                  })
+                  .finally(function() {
+                    providerBtn.disabled = false;
+                  });
+                return;
+              }
+              if (action === 'update-api') {
+                const keyInput = modelCenterConnectedList.querySelector(
+                  'input[data-provider-api-input][data-model-center-provider="' + provider.replace(/"/g, '\\"') + '"]',
+                );
+                if (modelCenterApiKeyEl && keyInput) {
+                  modelCenterApiKeyEl.value = String(keyInput.value || '');
+                }
+                void runModelCenterConnect('connect_only', provider)
+                  .finally(function() {
+                    providerBtn.disabled = false;
+                  });
+                return;
+              }
+              if (action === 'start-oauth') {
+                setXbrainModelCenterStatus('正在发起 OAuth：' + providerLabel(provider), 'ok');
+                void requestModelCenterConnect({
+                  provider: provider,
+                  authMethod: 'oauth',
+                  registerModel: false,
+                  setAsCurrent: false,
+                })
+                  .then(function(payload) {
+                    const msg = String(payload?.message || 'OAuth 已发起，请完成授权。');
+                    setXbrainModelCenterStatus(msg, 'ok');
+                    void monitorModelCenterOauth(provider);
+                  })
+                  .catch(function(err) {
+                    setXbrainModelCenterStatus('OAuth 发起失败：' + String(err?.message || err), 'err');
+                  })
+                  .finally(function() {
+                    providerBtn.disabled = false;
+                  });
+                return;
+              }
+              providerBtn.disabled = false;
+              return;
+            }
+
             const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-model-center-action][data-model-ref]') : null;
             if (!btn || btn.disabled) return;
             ev.preventDefault();

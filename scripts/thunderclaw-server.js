@@ -176,6 +176,12 @@ function ensureProviderAuthEntry(providerRaw, patchLike = {}) {
   return next;
 }
 
+function isProviderConfigured(providerRaw) {
+  const provider = normalizeProviderKey(providerRaw);
+  const authMeta = xbrainStore.base?.providerAuth?.[provider];
+  return Boolean(authMeta && typeof authMeta === "object" && authMeta.configured);
+}
+
 function createInitialXbrainStore() {
   return {
     base: {
@@ -1173,8 +1179,12 @@ async function syncXbrainFromOpenClaw() {
   }
 
   const allowed = uniqStrings(modelsJson.allowed);
-  if (allowed.length) {
-    xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...allowed]);
+  if (!Array.isArray(xbrainStore.base.modelRegistry) || !xbrainStore.base.modelRegistry.length) {
+    if (allowed.length) {
+      xbrainStore.base.modelRegistry = allowed;
+    } else if (defaultModelRef) {
+      xbrainStore.base.modelRegistry = [defaultModelRef];
+    }
   }
 
   const providerCatalog = new Set(sanitizeProviderCatalog(xbrainStore.base.providerCatalog));
@@ -1946,10 +1956,20 @@ async function handleXbrainModelsCatalog(req, res) {
     ...catalog.all.map((item) => item.provider),
   ]);
   const authSupport = {};
+  const state = getXbrainStateSnapshot();
+  const registry = Array.isArray(state?.base?.modelRegistry) ? state.base.modelRegistry : [];
+  const providerAuth = state?.base?.providerAuth && typeof state.base.providerAuth === "object"
+    ? state.base.providerAuth
+    : {};
+  const providerState = {};
   for (const provider of providers) {
     authSupport[provider] = {
       apiKey: providerSupportsApiKey(provider),
       oauth: providerSupportsOAuth(provider),
+    };
+    providerState[provider] = {
+      auth: providerAuth?.[provider] || null,
+      models: registry.filter((ref) => inferProviderFromModelRef(ref).provider === provider),
     };
   }
   sendJson(res, 200, {
@@ -1959,33 +1979,57 @@ async function handleXbrainModelsCatalog(req, res) {
     count: catalog.all.length,
     providers,
     authSupport,
+    providerState,
     catalog: catalog.all,
     configured: catalog.configured,
-    connected: uniqStrings(xbrainStore.base.modelRegistry || []),
+    connected: uniqStrings(registry),
+    state,
   });
 }
 
 async function handleXbrainModelConnect(req, res) {
   const body = await readJsonBody(req);
-  const providerInput = normalizeProviderKey(body.provider || body.modelProvider || xbrainStore.base.modelProvider);
-  const modelInput = String(body.model || body.modelRef || body.modelId || "").trim();
-  const modelRef = modelInput
-    ? (modelInput.includes("/") ? modelInput : toModelRef(providerInput, modelInput))
-    : toModelRef(providerInput, "");
-  if (!modelRef) {
-    sendJson(res, 400, { ok: false, error: "model is required" });
+  const providerInputRaw = String(body.provider || body.modelProvider || "").trim();
+  const registerModel = body.registerModel !== false;
+  const setAsCurrent = body.setAsCurrent !== false;
+  const inputRefs = uniqStrings([
+    ...(Array.isArray(body.modelRefs) ? body.modelRefs : []),
+    body.model,
+    body.modelRef,
+    body.modelId,
+  ]);
+  let provider = normalizeProviderKey(providerInputRaw || xbrainStore.base.modelProvider || "deepseek");
+  let modelRefs = inputRefs.map((item) => {
+    const value = String(item || "").trim();
+    if (!value) return "";
+    return value.includes("/") ? value : toModelRef(provider, value);
+  }).filter(Boolean);
+  if (modelRefs.length) {
+    provider = inferProviderFromModelRef(modelRefs[0]).provider;
+    modelRefs = modelRefs.map((ref) => {
+      const value = String(ref || "").trim();
+      return value.includes("/") ? value : toModelRef(provider, value);
+    });
+  }
+  modelRefs = uniqStrings(modelRefs);
+  if (registerModel && !modelRefs.length) {
+    sendJson(res, 400, { ok: false, error: "model is required when registerModel=true" });
+    return;
+  }
+  const mixedProvider = modelRefs.some((ref) => inferProviderFromModelRef(ref).provider !== provider);
+  if (mixedProvider) {
+    sendJson(res, 400, { ok: false, error: "all models in one request must belong to same provider" });
     return;
   }
 
-  const inferred = inferProviderFromModelRef(modelRef);
-  const provider = inferred.provider;
   const apiKey = String(body.apiKey || "").trim();
   let authMethod = String(body.authMethod || "").trim().toLowerCase();
   if (authMethod === "apikey") authMethod = "api-key";
   if (authMethod === "register-only") authMethod = "register";
+  if (authMethod === "connect-only") authMethod = providerSupportsApiKey(provider) ? "api-key" : "oauth";
   if (!authMethod) {
     if (providerSupportsApiKey(provider) && apiKey) authMethod = "api-key";
-    else if (providerSupportsOAuth(provider) && !providerSupportsApiKey(provider)) authMethod = "oauth";
+    else if (providerSupportsOAuth(provider) && !isProviderConfigured(provider)) authMethod = "oauth";
     else authMethod = "register";
   }
   if (!["api-key", "oauth", "register"].includes(authMethod)) {
@@ -2001,42 +2045,56 @@ async function handleXbrainModelConnect(req, res) {
       sendJson(res, 400, { ok: false, error: `provider ${provider} does not support API key connect in xbrain` });
       return;
     }
-    if (!apiKey) {
+    if (apiKey) {
+      const setup = await runSetupFromInput({
+        provider: setupProvider,
+        apiKey,
+        gatewayPort: 18789,
+        gatewayAuth: "token",
+      });
+      if (!setup.ok) {
+        sendJson(res, setup.statusCode || 500, {
+          ok: false,
+          stage: "setup",
+          error: setup.error || setup.stderr || setup.stdout || "模型连接失败",
+        });
+        return;
+      }
+      let deepseekTune = null;
+      if (setupProvider === "deepseek-api-key") {
+        deepseekTune = await tuneDeepseekDefaults();
+        xbrainStore.base.deepseekApiKey = apiKey;
+      }
+      ensureProviderAuthEntry(provider, {
+        configured: true,
+        masked: maskSecret(apiKey),
+        plain: apiKey,
+        source: "xbrain_connect",
+        error: "",
+        type: "apiKey",
+      });
+      setupInfo = {
+        ok: true,
+        provider: setupProvider,
+        deepseekTune,
+        reused: false,
+      };
+    } else if (isProviderConfigured(provider)) {
+      ensureProviderAuthEntry(provider, {
+        configured: true,
+        error: "",
+        source: String(xbrainStore.base.providerAuth?.[provider]?.source || "openclaw_existing"),
+      });
+      setupInfo = {
+        ok: true,
+        provider: setupProvider,
+        deepseekTune: null,
+        reused: true,
+      };
+    } else {
       sendJson(res, 400, { ok: false, error: "apiKey is required for api-key connect" });
       return;
     }
-    const setup = await runSetupFromInput({
-      provider: setupProvider,
-      apiKey,
-      gatewayPort: 18789,
-      gatewayAuth: "token",
-    });
-    if (!setup.ok) {
-      sendJson(res, setup.statusCode || 500, {
-        ok: false,
-        stage: "setup",
-        error: setup.error || setup.stderr || setup.stdout || "模型连接失败",
-      });
-      return;
-    }
-    let deepseekTune = null;
-    if (setupProvider === "deepseek-api-key") {
-      deepseekTune = await tuneDeepseekDefaults();
-      xbrainStore.base.deepseekApiKey = apiKey;
-    }
-    ensureProviderAuthEntry(provider, {
-      configured: true,
-      masked: maskSecret(apiKey),
-      plain: apiKey,
-      source: "xbrain_connect",
-      error: "",
-      type: "apiKey",
-    });
-    setupInfo = {
-      ok: true,
-      provider: setupProvider,
-      deepseekTune,
-    };
   } else if (authMethod === "oauth") {
     const oauthProvider = PROVIDER_TO_OAUTH_PROVIDER[provider];
     if (!oauthProvider) {
@@ -2067,53 +2125,85 @@ async function handleXbrainModelConnect(req, res) {
   }
 
   xbrainStore.base.providerCatalog = sanitizeProviderCatalog([...(xbrainStore.base.providerCatalog || []), provider]);
-  xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
+  if (registerModel && modelRefs.length) {
+    xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...modelRefs]);
+  }
 
-  const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
-  const setErr = setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed");
-  if (setRes.ok) {
-    xbrainStore.base.modelProvider = inferred.provider;
-    xbrainStore.base.modelId = inferred.modelId;
-    xbrainStore.base.runtimeModelProvider = inferred.provider;
-    xbrainStore.base.runtimeModelId = inferred.modelId;
+  let modelSet = { attempted: false, ok: null, error: null, modelRef: null };
+  if (registerModel && setAsCurrent && modelRefs.length) {
+    const targetModelRef = String(body.defaultModelRef || modelRefs[0] || "").trim();
+    const setRes = await runOpenClawCommand(["models", "set", targetModelRef], { timeoutMs: 40_000 });
+    modelSet = {
+      attempted: true,
+      ok: setRes.ok,
+      error: setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed"),
+      modelRef: targetModelRef,
+    };
+    if (setRes.ok) {
+      const inferred = inferProviderFromModelRef(targetModelRef);
+      xbrainStore.base.modelProvider = inferred.provider;
+      xbrainStore.base.modelId = inferred.modelId;
+      xbrainStore.base.runtimeModelProvider = inferred.provider;
+      xbrainStore.base.runtimeModelId = inferred.modelId;
+    }
   }
 
   saveXbrainStore();
   await syncXbrainFromOpenClaw();
+  const primaryModelRef = modelRefs[0] || "";
   sendJson(res, 200, {
     ok: true,
     provider,
-    modelRef,
+    modelRef: primaryModelRef,
+    modelRefs,
+    registerModel,
+    setAsCurrent,
     authMethod,
     setup: setupInfo,
     oauth: oauthInfo,
-    modelSet: {
-      ok: setRes.ok,
-      error: setErr,
-    },
+    modelSet,
     state: getXbrainStateSnapshot(),
-    message: setRes.ok
-      ? "模型已连接并注册到 ThunderClaw 切换列表。"
-      : (authMethod === "oauth"
-        ? "OAuth 已发起，模型已注册；完成授权后可在顶部模型切换器切换。"
-        : "模型已注册到切换列表，但当前默认模型切换失败。"),
+    message: !registerModel
+      ? "连接信息已更新（未加入切换列表）。"
+      : (modelSet.attempted && modelSet.ok)
+        ? "模型已连接并注册到 ThunderClaw 切换列表。"
+        : (authMethod === "oauth"
+          ? "OAuth 已发起，模型已注册；完成授权后可在顶部模型切换器切换。"
+          : "模型已注册到切换列表。"),
   });
 }
 
 async function handleXbrainModelDisconnect(req, res) {
   const body = await readJsonBody(req);
-  const modelInput = String(body.model || body.modelRef || body.modelId || "").trim();
-  if (!modelInput) {
-    sendJson(res, 400, { ok: false, error: "model is required" });
+  const providerInput = String(body.provider || body.modelProvider || "").trim();
+  const modelInputs = uniqStrings([
+    ...(Array.isArray(body.modelRefs) ? body.modelRefs : []),
+    body.model,
+    body.modelRef,
+    body.modelId,
+  ]);
+  const currentRegistry = uniqStrings(xbrainStore.base.modelRegistry || []);
+  let modelRefs = modelInputs.map((item) => {
+    const text = String(item || "").trim();
+    if (!text) return "";
+    if (text.includes("/")) return text;
+    const provider = normalizeProviderKey(providerInput || xbrainStore.base.modelProvider || "deepseek");
+    return toModelRef(provider, text);
+  }).filter(Boolean);
+  if (!modelRefs.length && providerInput) {
+    const provider = normalizeProviderKey(providerInput);
+    modelRefs = currentRegistry.filter((ref) => inferProviderFromModelRef(ref).provider === provider);
+  }
+  modelRefs = uniqStrings(modelRefs);
+  if (!modelRefs.length) {
+    sendJson(res, 400, { ok: false, error: "modelRefs or provider is required" });
     return;
   }
-  const modelRef = modelInput.includes("/")
-    ? modelInput
-    : toModelRef(body.provider || xbrainStore.base.modelProvider, modelInput);
-  const currentRegistry = uniqStrings(xbrainStore.base.modelRegistry || []);
-  const nextRegistry = currentRegistry.filter((item) => item !== modelRef);
+
+  const removeSet = new Set(modelRefs);
+  const nextRegistry = currentRegistry.filter((item) => !removeSet.has(item));
   if (nextRegistry.length === currentRegistry.length) {
-    sendJson(res, 200, { ok: true, removed: false, state: getXbrainStateSnapshot() });
+    sendJson(res, 200, { ok: true, removed: false, modelRefs, state: getXbrainStateSnapshot() });
     return;
   }
 
@@ -2126,7 +2216,7 @@ async function handleXbrainModelDisconnect(req, res) {
 
   const currentModelRef = toModelRef(xbrainStore.base.modelProvider, xbrainStore.base.modelId);
   let switched = null;
-  if (!xbrainStore.base.modelRegistry.includes(currentModelRef) || currentModelRef === modelRef) {
+  if (!xbrainStore.base.modelRegistry.includes(currentModelRef) || modelRefs.includes(currentModelRef)) {
     const fallbackRef = xbrainStore.base.modelRegistry[0];
     const inferred = inferProviderFromModelRef(fallbackRef);
     const setRes = await runOpenClawCommand(["models", "set", fallbackRef], { timeoutMs: 40_000 });
@@ -2146,9 +2236,11 @@ async function handleXbrainModelDisconnect(req, res) {
   sendJson(res, 200, {
     ok: true,
     removed: true,
-    modelRef,
+    modelRef: modelRefs[0] || "",
     fallbackInserted,
     switched,
+    modelRefs,
+    removedCount: currentRegistry.length - nextRegistry.length,
     state: getXbrainStateSnapshot(),
   });
 }
