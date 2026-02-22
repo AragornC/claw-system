@@ -380,19 +380,41 @@ function extractAgentReply(payload) {
   if (!payload || typeof payload !== "object") {
     return "";
   }
-  const result = payload.result;
-  if (!result || typeof result !== "object") {
-    const summary = payload.summary;
-    return typeof summary === "string" ? summary : "";
+  const containers = [];
+  if (payload.result && typeof payload.result === "object") {
+    containers.push(payload.result);
   }
-  const payloads = Array.isArray(result.payloads) ? result.payloads : [];
+  containers.push(payload);
+
   const texts = [];
-  for (const item of payloads) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    if (typeof item.text === "string" && item.text.trim()) {
-      texts.push(item.text.trim());
+  for (const container of containers) {
+    const payloads = Array.isArray(container?.payloads) ? container.payloads : [];
+    for (const item of payloads) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      if (typeof item.text === "string" && item.text.trim()) {
+        texts.push(item.text.trim());
+        continue;
+      }
+      const content = item.content;
+      if (typeof content === "string" && content.trim()) {
+        texts.push(content.trim());
+        continue;
+      }
+      if (Array.isArray(content)) {
+        const joined = content
+          .map((part) => {
+            if (typeof part === "string") return part.trim();
+            if (part && typeof part === "object" && typeof part.text === "string") return part.text.trim();
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n");
+        if (joined) {
+          texts.push(joined);
+        }
+      }
     }
   }
   if (texts.length > 0) {
@@ -401,7 +423,96 @@ function extractAgentReply(payload) {
   if (typeof payload.summary === "string") {
     return payload.summary;
   }
+  const nestedError = payload?.error;
+  if (typeof nestedError === "string" && nestedError.trim()) {
+    return nestedError.trim();
+  }
+  if (nestedError && typeof nestedError === "object" && typeof nestedError.message === "string") {
+    return nestedError.message.trim();
+  }
   return "";
+}
+
+function resolveGatewayLockDirPath() {
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  const suffix = uid != null ? `openclaw-${uid}` : "openclaw";
+  return path.join(os.tmpdir(), suffix);
+}
+
+function readProcState(pid) {
+  const statPath = `/proc/${pid}/stat`;
+  const raw = fs.readFileSync(statPath, "utf8");
+  const closeIdx = raw.lastIndexOf(")");
+  if (closeIdx < 0) return "";
+  const rest = raw.slice(closeIdx + 2).trim();
+  if (!rest) return "";
+  return String(rest.split(" ")[0] || "").trim();
+}
+
+function cleanupStaleGatewayLocks() {
+  const lockDir = resolveGatewayLockDirPath();
+  const removed = [];
+  const kept = [];
+  const errors = [];
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(lockDir, { withFileTypes: true });
+  } catch {
+    return { lockDir, removed, kept, errors };
+  }
+
+  for (const entry of entries) {
+    if (!entry || !entry.isFile()) continue;
+    const name = String(entry.name || "");
+    if (!/^gateway\..+\.lock$/i.test(name)) continue;
+    const lockPath = path.join(lockDir, name);
+    let stale = false;
+    let pid = null;
+
+    try {
+      const raw = fs.readFileSync(lockPath, "utf8");
+      const parsed = JSON.parse(raw);
+      const pidNum = Number(parsed?.pid);
+      if (Number.isFinite(pidNum) && pidNum > 1) {
+        pid = pidNum;
+        let state = "";
+        try {
+          state = readProcState(pidNum);
+        } catch {
+          state = "";
+        }
+        if (!state || state === "Z") {
+          stale = true;
+        } else {
+          try {
+            process.kill(pidNum, 0);
+            stale = false;
+          } catch {
+            stale = true;
+          }
+        }
+      } else {
+        stale = true;
+      }
+    } catch {
+      stale = true;
+    }
+
+    if (!stale) {
+      kept.push({ path: lockPath, pid });
+      continue;
+    }
+
+    try {
+      fs.unlinkSync(lockPath);
+      removed.push({ path: lockPath, pid });
+    } catch (error) {
+      errors.push({ path: lockPath, error: String(error) });
+    }
+  }
+
+  return { lockDir, removed, kept, errors };
 }
 
 function sendJson(res, statusCode, data) {
@@ -602,8 +713,22 @@ function startGateway() {
     };
   }
 
+  const lockCleanup = cleanupStaleGatewayLocks();
+  if (lockCleanup.removed.length > 0) {
+    pushGatewayLog(
+      "system",
+      `removed stale gateway locks: ${lockCleanup.removed.map((x) => path.basename(x.path)).join(", ")}`,
+    );
+  }
+  if (lockCleanup.errors.length > 0) {
+    pushGatewayLog(
+      "system",
+      `failed to cleanup stale locks: ${lockCleanup.errors.map((x) => `${path.basename(x.path)} ${x.error}`).join("; ")}`,
+    );
+  }
+
   const resolved = resolveOpenClawCommand();
-  const args = [...resolved.prefixArgs, "gateway", "run", "--allow-unconfigured", "--ws-log", "compact"];
+  const args = [...resolved.prefixArgs, "gateway", "run", "--allow-unconfigured", "--ws-log", "compact", "--force"];
   const child = spawn(resolved.command, args, {
     cwd: ROOT_DIR,
     env: process.env,
@@ -1071,7 +1196,19 @@ async function runAgentTurn(params) {
   }
   const result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
   const payload = parseJsonSafe(result.stdout);
-  const reply = extractAgentReply(payload) || "收到，但暂时没有可返回内容。";
+  let reply = extractAgentReply(payload);
+  if (!reply) {
+    const errText = String(result.stderr || "").trim();
+    const errLine = errText
+      .split(/\r?\n/)
+      .find((line) => /HTTP\s+\d{3}|authentication|api key|gateway closed/i.test(String(line || "")));
+    if (errLine) {
+      reply = errLine;
+    }
+  }
+  if (!reply) {
+    reply = "收到，但暂时没有可返回内容。";
+  }
   return { result, payload, reply };
 }
 
@@ -1165,8 +1302,17 @@ async function handleQuickSetup(req, res) {
     });
   }
 
-  const gatewayStart = startGateway();
-  const gatewayHealth = await waitGatewayHealthy({ timeoutMs: 25_000, pollMs: 1_500 });
+  const healthBeforeStart = await waitGatewayHealthy({ timeoutMs: 5_000, pollMs: 800 });
+  const gatewayStart = healthBeforeStart.ok
+    ? {
+        started: false,
+        message: "Gateway already healthy",
+        pid: gatewayState.pid ?? null,
+      }
+    : startGateway();
+  const gatewayHealth = healthBeforeStart.ok
+    ? healthBeforeStart
+    : await waitGatewayHealthy({ timeoutMs: 25_000, pollMs: 1_500 });
   const gatewayWarning = !gatewayHealth.ok;
 
   sendJson(res, 200, {
@@ -1410,9 +1556,20 @@ async function handleConfigChat(req, res) {
 async function handleAiHealth(req, res) {
   const healthRes = await runOpenClawCommand(["gateway", "health", "--json"], { timeoutMs: 8_000 });
   const payload = parseJsonSafe(healthRes.stdout);
+  const modelsRes = await runOpenClawCommand(["models", "status", "--json"], { timeoutMs: 10_000 });
+  const modelsJson = parseJsonSafe(modelsRes.stdout);
+  const modelReady = Boolean(
+    modelsRes.ok
+      && String(modelsJson?.resolvedDefault || modelsJson?.defaultModel || "").trim(),
+  );
+  const gatewayHealthy = Boolean(healthRes.ok);
+  const fallbackMode = !gatewayHealthy && modelReady;
   sendJson(res, 200, {
-    ok: Boolean(healthRes.ok),
-    healthy: Boolean(healthRes.ok),
+    ok: gatewayHealthy || modelReady,
+    healthy: gatewayHealthy,
+    gatewayHealthy,
+    modelReady,
+    fallbackMode,
     health: payload,
     error: healthRes.ok ? null : (healthRes.stderr || healthRes.stdout || "").trim() || null,
   });
