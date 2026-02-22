@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WebSocket } from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || path.resolve(__dirname, '..');
@@ -52,6 +53,44 @@ async function postRpc(method, params, opts = {}) {
   });
 }
 
+function waitWsOpen(ws, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ws_open_timeout')), timeoutMs);
+    ws.once('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function waitWsFrame(ws, predicate, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error('ws_frame_timeout'));
+    }, timeoutMs);
+    const onMessage = (buf) => {
+      const raw = String(buf || '').trim();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || typeof parsed !== 'object') return;
+      if (!predicate(parsed)) return;
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      resolve(parsed);
+    };
+    ws.on('message', onMessage);
+  });
+}
+
 async function postChat(message, sessionKey = 'e2e:runtime') {
   return post('/api/ai/chat', {
     message,
@@ -94,6 +133,34 @@ async function runChecks() {
     results.push(['rpc-chat-send', 'PASS', 'frame 协议可用']);
   } else {
     results.push(['rpc-chat-send', 'FAIL', 'HTTP ' + rpcChatSend.status]);
+  }
+
+  try {
+    const ws = new WebSocket(BASE.replace('http://', 'ws://') + '/api/openclaw/ws');
+    await waitWsOpen(ws);
+    ws.send(JSON.stringify({ type: 'hello', id: 'e2e-hello' }));
+    const hello = await waitWsFrame(ws, (frame) => frame?.type === 'res' && frame?.id === 'e2e-hello');
+    if (hello?.ok === true) {
+      ws.send(
+        JSON.stringify({
+          type: 'req',
+          id: 'e2e-ws-chat',
+          method: 'chat.send',
+          params: { message: 'memory_search runtime', sessionKey, source: 'e2e-ws' },
+        }),
+      );
+      const out = await waitWsFrame(ws, (frame) => frame?.type === 'res' && frame?.id === 'e2e-ws-chat', 12000);
+      if (out?.ok === true && typeof out?.payload?.reply === 'string') {
+        results.push(['ws-chat-send', 'PASS', 'ws req/res 可用']);
+      } else {
+        results.push(['ws-chat-send', 'FAIL', 'ws 返回结构异常']);
+      }
+    } else {
+      results.push(['ws-chat-send', 'FAIL', 'ws hello 失败']);
+    }
+    ws.close();
+  } catch (err) {
+    results.push(['ws-chat-send', 'FAIL', String(err?.message || err)]);
   }
 
   const memGet = await postChat('memory_get USER.md 1 8', sessionKey);

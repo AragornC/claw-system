@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WebSocket } from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKDIR = process.env.OPENCLAW_WORKDIR || path.resolve(__dirname, '..');
@@ -47,6 +48,44 @@ async function postRpc(method, params, opts = {}) {
   });
 }
 
+function waitWsOpen(ws, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ws_open_timeout')), timeoutMs);
+    ws.once('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function waitWsFrame(ws, predicate, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error('ws_frame_timeout'));
+    }, timeoutMs);
+    const onMessage = (buf) => {
+      const raw = String(buf || '').trim();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || typeof parsed !== 'object') return;
+      if (!predicate(parsed)) return;
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      resolve(parsed);
+    };
+    ws.on('message', onMessage);
+  });
+}
+
 async function waitUntilReady(maxMs = 30000) {
   const started = Date.now();
   while (Date.now() - started < maxMs) {
@@ -78,6 +117,13 @@ async function runChecks() {
   assertCondition(rpcMethods.ok && rpcMethods.payload?.ok === true, 'GET /api/runtime/methods 失败');
   assertCondition(Array.isArray(rpcMethods.payload?.methods), 'runtime methods 列表非法');
 
+  const methodList = Array.isArray(rpcMethods.payload?.methods) ? rpcMethods.payload.methods : [];
+  for (const method of methodList.slice(0, 120)) {
+    const out = await postRpc(method, {}, { id: 'smoke-method-' + method });
+    const msg = String(out.payload?.error?.message || out.payload?.payload?.error?.message || '').toLowerCase();
+    assertCondition(!/unknown method|method_not_found/.test(msg), '方法未注册: ' + method);
+  }
+
   const rpcSessionList = await postRpc('sessions.list', { limit: 4 });
   assertCondition(rpcSessionList.ok, 'RPC sessions.list 调用失败');
   assertCondition(Array.isArray(rpcSessionList.payload?.result?.sessions), 'RPC sessions.list 响应非法');
@@ -99,6 +145,17 @@ async function runChecks() {
   assertCondition(rpcChat.ok, 'RPC chat.send 调用失败');
   assertCondition(rpcChat.payload?.ok === true, 'RPC chat.send 未返回 ok=true');
   assertCondition(typeof rpcChat.payload?.payload?.reply === 'string', 'RPC chat.send reply 非法');
+
+  const ws = new WebSocket(BASE.replace('http://', 'ws://') + '/api/openclaw/ws');
+  await waitWsOpen(ws);
+  ws.send(JSON.stringify({ type: 'hello', id: 'smoke-hello' }));
+  const hello = await waitWsFrame(ws, (frame) => frame?.type === 'res' && frame?.id === 'smoke-hello');
+  assertCondition(hello?.ok === true, 'WS hello 握手失败');
+  ws.send(JSON.stringify({ type: 'req', id: 'smoke-ws-req', method: 'sessions.list', params: { limit: 3 } }));
+  const wsRes = await waitWsFrame(ws, (frame) => frame?.type === 'res' && frame?.id === 'smoke-ws-req');
+  assertCondition(wsRes?.ok === true, 'WS req/res 调用失败');
+  assertCondition(Array.isArray(wsRes?.payload?.sessions), 'WS sessions.list 响应非法');
+  ws.close();
 
   const createdTask = await post('/api/runtime/tasks', {
     title: 'smoke-task',

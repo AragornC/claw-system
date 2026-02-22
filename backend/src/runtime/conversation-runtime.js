@@ -118,6 +118,147 @@ function formatTaskReply(out) {
   return task.status === 'success' ? '任务执行完成。' : `任务执行失败：${text(task.error) || 'unknown_error'}`;
 }
 
+const OPENCLAW_BASE_METHODS = [
+  'health',
+  'logs.tail',
+  'channels.status',
+  'channels.logout',
+  'status',
+  'usage.status',
+  'usage.cost',
+  'tts.status',
+  'tts.providers',
+  'tts.enable',
+  'tts.disable',
+  'tts.convert',
+  'tts.setProvider',
+  'config.get',
+  'config.set',
+  'config.apply',
+  'config.patch',
+  'config.schema',
+  'exec.approvals.get',
+  'exec.approvals.set',
+  'exec.approvals.node.get',
+  'exec.approvals.node.set',
+  'exec.approval.request',
+  'exec.approval.waitDecision',
+  'exec.approval.resolve',
+  'wizard.start',
+  'wizard.next',
+  'wizard.cancel',
+  'wizard.status',
+  'talk.config',
+  'talk.mode',
+  'models.list',
+  'agents.list',
+  'agents.create',
+  'agents.update',
+  'agents.delete',
+  'agents.files.list',
+  'agents.files.get',
+  'agents.files.set',
+  'skills.status',
+  'skills.bins',
+  'skills.install',
+  'skills.update',
+  'update.run',
+  'voicewake.get',
+  'voicewake.set',
+  'sessions.list',
+  'sessions.preview',
+  'sessions.patch',
+  'sessions.reset',
+  'sessions.delete',
+  'sessions.compact',
+  'last-heartbeat',
+  'set-heartbeats',
+  'wake',
+  'node.pair.request',
+  'node.pair.list',
+  'node.pair.approve',
+  'node.pair.reject',
+  'node.pair.verify',
+  'device.pair.list',
+  'device.pair.approve',
+  'device.pair.reject',
+  'device.pair.remove',
+  'device.token.rotate',
+  'device.token.revoke',
+  'node.rename',
+  'node.list',
+  'node.describe',
+  'node.invoke',
+  'node.invoke.result',
+  'node.event',
+  'cron.list',
+  'cron.status',
+  'cron.add',
+  'cron.update',
+  'cron.remove',
+  'cron.run',
+  'cron.runs',
+  'system-presence',
+  'system-event',
+  'send',
+  'agent',
+  'agent.identity.get',
+  'agent.wait',
+  'browser.request',
+  'chat.history',
+  'chat.abort',
+  'chat.send',
+];
+
+const THUNDERCLAW_EXTRA_METHODS = [
+  'sessions.get',
+  'sessions.resolve',
+  'tasks.list',
+  'tasks.create',
+  'tasks.retry',
+  'tools.manifest',
+  'tools.bridge-check',
+  'approvals.list',
+  'approvals.decide',
+  'approvals.allowlist.add',
+  'approvals.config',
+  'audit.list',
+  'runtime.audit.list',
+];
+
+const OPENCLAW_COMPAT_METHODS = Array.from(
+  new Set([...OPENCLAW_BASE_METHODS, ...THUNDERCLAW_EXTRA_METHODS]),
+);
+
+function deepGet(objLike, pathLike) {
+  const obj = objLike && typeof objLike === 'object' ? objLike : null;
+  const path = String(pathLike || '').trim();
+  if (!obj || !path) return undefined;
+  const parts = path.split('.').filter(Boolean);
+  let cur = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== 'object' || !(p in cur)) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function deepSet(objLike, pathLike, value) {
+  const obj = objLike && typeof objLike === 'object' ? objLike : {};
+  const path = String(pathLike || '').trim();
+  if (!path) return obj;
+  const parts = path.split('.').filter(Boolean);
+  if (!parts.length) return obj;
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const p = parts[i];
+    if (!cur[p] || typeof cur[p] !== 'object') cur[p] = {};
+    cur = cur[p];
+  }
+  cur[parts[parts.length - 1]] = value;
+  return obj;
+}
+
 export function createConversationRuntime(options = {}) {
   const sendJson =
     typeof options.sendJson === 'function'
@@ -161,7 +302,80 @@ export function createConversationRuntime(options = {}) {
       : async () => ({ ok: false });
   const resolveToolAdapterMode =
     typeof options.resolveToolAdapterMode === 'function' ? options.resolveToolAdapterMode : () => 'internal';
+  const sendOutboundMessage =
+    typeof options.sendOutboundMessage === 'function'
+      ? options.sendOutboundMessage
+      : async () => ({ ok: false, error: 'send_not_configured' });
+  const getChannelStatus =
+    typeof options.getChannelStatus === 'function'
+      ? options.getChannelStatus
+      : async () => ({
+          dashboard: { connected: true, available: true },
+        });
+  const tailLogs =
+    typeof options.tailLogs === 'function'
+      ? options.tailLogs
+      : async (paramsLike = {}) => {
+          const limit = toPosInt(paramsLike?.limit, 80, 1, 200);
+          const rows = typeof audit?.list === 'function' ? audit.list({ limit }) : [];
+          return rows.map((row) => ({
+            ts: row?.ts || nowIso(),
+            event: row?.event || '',
+            text: JSON.stringify(row?.payload || {}),
+          }));
+        };
   const workspaceDir = String(options.workspaceDir || process.cwd());
+
+  const compatState = {
+    config: {
+      runtime: {
+        mode: 'openclaw-native',
+      },
+      models: {
+        mode: 'merge',
+      },
+    },
+    tts: {
+      enabled: false,
+      provider: 'system',
+    },
+    talk: {
+      mode: 'default',
+      config: {},
+    },
+    heartbeats: {
+      last: null,
+      presets: [],
+    },
+    voicewake: {
+      triggers: ['hey claw'],
+    },
+    skills: {
+      bins: ['node', 'npm'],
+      installed: [],
+    },
+    agents: {
+      main: {
+        agentId: 'main',
+        name: 'Main Agent',
+        workspace: workspaceDir,
+        files: {},
+        updatedAt: nowIso(),
+      },
+    },
+    wizard: {
+      running: false,
+      sessionId: null,
+      step: 0,
+      flow: null,
+      updatedAt: nowIso(),
+    },
+    nodePairs: [],
+    devicePairs: [],
+    nodeInvocations: [],
+    systemPresence: [],
+    systemEvents: [],
+  };
 
   const audit =
     options.audit && typeof options.audit.append === 'function'
@@ -327,17 +541,28 @@ export function createConversationRuntime(options = {}) {
     if (sessionKey) mergedClientContext.sessionKey = sessionKey;
     if (source) mergedClientContext.source = source;
     if (currentView) mergedClientContext.currentView = currentView;
+    const runId = text(params.runId || params.requestId || params.id || '');
     return {
       message,
       clientContext: mergedClientContext,
+      runId: runId || createCompatId('run'),
     };
   }
 
-  async function invokeChatThroughRuntime(messageLike, clientContextLike = {}) {
+  async function invokeChatThroughRuntime(messageLike, clientContextLike = {}, runIdLike = '') {
     const message = text(messageLike);
+    const runId = text(runIdLike || createCompatId('run'));
     if (!message) {
       return { statusCode: 400, body: { ok: false, error: 'message is required' } };
     }
+    chatRuns.set(runId, {
+      runId,
+      status: 'in_flight',
+      startedAt: nowIso(),
+      sessionKey: text(clientContextLike?.sessionKey || ''),
+      aborted: false,
+    });
+    pruneChatRuns();
     const req = new EventEmitter();
     req.method = 'POST';
     req.headers = { 'content-type': 'application/json' };
@@ -378,8 +603,16 @@ export function createConversationRuntime(options = {}) {
     });
     await done;
     await pending;
+    const run = chatRuns.get(runId);
+    if (run) {
+      run.status = statusCode >= 400 ? 'failed' : 'completed';
+      run.finishedAt = nowIso();
+      chatRuns.set(runId, run);
+      pruneChatRuns();
+    }
     return {
       statusCode,
+      runId,
       body: safeJsonParse(rawBody, { ok: statusCode < 400, raw: rawBody }),
     };
   }
@@ -424,11 +657,408 @@ export function createConversationRuntime(options = {}) {
     };
   }
 
-  async function dispatchGatewayMethod(methodLike, paramsLike = {}) {
+  const chatRuns = new Map();
+
+  function pruneChatRuns(max = 500) {
+    if (chatRuns.size <= max) return;
+    const rows = Array.from(chatRuns.values())
+      .sort((a, b) => Date.parse(String(b?.startedAt || 0)) - Date.parse(String(a?.startedAt || 0)))
+      .slice(0, max);
+    chatRuns.clear();
+    rows.forEach((row) => {
+      if (row?.runId) chatRuns.set(String(row.runId), row);
+    });
+  }
+
+  function createCompatId(prefix = 'req') {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function normalizeGatewayMethod(methodLike) {
     const method = text(methodLike);
+    const aliasMap = {
+      'exec.approvals.get': 'approvals.list',
+      'exec.approvals.set': 'approvals.config',
+      'exec.approvals.node.get': 'approvals.list',
+      'exec.approvals.node.set': 'approvals.config',
+      'exec.approval.resolve': 'approvals.decide',
+    };
+    return aliasMap[method] || method;
+  }
+
+  function buildSessionPreviewItems(sessionLike, limitLike = 12, maxCharsLike = 240) {
+    const session = sessionLike && typeof sessionLike === 'object' ? sessionLike : null;
+    const limit = toPosInt(limitLike, 12, 1, 120);
+    const maxChars = toPosInt(maxCharsLike, 240, 40, 2000);
+    const events = Array.isArray(session?.events) ? session.events : [];
+    return events.slice(-limit).map((event) => ({
+      ts: event?.ts || null,
+      role:
+        event?.role === 'user' ||
+        String(event?.role || '').toLowerCase() === 'user' ||
+        String(event?.type || '').toLowerCase() === 'chat'
+          ? 'user'
+          : 'assistant',
+      text: text(event?.detail || event?.text || '').slice(0, maxChars),
+      type: event?.type || 'event',
+      id: event?.id || null,
+    }));
+  }
+
+  function buildChatHistoryPayload(paramsLike = {}) {
+    const params = safeObj(paramsLike);
+    const sessionKey = sessionManager.normalizeSessionKey(params.sessionKey || params.key || 'dashboard:main');
+    const session = sessionManager.get?.(sessionKey);
+    if (!session) {
+      return { ok: true, key: sessionKey, messages: [] };
+    }
+    const limit = toPosInt(params.limit, 40, 1, 400);
+    const maxChars = toPosInt(params.maxChars, 2400, 80, 24_000);
+    const afterTs = toNum(params.afterTs, 0);
+    const items = buildSessionPreviewItems(session, Math.max(limit * 2, 80), maxChars)
+      .filter((item) => {
+        if (!afterTs) return true;
+        const ts = Date.parse(String(item?.ts || ''));
+        return Number.isFinite(ts) && ts > afterTs;
+      })
+      .slice(-limit);
+    return { ok: true, key: sessionKey, messages: items };
+  }
+
+  async function dispatchGatewayMethod(methodLike, paramsLike = {}) {
+    const rawMethod = text(methodLike);
+    const method = normalizeGatewayMethod(rawMethod);
     const params = safeObj(paramsLike);
     if (!method) {
       throw { code: 'invalid_request', message: 'method is required', statusCode: 400 };
+    }
+
+    if (method === 'health') {
+      return {
+        ok: true,
+        ts: Date.now(),
+        runtime: 'openclaw-native',
+        status: 'healthy',
+      };
+    }
+
+    if (method === 'status') {
+      const jobs = schedulerRuntime.listJobs(1000);
+      const tasks = taskEngine.listTasks(1000);
+      return {
+        ok: true,
+        ts: Date.now(),
+        runtime: 'openclaw-native',
+        sessions: sessionManager.list(1000).length,
+        jobs: jobs.length,
+        tasks: tasks.length,
+        pendingApprovals: approvalGate.listPending?.(500)?.length || 0,
+      };
+    }
+
+    if (method === 'logs.tail') {
+      const limit = toPosInt(params.limit, 80, 1, 400);
+      const rows = await tailLogs({ limit, file: text(params.file || '') });
+      return { ok: true, rows: Array.isArray(rows) ? rows.slice(0, limit) : [] };
+    }
+
+    if (method === 'usage.status') {
+      const tasks = taskEngine.listTasks(1200);
+      const success = tasks.filter((x) => x?.status === 'success').length;
+      const failed = tasks.filter((x) => x?.status === 'failed').length;
+      return {
+        ok: true,
+        tasksTotal: tasks.length,
+        tasksSuccess: success,
+        tasksFailed: failed,
+        successRate: tasks.length ? Number((success / tasks.length).toFixed(4)) : 1,
+      };
+    }
+
+    if (method === 'usage.cost') {
+      const tasks = taskEngine.listTasks(1200);
+      const modelCalls = tasks.filter((x) => x?.type === 'chat' || x?.tool === 'chat.model.invoke').length;
+      return {
+        ok: true,
+        currency: 'USD',
+        estimated: {
+          total: Number((modelCalls * 0.002).toFixed(6)),
+          modelCalls,
+        },
+      };
+    }
+
+    if (method === 'channels.status') {
+      const status = await getChannelStatus();
+      return {
+        ok: true,
+        channels: status && typeof status === 'object' ? status : {},
+      };
+    }
+
+    if (method === 'channels.logout') {
+      const channel = text(params.channel || params.channelId || '');
+      return {
+        ok: true,
+        channel,
+        loggedOut: Boolean(channel),
+        note: channel ? 'logout requested' : 'channel required',
+      };
+    }
+
+    if (method === 'tts.status') {
+      return {
+        enabled: compatState.tts.enabled === true,
+        provider: compatState.tts.provider || 'system',
+      };
+    }
+    if (method === 'tts.providers') {
+      return {
+        providers: [
+          { id: 'system', name: 'System TTS', available: true },
+          { id: 'none', name: 'Disabled', available: true },
+        ],
+      };
+    }
+    if (method === 'tts.enable') {
+      compatState.tts.enabled = true;
+      return { enabled: true, provider: compatState.tts.provider || 'system' };
+    }
+    if (method === 'tts.disable') {
+      compatState.tts.enabled = false;
+      return { enabled: false, provider: compatState.tts.provider || 'system' };
+    }
+    if (method === 'tts.setProvider') {
+      const provider = text(params.provider || params.id || 'system') || 'system';
+      compatState.tts.provider = provider;
+      return { provider, enabled: compatState.tts.enabled === true };
+    }
+    if (method === 'tts.convert') {
+      const textValue = text(params.text || '');
+      if (!textValue) {
+        throw { code: 'invalid_params', message: 'tts.convert requires text', statusCode: 400 };
+      }
+      return {
+        ok: true,
+        provider: compatState.tts.provider || 'system',
+        text: textValue,
+        audioUrl: null,
+      };
+    }
+
+    if (method === 'config.get') {
+      const key = text(params.key || '');
+      if (!key) {
+        return { config: compatState.config };
+      }
+      return { key, value: deepGet(compatState.config, key) };
+    }
+    if (method === 'config.set') {
+      const key = text(params.key || '');
+      if (!key) {
+        throw { code: 'invalid_params', message: 'config.set requires key', statusCode: 400 };
+      }
+      deepSet(compatState.config, key, params.value);
+      return { ok: true, key, value: deepGet(compatState.config, key) };
+    }
+    if (method === 'config.patch' || method === 'config.apply') {
+      const patch = safeObj(params.patch || params.config || params);
+      const merged = { ...compatState.config, ...patch };
+      compatState.config = merged;
+      return { ok: true, config: compatState.config };
+    }
+    if (method === 'config.schema') {
+      return {
+        schemaVersion: 1,
+        type: 'object',
+        properties: {
+          runtime: { type: 'object' },
+          models: { type: 'object' },
+          channels: { type: 'object' },
+        },
+      };
+    }
+
+    if (method === 'exec.approval.waitDecision') {
+      const approvalId = text(params.id || params.approvalId || '');
+      const pending = approvalGate.listPending?.(500) || [];
+      const row = pending.find((x) => text(x?.approvalId || '') === approvalId) || null;
+      return {
+        ok: true,
+        approval: row,
+        decision: row?.decision || null,
+        pending: row?.status === 'pending',
+      };
+    }
+
+    if (method === 'wizard.start') {
+      compatState.wizard.running = true;
+      compatState.wizard.sessionId = createCompatId('wizard');
+      compatState.wizard.step = 1;
+      compatState.wizard.flow = text(params.flow || 'default') || 'default';
+      compatState.wizard.updatedAt = nowIso();
+      return {
+        ok: true,
+        sessionId: compatState.wizard.sessionId,
+        step: compatState.wizard.step,
+        flow: compatState.wizard.flow,
+      };
+    }
+    if (method === 'wizard.next') {
+      if (!compatState.wizard.running) {
+        throw { code: 'invalid_request', message: 'wizard_not_running', statusCode: 400 };
+      }
+      compatState.wizard.step += 1;
+      compatState.wizard.updatedAt = nowIso();
+      return {
+        ok: true,
+        sessionId: compatState.wizard.sessionId,
+        step: compatState.wizard.step,
+      };
+    }
+    if (method === 'wizard.cancel') {
+      const sessionId = compatState.wizard.sessionId;
+      compatState.wizard.running = false;
+      compatState.wizard.updatedAt = nowIso();
+      return { ok: true, sessionId, cancelled: true };
+    }
+    if (method === 'wizard.status') {
+      return {
+        running: compatState.wizard.running === true,
+        sessionId: compatState.wizard.sessionId,
+        step: compatState.wizard.step,
+        flow: compatState.wizard.flow,
+      };
+    }
+
+    if (method === 'talk.config') {
+      return { config: compatState.talk.config || {} };
+    }
+    if (method === 'talk.mode') {
+      const mode = text(params.mode || '');
+      if (mode) compatState.talk.mode = mode;
+      return { mode: compatState.talk.mode };
+    }
+
+    if (method === 'models.list') {
+      return {
+        providers: [
+          {
+            id: 'openclaw',
+            models: [
+              { id: 'default', name: 'OpenClaw Default' },
+            ],
+          },
+        ],
+      };
+    }
+
+    if (method === 'agents.list') {
+      return {
+        agents: Object.values(compatState.agents || {}),
+      };
+    }
+    if (method === 'agents.create') {
+      const agentId = text(params.agentId || params.id || params.name);
+      if (!agentId) {
+        throw { code: 'invalid_params', message: 'agents.create requires agentId', statusCode: 400 };
+      }
+      if (compatState.agents[agentId]) {
+        throw { code: 'invalid_request', message: 'agent_exists', statusCode: 400 };
+      }
+      compatState.agents[agentId] = {
+        agentId,
+        name: text(params.name || agentId),
+        workspace: text(params.workspace || workspaceDir),
+        files: {},
+        updatedAt: nowIso(),
+      };
+      return { ok: true, agentId, agent: compatState.agents[agentId] };
+    }
+    if (method === 'agents.update') {
+      const agentId = text(params.agentId || params.id);
+      if (!agentId || !compatState.agents[agentId]) {
+        throw { code: 'not_found', message: 'agent_not_found', statusCode: 404 };
+      }
+      compatState.agents[agentId] = {
+        ...compatState.agents[agentId],
+        name: text(params.name || compatState.agents[agentId].name),
+        workspace: text(params.workspace || compatState.agents[agentId].workspace),
+        updatedAt: nowIso(),
+      };
+      return { ok: true, agentId, agent: compatState.agents[agentId] };
+    }
+    if (method === 'agents.delete') {
+      const agentId = text(params.agentId || params.id);
+      if (!agentId || !compatState.agents[agentId]) {
+        throw { code: 'not_found', message: 'agent_not_found', statusCode: 404 };
+      }
+      if (agentId === 'main') {
+        throw { code: 'invalid_request', message: 'main_agent_protected', statusCode: 400 };
+      }
+      delete compatState.agents[agentId];
+      return { ok: true, agentId };
+    }
+    if (method === 'agents.files.list') {
+      const agentId = text(params.agentId || params.id || 'main');
+      const agent = compatState.agents[agentId];
+      if (!agent) throw { code: 'not_found', message: 'agent_not_found', statusCode: 404 };
+      return { agentId, files: Object.keys(agent.files || {}) };
+    }
+    if (method === 'agents.files.get') {
+      const agentId = text(params.agentId || params.id || 'main');
+      const file = text(params.file || params.name);
+      const agent = compatState.agents[agentId];
+      if (!agent) throw { code: 'not_found', message: 'agent_not_found', statusCode: 404 };
+      if (!file) throw { code: 'invalid_params', message: 'file required', statusCode: 400 };
+      return { agentId, file, content: String(agent.files?.[file] || '') };
+    }
+    if (method === 'agents.files.set') {
+      const agentId = text(params.agentId || params.id || 'main');
+      const file = text(params.file || params.name);
+      const content = String(params.content || '');
+      const agent = compatState.agents[agentId];
+      if (!agent) throw { code: 'not_found', message: 'agent_not_found', statusCode: 404 };
+      if (!file) throw { code: 'invalid_params', message: 'file required', statusCode: 400 };
+      agent.files[file] = content;
+      agent.updatedAt = nowIso();
+      return { ok: true, agentId, file };
+    }
+
+    if (method === 'skills.status') {
+      return {
+        ok: true,
+        installed: compatState.skills.installed,
+      };
+    }
+    if (method === 'skills.bins') {
+      return { bins: compatState.skills.bins };
+    }
+    if (method === 'skills.install' || method === 'skills.update') {
+      const skillKey = text(params.skillKey || params.name || '');
+      if (!skillKey) throw { code: 'invalid_params', message: 'skillKey required', statusCode: 400 };
+      if (!compatState.skills.installed.includes(skillKey)) {
+        compatState.skills.installed.push(skillKey);
+      }
+      return { ok: true, skillKey };
+    }
+
+    if (method === 'update.run') {
+      return { ok: true, started: true, note: 'update.run accepted' };
+    }
+
+    if (method === 'voicewake.get') {
+      return { triggers: compatState.voicewake.triggers };
+    }
+    if (method === 'voicewake.set') {
+      const triggers = Array.isArray(params.triggers)
+        ? params.triggers.map((x) => text(x)).filter(Boolean).slice(0, 24)
+        : [];
+      if (!triggers.length) {
+        throw { code: 'invalid_params', message: 'voicewake.set requires triggers', statusCode: 400 };
+      }
+      compatState.voicewake.triggers = triggers;
+      return { triggers };
     }
 
     if (method === 'chat.send') {
@@ -436,7 +1066,7 @@ export function createConversationRuntime(options = {}) {
       if (!normalized.message) {
         throw { code: 'invalid_params', message: 'chat.send requires message', statusCode: 400 };
       }
-      const out = await invokeChatThroughRuntime(normalized.message, normalized.clientContext);
+      const out = await invokeChatThroughRuntime(normalized.message, normalized.clientContext, normalized.runId);
       if (!out.body || out.body.ok === false || out.statusCode >= 400) {
         throw {
           code: 'runtime_error',
@@ -453,6 +1083,7 @@ export function createConversationRuntime(options = {}) {
         executionTrace: Array.isArray(out.body?.executionTrace) ? out.body.executionTrace : [],
         contextDigest: out.body?.contextDigest || null,
         meta: out.body?.meta && typeof out.body.meta === 'object' ? out.body.meta : {},
+        runId: out.runId || normalized.runId,
       };
     }
 
@@ -496,6 +1127,57 @@ export function createConversationRuntime(options = {}) {
       const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
       const session = sessionManager.resume(key);
       return { ok: true, key, session };
+    }
+    if (method === 'sessions.preview') {
+      const keys = Array.isArray(params.keys)
+        ? params.keys.map((x) => sessionManager.normalizeSessionKey(x)).filter(Boolean).slice(0, 64)
+        : [];
+      const limit = toPosInt(params.limit, 12, 1, 120);
+      const maxChars = toPosInt(params.maxChars, 240, 40, 2000);
+      const targetKeys = keys.length ? keys : sessionManager.list(64).map((x) => x?.key).filter(Boolean);
+      const previews = targetKeys.map((key) => {
+        const session = sessionManager.get?.(key);
+        if (!session) return { key, status: 'missing', items: [] };
+        const items = buildSessionPreviewItems(session, limit, maxChars);
+        return { key, status: items.length ? 'ok' : 'empty', items };
+      });
+      return { ts: Date.now(), previews };
+    }
+    if (method === 'sessions.delete') {
+      const key = sessionManager.normalizeSessionKey(params.key || params.sessionKey);
+      const ok = sessionManager.remove?.(key) || false;
+      if (!ok) throw { code: 'not_found', message: 'session_not_found', statusCode: 404 };
+      return { ok: true, key };
+    }
+
+    if (method === 'chat.history') {
+      return buildChatHistoryPayload(params);
+    }
+    if (method === 'chat.abort') {
+      const runId = text(params.runId || params.id || '');
+      if (runId && chatRuns.has(runId)) {
+        const row = chatRuns.get(runId);
+        row.aborted = true;
+        row.status = 'aborted';
+        row.finishedAt = nowIso();
+        chatRuns.set(runId, row);
+        return { ok: true, aborted: true, runIds: [runId] };
+      }
+      const sessionKey = text(params.sessionKey || params.key || '');
+      const candidates = Array.from(chatRuns.values()).filter(
+        (x) => sessionKey && text(x?.sessionKey || '') === sessionKey && x?.status === 'in_flight',
+      );
+      candidates.forEach((row) => {
+        row.aborted = true;
+        row.status = 'aborted';
+        row.finishedAt = nowIso();
+        if (row?.runId) chatRuns.set(String(row.runId), row);
+      });
+      return {
+        ok: true,
+        aborted: candidates.length > 0,
+        runIds: candidates.map((x) => x?.runId).filter(Boolean),
+      };
     }
 
     if (method === 'tasks.list') {
@@ -676,6 +1358,26 @@ export function createConversationRuntime(options = {}) {
       return { check: await toolRuntime.checkBridge() };
     }
 
+    if (method === 'exec.approval.request') {
+      const action = text(params.action || params.command || 'manual.request');
+      const summary = text(params.summary || params.message || action);
+      const approval = approvalGate.evaluate({
+        action,
+        summary,
+        type: text(params.type || 'manual'),
+        tool: text(params.tool || ''),
+        command: text(params.command || ''),
+        url: text(params.url || ''),
+        ask: 'always',
+      });
+      return {
+        ok: true,
+        approvalId: approval.approvalId || null,
+        needApproval: approval.needApproval === true,
+        reason: approval.reason || 'approval_requested',
+      };
+    }
+
     if (method === 'approvals.list') {
       return {
         config: approvalGate.getSnapshot?.() || {},
@@ -683,7 +1385,7 @@ export function createConversationRuntime(options = {}) {
       };
     }
     if (method === 'approvals.decide') {
-      const approvalId = text(params.approvalId || params.id);
+      const approvalId = text(params.approvalId || params.requestId || params.id);
       const decision = text(params.decision || 'deny');
       if (!approvalId) {
         throw { code: 'invalid_params', message: 'approvals.decide requires approvalId', statusCode: 400 };
@@ -708,6 +1410,230 @@ export function createConversationRuntime(options = {}) {
     if (method === 'approvals.config') {
       const config = approvalGate.updateConfig?.(safeObj(params)) || approvalGate.getSnapshot?.() || {};
       return { config };
+    }
+
+    if (method === 'last-heartbeat') {
+      return {
+        ts: Date.now(),
+        last: compatState.heartbeats.last,
+        presets: compatState.heartbeats.presets,
+      };
+    }
+    if (method === 'set-heartbeats') {
+      const presets = Array.isArray(params.items) ? params.items : Array.isArray(params.heartbeats) ? params.heartbeats : [];
+      compatState.heartbeats.presets = presets.slice(0, 24);
+      compatState.heartbeats.last = nowIso();
+      return { ok: true, presets: compatState.heartbeats.presets };
+    }
+    if (method === 'wake' || method === 'system-event') {
+      const payload = {
+        ts: nowIso(),
+        mode: text(params.mode || 'now') || 'now',
+        text: text(params.text || params.message || ''),
+      };
+      compatState.heartbeats.last = payload.ts;
+      compatState.systemEvents.unshift(payload);
+      compatState.systemEvents = compatState.systemEvents.slice(0, 400);
+      return { ok: true, wake: payload };
+    }
+
+    if (method === 'system-presence') {
+      const entry = {
+        ts: nowIso(),
+        status: text(params.status || 'online') || 'online',
+        note: text(params.note || ''),
+      };
+      compatState.systemPresence.unshift(entry);
+      compatState.systemPresence = compatState.systemPresence.slice(0, 240);
+      return {
+        ok: true,
+        latest: entry,
+        rows: compatState.systemPresence.slice(0, 40),
+      };
+    }
+
+    if (method === 'node.pair.request') {
+      const requestId = createCompatId('node-pair');
+      const row = {
+        requestId,
+        nodeId: text(params.nodeId || params.id || createCompatId('node')),
+        displayName: text(params.displayName || params.name || 'Remote Node'),
+        status: 'pending',
+        createdAt: nowIso(),
+      };
+      compatState.nodePairs.unshift(row);
+      compatState.nodePairs = compatState.nodePairs.slice(0, 200);
+      return { requestId, node: row };
+    }
+    if (method === 'node.pair.list') {
+      return { requests: compatState.nodePairs.slice(0, 120) };
+    }
+    if (method === 'node.pair.approve' || method === 'node.pair.reject' || method === 'node.pair.verify') {
+      const requestId = text(params.requestId || params.id || '');
+      const row = compatState.nodePairs.find((x) => text(x?.requestId || '') === requestId);
+      if (!row) throw { code: 'not_found', message: 'request_not_found', statusCode: 404 };
+      row.status = method.endsWith('approve') ? 'approved' : method.endsWith('reject') ? 'rejected' : 'verified';
+      row.updatedAt = nowIso();
+      return { requestId, node: row };
+    }
+
+    if (method === 'device.pair.list') {
+      return { requests: compatState.devicePairs.slice(0, 120) };
+    }
+    if (method === 'device.pair.approve' || method === 'device.pair.reject') {
+      const requestId = text(params.requestId || params.id || '');
+      const row = compatState.devicePairs.find((x) => text(x?.requestId || '') === requestId);
+      if (!row) throw { code: 'not_found', message: 'request_not_found', statusCode: 404 };
+      row.status = method.endsWith('approve') ? 'approved' : 'rejected';
+      row.updatedAt = nowIso();
+      return { requestId, device: row };
+    }
+    if (method === 'device.pair.remove') {
+      const deviceId = text(params.deviceId || params.id || '');
+      const before = compatState.devicePairs.length;
+      compatState.devicePairs = compatState.devicePairs.filter((x) => text(x?.deviceId || '') !== deviceId);
+      if (before === compatState.devicePairs.length) {
+        throw { code: 'not_found', message: 'device_not_found', statusCode: 404 };
+      }
+      return { ok: true, deviceId };
+    }
+    if (method === 'device.token.rotate' || method === 'device.token.revoke') {
+      const deviceId = text(params.deviceId || params.id || '');
+      if (!deviceId) throw { code: 'invalid_params', message: 'deviceId required', statusCode: 400 };
+      return {
+        ok: true,
+        deviceId,
+        token:
+          method === 'device.token.rotate'
+            ? createCompatId('token')
+            : null,
+      };
+    }
+
+    if (method === 'node.rename') {
+      const nodeId = text(params.nodeId || params.id || '');
+      const displayName = text(params.displayName || params.name || '');
+      if (!nodeId || !displayName) throw { code: 'invalid_params', message: 'nodeId/displayName required', statusCode: 400 };
+      return { nodeId, displayName };
+    }
+    if (method === 'node.list') {
+      const rows = compatState.nodePairs
+        .filter((x) => x?.status === 'approved' || x?.status === 'verified')
+        .map((x) => ({
+          nodeId: x.nodeId,
+          displayName: x.displayName || x.nodeId,
+          status: x.status,
+          connected: true,
+        }));
+      return { ts: Date.now(), nodes: rows };
+    }
+    if (method === 'node.describe') {
+      const nodeId = text(params.nodeId || params.id || '');
+      const row = compatState.nodePairs.find((x) => text(x?.nodeId || '') === nodeId);
+      if (!row) throw { code: 'not_found', message: 'node_not_found', statusCode: 404 };
+      return {
+        node: {
+          nodeId: row.nodeId,
+          displayName: row.displayName || row.nodeId,
+          status: row.status,
+          connected: row.status === 'approved' || row.status === 'verified',
+        },
+      };
+    }
+    if (method === 'node.invoke') {
+      const nodeId = text(params.nodeId || '');
+      const command = text(params.command || '');
+      if (!nodeId || !command) throw { code: 'invalid_params', message: 'nodeId and command required', statusCode: 400 };
+      const requestId = createCompatId('node-invoke');
+      const item = {
+        requestId,
+        nodeId,
+        command,
+        status: 'accepted',
+        createdAt: nowIso(),
+      };
+      compatState.nodeInvocations.unshift(item);
+      compatState.nodeInvocations = compatState.nodeInvocations.slice(0, 400);
+      return { requestId, accepted: true };
+    }
+    if (method === 'node.invoke.result') {
+      const requestId = text(params.requestId || params.id || '');
+      const row = compatState.nodeInvocations.find((x) => text(x?.requestId || '') === requestId);
+      if (!row) throw { code: 'not_found', message: 'request_not_found', statusCode: 404 };
+      return {
+        requestId,
+        ok: true,
+        result: {
+          output: '',
+          status: row.status || 'accepted',
+        },
+      };
+    }
+    if (method === 'node.event') {
+      const payload = {
+        ts: nowIso(),
+        nodeId: text(params.nodeId || ''),
+        event: text(params.event || ''),
+        payload: safeObj(params.payload),
+      };
+      compatState.systemEvents.unshift(payload);
+      compatState.systemEvents = compatState.systemEvents.slice(0, 400);
+      return { ok: true };
+    }
+
+    if (method === 'send') {
+      const textValue = text(params.text || params.message || '');
+      const channel = text(params.channel || 'telegram') || 'telegram';
+      const to = text(params.to || params.chatId || '');
+      if (!textValue) throw { code: 'invalid_params', message: 'send requires text', statusCode: 400 };
+      const out = await sendOutboundMessage({
+        channel,
+        to,
+        text: textValue,
+        params,
+      });
+      if (out?.ok === false) {
+        throw { code: 'runtime_error', message: text(out.error || 'send_failed'), statusCode: 502, data: out };
+      }
+      return {
+        ok: true,
+        channel,
+        to,
+        text: textValue,
+        delivery: out || { ok: true },
+      };
+    }
+
+    if (method === 'agent') {
+      const prompt = text(params.prompt || params.message || params.text);
+      const out = await dispatchGatewayMethod('chat.send', {
+        message: prompt,
+        sessionKey: text(params.sessionKey || 'agent:main'),
+        source: text(params.source || 'gateway-agent'),
+      });
+      return {
+        ok: true,
+        reply: out.reply || '',
+        actions: out.actions || [],
+      };
+    }
+    if (method === 'agent.identity.get') {
+      return {
+        agentId: 'main',
+        name: 'ThunderClaw Main',
+        workspace: workspaceDir,
+      };
+    }
+    if (method === 'agent.wait') {
+      return { ok: true, done: true };
+    }
+
+    if (method === 'browser.request') {
+      return {
+        ok: false,
+        disabled: true,
+        message: 'browser proxy is not enabled in thunderclaw runtime',
+      };
     }
 
     if (method === 'audit.list' || method === 'runtime.audit.list') {
@@ -1050,35 +1976,43 @@ export function createConversationRuntime(options = {}) {
     if (pathname === '/api/runtime/methods' && method === 'GET') {
       sendJson(res, 200, {
         ok: true,
-        methods: [
-          'chat.send',
-          'sessions.list',
-          'sessions.get',
-          'sessions.resolve',
-          'sessions.patch',
-          'sessions.reset',
-          'sessions.compact',
-          'sessions.resume',
-          'tasks.list',
-          'tasks.create',
-          'tasks.retry',
-          'cron.list',
-          'cron.status',
-          'cron.add',
-          'cron.update',
-          'cron.remove',
-          'cron.run',
-          'cron.runs',
-          'tools.manifest',
-          'tools.bridge-check',
-          'approvals.list',
-          'approvals.decide',
-          'approvals.allowlist.add',
-          'approvals.config',
-          'audit.list',
-          'runtime.audit.list',
-        ],
+        methods: OPENCLAW_COMPAT_METHODS,
       });
+      return true;
+    }
+
+    if (pathname === '/api/runtime/chat/history') {
+      if (method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Allow', 'GET');
+        res.end('Method Not Allowed');
+        return true;
+      }
+      const payload = buildChatHistoryPayload({
+        sessionKey: text(url?.searchParams?.get('sessionKey') || ''),
+        key: text(url?.searchParams?.get('key') || ''),
+        limit: toPosInt(url?.searchParams?.get('limit'), 40, 1, 400),
+        maxChars: toPosInt(url?.searchParams?.get('maxChars'), 2400, 80, 24_000),
+        afterTs: toNum(url?.searchParams?.get('afterTs'), 0),
+      });
+      sendJson(res, 200, { ok: true, ...payload });
+      return true;
+    }
+
+    if (pathname === '/api/runtime/chat/abort') {
+      if (method !== 'POST') {
+        res.statusCode = 405;
+        res.setHeader('Allow', 'POST');
+        res.end('Method Not Allowed');
+        return true;
+      }
+      const parsed = await readJsonBody(req);
+      if (!parsed.ok) {
+        sendJson(res, 400, { ok: false, error: parsed.error || 'invalid_json' });
+        return true;
+      }
+      const out = await dispatchGatewayMethod('chat.abort', safeObj(parsed.value));
+      sendJson(res, 200, { ok: true, ...safeObj(out) });
       return true;
     }
 
@@ -1139,6 +2073,24 @@ export function createConversationRuntime(options = {}) {
       const sessionKey = sessionManager.normalizeSessionKey(parsed.value?.sessionKey);
       const session = sessionManager.resume(sessionKey);
       sendJson(res, 200, { ok: true, session });
+      return true;
+    }
+
+    if (pathname === '/api/runtime/sessions/delete') {
+      if (method !== 'POST') {
+        res.statusCode = 405;
+        res.setHeader('Allow', 'POST');
+        res.end('Method Not Allowed');
+        return true;
+      }
+      const parsed = await readJsonBody(req);
+      if (!parsed.ok) {
+        sendJson(res, 400, { ok: false, error: parsed.error || 'invalid_json' });
+        return true;
+      }
+      const sessionKey = sessionManager.normalizeSessionKey(parsed.value?.sessionKey || parsed.value?.key);
+      const ok = sessionManager.remove?.(sessionKey) || false;
+      sendJson(res, ok ? 200 : 404, { ok, key: sessionKey, error: ok ? null : 'session_not_found' });
       return true;
     }
 
@@ -1397,6 +2349,33 @@ export function createConversationRuntime(options = {}) {
   return {
     handleChatApi,
     handleRuntimeApi,
+    listGatewayMethods() {
+      return OPENCLAW_COMPAT_METHODS.slice();
+    },
+    async invokeGatewayMethod(methodLike, paramsLike = {}) {
+      return dispatchGatewayMethod(methodLike, paramsLike);
+    },
+    async handleGatewayFrame(frameLike = {}) {
+      const frame = safeObj(frameLike);
+      const id = frame.id ?? null;
+      const method = text(frame.method);
+      try {
+        const payload = await dispatchGatewayMethod(method, safeObj(frame.params));
+        return { type: 'res', id, ok: true, payload };
+      } catch (errorLike) {
+        const err = safeObj(errorLike);
+        return {
+          type: 'res',
+          id,
+          ok: false,
+          error: {
+            code: text(err.code || 'runtime_error') || 'runtime_error',
+            message: text(err.message || 'runtime_error') || 'runtime_error',
+            details: err.data && typeof err.data === 'object' ? err.data : null,
+          },
+        };
+      }
+    },
     managers: {
       sessionManager,
       memoryManager,

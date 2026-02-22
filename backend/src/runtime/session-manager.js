@@ -174,6 +174,14 @@ export function createSessionManager(options = {}) {
     return session;
   }
 
+  function remove(sessionKeyLike) {
+    const key = normalizeSessionKey(sessionKeyLike);
+    if (!state.sessions[key]) return false;
+    delete state.sessions[key];
+    save();
+    return true;
+  }
+
   load();
 
   return {
@@ -187,5 +195,7 @@ export function createSessionManager(options = {}) {
     reset,
     compact,
     resume,
+    remove,
+    delete: remove,
   };
 }

@@ -15,6 +15,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
 import { handleApiRoute } from '../backend/src/routes/index.js';
 import { buildServeApiDeps } from '../backend/src/routes/api-deps.js';
 import { createXbrainAuthService } from '../backend/src/services/xbrain-auth-service.js';
@@ -56,6 +57,9 @@ const marketNewsRealtimeCache = {
   ts: 0,
   result: null,
 };
+const gatewayWsClients = new Set();
+let gatewayWsServer = null;
+let gatewayWsPulseTimer = null;
 const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
@@ -1801,6 +1805,12 @@ function registerProcessCleanupHooks() {
     };
   };
   const cleanup = once(() => {
+    stopGatewayWsPulse();
+    closeAllGatewayWsClients();
+    try {
+      gatewayWsServer?.close?.();
+    } catch {}
+    gatewayWsServer = null;
     try {
       openclawRuntime?.shutdown?.();
     } catch {}
@@ -9317,6 +9327,53 @@ function setupConversationRuntime() {
       buildMcpStyleToolManifest,
       checkMcpBridgeConnectivity,
       resolveToolAdapterMode,
+      sendOutboundMessage: async (payloadLike = {}) => {
+        const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+        const channel = String(payload.channel || 'dashboard').trim().toLowerCase() || 'dashboard';
+        const to = String(payload.to || payload.chatId || '').trim();
+        const msg = String(payload.text || '').trim();
+        if (!msg) return { ok: false, error: 'text_required' };
+        if (channel === 'telegram') {
+          if (!to) return { ok: false, error: 'telegram_chat_id_required' };
+          await sendTelegramText(to, msg);
+          pushTelegramEvent({
+            role: 'bot',
+            chatId: to,
+            from: 'thunderclaw',
+            text: msg,
+            direction: 'outbound',
+            ok: true,
+          });
+          return { ok: true, channel, to };
+        }
+        appendChatHistoryEvent({
+          source: channel,
+          role: 'bot',
+          direction: 'outbound',
+          text: msg,
+          meta: { relay: true },
+        });
+        return { ok: true, channel, to: to || null };
+      },
+      getChannelStatus: async () => ({
+        dashboard: { connected: true, available: true },
+        telegram: {
+          connected: Boolean(telegramState.connected),
+          enabled: isTelegramEnabledNow(),
+          autoReply: TELEGRAM_AUTO_REPLY,
+          lastError: telegramState.lastError || null,
+        },
+      }),
+      tailLogs: async (paramsLike = {}) => {
+        const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+        const limit = Math.max(1, Math.min(300, Number(params.limit || 80) || 80));
+        const rows = listChatHistory(Math.max(0, Number(chatHistorySeq) - limit - 4), limit).map((ev) => ({
+          ts: ev?.ts || nowIso(),
+          event: String(ev?.source || 'chat') + ':' + String(ev?.role || ''),
+          text: String(ev?.text || '').slice(0, 600),
+        }));
+        return rows.slice(-limit);
+      },
       toolTimeoutMs: Math.max(1500, positiveInt(process.env.THUNDERCLAW_RUNTIME_TOOL_TIMEOUT_MS, 6000)),
       schedulerTickMs: Math.max(500, positiveInt(process.env.THUNDERCLAW_RUNTIME_SCHEDULER_TICK_MS, 1000)),
       approvalSecurity: String(process.env.THUNDERCLAW_RUNTIME_APPROVAL_SECURITY || 'allowlist'),
@@ -9336,6 +9393,197 @@ function setupConversationRuntime() {
     conversationRuntime = null;
     console.warn('[runtime] conversation runtime init failed:', safeErrMsg(err, 'unknown'));
   }
+}
+
+function sendGatewayWsFrame(ws, frameLike = {}) {
+  if (!ws || ws.readyState !== 1) return;
+  try {
+    ws.send(JSON.stringify(frameLike));
+  } catch {}
+}
+
+function gatewayMethodList() {
+  if (conversationRuntime && typeof conversationRuntime.listGatewayMethods === 'function') {
+    return conversationRuntime.listGatewayMethods();
+  }
+  return [];
+}
+
+function gatewayEventsList() {
+  return ['chat', 'tick', 'health', 'heartbeat', 'cron', 'system-event', 'presence'];
+}
+
+function closeAllGatewayWsClients() {
+  for (const ws of gatewayWsClients) {
+    try {
+      ws.close();
+    } catch {}
+  }
+  gatewayWsClients.clear();
+}
+
+function stopGatewayWsPulse() {
+  if (!gatewayWsPulseTimer) return;
+  clearInterval(gatewayWsPulseTimer);
+  gatewayWsPulseTimer = null;
+}
+
+function startGatewayWsPulse() {
+  if (gatewayWsPulseTimer) return;
+  gatewayWsPulseTimer = setInterval(() => {
+    const now = Date.now();
+    for (const ws of gatewayWsClients) {
+      if (!ws || ws.readyState !== 1) continue;
+      sendGatewayWsFrame(ws, {
+        type: 'event',
+        event: 'tick',
+        payload: { ts: now, serverTime: new Date(now).toISOString() },
+      });
+      const cursor = Number.isFinite(Number(ws.__chatCursor)) ? Number(ws.__chatCursor) : 0;
+      const events = listChatHistory(cursor, 80);
+      for (const ev of events) {
+        sendGatewayWsFrame(ws, {
+          type: 'event',
+          event: 'chat',
+          payload: ev,
+        });
+      }
+      if (events.length) {
+        ws.__chatCursor = Number(events[events.length - 1]?.id || cursor);
+      }
+    }
+  }, 1200);
+  if (typeof gatewayWsPulseTimer.unref === 'function') gatewayWsPulseTimer.unref();
+}
+
+async function handleGatewayWsReqFrame(ws, frameLike = {}) {
+  const frame = frameLike && typeof frameLike === 'object' ? frameLike : {};
+  const id = frame.id != null ? frame.id : 'req-' + String(Date.now());
+  const method = String(frame.method || '').trim();
+  if (!method) {
+    sendGatewayWsFrame(ws, {
+      type: 'res',
+      id,
+      ok: false,
+      error: { code: 'invalid_request', message: 'method is required', details: null },
+    });
+    return;
+  }
+  if (!conversationRuntime || typeof conversationRuntime.handleGatewayFrame !== 'function') {
+    sendGatewayWsFrame(ws, {
+      type: 'res',
+      id,
+      ok: false,
+      error: { code: 'runtime_unavailable', message: 'conversation runtime unavailable', details: null },
+    });
+    return;
+  }
+  try {
+    const out = await conversationRuntime.handleGatewayFrame({
+      type: 'req',
+      id,
+      method,
+      params: frame.params && typeof frame.params === 'object' ? frame.params : {},
+    });
+    sendGatewayWsFrame(ws, out && typeof out === 'object' ? out : { type: 'res', id, ok: true, payload: out });
+  } catch (err) {
+    sendGatewayWsFrame(ws, {
+      type: 'res',
+      id,
+      ok: false,
+      error: {
+        code: 'runtime_error',
+        message: safeErrMsg(err, 'unknown'),
+        details: null,
+      },
+    });
+  }
+}
+
+function setupGatewayWs(server) {
+  if (gatewayWsServer) return gatewayWsServer;
+  gatewayWsServer = new WebSocketServer({
+    noServer: true,
+    clientTracking: false,
+  });
+  gatewayWsServer.on('connection', (ws) => {
+    ws.__connectedAt = Date.now();
+    ws.__chatCursor = Number(chatHistorySeq || 0);
+    gatewayWsClients.add(ws);
+    sendGatewayWsFrame(ws, {
+      type: 'event',
+      event: 'health',
+      payload: {
+        ok: true,
+        runtimeMode: THUNDERCLAW_CHAT_RUNTIME_MODE,
+        methods: gatewayMethodList().length,
+      },
+    });
+    ws.on('message', (buf) => {
+      const raw = String(buf || '').trim();
+      const parsed = parseJsonLoose(raw);
+      const frame = parsed && typeof parsed === 'object' ? parsed : {};
+      const type = String(frame.type || '').trim().toLowerCase();
+      if (type === 'hello') {
+        sendGatewayWsFrame(ws, {
+          type: 'res',
+          id: frame.id != null ? frame.id : 'hello',
+          ok: true,
+          payload: {
+            protocol: 'gateway-ws-v1',
+            methods: gatewayMethodList(),
+            events: gatewayEventsList(),
+            serverTime: nowIso(),
+          },
+        });
+        return;
+      }
+      if (type === 'req') {
+        void handleGatewayWsReqFrame(ws, frame);
+        return;
+      }
+      if (type === 'ping') {
+        sendGatewayWsFrame(ws, {
+          type: 'pong',
+          id: frame.id != null ? frame.id : null,
+          ts: nowIso(),
+        });
+        return;
+      }
+      sendGatewayWsFrame(ws, {
+        type: 'res',
+        id: frame.id != null ? frame.id : null,
+        ok: false,
+        error: { code: 'invalid_request', message: 'unsupported ws frame type', details: { expected: ['hello', 'req', 'ping'] } },
+      });
+    });
+    ws.on('close', () => {
+      gatewayWsClients.delete(ws);
+    });
+    ws.on('error', () => {});
+  });
+  server.on('upgrade', (req, socket, head) => {
+    let pathname = '/';
+    try {
+      pathname = new URL(req.url || '/', 'http://localhost').pathname || '/';
+    } catch {}
+    if (
+      pathname !== '/ws' &&
+      pathname !== '/api/openclaw/ws' &&
+      pathname !== '/api/gateway/ws' &&
+      pathname !== '/api/runtime/ws'
+    ) {
+      try {
+        socket.destroy();
+      } catch {}
+      return;
+    }
+    gatewayWsServer.handleUpgrade(req, socket, head, (ws) => {
+      gatewayWsServer.emit('connection', ws, req);
+    });
+  });
+  startGatewayWsPulse();
+  return gatewayWsServer;
 }
 
 const server = http.createServer((req, res) => {
@@ -9458,6 +9706,7 @@ const server = http.createServer((req, res) => {
     res.end('Internal Server Error');
   });
 });
+setupGatewayWs(server);
 
 const serviceLockOk = acquireThunderClawServiceLock();
 if (!serviceLockOk) {
@@ -9525,6 +9774,8 @@ server.listen(PORT, () => {
   console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');
   console.log('Chat history: GET /api/chat/history?afterId=<id>');
   console.log('Runtime API: GET /api/runtime/sessions | /tasks | /schedules | /approvals | /audit');
+  console.log('Gateway RPC: POST /api/openclaw/rpc | /api/gateway/rpc | /api/runtime/rpc');
+  console.log('Gateway WS: ws://localhost:' + PORT + '/api/openclaw/ws (also /api/gateway/ws, /api/runtime/ws, /ws)');
   console.log('Memory health: GET /api/memory/health?q=...');
   console.log('Strategy artifacts: GET /api/strategy/artifacts?limit=<n>&q=... | POST /api/strategy/artifacts/report');
   console.log('Strategy lab: GET /api/strategy/features | POST /api/strategy/features/upsert | GET /api/strategy/versions | POST /api/strategy/versions/create | POST /api/strategy/versions/propose | POST /api/strategy/versions/evaluate');
