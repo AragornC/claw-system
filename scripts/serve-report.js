@@ -77,6 +77,12 @@ const OPENCLAW_AGENT_LOCAL = /^(1|true|yes|on)$/i.test(
 const THUNDERCLAW_CHAT_RUNTIME_MODE = String(process.env.THUNDERCLAW_CHAT_RUNTIME_MODE || 'openclaw-native')
   .trim()
   .toLowerCase();
+const THUNDERCLAW_LEGACY_CHAT_INTENTS = /^(1|true|yes|on)$/i.test(
+  String(process.env.THUNDERCLAW_LEGACY_CHAT_INTENTS || '0'),
+);
+const THUNDERCLAW_TRADING_PLUGIN_ENABLED = !/^(0|false|off|no)$/i.test(
+  String(process.env.THUNDERCLAW_TRADING_PLUGIN_ENABLED || '1'),
+);
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
 const OPENCLAW_CHAT_TIMEOUT_MS = positiveInt(process.env.OPENCLAW_CHAT_TIMEOUT_MS, 95_000);
 const OPENCLAW_SESSION_LOCK_RETRY = Math.max(
@@ -6824,6 +6830,68 @@ async function handleTelegramIncoming(incoming) {
   }
   loopState.lastInboundNorm = inboundNorm;
   loopState.lastInboundAt = nowMs;
+  if (!THUNDERCLAW_LEGACY_CHAT_INTENTS) {
+    if (!TELEGRAM_AUTO_REPLY) return;
+    const tgSessionKey = 'telegram:' + String(incoming.chatId || '');
+    let reply = '';
+    let ok = true;
+    try {
+      const out = await runUnifiedOpenClawConversation(incoming.text, {
+        source: 'telegram',
+        sessionKey: tgSessionKey,
+        currentView: 'dashboard',
+        clientContext: {
+          source: 'telegram',
+          sessionKey: tgSessionKey,
+          currentView: 'dashboard',
+          userIntentHint: 'telegram:' + incoming.chatId,
+          sessionPreview: buildTelegramSessionPreview(incoming.chatId, 14),
+        },
+      });
+      reply = String(out.reply || '').trim() || '收到。';
+    } catch (err) {
+      ok = false;
+      reply = '收到，但处理消息失败：' + safeErrMsg(err, 'unknown');
+    }
+    const replyNorm = normalizeTelegramText(reply);
+    if (replyNorm && inboundNorm && replyNorm === inboundNorm) {
+      pushTelegramEvent({
+        role: 'system',
+        chatId: incoming.chatId,
+        from: 'thunderclaw-guard',
+        text: '[防循环] 已阻止回声式回复（回复内容与入站消息一致）。',
+        direction: 'outbound',
+        ok: true,
+      });
+      return;
+    }
+    try {
+      await sendTelegramText(incoming.chatId, reply);
+      telegramState.lastOutboundAt = nowIso();
+      loopState.lastReplyNorm = replyNorm;
+      loopState.lastReplyAt = Date.now();
+    } catch (err) {
+      ok = false;
+      const errMsg = safeErrMsg(err, 'send failed');
+      telegramState.lastError = errMsg;
+      reply = reply + '\n(发送到 Telegram 失败: ' + errMsg + ')';
+    }
+    pushTelegramEvent({
+      role: 'bot',
+      chatId: incoming.chatId,
+      from: 'thunderclaw',
+      text: reply,
+      direction: 'outbound',
+      ok,
+    });
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'telegram',
+      tags: ['telegram', 'assistant', 'openclaw-native'],
+      content: '用户: ' + redactSecrets(incoming.text) + '\n助手: ' + redactSecrets(reply),
+    });
+    return;
+  }
 
   const nlTools = await handleNaturalLanguageToolOrchestration(incoming.text, 'telegram');
   if (nlTools?.handled) {
@@ -7687,42 +7755,100 @@ function buildOpenClawPrompt(message, context) {
     }
   }
   return [
-    '你是交易系统里的 AI 交易助理（OpenClaw 驱动）。',
-    '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
-    '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
-    '上下文 conversationMemory 是本会话最近多轮对话，你必须先读取并保持前后约束一致，不得遗忘用户在前文的要求。',
-    '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
-    '上下文 strategy.artifacts 为已沉淀策略工件（含权重/表现）；可优先复用高权重工件并继续迭代。',
-    '上下文 xbrain 为当前配置中枢（模型/通道/交易参数/运行模式），生成动作时必须遵守这些约束。',
-    '若信息不足，请直接说明缺失项，不得编造事实。',
+    '你是 ThunderClaw 中的 OpenClaw 原生助手。',
+    '核心要求：像 OpenClaw 一样完成通用任务，不要被交易模板限制。',
+    '你可以处理：研究、写作、代码、排障、文档、自动化、计划、复盘等常见任务。',
+    '当用户问题与交易相关时，可结合 ThunderClaw 的交易能力插件（虾线/虾策/虾海/虾脑）给出可执行方案。',
+    '上下文 conversationMemory 是最近多轮对话，必须保持前后约束一致，不要遗忘历史要求。',
+    '若信息不足，明确指出缺口并提供最小可执行下一步，不要给空泛拒答。',
+    '默认输出自然语言文本；只有在确实需要触发前端动作时，才额外输出 JSON：{"reply":"...","actions":[...]}。',
+    '如果用户使用中文请用中文回复；如果用户使用英文可用英文回复。',
     '',
-    '输出要求（必须严格遵守）:',
-    '1) 只输出 JSON（不要代码块、不要额外解释）。',
-    '2) JSON 格式固定为：',
-    '{"reply":"给用户看的中文回复","actions":[...]}',
-    '3) actions 可选，最多 4 个。支持动作：',
-    '- {"type":"switch_view","view":"dashboard|runtime|kline|history|backtest|xsea|xbrain"}',
-    '- {"type":"focus_trade","tradeId":"交易ID"}',
-    '- {"type":"run_backtest","strategy":"v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1m|5m|15m|1h|4h|1d","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
-    '- {"type":"run_backtest_compare","strategies":["v5_hybrid","v5_retest","v5_reentry","v4_breakout"],"tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72}',
-    '- {"type":"run_custom_backtest","strategy":"custom|v5_hybrid|v5_retest|v5_reentry|v4_breakout","tf":"1h","bars":900,"feeBps":5,"stopAtr":1.8,"tpAtr":3,"maxHold":72,"custom":{"lookback":18,"allowRetest":true,"allowReentry":true,"allowBreakout":false,"biasAdxMin":15,"side":"both"}}',
-    '- {"type":"run_strategy_dsl","tf":"1d","bars":1200,"feeBps":5,"stopAtr":1.2,"tpAtr":2.8,"maxHold":120,"dsl":{"name":"feature-strategy","side":"both","features":[{"name":"ema_5","kind":"ema","source":"close","period":5},{"name":"adx_14","kind":"adx","period":14}],"entryLong":"close > ema_5 && adx_14 >= 20","entryShort":"close < ema_5 && adx_14 >= 20","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8,"maxHold":120}}}',
-    '4) 如果不需要动作，actions 返回空数组。',
-    '5) 除非用户明确要求切页/跳转，否则不要输出 switch_view。',
-    '6) 如果输出 run_backtest，请优先给出 1 条最关键任务动作，避免重复动作。',
-    '7) 如果用户要求“高胜率/对比/筛选策略”，优先输出 run_backtest_compare，不要只返回口头承诺。',
-    '8) 如果用户描述了自定义规则（如回踩/再入/突破、ADX阈值、止盈止损ATR、只做多/空），优先输出 run_custom_backtest。',
-    '9) 如果用户要求基于任意新特征/因子（如“5日K线特征、EMA/RSI/ADX组合”）构建并执行策略，优先输出 run_strategy_dsl。',
-    '10) 若上下文已有可复用工件，请在 reply 中点明“复用了哪个工件”，并在动作里带上相应 dsl/custom 配置继续执行。',
-    '11) 用户可能非常口语化（如“我想挣钱”“帮我搞个能跑的策略”），你必须把口语目标翻译成可执行动作，不要要求用户提供术语。',
-    '12) 当用户表达的是交易目标而非技术细节时，请主动补全默认参数并先执行一轮对比/回验，再给结果摘要与下一步建议。',
-    '',
-    '[交易看板上下文]',
+    '[会话上下文（辅助信息，不是硬约束）]',
     contextJson,
     '',
-    '[用户问题]',
+    '[用户消息]',
     baseMessage,
   ].join('\n');
+}
+
+function looksLikeTradingDomainMessage(messageLike = '') {
+  const text = String(messageLike || '').trim().toLowerCase();
+  if (!text) return false;
+  if (parseTradingGoalIntent(text)) return true;
+  return (
+    /(交易|策略|回测|回验|复盘|仓位|杠杆|止盈|止损|开仓|平仓|风险|收益|胜率|做多|做空|行情|币圈|现货|合约|永续|资金费率|liq|liquidation|btc|eth|sol|x线|虾线|虾策|虾海|虾脑)/i.test(
+      text,
+    ) ||
+    /\b(run_backtest|run_custom_backtest|run_backtest_compare|run_strategy_dsl)\b/i.test(text)
+  );
+}
+
+async function runUnifiedOpenClawConversation(messageLike = '', optionsLike = {}) {
+  const message = String(messageLike || '').trim();
+  if (!message) throw new Error('empty message');
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const source = String(options.source || 'dashboard').trim() || 'dashboard';
+  const clientContext = options.clientContext && typeof options.clientContext === 'object' ? options.clientContext : {};
+  const currentView = String(clientContext.currentView || options.currentView || 'dashboard').trim() || 'dashboard';
+  const sessionKey = String(clientContext.sessionKey || options.sessionKey || (source + ':main')).trim() || (source + ':main');
+  const sessionPreview = Array.isArray(clientContext.sessionPreview)
+    ? clientContext.sessionPreview
+    : Array.isArray(options.sessionPreview)
+      ? options.sessionPreview
+      : [];
+  const memoryBundle = buildLayeredMemoryBundle(message);
+  const trading = buildTradingContext(
+    {
+      currentView,
+      sessionKey,
+      source,
+      userIntentHint: source + ':native-openclaw',
+      sessionPreview: sessionPreview.slice(-18),
+    },
+    memoryBundle,
+  );
+  const result = await runOpenClawChat(message, trading.context);
+  const structured = parseStructuredAgentReply(result.reply);
+  let reply = String(structured.reply || result.reply || '').trim();
+  let actions = normalizeAiActions(structured.actions);
+  const shouldUseTradingPlugin = THUNDERCLAW_TRADING_PLUGIN_ENABLED && looksLikeTradingDomainMessage(message);
+  let pluginUsed = false;
+  if (shouldUseTradingPlugin) {
+    const pluginOut = await handleNaturalLanguageToolOrchestration(message, source, {
+      ...clientContext,
+      source,
+      currentView,
+      sessionKey,
+      sessionPreview: sessionPreview.slice(-18),
+    }).catch(() => null);
+    if (pluginOut?.handled) {
+      pluginUsed = true;
+      const pluginReply = String(pluginOut.reply || '').trim();
+      if (pluginReply) {
+        reply = reply ? reply + '\n\n' + pluginReply : pluginReply;
+      }
+      const pluginActions = Array.isArray(pluginOut.actions) ? pluginOut.actions : [];
+      actions = normalizeAiActions([...(actions || []), ...pluginActions]);
+    }
+    actions = augmentActionsByIntent(message, actions);
+  }
+  if (!reply) reply = '收到，我正在处理。';
+  return {
+    reply,
+    actions,
+    contextDigest: trading.digest,
+    meta: {
+      elapsedMs: result.elapsedMs,
+      commandSource: result.commandSource,
+      agentId: OPENCLAW_AGENT_ID,
+      provider: String(result?.agentMeta?.provider || ''),
+      model: String(result?.agentMeta?.model || ''),
+      localMode: Boolean(result?.localMode),
+      pluginUsed,
+      pluginEnabled: shouldUseTradingPlugin,
+    },
+  };
 }
 
 function runProcess(command, args, timeoutMs) {
@@ -8245,6 +8371,66 @@ async function handleChatApi(req, res) {
     direction: 'inbound',
     text: message,
   });
+  const incomingClientContext =
+    body.value?.clientContext && typeof body.value.clientContext === 'object'
+      ? body.value.clientContext
+      : {};
+  if (!THUNDERCLAW_LEGACY_CHAT_INTENTS) {
+    appendTraderMemory({
+      kind: 'chat',
+      channel: 'dashboard',
+      tags: ['dashboard', 'user'],
+      content: '用户: ' + redactSecrets(message),
+    });
+    try {
+      const out = await runUnifiedOpenClawConversation(message, {
+        source: 'dashboard',
+        clientContext: incomingClientContext,
+      });
+      const reply = String(out.reply || '').trim() || '收到。';
+      appendTraderMemory({
+        kind: 'chat',
+        channel: 'dashboard',
+        tags: ['dashboard', 'assistant', 'openclaw-native'],
+        content: '助手: ' + redactSecrets(reply),
+      });
+      sendJson(res, 200, {
+        ok: true,
+        source: 'openclaw-native',
+        binding: 'openclaw-native-first',
+        reply,
+        actions: Array.isArray(out.actions) ? out.actions : [],
+        contextDigest: out.contextDigest || null,
+        meta: out.meta || {},
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: reply,
+      });
+    } catch (err) {
+      appendTraderMemory({
+        kind: 'chat',
+        channel: 'dashboard',
+        tags: ['dashboard', 'error'],
+        content: '错误: ' + safeErrMsg(err, 'openclaw error'),
+      });
+      sendJson(res, 502, {
+        ok: false,
+        source: 'openclaw-native',
+        binding: 'openclaw-native-first',
+        error: String(err?.message || err),
+      });
+      appendChatHistoryEvent({
+        source: 'dashboard',
+        role: 'bot',
+        direction: 'outbound',
+        text: '处理失败：' + safeErrMsg(err, 'openclaw error'),
+      });
+    }
+    return;
+  }
   if (/^(记忆状态|查看记忆|memory status)$/i.test(message)) {
     const memoryBundle = buildLayeredMemoryBundle('');
     const profile = memoryBundle?.layers?.longTerm?.profile || buildTraderProfileSummary();
@@ -9622,6 +9808,11 @@ const server = http.createServer((req, res) => {
           mcpBridgeConfigured: resolveMcpBridgeConfig().enabledByFlag,
           mcpBridgeUrl: resolveMcpBridgeConfig().url || null,
         },
+        chatEngine: {
+          runtimeMode: THUNDERCLAW_CHAT_RUNTIME_MODE,
+          legacyIntentsEnabled: THUNDERCLAW_LEGACY_CHAT_INTENTS,
+          tradingPluginEnabled: THUNDERCLAW_TRADING_PLUGIN_ENABLED,
+        },
         commandSource: cli.source,
         contextDigest: trading.digest,
         memory: {
@@ -9769,6 +9960,14 @@ server.listen(PORT, () => {
       ' | mcpBridge=' +
       (resolveMcpBridgeConfig().enabled ? 'on' : 'off') +
       (resolveMcpBridgeConfig().url ? (' | url=' + resolveMcpBridgeConfig().url) : ''),
+  );
+  console.log(
+    'Chat engine: runtime=' +
+      THUNDERCLAW_CHAT_RUNTIME_MODE +
+      ' | legacyIntents=' +
+      (THUNDERCLAW_LEGACY_CHAT_INTENTS ? 'on' : 'off') +
+      ' | tradingPlugin=' +
+      (THUNDERCLAW_TRADING_PLUGIN_ENABLED ? 'on' : 'off'),
   );
   console.log('AI config channel: POST /api/config/chat');
   console.log('XBrain API: GET /api/xbrain/state | POST /api/xbrain/update | POST /api/xbrain/lock');

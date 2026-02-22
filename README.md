@@ -296,6 +296,7 @@ npm run report:start:local
 - Telegram Bot Token（其余参数走默认）
 - 并自动写入推荐运行参数（`openclaw-native` + `mcp` bridge + session lock 重试）
 - `report:start:local` 默认会强制启用能力档（避免旧 `.env.local` 把能力降级）；如需关闭可设 `THUNDERCLAW_FORCE_CAPABILITY_PROFILE=0`
+- 默认关闭旧版模板化意图分支（`THUNDERCLAW_LEGACY_CHAT_INTENTS=0`），改为 OpenClaw 原生对话优先；交易请求再按需挂载交易插件能力
 
 补充说明：
 

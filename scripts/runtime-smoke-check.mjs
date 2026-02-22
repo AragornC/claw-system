@@ -187,6 +187,7 @@ async function main() {
     env: {
       ...process.env,
       THUNDERCLAW_CHAT_RUNTIME_MODE: 'openclaw-native',
+      THUNDERCLAW_LEGACY_CHAT_INTENTS: process.env.THUNDERCLAW_LEGACY_CHAT_INTENTS || '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
