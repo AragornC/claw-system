@@ -22,6 +22,15 @@ const gatewayState = {
   logs: [],
 };
 
+const oauthState = {
+  proc: null,
+  provider: null,
+  startedAt: null,
+  last: null,
+};
+
+const SUPPORTED_OAUTH_PROVIDERS = new Set(["openai-codex"]);
+
 function resolveOpenClawCommand() {
   const localBinName = process.platform === "win32" ? "openclaw.cmd" : "openclaw";
   const localBin = path.join(ROOT_DIR, "node_modules", ".bin", localBinName);
@@ -276,6 +285,95 @@ function gatewayIsRunning() {
   return Boolean(gatewayState.proc && gatewayState.proc.exitCode === null);
 }
 
+function oauthIsRunning() {
+  return Boolean(oauthState.proc && oauthState.proc.exitCode === null);
+}
+
+function getOauthStatus() {
+  return {
+    running: oauthIsRunning(),
+    provider: oauthState.provider,
+    startedAt: oauthState.startedAt,
+    last: oauthState.last,
+    interactiveSupported: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  };
+}
+
+function startOAuthLogin(providerIdRaw) {
+  const providerId = String(providerIdRaw ?? "").trim().toLowerCase();
+  if (!SUPPORTED_OAUTH_PROVIDERS.has(providerId)) {
+    return {
+      ok: false,
+      error: `Unsupported oauth provider: ${providerId || "(empty)"}`,
+      supportedProviders: Array.from(SUPPORTED_OAUTH_PROVIDERS),
+    };
+  }
+
+  if (oauthIsRunning()) {
+    return {
+      ok: true,
+      started: false,
+      message: "OAuth login is already running",
+      state: getOauthStatus(),
+    };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return {
+      ok: false,
+      error: "OAuth login requires an interactive terminal (TTY).",
+      commandHint: `openclaw models auth login --provider ${providerId} --set-default`,
+    };
+  }
+
+  const resolved = resolveOpenClawCommand();
+  const args = [...resolved.prefixArgs, "models", "auth", "login", "--provider", providerId, "--set-default"];
+  const child = spawn(resolved.command, args, {
+    cwd: ROOT_DIR,
+    env: process.env,
+    stdio: "inherit",
+  });
+
+  oauthState.proc = child;
+  oauthState.provider = providerId;
+  oauthState.startedAt = new Date().toISOString();
+  oauthState.last = null;
+
+  child.on("error", (error) => {
+    oauthState.last = {
+      provider: providerId,
+      code: null,
+      signal: null,
+      error: String(error),
+      finishedAt: new Date().toISOString(),
+    };
+    oauthState.proc = null;
+    oauthState.provider = null;
+    oauthState.startedAt = null;
+  });
+
+  child.on("close", (code, signal) => {
+    oauthState.last = {
+      provider: providerId,
+      code,
+      signal: signal ?? null,
+      error: null,
+      finishedAt: new Date().toISOString(),
+    };
+    oauthState.proc = null;
+    oauthState.provider = null;
+    oauthState.startedAt = null;
+  });
+
+  return {
+    ok: true,
+    started: true,
+    message: "OAuth login started. Continue in terminal prompts.",
+    provider: providerId,
+    command: ["openclaw", "models", "auth", "login", "--provider", providerId, "--set-default"].join(" "),
+  };
+}
+
 function startGateway() {
   if (gatewayIsRunning()) {
     return {
@@ -344,8 +442,8 @@ async function handleStatus(req, res) {
   const versionText = versionRes.stdout.trim() || versionRes.stderr.trim();
 
   const stateDir = path.join(os.homedir(), ".openclaw");
-  const configPath = path.join(stateDir, "config.json");
-  const configExists = fs.existsSync(configPath);
+  const defaultConfigPath = path.join(stateDir, "openclaw.json");
+  const legacyConfigPath = path.join(stateDir, "config.json");
 
   const healthRes = await runOpenClawCommand(["gateway", "health", "--json"], { timeoutMs: 8_000 });
   const healthJson = parseJsonSafe(healthRes.stdout);
@@ -354,6 +452,14 @@ async function handleStatus(req, res) {
     timeoutMs: 15_000,
   });
   const modelsJson = parseJsonSafe(modelsRes.stdout);
+  const configPath =
+    typeof modelsJson?.configPath === "string" && modelsJson.configPath.trim()
+      ? modelsJson.configPath
+      : fs.existsSync(defaultConfigPath)
+        ? defaultConfigPath
+        : legacyConfigPath;
+  const configExists =
+    fs.existsSync(configPath) || fs.existsSync(defaultConfigPath) || fs.existsSync(legacyConfigPath);
 
   sendJson(res, 200, {
     ok: true,
@@ -380,6 +486,7 @@ async function handleStatus(req, res) {
       status: modelsJson,
       error: modelsRes.ok ? null : (modelsRes.stderr || modelsRes.stdout || "").trim() || null,
     },
+    oauth: getOauthStatus(),
   });
 }
 
@@ -388,22 +495,35 @@ function providerToAuthConfig(provider) {
     "openai-api-key": {
       authChoice: "openai-api-key",
       flag: "--openai-api-key",
+      mode: "single-flag",
     },
     "anthropic-api-key": {
       authChoice: "apiKey",
       flag: "--anthropic-api-key",
+      mode: "single-flag",
     },
     "openrouter-api-key": {
       authChoice: "openrouter-api-key",
       flag: "--openrouter-api-key",
+      mode: "single-flag",
     },
     "gemini-api-key": {
       authChoice: "gemini-api-key",
       flag: "--gemini-api-key",
+      mode: "single-flag",
     },
     "zai-api-key": {
       authChoice: "zai-api-key",
       flag: "--zai-api-key",
+      mode: "single-flag",
+    },
+    "deepseek-api-key": {
+      authChoice: "custom-api-key",
+      mode: "custom-api-key",
+      customBaseUrl: "https://api.deepseek.com/v1",
+      customModelId: "deepseek-chat",
+      customProviderId: "deepseek",
+      customCompatibility: "openai",
     },
   };
   return map[provider] ?? null;
@@ -446,9 +566,23 @@ async function handleSetup(req, res) {
     String(gatewayPort),
     "--auth-choice",
     providerConfig.authChoice,
-    providerConfig.flag,
-    apiKey,
   ];
+  if (providerConfig.mode === "custom-api-key") {
+    args.push(
+      "--custom-base-url",
+      providerConfig.customBaseUrl,
+      "--custom-model-id",
+      providerConfig.customModelId,
+      "--custom-provider-id",
+      providerConfig.customProviderId,
+      "--custom-compatibility",
+      providerConfig.customCompatibility,
+      "--custom-api-key",
+      apiKey,
+    );
+  } else {
+    args.push(providerConfig.flag, apiKey);
+  }
 
   const result = await runOpenClawCommand(args, { timeoutMs: 240_000 });
   sendJson(res, result.ok ? 200 : 500, {
@@ -463,6 +597,17 @@ async function handleSetup(req, res) {
     stdout: result.stdout,
     stderr: result.stderr,
   });
+}
+
+async function handleOAuthStart(req, res) {
+  const body = await readJsonBody(req);
+  const provider = String(body.provider ?? "openai-codex").trim().toLowerCase();
+  const outcome = startOAuthLogin(provider);
+  sendJson(res, outcome.ok ? 200 : 400, outcome);
+}
+
+async function handleOAuthStatus(req, res) {
+  sendJson(res, 200, { ok: true, ...getOauthStatus() });
 }
 
 async function handleSetModel(req, res) {
@@ -534,6 +679,14 @@ async function requestHandler(req, res) {
     }
     if (method === "POST" && pathname === "/api/models/set") {
       await handleSetModel(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/oauth/start") {
+      await handleOAuthStart(req, res);
+      return;
+    }
+    if (method === "GET" && pathname === "/api/oauth/status") {
+      await handleOAuthStatus(req, res);
       return;
     }
     if (method === "POST" && pathname === "/api/gateway/start") {

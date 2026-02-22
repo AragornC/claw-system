@@ -181,7 +181,7 @@
       <div class="grid">
         <section class="card">
           <h2>虾脑配置（OpenClaw Onboarding）</h2>
-          <p class="hint">支持 OpenAI / Anthropic / OpenRouter / Gemini / ZAI 的 API Key 快速配置。</p>
+          <p class="hint">支持 OpenAI / Anthropic / OpenRouter / Gemini / ZAI / DeepSeek 的 API Key 快速配置。</p>
           <form id="setupForm">
             <label for="provider">Provider</label>
             <select id="provider">
@@ -190,6 +190,7 @@
               <option value="openrouter-api-key">OpenRouter API Key</option>
               <option value="gemini-api-key">Gemini API Key</option>
               <option value="zai-api-key">ZAI API Key</option>
+              <option value="deepseek-api-key">DeepSeek API Key</option>
             </select>
 
             <label for="apiKey">API Key</label>
@@ -211,6 +212,16 @@
 
             <button type="submit">一键初始化 OpenClaw</button>
           </form>
+          <div class="row" style="margin-top: 10px">
+            <div style="display: flex; align-items: end">
+              <button id="oauthOpenaiBtn" class="secondary" type="button">
+                OpenAI OAuth 跳转登录（openai-codex）
+              </button>
+            </div>
+            <div class="tiny" style="display: flex; align-items: center">
+              点击后请回到执行 `thunderclaw:start` 的终端，按提示完成 OAuth 授权。
+            </div>
+          </div>
 
           <div class="row" style="margin-top: 10px">
             <div>
@@ -284,6 +295,7 @@
       const sendSmokeBtn = document.getElementById("sendSmokeBtn");
       const clearChatBtn = document.getElementById("clearChatBtn");
       const setModelBtn = document.getElementById("setModelBtn");
+      const oauthOpenaiBtn = document.getElementById("oauthOpenaiBtn");
 
       const providerInput = document.getElementById("provider");
       const apiKeyInput = document.getElementById("apiKey");
@@ -337,12 +349,21 @@
           const gateway = data.gateway || {};
           const config = data.config || {};
           const models = data.models || {};
+          const oauth = data.oauth || {};
+          const oauthLast = oauth.last || null;
+          const oauthOk = oauth.running || (oauthLast && oauthLast.code === 0);
+          const oauthStatus = oauth.running
+            ? `进行中 (${oauth.provider || "unknown"})`
+            : oauthLast
+              ? `最近: ${oauthLast.provider || "unknown"} / code=${oauthLast.code ?? "null"}`
+              : "未执行";
           statusBox.innerHTML = [
             line(openclaw.available, "OpenClaw", openclaw.version || "不可用"),
             line(config.exists, "配置文件", config.path || "未找到"),
             line(gateway.managedByThunderClaw, "Gateway 进程", gateway.managedByThunderClaw ? `运行中(pid=${gateway.pid || "?"})` : "未运行"),
             line(gateway.healthy, "Gateway 健康检查", gateway.healthy ? "健康" : gateway.healthError || "未通过"),
             line(models.ok, "模型状态", models.ok ? "可读取" : models.error || "读取失败"),
+            line(Boolean(oauthOk), "OAuth 登录", oauthStatus),
           ].join("<br>");
 
           const logs = Array.isArray(gateway.logsTail) ? gateway.logsTail : [];
@@ -409,6 +430,28 @@
           await refreshStatus();
         } catch (error) {
           setupOutput.textContent = `设置模型失败: ${String(error)}`;
+        }
+      });
+
+      oauthOpenaiBtn.addEventListener("click", async () => {
+        setupOutput.textContent = "正在启动 OpenAI OAuth 登录流程...";
+        try {
+          const data = await api("/api/oauth/start", {
+            method: "POST",
+            body: JSON.stringify({ provider: "openai-codex" }),
+          });
+          setupOutput.textContent = [
+            data.message || "OAuth login started",
+            `provider: ${data.provider || "openai-codex"}`,
+            data.command ? `command: ${data.command}` : "",
+            "",
+            "请回到终端按提示完成授权（会打开登录链接）。",
+          ]
+            .filter(Boolean)
+            .join("\n");
+          await refreshStatus();
+        } catch (error) {
+          setupOutput.textContent = `启动 OAuth 失败: ${String(error)}`;
         }
       });
 

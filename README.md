@@ -49,9 +49,15 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `GET /api/status`：OpenClaw 可用性、配置存在性、Gateway 健康状态
 - `POST /api/setup`：non-interactive onboarding（provider + apiKey）
 - `POST /api/models/set`：设置默认模型
+- `POST /api/oauth/start`：触发 OpenAI OAuth 登录（interactive）
 - `POST /api/gateway/start`：启动 Gateway
 - `POST /api/gateway/stop`：停止 Gateway
 - `POST /api/chat`：通过 `openclaw agent --json` 发起对话
+
+已支持认证路径：
+
+- OpenAI / Anthropic / OpenRouter / Gemini / ZAI / **DeepSeek**（API Key）
+- OpenAI Codex（OAuth 跳转登录，需在启动 thunderclaw 的终端内完成交互）
 
 ---
 
