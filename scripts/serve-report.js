@@ -50,6 +50,12 @@ let conversationRuntime = null;
 let openclawRuntime = null;
 let chatToolOrchestrationService = null;
 let legacyChatFacadeService = null;
+const openclawLaneChain = new Map();
+const marketNewsRealtimeCache = {
+  key: '',
+  ts: 0,
+  result: null,
+};
 const OPENCLAW_CHANNEL = (process.env.OPENCLAW_CHANNEL || '').trim();
 const OPENCLAW_SESSION_ID = (process.env.OPENCLAW_SESSION_ID || '').trim();
 const OPENCLAW_TO = (process.env.OPENCLAW_TO || '').trim();
@@ -69,6 +75,14 @@ const THUNDERCLAW_CHAT_RUNTIME_MODE = String(process.env.THUNDERCLAW_CHAT_RUNTIM
   .toLowerCase();
 const OPENCLAW_TIMEOUT_SEC = positiveInt(process.env.OPENCLAW_TIMEOUT_SEC, 90);
 const OPENCLAW_CHAT_TIMEOUT_MS = positiveInt(process.env.OPENCLAW_CHAT_TIMEOUT_MS, 95_000);
+const OPENCLAW_SESSION_LOCK_RETRY = Math.max(
+  1,
+  Math.min(6, positiveInt(process.env.OPENCLAW_SESSION_LOCK_RETRY, 3)),
+);
+const OPENCLAW_SESSION_LOCK_BACKOFF_MS = Math.max(
+  220,
+  positiveInt(process.env.OPENCLAW_SESSION_LOCK_BACKOFF_MS, 550),
+);
 const JSON_BODY_LIMIT = 64 * 1024;
 const REPORT_DECISIONS_PATH = path.resolve(REPORT_DIR, 'decisions.json');
 const REPORT_ORDERS_PATH = path.resolve(REPORT_DIR, 'orders.json');
@@ -4494,6 +4508,8 @@ function buildStrategyToolRouterPrompt(messageLike = '', contextLike = {}, planS
 async function runOpenClawToolRouter(messageLike = '', contextLike = {}, planStateLike = {}) {
   const prompt = buildStrategyToolRouterPrompt(messageLike, contextLike, planStateLike);
   const cli = resolveOpenClawCli();
+  const sessionId = OPENCLAW_SESSION_ID || deriveOpenClawSessionId(contextLike, 'router');
+  const laneKey = deriveOpenClawLaneKey(contextLike, 'router');
   const args = [
     ...cli.prefixArgs,
     'agent',
@@ -4505,12 +4521,12 @@ async function runOpenClawToolRouter(messageLike = '', contextLike = {}, planSta
     '--timeout',
     String(8),
   ];
-  const proc = await runProcess(cli.command, args, 9_000);
-  if (proc.timedOut) throw new Error('tool router timeout');
-  if (proc.code !== 0) {
-    const reason = String(proc.stderr || proc.stdout || '').trim();
-    throw new Error(reason || ('tool router exit code: ' + proc.code));
-  }
+  if (sessionId) args.push('--session-id', sessionId);
+  const proc = await runOpenClawInLane(laneKey, () =>
+    runOpenClawProcessWithRetry(cli.command, args, 9_000, {
+      maxAttempts: Math.max(2, OPENCLAW_SESSION_LOCK_RETRY),
+    }),
+  );
   const extracted = extractReplyFromOutput(proc.stdout);
   const parsed = parseJsonLoose(extracted.reply) || parseJsonLoose(proc.stdout) || {};
   const reply = truncText(String(parsed?.reply || extracted.reply || ''), 1200);
@@ -4584,14 +4600,223 @@ function formatStrategyMetricsSnapshot(snapshotLike = {}) {
   return lines.join('\n');
 }
 
+function decodeNewsHtmlEntities(textLike = '') {
+  return String(textLike || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+async function fetchNewsFeedText(url, timeoutMs = 5200) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ac.abort();
+    } catch {}
+  }, Math.max(1200, Number(timeoutMs) || 5200));
+  try {
+    const resp = await fetch(url, {
+      method: 'GET',
+      signal: ac.signal,
+      headers: {
+        'User-Agent': 'thunderclaw-news-fetch/1.0',
+        Accept: 'application/rss+xml,application/xml,text/xml,text/html',
+      },
+    });
+    if (!resp.ok) {
+      throw new Error('http_' + resp.status);
+    }
+    return await resp.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseNewsFeedTitles(xmlLike, sourceLike, limit = 10) {
+  const xml = String(xmlLike || '');
+  const source = String(sourceLike || '').trim() || 'feed';
+  if (!xml) return [];
+  const rows = [];
+  const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+  for (const item of items.slice(0, 40)) {
+    const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/i);
+    if (!titleMatch?.[1]) continue;
+    const raw = decodeNewsHtmlEntities(titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim());
+    if (!raw) continue;
+    rows.push({ title: raw, source });
+    if (rows.length >= limit) break;
+  }
+  return rows;
+}
+
+function scoreNewsHeadline(titleLike = '') {
+  const title = String(titleLike || '').toLowerCase();
+  const pos = ['surge', 'rally', 'gain', 'inflow', 'record high', 'approval', 'adopt', 'bull', '上涨', '突破', '利好', '增持'];
+  const neg = ['hack', 'exploit', 'lawsuit', 'ban', 'outflow', 'dump', 'plunge', 'liquidation', 'fraud', 'war', 'tariff', '下跌', '暴跌', '利空', '清算', '监管打击'];
+  const risk = ['hack', 'exploit', 'liquidation', 'fraud', 'war', 'tariff', 'ban', 'lawsuit', '黑客', '清算', '监管', '冲突'];
+  let sentiment = 0;
+  pos.forEach((k) => {
+    if (title.includes(k)) sentiment += 1;
+  });
+  neg.forEach((k) => {
+    if (title.includes(k)) sentiment -= 1;
+  });
+  const riskHits = risk.reduce((n, k) => n + (title.includes(k) ? 1 : 0), 0);
+  return { sentiment, riskHits };
+}
+
+function toZhHeadlineInsight(titleLike = '') {
+  const t = String(titleLike || '');
+  const lower = t.toLowerCase();
+  if (!t) return '暂无有效标题。';
+  if (/(hack|exploit|liquidation|fraud|ban|lawsuit|监管打击|黑客|清算)/i.test(lower)) {
+    return '偏负面事件，建议降低杠杆并提高止损敏感度。';
+  }
+  if (/(inflow|record high|surge|rally|approval|adopt|上涨|突破)/i.test(lower)) {
+    return '偏利好事件，若价格配合可顺势但注意追高风险。';
+  }
+  if (/(fed|利率|cpi|通胀|tariff|关税|war|冲突)/i.test(lower)) {
+    return '宏观扰动增强，短线波动率可能上升。';
+  }
+  return '中性事件，建议结合盘口与成交量确认。';
+}
+
+async function buildRealtimeMarketNewsImpact(argsLike = {}) {
+  const args = argsLike && typeof argsLike === 'object' ? argsLike : {};
+  const limit = Math.max(3, Math.min(12, Number(args.limit || 6) || 6));
+  const asset = truncText(String(args.asset || 'BTC').toUpperCase(), 12);
+  const q = truncText(String(args.q || '').trim(), 120);
+  const cacheKey = `${asset}|${q}|${limit}`;
+  const now = Date.now();
+  if (
+    marketNewsRealtimeCache.result &&
+    marketNewsRealtimeCache.key === cacheKey &&
+    now - Number(marketNewsRealtimeCache.ts || 0) < 90_000
+  ) {
+    return marketNewsRealtimeCache.result;
+  }
+  const feeds = [
+    {
+      source: 'google-news',
+      url:
+        'https://news.google.com/rss/search?q=' +
+        encodeURIComponent((q || asset + ' crypto') + ' when:1d') +
+        '&hl=zh-CN&gl=CN&ceid=CN:zh-Hans',
+    },
+    { source: 'coindesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+    { source: 'cointelegraph', url: 'https://cointelegraph.com/rss' },
+  ];
+  const settled = await Promise.allSettled(
+    feeds.map((f) =>
+      fetchNewsFeedText(f.url, 5600).then((text) => ({
+        source: f.source,
+        rows: parseNewsFeedTitles(text, f.source, 12),
+      })),
+    ),
+  );
+  const merged = [];
+  for (const item of settled) {
+    if (item.status !== 'fulfilled') continue;
+    item.value.rows.forEach((row) => merged.push(row));
+  }
+  const seen = new Set();
+  const unique = [];
+  for (const row of merged) {
+    const key = String(row?.title || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  const rows = unique
+    .filter((row) => {
+      const text = String(row?.title || '').toLowerCase();
+      if (q && !text.includes(q.toLowerCase())) return false;
+      if (!q) {
+        return (
+          text.includes(asset.toLowerCase()) ||
+          /(bitcoin|btc|ethereum|eth|sol|xrp|doge|crypto|market|fed|sec|etf|宏观|监管|关税|通胀|利率|冲突)/i.test(
+            text,
+          )
+        );
+      }
+      return true;
+    })
+    .slice(0, limit);
+  const scored = rows.map((row) => {
+    const score = scoreNewsHeadline(row.title);
+    return {
+      ...row,
+      sentiment: score.sentiment,
+      riskHits: score.riskHits,
+    };
+  });
+  const sentimentSum = scored.reduce((n, x) => n + Number(x.sentiment || 0), 0);
+  const riskSum = scored.reduce((n, x) => n + Number(x.riskHits || 0), 0);
+  const sentimentScore = Number((scored.length ? sentimentSum / scored.length : 0).toFixed(3));
+  const eventIntensity = Math.max(1, Math.min(5, Math.round(Math.abs(sentimentSum) / 2 + riskSum / 2 + (scored.length >= 5 ? 1 : 0))));
+  const riskLevel = riskSum >= 4 || sentimentScore <= -0.6 ? 'high' : riskSum >= 2 || sentimentScore < 0 ? 'medium' : 'low';
+  const summaryLines = [];
+  if (!scored.length) {
+    summaryLines.push('实时新闻源暂未返回可用样本（可能是网络或源站限制）。');
+  } else {
+    summaryLines.push(
+      '实时新闻影响评估：sentiment=' +
+        String(sentimentScore) +
+        ' · intensity=' +
+        String(eventIntensity) +
+        '/5 · risk=' +
+        riskLevel,
+    );
+    scored.slice(0, 5).forEach((row, idx) => {
+      summaryLines.push(String(idx + 1) + '. [' + String(row.source || '-') + '] ' + toZhHeadlineInsight(row.title) + '（原文：' + row.title + '）');
+    });
+  }
+  const out = {
+    summary: summaryLines.join('\n'),
+    data: {
+      asset,
+      q,
+      sentimentScore,
+      eventIntensity,
+      riskLevel,
+      headlines: scored,
+      realtime: true,
+    },
+  };
+  marketNewsRealtimeCache.key = cacheKey;
+  marketNewsRealtimeCache.ts = now;
+  marketNewsRealtimeCache.result = out;
+  return out;
+}
+
 function strategyToolRegistry(source = 'dashboard', rawMessage = '') {
   return {
     get_market_news_impact: async (args) => {
       const asset = truncText(String(args?.asset || 'BTC').toUpperCase(), 12);
       const q = truncText(String(args?.q || rawMessage || ''), 80);
+      const limit = Math.max(3, Math.min(12, Number(args?.limit || 6) || 6));
+      try {
+        const realtime = await buildRealtimeMarketNewsImpact({
+          asset,
+          q,
+          limit,
+        });
+        if (String(realtime?.summary || '').trim()) {
+          return {
+            summary: realtime.summary,
+            actions: [],
+            data: {
+              ...(realtime?.data && typeof realtime.data === 'object' ? realtime.data : {}),
+              fallback: false,
+            },
+          };
+        }
+      } catch {}
       const fallbackFeatures = buildFallbackFeatureCandidates(q).slice(0, 3);
       const summary = [
-        '当前为本地降级新闻分析（未启用外部桥接抓取）。',
+        '实时新闻抓取异常，已切换为本地降级新闻分析。',
         'asset=' + asset + (q ? (' · q=' + q) : ''),
         '建议先沉淀这些事件特征：',
       ]
@@ -5462,6 +5687,26 @@ function buildTradingContext(clientContext, memoryContext) {
   const topStrategy = Array.isArray(midLayer?.strategyWeights) ? midLayer.strategyWeights[0] || null : null;
   const topArtifact = Array.isArray(midLayer?.strategyArtifacts) ? midLayer.strategyArtifacts[0] || null : null;
   const xbrain = buildXbrainModelContext();
+  const rawSessionPreview =
+    clientContext && typeof clientContext === 'object' && Array.isArray(clientContext.sessionPreview)
+      ? clientContext.sessionPreview
+      : [];
+  const conversationMemory = rawSessionPreview
+    .slice(-16)
+    .map((row) => {
+      const role =
+        String(row?.role || '').toLowerCase() === 'assistant' ||
+        String(row?.role || '').toLowerCase() === 'bot'
+          ? 'assistant'
+          : 'user';
+      return {
+        ts: row?.ts || null,
+        role,
+        type: row?.type || null,
+        detail: truncText(String(row?.detail || row?.text || ''), 360),
+      };
+    })
+    .filter((row) => String(row.detail || '').trim().length > 0);
 
   const digest = {
     symbol,
@@ -5483,6 +5728,7 @@ function buildTradingContext(clientContext, memoryContext) {
     topArtifactWeight: toNum(topArtifact?.learningWeight),
     xbrainRuntimeMode: xbrain?.strategy?.runtimeMode || null,
     xbrainChatChannel: xbrain?.base?.chatChannel || null,
+    conversationTurns: conversationMemory.length,
   };
 
   const context = {
@@ -5529,8 +5775,12 @@ function buildTradingContext(clientContext, memoryContext) {
             currentView: clientContext.currentView || null,
             activeTradeId: clientContext.activeTradeId || null,
             userIntentHint: clientContext.userIntentHint || null,
+            sessionKey: clientContext.sessionKey || null,
+            source: clientContext.source || null,
+            sessionPreview: conversationMemory,
           }
         : null,
+    conversationMemory,
     shortTermMemory: shortLayer || null,
     midTermMemory: midLayer || null,
     longTermMemory:
@@ -6344,6 +6594,22 @@ function listTelegramEvents(afterId, limit = 80) {
   return telegramEvents.filter((e) => e.id > cursor).slice(-maxN);
 }
 
+function buildTelegramSessionPreview(chatIdLike, limit = 12) {
+  const chatId = String(chatIdLike || '').trim();
+  if (!chatId) return [];
+  const maxN = Math.max(2, Math.min(30, Number(limit) || 12));
+  return telegramEvents
+    .filter((event) => String(event?.chatId || '') === chatId)
+    .slice(-maxN)
+    .map((event) => ({
+      ts: event?.ts || null,
+      role: event?.role === 'bot' ? 'assistant' : 'user',
+      type: event?.direction === 'outbound' ? 'chat:outbound' : 'chat:inbound',
+      detail: truncText(String(event?.text || ''), 320),
+    }))
+    .filter((row) => String(row.detail || '').trim().length > 0);
+}
+
 function loadTelegramEventsFromDisk() {
   const rows = readJsonlFile(TELEGRAM_EVENTS_PATH, TELEGRAM_EVENTS_LOAD);
   telegramEvents.length = 0;
@@ -6853,9 +7119,13 @@ async function handleTelegramIncoming(incoming) {
   if (!TELEGRAM_AUTO_REPLY) return;
 
   const memoryBundle = buildLayeredMemoryBundle(incoming.text);
+  const tgSessionKey = 'telegram:' + String(incoming.chatId || '');
   const trading = buildTradingContext({
     currentView: 'dashboard',
     userIntentHint: 'telegram:' + incoming.chatId,
+    sessionKey: tgSessionKey,
+    source: 'telegram',
+    sessionPreview: buildTelegramSessionPreview(incoming.chatId, 14),
   }, memoryBundle);
   let reply = '';
   let ok = true;
@@ -7305,6 +7575,96 @@ function extractReplyFromOutput(stdout) {
   return { reply: fallback, parsed };
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, Number(ms) || 0));
+  });
+}
+
+function normalizeOpenClawSessionToken(textLike = '') {
+  const raw = String(textLike || '').trim().toLowerCase();
+  if (!raw) return '';
+  return raw
+    .replace(/[^a-z0-9:_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 56);
+}
+
+function deriveOpenClawSessionSeed(contextLike = {}) {
+  const context = contextLike && typeof contextLike === 'object' ? contextLike : {};
+  const client = context.clientContext && typeof context.clientContext === 'object' ? context.clientContext : {};
+  const candidates = [
+    client.sessionKey,
+    client.userIntentHint,
+    client.currentView,
+    client.source,
+    context?.digest?.symbol,
+  ]
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  const seed = candidates[0] || 'dashboard:main';
+  const short = normalizeOpenClawSessionToken(seed) || 'dashboard-main';
+  const hash = createHash('sha1').update(seed).digest('hex').slice(0, 8);
+  return `tc-${short.slice(0, 40)}-${hash}`;
+}
+
+function deriveOpenClawSessionId(contextLike = {}, laneKind = 'chat') {
+  const seed = deriveOpenClawSessionSeed(contextLike);
+  const suffix = laneKind === 'router' ? 'r' : 'c';
+  return `${seed}-${suffix}`;
+}
+
+function deriveOpenClawLaneKey(contextLike = {}, laneKind = 'chat') {
+  const sid = OPENCLAW_SESSION_ID || deriveOpenClawSessionId(contextLike, laneKind);
+  return `agent:${OPENCLAW_AGENT_ID}:session:${sid}`;
+}
+
+function isOpenClawSessionLockError(textLike = '') {
+  const text = String(textLike || '').toLowerCase();
+  if (!text) return false;
+  return (
+    /session file locked/.test(text) ||
+    /\.jsonl\.lock/.test(text) ||
+    /timeout.*lock/.test(text) ||
+    /lane task error/.test(text)
+  );
+}
+
+async function runOpenClawInLane(laneKeyLike, runner) {
+  const laneKey = String(laneKeyLike || '').trim() || 'agent:main:session:default';
+  const prev = openclawLaneChain.get(laneKey) || Promise.resolve();
+  const next = prev.catch(() => {}).then(async () => runner());
+  const hold = next.finally(() => {
+    if (openclawLaneChain.get(laneKey) === hold) {
+      openclawLaneChain.delete(laneKey);
+    }
+  });
+  openclawLaneChain.set(laneKey, hold);
+  return hold;
+}
+
+async function runOpenClawProcessWithRetry(command, args, timeoutMs, optionsLike = {}) {
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const maxAttempts = Math.max(1, Number(options.maxAttempts || OPENCLAW_SESSION_LOCK_RETRY) || OPENCLAW_SESSION_LOCK_RETRY);
+  let lastReason = '';
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const proc = await runProcess(command, args, timeoutMs);
+    if (proc.timedOut) {
+      throw new Error('OpenClaw 调用超时，请检查 Gateway/模型状态');
+    }
+    if (proc.code === 0) return proc;
+    const reason = String(proc.stderr || proc.stdout || '').trim();
+    lastReason = reason || ('OpenClaw 进程退出码: ' + proc.code);
+    if (!isOpenClawSessionLockError(lastReason) || i >= maxAttempts - 1) {
+      throw new Error(lastReason);
+    }
+    const backoff = OPENCLAW_SESSION_LOCK_BACKOFF_MS * (i + 1);
+    await waitMs(backoff + Math.floor(Math.random() * 120));
+  }
+  throw new Error(lastReason || 'OpenClaw 调用失败');
+}
+
 function buildOpenClawPrompt(message, context) {
   const baseMessage = String(message || '').trim();
   if (!baseMessage) return '';
@@ -7320,6 +7680,7 @@ function buildOpenClawPrompt(message, context) {
     '你是交易系统里的 AI 交易助理（OpenClaw 驱动）。',
     '必须仅基于下面给出的交易上下文回答；上下文是服务端实时生成的权威数据。',
     '上下文中包含分层记忆：shortTermMemory（近期会话）、midTermMemory（偏好与策略权重）、longTermMemory（长期检索）。',
+    '上下文 conversationMemory 是本会话最近多轮对话，你必须先读取并保持前后约束一致，不得遗忘用户在前文的要求。',
     '优先利用 midTermMemory.strategyWeights 与 longTermMemory.relevant，让回答持续贴近该交易者。',
     '上下文 strategy.artifacts 为已沉淀策略工件（含权重/表现）；可优先复用高权重工件并继续迭代。',
     '上下文 xbrain 为当前配置中枢（模型/通道/交易参数/运行模式），生成动作时必须遵守这些约束。',
@@ -7464,6 +7825,8 @@ async function runOpenClawChat(message, context) {
     throw new Error('empty message');
   }
   const cli = resolveOpenClawCli();
+  const sessionId = OPENCLAW_SESSION_ID || deriveOpenClawSessionId(context, 'chat');
+  const laneKey = deriveOpenClawLaneKey(context, 'chat');
   const args = [
     ...cli.prefixArgs,
     'agent',
@@ -7484,7 +7847,7 @@ async function runOpenClawChat(message, context) {
   if (shouldUseLocalMode) args.push('--local');
   if (OPENCLAW_THINKING) args.push('--thinking', OPENCLAW_THINKING);
   if (OPENCLAW_VERBOSE) args.push('--verbose', OPENCLAW_VERBOSE);
-  if (OPENCLAW_SESSION_ID) args.push('--session-id', OPENCLAW_SESSION_ID);
+  if (sessionId) args.push('--session-id', sessionId);
   if (OPENCLAW_TO) args.push('--to', OPENCLAW_TO);
   if (OPENCLAW_DELIVER) args.push('--deliver');
   if (OPENCLAW_REPLY_CHANNEL) args.push('--reply-channel', OPENCLAW_REPLY_CHANNEL);
@@ -7492,14 +7855,11 @@ async function runOpenClawChat(message, context) {
   if (OPENCLAW_REPLY_ACCOUNT) args.push('--reply-account', OPENCLAW_REPLY_ACCOUNT);
 
   const startedAt = Date.now();
-  const proc = await runProcess(cli.command, args, OPENCLAW_CHAT_TIMEOUT_MS);
-  if (proc.timedOut) {
-    throw new Error('OpenClaw 调用超时，请检查 Gateway/模型状态');
-  }
-  if (proc.code !== 0) {
-    const reason = String(proc.stderr || proc.stdout || '').trim();
-    throw new Error(reason || ('OpenClaw 进程退出码: ' + proc.code));
-  }
+  const proc = await runOpenClawInLane(laneKey, () =>
+    runOpenClawProcessWithRetry(cli.command, args, OPENCLAW_CHAT_TIMEOUT_MS, {
+      maxAttempts: OPENCLAW_SESSION_LOCK_RETRY,
+    }),
+  );
   const extracted = extractReplyFromOutput(proc.stdout);
   if (!extracted.reply) {
     throw new Error('OpenClaw 返回为空');
@@ -7515,7 +7875,7 @@ async function runOpenClawChat(message, context) {
       ? {
           provider: String(agentMeta.provider || ''),
           model: String(agentMeta.model || ''),
-          sessionId: String(agentMeta.sessionId || ''),
+          sessionId: String(agentMeta.sessionId || sessionId || ''),
         }
       : null,
     elapsedMs: Date.now() - startedAt,
