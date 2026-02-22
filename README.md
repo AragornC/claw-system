@@ -21,6 +21,12 @@ npm run thunderclaw:start
 
 - `http://127.0.0.1:3456`
 
+打开页面后按向导：
+
+1. 粘贴 DeepSeek API Key  
+2. 点击“一键完成基础配置”  
+3. 直接在页面下方聊天
+
 ---
 
 ## 2. CLI 命令
@@ -48,6 +54,7 @@ node scripts/thunderclaw-cli.js start --port 3456
 
 - `GET /api/status`：OpenClaw 可用性、配置存在性、Gateway 健康状态
 - `POST /api/setup`：non-interactive onboarding（provider + apiKey）
+- `POST /api/setup/quick`：简化向导的一键基础配置（默认 DeepSeek）
 - `POST /api/models/set`：设置默认模型
 - `POST /api/oauth/start`：触发 OpenAI OAuth 登录（interactive）
 - `POST /api/gateway/start`：启动 Gateway

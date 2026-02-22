@@ -487,6 +487,11 @@ async function handleStatus(req, res) {
       error: modelsRes.ok ? null : (modelsRes.stderr || modelsRes.stdout || "").trim() || null,
     },
     oauth: getOauthStatus(),
+    onboarding: {
+      simpleReady: Boolean(versionRes.ok && configExists && healthRes.ok),
+      recommendedProvider: "deepseek-api-key",
+      tip: "推荐先用 DeepSeek API Key 一键完成基础配置。",
+    },
   });
 }
 
@@ -529,23 +534,8 @@ function providerToAuthConfig(provider) {
   return map[provider] ?? null;
 }
 
-async function handleSetup(req, res) {
-  const body = await readJsonBody(req);
-  const provider = String(body.provider ?? "").trim();
-  const apiKey = String(body.apiKey ?? "").trim();
-  const gatewayPort = Number.parseInt(String(body.gatewayPort ?? "18789"), 10) || 18789;
-  const gatewayAuth = String(body.gatewayAuth ?? "token").trim() === "password" ? "password" : "token";
-  const providerConfig = providerToAuthConfig(provider);
-
-  if (!providerConfig) {
-    sendJson(res, 400, { ok: false, error: "Unsupported provider" });
-    return;
-  }
-  if (!apiKey) {
-    sendJson(res, 400, { ok: false, error: "API Key is required" });
-    return;
-  }
-
+function buildOnboardArgs(params) {
+  const { providerConfig, apiKey, gatewayPort, gatewayAuth } = params;
   const args = [
     "onboard",
     "--non-interactive",
@@ -583,19 +573,121 @@ async function handleSetup(req, res) {
   } else {
     args.push(providerConfig.flag, apiKey);
   }
+  return args;
+}
 
+async function runSetupFromInput(input) {
+  const provider = String(input.provider ?? "").trim();
+  const apiKey = String(input.apiKey ?? "").trim();
+  const gatewayPort = Number.parseInt(String(input.gatewayPort ?? "18789"), 10) || 18789;
+  const gatewayAuth = String(input.gatewayAuth ?? "token").trim() === "password" ? "password" : "token";
+  const providerConfig = providerToAuthConfig(provider);
+  if (!providerConfig) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "Unsupported provider",
+    };
+  }
+  if (!apiKey) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "API Key is required",
+    };
+  }
+  const args = buildOnboardArgs({ providerConfig, apiKey, gatewayPort, gatewayAuth });
   const result = await runOpenClawCommand(args, { timeoutMs: 240_000 });
-  sendJson(res, result.ok ? 200 : 500, {
+  return {
     ok: result.ok,
-    command: [
-      "openclaw",
-      ...args.slice(0, -1),
-      "***",
-    ].join(" "),
+    statusCode: result.ok ? 200 : 500,
+    provider,
+    gatewayPort,
+    gatewayAuth,
+    command: ["openclaw", ...args.slice(0, -1), "***"].join(" "),
     exitCode: result.code,
     timedOut: result.timedOut,
     stdout: result.stdout,
     stderr: result.stderr,
+  };
+}
+
+async function waitGatewayHealthy(params = {}) {
+  const timeoutMs = Number.isFinite(params.timeoutMs) ? params.timeoutMs : 20_000;
+  const pollMs = Number.isFinite(params.pollMs) ? params.pollMs : 1_200;
+  const started = Date.now();
+  let lastError = null;
+  while (Date.now() - started < timeoutMs) {
+    const healthRes = await runOpenClawCommand(["gateway", "health", "--json"], { timeoutMs: 5_000 });
+    if (healthRes.ok) {
+      return { ok: true, payload: parseJsonSafe(healthRes.stdout) };
+    }
+    lastError = (healthRes.stderr || healthRes.stdout || "").trim() || "gateway health check failed";
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return { ok: false, error: lastError || "gateway health check timeout" };
+}
+
+async function handleSetup(req, res) {
+  const body = await readJsonBody(req);
+  const outcome = await runSetupFromInput(body);
+  sendJson(res, outcome.statusCode, outcome);
+}
+
+async function handleQuickSetup(req, res) {
+  const body = await readJsonBody(req);
+  const provider = String(body.provider ?? "deepseek-api-key").trim() || "deepseek-api-key";
+  const setup = await runSetupFromInput({
+    provider,
+    apiKey: body.apiKey,
+    gatewayPort: 18789,
+    gatewayAuth: "token",
+  });
+  if (!setup.ok) {
+    sendJson(res, setup.statusCode, {
+      ok: false,
+      stage: "setup",
+      provider,
+      error: setup.error ?? "setup failed",
+      command: setup.command,
+      stdout: setup.stdout,
+      stderr: setup.stderr,
+    });
+    return;
+  }
+
+  let modelSetResult = null;
+  if (provider === "deepseek-api-key") {
+    modelSetResult = await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], {
+      timeoutMs: 40_000,
+    });
+  }
+
+  const gatewayStart = startGateway();
+  const gatewayHealth = await waitGatewayHealthy({ timeoutMs: 25_000, pollMs: 1_500 });
+
+  sendJson(res, gatewayHealth.ok ? 200 : 500, {
+    ok: gatewayHealth.ok,
+    stage: gatewayHealth.ok ? "ready" : "gateway",
+    provider,
+    configured: true,
+    gateway: {
+      started: gatewayStart.started,
+      message: gatewayStart.message,
+      pid: gatewayStart.pid ?? null,
+      healthy: gatewayHealth.ok,
+      error: gatewayHealth.ok ? null : gatewayHealth.error,
+    },
+    model: modelSetResult
+      ? {
+          attempted: true,
+          ok: modelSetResult.ok,
+          stderr: modelSetResult.ok ? null : (modelSetResult.stderr || modelSetResult.stdout || "").trim(),
+        }
+      : { attempted: false, ok: null, stderr: null },
+    next: gatewayHealth.ok
+      ? "基础配置已完成，直接在下方聊天区发送消息即可。"
+      : "基础配置完成，但 Gateway 启动异常，请点击“刷新状态”查看错误。",
   });
 }
 
@@ -675,6 +767,10 @@ async function requestHandler(req, res) {
     }
     if (method === "POST" && pathname === "/api/setup") {
       await handleSetup(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/setup/quick") {
+      await handleQuickSetup(req, res);
       return;
     }
     if (method === "POST" && pathname === "/api/models/set") {
