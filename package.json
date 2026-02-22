@@ -1,40 +1,26 @@
 {
   "name": "thunderclaw",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.0.1",
+  "description": "ThunderClaw OpenClaw onboarding shell",
   "bin": {
     "thunderclaw": "scripts/thunderclaw-cli.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "perp:dryrun:bridge": "node scripts/perp-dryrun-live-bridge.js 3 15 400",
-    "report:viewer": "node scripts/perp-report-viewer.js",
-    "report:serve": "node scripts/serve-report.js",
-    "report:start:local": "bash scripts/report-start-local.sh",
-    "report:keepalive:start": "bash scripts/runtime-keepalive-start.sh",
-    "report:keepalive:stop": "bash scripts/runtime-keepalive-stop.sh",
-    "report:keepalive:status": "bash scripts/runtime-keepalive-status.sh",
-    "report:progress:touch": "node scripts/runtime-progress-touch.mjs",
-    "report:start:cloud": "node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
-    "report:deploy:console": "node scripts/perp-report-data.js 400 && node scripts/perp-report-viewer.js && OPENCLAW_AGENT_LOCAL=1 node scripts/serve-report.js",
-    "openclaw:deepseek:init": "bash scripts/setup-openclaw-deepseek.sh",
-    "openclaw:setup:local": "bash scripts/openclaw-local-setup.sh",
-    "thunderclaw:onboard": "node scripts/thunderclaw-cli.js onboard",
+    "thunderclaw:help": "node scripts/thunderclaw-cli.js help",
     "thunderclaw:start": "node scripts/thunderclaw-cli.js start",
-    "test:smoke:xbrain": "node scripts/xbrain-smoke-check.mjs",
-    "test:e2e:xbrain": "node scripts/xbrain-e2e-check.mjs",
-    "test:verify:xbrain": "npm run test:smoke:xbrain && npm run test:e2e:xbrain",
-    "test:smoke:runtime": "node scripts/runtime-smoke-check.mjs",
-    "test:e2e:runtime": "node scripts/runtime-e2e-check.mjs",
-    "test:verify:runtime": "npm run test:smoke:runtime && npm run test:e2e:runtime",
-    "test:smoke:mcp-bridge": "node scripts/mcp-bridge-smoke-check.mjs"
+    "thunderclaw:status": "node scripts/thunderclaw-cli.js status",
+    "thunderclaw:assets": "node scripts/thunderclaw-cli.js assets",
+    "thunderclaw:idea": "node scripts/thunderclaw-cli.js idea"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "thunderclaw",
+    "openclaw",
+    "onboarding"
+  ],
+  "author": "ThunderClaw",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "ccxt": "^4.5.35"
+    "openclaw": "^2026.2.21-2"
   }
 }
