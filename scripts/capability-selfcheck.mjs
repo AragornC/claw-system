@@ -68,11 +68,12 @@ function logResult(name, status, detail = '') {
 function evaluateCase(task, out) {
   const reply = String(out?.payload?.reply || '').trim();
   const actions = Array.isArray(out?.payload?.actions) ? out.payload.actions : [];
+  const errText = String(out?.payload?.error || '').trim();
   const codeOk = out.status === 200 && out.payload?.ok === true;
   const replyOk = reply.length >= 12;
   let pass = codeOk && replyOk;
   const reasons = [];
-  if (!codeOk) reasons.push(`HTTP ${out.status}`);
+  if (!codeOk) reasons.push(`HTTP ${out.status}${errText ? `: ${errText.slice(0, 90)}` : ''}`);
   if (!replyOk) reasons.push('reply too short');
   if (task.expectAction && actions.length === 0) {
     pass = false;
