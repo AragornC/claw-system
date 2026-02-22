@@ -85,7 +85,7 @@ function isToolRouterPrompt(promptLike = '') {
 
 function buildToolRouterReply(userMessageLike = '') {
   const userMessage = String(userMessageLike || '').toLowerCase();
-  if (/新闻|btc|eth|宏观|市场/.test(userMessage)) {
+  if (/新闻|news|headline|宏观快讯/.test(userMessage)) {
     return {
       reply: '先抓取实时新闻并评估风险，再给交易建议。',
       toolCalls: [
