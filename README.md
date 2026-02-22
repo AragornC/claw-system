@@ -21,6 +21,19 @@ npm run thunderclaw:start
 
 - `http://127.0.0.1:3456`
 
+默认首页已恢复为 ThunderClaw 原功能页（虾脑 / 虾线 / 虾海 / 虾策）。  
+虾脑现已拆分为 3 个 Tab：
+
+1. 模型与沟通渠道（OpenClaw 登录、模型、channel）
+2. ThunderClaw 配置（交易所 API、运行策略）
+3. OpenClaw 配置台（cron 管理 + config 路径读写）
+
+如需快速配置 OpenClaw，直接进入「虾脑」第 1 个 Tab 的快速登录引导：
+
+1. 粘贴 DeepSeek API Key  
+2. 点击“一键完成基础配置”  
+3. 完成后直接在主聊天区对话
+
 ---
 
 ## 2. CLI 命令
@@ -42,16 +55,33 @@ node scripts/thunderclaw-cli.js start --port 3456
 ## 3. 当前功能（第一步）
 
 后端：`scripts/thunderclaw-server.js`  
-前端：`web/index.html`
+前端：
+
+- `memory/report/index.html`（主页面）
 
 提供 API：
 
 - `GET /api/status`：OpenClaw 可用性、配置存在性、Gateway 健康状态
 - `POST /api/setup`：non-interactive onboarding（provider + apiKey）
+- `POST /api/setup/quick`：简化向导的一键基础配置（默认 DeepSeek）
 - `POST /api/models/set`：设置默认模型
+- `POST /api/oauth/start`：触发 OpenAI OAuth 登录（interactive）
 - `POST /api/gateway/start`：启动 Gateway
 - `POST /api/gateway/stop`：停止 Gateway
 - `POST /api/chat`：通过 `openclaw agent --json` 发起对话
+- `POST /api/ai/chat`：旧主页面聊天入口兼容
+- `GET /api/chat/history`：旧主页面聊天历史轮询
+- `GET /api/ai/health`：旧主页面 AI 链路健康检查
+- `GET/POST /api/xbrain/*`：旧主页面虾脑配置接口兼容
+- `GET /api/openclaw/status`：OpenClaw 配置台状态摘要
+- `GET /api/openclaw/cron/list`：Cron 列表
+- `POST /api/openclaw/cron/add|remove|toggle`：Cron 新增/删除/启停
+- `POST /api/openclaw/config/get|set|unset`：配置路径读写
+
+已支持认证路径：
+
+- OpenAI / Anthropic / OpenRouter / Gemini / ZAI / **DeepSeek**（API Key）
+- OpenAI Codex（OAuth 跳转登录，需在启动 thunderclaw 的终端内完成交互）
 
 ---
 
