@@ -309,6 +309,12 @@ npm run report:start:local
 npm run report:start:local
 ```
 
+能力自检（默认走 OpenClaw mock CLI，覆盖新闻/天气/代码/交易小白流程）：
+
+```bash
+npm run test:selfcheck:capability
+```
+
 #### 5.6.3 无需先手工 clone：ThunderClaw 两步启动
 
 如果你希望像 OpenClaw 一样先装 CLI 再引导，可以直接：

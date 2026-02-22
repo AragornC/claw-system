@@ -28,7 +28,8 @@
     "test:smoke:runtime": "node scripts/runtime-smoke-check.mjs",
     "test:e2e:runtime": "node scripts/runtime-e2e-check.mjs",
     "test:verify:runtime": "npm run test:smoke:runtime && npm run test:e2e:runtime",
-    "test:smoke:mcp-bridge": "node scripts/mcp-bridge-smoke-check.mjs"
+    "test:smoke:mcp-bridge": "node scripts/mcp-bridge-smoke-check.mjs",
+    "test:selfcheck:capability": "node scripts/capability-selfcheck.mjs"
   },
   "keywords": [],
   "author": "",
