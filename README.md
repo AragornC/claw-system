@@ -295,6 +295,7 @@ npm run report:start:local
 - 模型连接方式（DeepSeek API Key / ChatGPT-Codex 登录链接）
 - Telegram Bot Token（其余参数走默认）
 - 并自动写入推荐运行参数（`openclaw-native` + `mcp` bridge + session lock 重试）
+- `report:start:local` 默认会强制启用能力档（避免旧 `.env.local` 把能力降级）；如需关闭可设 `THUNDERCLAW_FORCE_CAPABILITY_PROFILE=0`
 
 补充说明：
 
