@@ -1384,11 +1384,6 @@ async function buildXbrainState(forceRefresh = false) {
   return getXbrainStateSnapshot();
 }
 
-function getCurrentConfiguredModelRefFromStore() {
-  const base = xbrainStore.base || {};
-  return toModelRef(base.modelProvider || "deepseek", base.modelId || "");
-}
-
 function getCurrentRuntimeModelRefFromStore() {
   const base = xbrainStore.base || {};
   const provider = base.runtimeModelProvider || base.modelProvider || "deepseek";
@@ -1404,75 +1399,68 @@ function pickProviderModelRef(providerRaw) {
   return toModelRef(provider, "");
 }
 
+function parseSlashCommandMessage(messageRaw) {
+  const message = String(messageRaw || "").trim();
+  if (!message.startsWith("/")) return { command: "", args: "", message };
+  const firstSpace = message.indexOf(" ");
+  if (firstSpace <= 0) {
+    return { command: message.toLowerCase(), args: "", message };
+  }
+  return {
+    command: message.slice(0, firstSpace).toLowerCase(),
+    args: message.slice(firstSpace + 1).trim(),
+    message,
+  };
+}
+
+function isDigitsOnly(valueRaw) {
+  const value = String(valueRaw || "").trim();
+  if (!value) return false;
+  for (const ch of value) {
+    if (ch < "0" || ch > "9") return false;
+  }
+  return true;
+}
+
 function resolveModelRefCandidate(inputRaw, providerHintRaw = "") {
   const input = String(inputRaw || "").trim();
   if (!input) {
     if (providerHintRaw) return toModelRef(providerHintRaw, "");
     return "";
   }
-  const direct = input.match(/([a-zA-Z0-9._-]+\/[a-zA-Z0-9._:@-]+(?:\/[a-zA-Z0-9._:@-]+)*)/);
-  if (direct?.[1]) return String(direct[1]).trim().toLowerCase();
+  if (input.includes("/")) {
+    return input.toLowerCase();
+  }
   const normalized = input.toLowerCase();
-  const candidates = uniqStrings([
-    ...(xbrainStore.base?.modelRegistry || []),
-    ...Object.values(PROVIDER_DEFAULT_MODEL_REFS),
-  ]);
-  let winner = "";
-  for (const refRaw of candidates) {
+  if (providerHintRaw) {
+    const providerHint = normalizeProviderKey(providerHintRaw);
+    if (normalized === providerHint) return pickProviderModelRef(providerHint);
+    return toModelRef(providerHint, normalized);
+  }
+  for (const refRaw of uniqStrings([...(xbrainStore.base?.modelRegistry || []), ...Object.values(PROVIDER_DEFAULT_MODEL_REFS)])) {
     const ref = String(refRaw || "").trim();
     if (!ref) continue;
     const lower = ref.toLowerCase();
     const modelPart = lower.split("/").slice(1).join("/");
-    if (
-      normalized === lower
-      || normalized === modelPart
-      || normalized.includes(lower)
-      || (modelPart && normalized.includes(modelPart))
-    ) {
-      if (ref.length > winner.length) winner = ref;
-    }
+    if (normalized === lower || normalized === modelPart) return lower;
   }
-  if (winner) return winner;
-  if (providerHintRaw) {
-    return toModelRef(providerHintRaw, normalized);
-  }
-  if (/\bdeepseek\b/i.test(normalized)) return pickProviderModelRef("deepseek");
-  if (/\b(chatgpt|openai|codex|gpt)\b/i.test(normalized)) return pickProviderModelRef("chatgpt");
-  if (/\b(anthropic|claude)\b/i.test(normalized)) return pickProviderModelRef("anthropic");
-  if (/\b(openrouter)\b/i.test(normalized)) return pickProviderModelRef("openrouter");
-  if (/\b(gemini|google)\b/i.test(normalized)) return pickProviderModelRef("gemini");
-  if (/\b(zai|glm)\b/i.test(normalized)) return pickProviderModelRef("zai");
+  if (normalized === "deepseek") return pickProviderModelRef("deepseek");
+  if (["chatgpt", "openai", "codex", "gpt"].includes(normalized)) return pickProviderModelRef("chatgpt");
+  if (["anthropic", "claude"].includes(normalized)) return pickProviderModelRef("anthropic");
+  if (normalized === "openrouter") return pickProviderModelRef("openrouter");
+  if (["gemini", "google"].includes(normalized)) return pickProviderModelRef("gemini");
+  if (["zai", "glm"].includes(normalized)) return pickProviderModelRef("zai");
   return "";
 }
 
 function parseSlashModelSwitchTarget(messageRaw) {
-  const message = String(messageRaw || "").trim();
-  if (!message) return "";
-  const slash = message.match(/^\/models?\s+(.+)$/i);
-  if (!slash?.[1]) return "";
-  const arg = String(slash[1]).trim();
-  if (!arg || /^(list|status)$/i.test(arg) || /^\d+$/.test(arg)) return "";
+  const { command, args } = parseSlashCommandMessage(messageRaw);
+  if (command !== "/model" && command !== "/models") return "";
+  const arg = String(args || "").trim();
+  if (!arg) return "";
+  const lower = arg.toLowerCase();
+  if (lower === "list" || lower === "status" || isDigitsOnly(arg)) return "";
   return resolveModelRefCandidate(arg);
-}
-
-function inferModelSwitchIntentModelRef(messageRaw) {
-  const message = String(messageRaw || "").trim();
-  if (!message) return "";
-  const slashTarget = parseSlashModelSwitchTarget(message);
-  if (slashTarget) return slashTarget;
-  const wantsSwitch = /(切换|换成|改成|改为|设为|使用|切到|switch|change)/i.test(message);
-  if (!wantsSwitch) return "";
-  let providerHint = "";
-  if (/(chatgpt|openai|codex|gpt)/i.test(message)) providerHint = "chatgpt";
-  else if (/(deepseek)/i.test(message)) providerHint = "deepseek";
-  else if (/(anthropic|claude)/i.test(message)) providerHint = "anthropic";
-  else if (/(openrouter)/i.test(message)) providerHint = "openrouter";
-  else if (/(gemini|google)/i.test(message)) providerHint = "gemini";
-  else if (/(zai|glm)/i.test(message)) providerHint = "zai";
-  const resolved = resolveModelRefCandidate(message, providerHint);
-  if (resolved) return resolved;
-  if (providerHint) return pickProviderModelRef(providerHint);
-  return "";
 }
 
 function looksLikeModelSwitchFailureText(textRaw) {
@@ -1633,27 +1621,35 @@ async function runAgentTurn(params) {
 function parseConfigIntent(messageRaw) {
   const message = String(messageRaw || "").trim();
   if (!message) return null;
-  const deepseekMatch = message.match(/(?:设置|绑定|配置).{0,8}(?:deepseek).{0,12}(?:key|api|apikey)?[^a-zA-Z0-9]*(sk-[a-zA-Z0-9]+)/i)
-    || message.match(/(?:^|\s)(sk-[a-zA-Z0-9]{16,})\s*$/i);
-  if (deepseekMatch?.[1]) {
-    return { type: "deepseek_key", key: deepseekMatch[1] };
+  const { command, args } = parseSlashCommandMessage(message);
+  if (!command) return null;
+  if (command === "/xbrain" || command === "/xbrain-open" || command === "/onboard") {
+    return { type: "open_xbrain" };
   }
-  const tgMatch = message.match(/telegram\s*token[^a-zA-Z0-9]*([0-9]{5,}:[A-Za-z0-9_-]{20,})/i);
-  if (tgMatch?.[1]) {
-    return { type: "telegram_token", token: tgMatch[1] };
+  if (command === "/model" || command === "/models") {
+    const modelRef = parseSlashModelSwitchTarget(message);
+    if (!modelRef) return null;
+    return { type: "switch_model", modelRef };
   }
-  if (/(连接|登录|授权).{0,8}(chatgpt|codex|openai)/i.test(message)) {
+  if (command === "/deepseek") {
+    const token = String(args || "").split(/\s+/).find((part) => String(part).startsWith("sk-")) || "";
+    if (!token) return { type: "deepseek_help" };
+    return { type: "deepseek_key", key: token };
+  }
+  if (command === "/telegram") {
+    const token = String(args || "").trim();
+    if (!token) return { type: "telegram_help" };
+    return { type: "telegram_token", token };
+  }
+  if (command === "/oauth" || command === "/openai" || command === "/chatgpt" || command === "/codex-login") {
+    const providerText = String(args || "").trim().toLowerCase();
+    if (providerText.includes("anthropic") || providerText.includes("claude")) {
+      return { type: "oauth", provider: "anthropic" };
+    }
     return { type: "oauth", provider: "chatgpt" };
   }
-  if (/(连接|登录|授权).{0,8}(anthropic|claude)/i.test(message)) {
+  if (command === "/anthropic" || command === "/claude-login") {
     return { type: "oauth", provider: "anthropic" };
-  }
-  const switchModelRef = inferModelSwitchIntentModelRef(message);
-  if (switchModelRef) {
-    return { type: "switch_model", modelRef: switchModelRef };
-  }
-  if (/(打开|进入|前往).{0,8}(配置|向导|xbrain|虾脑)/i.test(message)) {
-    return { type: "open_xbrain" };
   }
   return null;
 }
@@ -1971,6 +1967,22 @@ async function handleConfigChat(req, res) {
         default: switched.defaultSync,
       },
     });
+    return;
+  }
+
+  if (intent.type === "deepseek_help") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    const reply = "请使用：/deepseek sk-你的apikey";
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
+    return;
+  }
+
+  if (intent.type === "telegram_help") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    const reply = "请使用：/telegram <bot_token>（例如 123456:ABC...）";
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
     return;
   }
 
