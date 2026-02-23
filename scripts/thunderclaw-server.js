@@ -8,6 +8,22 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loginOpenAICodex } from "@mariozechner/pi-ai";
+import { createOpenClawConsoleHandlers } from "./server/handlers/openclaw-console.js";
+import { createTelegramHandlers } from "./server/handlers/telegram.js";
+import { createHttpRouter } from "./server/http/router.js";
+import { buildApiRouteTable } from "./server/http/route-table.js";
+import {
+  inferProviderFromModelRef,
+  normalizeProviderKey,
+  PROVIDER_DEFAULT_MODEL_REFS,
+  PROVIDER_TO_OAUTH_PROVIDER,
+  PROVIDER_TO_SETUP_PROVIDER,
+  providerAuthType,
+  providerSupportsApiKey,
+  providerSupportsOAuth,
+  SUPPORTED_OAUTH_PROVIDERS,
+  toModelRef,
+} from "./server/domain/model-provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -43,26 +59,6 @@ const oauthState = {
   promptWaiter: null,
 };
 
-const SUPPORTED_OAUTH_PROVIDERS = new Set(["openai-codex"]);
-const PROVIDER_DEFAULT_MODEL_REFS = {
-  deepseek: "deepseek/deepseek-chat",
-  chatgpt: "openai-codex/gpt-5.3-codex",
-  anthropic: "anthropic/claude-3-5-sonnet",
-  openrouter: "openrouter/openai/gpt-4o-mini",
-  gemini: "google/gemini-2.5-flash",
-  zai: "zai/glm-4.5",
-};
-const PROVIDER_TO_SETUP_PROVIDER = {
-  deepseek: "deepseek-api-key",
-  chatgpt: "openai-api-key",
-  anthropic: "anthropic-api-key",
-  openrouter: "openrouter-api-key",
-  gemini: "gemini-api-key",
-  zai: "zai-api-key",
-};
-const PROVIDER_TO_OAUTH_PROVIDER = {
-  chatgpt: "openai-codex",
-};
 const MODEL_CATALOG_CACHE_TTL_MS = 60_000;
 const modelCatalogCache = {
   all: null,
@@ -74,63 +70,6 @@ const sessionModelProbeCache = {
   modelRef: "",
   error: "",
 };
-
-function normalizeProviderKey(providerRaw) {
-  const value = String(providerRaw ?? "")
-    .trim()
-    .toLowerCase();
-  if (!value) return "deepseek";
-  if (value === "openai" || value === "openai-codex" || value === "chatgpt" || value === "codex") {
-    return "chatgpt";
-  }
-  if (value === "claude") return "anthropic";
-  if (value === "google" || value.startsWith("gemini")) return "gemini";
-  if (value.startsWith("deepseek")) return "deepseek";
-  if (value.startsWith("anthropic")) return "anthropic";
-  return value;
-}
-
-function inferProviderFromModelRef(modelRefRaw) {
-  const modelRef = String(modelRefRaw ?? "").trim();
-  if (!modelRef) {
-    return { provider: "deepseek", modelId: "deepseek-chat", modelRef: "deepseek/deepseek-chat" };
-  }
-  if (!modelRef.includes("/")) {
-    const maybeProvider = normalizeProviderKey(modelRef);
-    const defaultRef = PROVIDER_DEFAULT_MODEL_REFS[maybeProvider];
-    if (defaultRef) {
-      return inferProviderFromModelRef(defaultRef);
-    }
-    return {
-      provider: "deepseek",
-      modelId: modelRef,
-      modelRef: `deepseek/${modelRef}`,
-    };
-  }
-  const [prefix, ...rest] = modelRef.split("/");
-  const provider = normalizeProviderKey(prefix);
-  let modelId = rest.join("/");
-  if (!modelId) {
-    const fallbackRef = PROVIDER_DEFAULT_MODEL_REFS[provider] || PROVIDER_DEFAULT_MODEL_REFS.deepseek;
-    modelId = String(fallbackRef).split("/").slice(1).join("/");
-  }
-  return { provider, modelId, modelRef };
-}
-
-function toModelRef(providerRaw, modelIdRaw) {
-  const provider = normalizeProviderKey(providerRaw);
-  const modelId = String(modelIdRaw ?? "").trim();
-  if (!modelId) {
-    return PROVIDER_DEFAULT_MODEL_REFS[provider] || PROVIDER_DEFAULT_MODEL_REFS.deepseek;
-  }
-  if (modelId.includes("/")) {
-    return modelId;
-  }
-  if (provider === "chatgpt") return `openai-codex/${modelId}`;
-  if (provider === "anthropic") return `anthropic/${modelId}`;
-  if (provider === "gemini") return `google/${modelId}`;
-  return `${provider || "deepseek"}/${modelId}`;
-}
 
 function uniqStrings(items) {
   return Array.from(
@@ -147,22 +86,6 @@ function maskSecret(valueRaw) {
   if (!value) return "(未设置)";
   if (value.length <= 8) return `${value.slice(0, 2)}***`;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
-}
-
-function providerSupportsApiKey(providerRaw) {
-  const provider = normalizeProviderKey(providerRaw);
-  return Boolean(PROVIDER_TO_SETUP_PROVIDER[provider]);
-}
-
-function providerSupportsOAuth(providerRaw) {
-  const provider = normalizeProviderKey(providerRaw);
-  return Boolean(PROVIDER_TO_OAUTH_PROVIDER[provider]);
-}
-
-function providerAuthType(providerRaw) {
-  const provider = normalizeProviderKey(providerRaw);
-  if (providerSupportsOAuth(provider) && !providerSupportsApiKey(provider)) return "oauth";
-  return providerSupportsApiKey(provider) ? "apiKey" : "external";
 }
 
 function ensureProviderAuthEntry(providerRaw, patchLike = {}) {
@@ -974,6 +897,34 @@ async function readJsonBody(req) {
     });
   });
 }
+
+const {
+  handleOpenClawConsoleStatus,
+  handleOpenClawCronList,
+  handleOpenClawCronAdd,
+  handleOpenClawCronRemove,
+  handleOpenClawCronToggle,
+  handleOpenClawConfigGet,
+  handleOpenClawConfigSet,
+  handleOpenClawConfigUnset,
+} = createOpenClawConsoleHandlers({
+  runOpenClawCommand,
+  parseJsonSafe,
+  readJsonBody,
+  sendJson,
+  getGatewayLogs: () => gatewayState.logs,
+});
+
+const {
+  handleTelegramHealth,
+  handleTelegramTest,
+  handleTelegramHandshake,
+} = createTelegramHandlers({
+  sendJson,
+  readJsonBody,
+  getStore: () => xbrainStore,
+  saveStore: saveXbrainStore,
+});
 
 function gatewayIsRunning() {
   return Boolean(gatewayState.proc && gatewayState.proc.exitCode === null);
@@ -3612,435 +3563,62 @@ async function handleXbrainLock(req, res) {
   sendJson(res, 200, { ok: true, state: getXbrainStateSnapshot() });
 }
 
-async function handleTelegramHealth(req, res) {
-  const token = String(xbrainStore.base.telegramTokenValue || "").trim();
-  const relay = Boolean(xbrainStore.base.telegramRelayEnabled);
-  sendJson(res, 200, {
-    ok: true,
-    configured: Boolean(token),
-    relayEnabled: relay,
-    connected: Boolean(token) && relay,
-  });
+async function handleGatewayStart(_req, res) {
+  sendJson(res, 200, { ok: true, ...startGateway() });
 }
 
-async function handleTelegramTest(req, res) {
-  const body = await readJsonBody(req);
-  const token = String(body.token || xbrainStore.base.telegramTokenValue || "").trim();
-  if (!token) {
-    sendJson(res, 400, { ok: false, error: "Telegram token is required" });
-    return;
-  }
-  xbrainStore.base.telegramTokenValue = token;
-  saveXbrainStore();
-  sendJson(res, 200, {
-    ok: true,
-    bot: {
-      username: "thunderclaw_bot",
-      firstName: "ThunderClaw",
-    },
-  });
+async function handleGatewayStop(_req, res) {
+  sendJson(res, 200, { ok: true, ...stopGateway() });
 }
 
-async function handleTelegramHandshake(req, res) {
-  const token = String(xbrainStore.base.telegramTokenValue || "").trim();
-  if (!token) {
-    sendJson(res, 400, { ok: false, error: "Telegram token not configured" });
-    return;
-  }
-  sendJson(res, 200, { ok: true, delivered: true });
+async function handleGatewayLogs(_req, res) {
+  sendJson(res, 200, { ok: true, logs: gatewayState.logs });
 }
 
-function openclawErrorText(result) {
-  return (result?.stderr || result?.stdout || "").trim() || "openclaw command failed";
-}
-
-function parseJsonOrText(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function ensureConfigPath(configPathLike) {
-  const configPath = String(configPathLike || "").trim();
-  if (!configPath) {
-    throw new Error("配置路径不能为空");
-  }
-  if (configPath.length > 220) {
-    throw new Error("配置路径过长");
-  }
-  if (!/^[a-zA-Z0-9_\-.[\]]+$/.test(configPath)) {
-    throw new Error("配置路径格式非法");
-  }
-  return configPath;
-}
-
-async function handleOpenClawConsoleStatus(req, res) {
-  const versionRes = await runOpenClawCommand(["--version"], { timeoutMs: 20_000 });
-  const gatewayHealthRes = await runOpenClawCommand(["gateway", "health", "--json"], { timeoutMs: 10_000 });
-  const cronStatusRes = await runOpenClawCommand(["cron", "status", "--json"], { timeoutMs: 10_000 });
-  const cronListRes = await runOpenClawCommand(["cron", "list", "--all", "--json"], { timeoutMs: 12_000 });
-  const gatewayHealth = parseJsonSafe(gatewayHealthRes.stdout);
-  const cronStatus = parseJsonSafe(cronStatusRes.stdout);
-  const cronList = parseJsonSafe(cronListRes.stdout);
-  sendJson(res, 200, {
-    ok: true,
-    openclaw: {
-      available: Boolean(versionRes.ok),
-      version: String(versionRes.stdout || versionRes.stderr || "").trim(),
-      source: versionRes.source,
-    },
-    gateway: {
-      healthy: Boolean(gatewayHealthRes.ok),
-      health: gatewayHealth,
-      error: gatewayHealthRes.ok ? null : openclawErrorText(gatewayHealthRes),
-      logsTail: gatewayState.logs.slice(-80),
-    },
-    cron: {
-      statusOk: Boolean(cronStatusRes.ok),
-      listOk: Boolean(cronListRes.ok),
-      status: cronStatus,
-      jobs: Array.isArray(cronList?.jobs) ? cronList.jobs : [],
-      statusError: cronStatusRes.ok ? null : openclawErrorText(cronStatusRes),
-      listError: cronListRes.ok ? null : openclawErrorText(cronListRes),
-    },
-  });
-}
-
-async function handleOpenClawCronList(req, res) {
-  const url = new URL(req.url ?? "/", "http://localhost");
-  const includeDisabled = String(url.searchParams.get("all") || "1") !== "0";
-  const args = ["cron", "list"];
-  if (includeDisabled) args.push("--all");
-  args.push("--json");
-  const result = await runOpenClawCommand(args, { timeoutMs: 15_000 });
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  const payload = parseJsonSafe(result.stdout);
-  sendJson(res, 200, {
-    ok: true,
-    jobs: Array.isArray(payload?.jobs) ? payload.jobs : [],
-  });
-}
-
-async function handleOpenClawCronAdd(req, res) {
-  const body = await readJsonBody(req);
-  const name = String(body.name || "").trim() || `thunderclaw-${Date.now()}`;
-  const every = String(body.every || "").trim();
-  const message = String(body.message || "").trim();
-  const session = String(body.session || "").trim();
-  const channel = String(body.channel || "").trim();
-  if (!every) {
-    sendJson(res, 400, { ok: false, error: "every is required" });
-    return;
-  }
-  if (!message) {
-    sendJson(res, 400, { ok: false, error: "message is required" });
-    return;
-  }
-  const args = [
-    "cron",
-    "add",
-    "--name",
-    name,
-    "--every",
-    every,
-    "--message",
-    message,
-    "--json",
-  ];
-  if (body.disabled === true) args.push("--disabled");
-  if (session === "main" || session === "isolated") {
-    args.push("--session", session);
-  }
-  if (channel) {
-    args.push("--channel", channel);
-  }
-  const result = await runOpenClawCommand(args, { timeoutMs: 25_000 });
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  const payload = parseJsonSafe(result.stdout);
-  sendJson(res, 200, {
-    ok: true,
-    job: payload && typeof payload === "object" ? payload : null,
-  });
-}
-
-async function handleOpenClawCronRemove(req, res) {
-  const body = await readJsonBody(req);
-  const id = String(body.id || "").trim();
-  if (!id) {
-    sendJson(res, 400, { ok: false, error: "id is required" });
-    return;
-  }
-  const result = await runOpenClawCommand(["cron", "rm", id, "--json"], { timeoutMs: 20_000 });
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  const payload = parseJsonSafe(result.stdout);
-  sendJson(res, 200, {
-    ok: true,
-    removed: Boolean(payload?.removed),
-    raw: payload,
-  });
-}
-
-async function handleOpenClawCronToggle(req, res) {
-  const body = await readJsonBody(req);
-  const id = String(body.id || "").trim();
-  const enabled = body.enabled !== false;
-  if (!id) {
-    sendJson(res, 400, { ok: false, error: "id is required" });
-    return;
-  }
-  const cmd = enabled ? "enable" : "disable";
-  const result = await runOpenClawCommand(["cron", cmd, id], { timeoutMs: 20_000 });
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  sendJson(res, 200, {
-    ok: true,
-    id,
-    enabled,
-  });
-}
-
-async function handleOpenClawConfigGet(req, res) {
-  const body = await readJsonBody(req);
-  let configPath;
-  try {
-    configPath = ensureConfigPath(body.path);
-  } catch (error) {
-    sendJson(res, 400, { ok: false, error: String(error?.message || error) });
-    return;
-  }
-  const result = await runOpenClawCommand(["config", "get", configPath, "--json"], { timeoutMs: 15_000 });
-  if (!result.ok) {
-    sendJson(res, 400, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  sendJson(res, 200, {
-    ok: true,
-    path: configPath,
-    value: parseJsonOrText(result.stdout),
-    raw: String(result.stdout || "").trim(),
-  });
-}
-
-async function handleOpenClawConfigSet(req, res) {
-  const body = await readJsonBody(req);
-  let configPath;
-  try {
-    configPath = ensureConfigPath(body.path);
-  } catch (error) {
-    sendJson(res, 400, { ok: false, error: String(error?.message || error) });
-    return;
-  }
-  if (!Object.prototype.hasOwnProperty.call(body, "value")) {
-    sendJson(res, 400, { ok: false, error: "value is required" });
-    return;
-  }
-  const encodedValue = JSON.stringify(body.value);
-  const result = await runOpenClawCommand(
-    ["config", "set", configPath, encodedValue, "--strict-json"],
-    { timeoutMs: 25_000 },
-  );
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  sendJson(res, 200, {
-    ok: true,
-    path: configPath,
-    value: body.value,
-    output: String(result.stdout || "").trim(),
-  });
-}
-
-async function handleOpenClawConfigUnset(req, res) {
-  const body = await readJsonBody(req);
-  let configPath;
-  try {
-    configPath = ensureConfigPath(body.path);
-  } catch (error) {
-    sendJson(res, 400, { ok: false, error: String(error?.message || error) });
-    return;
-  }
-  const result = await runOpenClawCommand(["config", "unset", configPath], { timeoutMs: 20_000 });
-  if (!result.ok) {
-    sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
-    return;
-  }
-  sendJson(res, 200, {
-    ok: true,
-    path: configPath,
-    output: String(result.stdout || "").trim(),
-  });
-}
+const apiRouter = createHttpRouter(buildApiRouteTable({
+  handleStatus,
+  handleSetup,
+  handleQuickSetup,
+  handleSetModel,
+  handleOAuthStart,
+  handleOAuthStatus,
+  handleGatewayStart,
+  handleGatewayStop,
+  handleGatewayLogs,
+  handleAiHealth,
+  handleAiChat,
+  handleConfigChat,
+  handleChatHistory,
+  handleXbrainState,
+  handleXbrainUpdate,
+  handleXbrainModelSwitch,
+  handleXbrainModelsCatalog,
+  handleXbrainModelConnect,
+  handleXbrainModelDisconnect,
+  handleXbrainAuthStatus,
+  handleXbrainAuthStart,
+  handleXbrainAuthInput,
+  handleXbrainAuthDisconnect,
+  handleXbrainProviderRemove,
+  handleXbrainLock,
+  handleTelegramHealth,
+  handleTelegramTest,
+  handleTelegramHandshake,
+  handleOpenClawConsoleStatus,
+  handleOpenClawCronList,
+  handleOpenClawCronAdd,
+  handleOpenClawCronRemove,
+  handleOpenClawCronToggle,
+  handleOpenClawConfigGet,
+  handleOpenClawConfigSet,
+  handleOpenClawConfigUnset,
+  handleChat,
+}));
 
 async function requestHandler(req, res) {
   try {
-    const method = req.method ?? "GET";
-    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
-
-    if (method === "GET" && pathname === "/api/status") {
-      await handleStatus(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/setup") {
-      await handleSetup(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/setup/quick") {
-      await handleQuickSetup(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/models/set") {
-      await handleSetModel(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/oauth/start") {
-      await handleOAuthStart(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/oauth/status") {
-      await handleOAuthStatus(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/gateway/start") {
-      sendJson(res, 200, { ok: true, ...startGateway() });
-      return;
-    }
-    if (method === "POST" && pathname === "/api/gateway/stop") {
-      sendJson(res, 200, { ok: true, ...stopGateway() });
-      return;
-    }
-    if (method === "GET" && pathname === "/api/gateway/logs") {
-      sendJson(res, 200, { ok: true, logs: gatewayState.logs });
-      return;
-    }
-    if (method === "GET" && pathname === "/api/ai/health") {
-      await handleAiHealth(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/ai/chat") {
-      await handleAiChat(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/config/chat") {
-      await handleConfigChat(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/chat/history") {
-      await handleChatHistory(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/xbrain/state") {
-      await handleXbrainState(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/update") {
-      await handleXbrainUpdate(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/model/switch") {
-      await handleXbrainModelSwitch(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/xbrain/models/catalog") {
-      await handleXbrainModelsCatalog(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/models/connect") {
-      await handleXbrainModelConnect(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/models/disconnect") {
-      await handleXbrainModelDisconnect(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/xbrain/auth/status") {
-      await handleXbrainAuthStatus(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/auth/start") {
-      await handleXbrainAuthStart(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/auth/input") {
-      await handleXbrainAuthInput(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/auth/disconnect") {
-      await handleXbrainAuthDisconnect(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/provider/remove") {
-      await handleXbrainProviderRemove(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/xbrain/lock") {
-      await handleXbrainLock(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/telegram/health") {
-      await handleTelegramHealth(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/telegram/test") {
-      await handleTelegramTest(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/telegram/handshake") {
-      await handleTelegramHandshake(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/openclaw/status") {
-      await handleOpenClawConsoleStatus(req, res);
-      return;
-    }
-    if (method === "GET" && pathname === "/api/openclaw/cron/list") {
-      await handleOpenClawCronList(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/cron/add") {
-      await handleOpenClawCronAdd(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/cron/remove") {
-      await handleOpenClawCronRemove(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/cron/toggle") {
-      await handleOpenClawCronToggle(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/config/get") {
-      await handleOpenClawConfigGet(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/config/set") {
-      await handleOpenClawConfigSet(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/openclaw/config/unset") {
-      await handleOpenClawConfigUnset(req, res);
-      return;
-    }
-    if (method === "POST" && pathname === "/api/chat") {
-      await handleChat(req, res);
-      return;
-    }
-
+    const handled = await apiRouter.dispatch(req, res);
+    if (handled) return;
     await serveStatic(req, res);
   } catch (error) {
     sendJson(res, 500, {

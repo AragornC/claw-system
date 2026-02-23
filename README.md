@@ -54,7 +54,15 @@ node scripts/thunderclaw-cli.js start --port 3456
 
 ## 3. 当前功能（第一步）
 
-后端：`scripts/thunderclaw-server.js`  
+后端（已按功能域拆分）：
+
+- `scripts/thunderclaw-server.js`（主入口：状态编排 + 依赖注入 + 启动）
+- `scripts/server/http/router.js`（统一路由分发器）
+- `scripts/server/http/route-table.js`（API 路由表）
+- `scripts/server/domain/model-provider.js`（模型/provider 领域能力）
+- `scripts/server/handlers/openclaw-console.js`（OpenClaw 配置台 handlers）
+- `scripts/server/handlers/telegram.js`（Telegram handlers）
+
 前端：
 
 - `memory/report/index.html`（主页面）
