@@ -820,7 +820,7 @@ function startOAuthLogin(providerIdRaw) {
   const oauthArgs = [...resolved.prefixArgs, "models", "auth", "login", "--provider", providerId, "--set-default"];
   const commandHint = `openclaw models auth login --provider ${providerId} --set-default`;
   const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  const useScriptPty = !hasTty && process.platform !== "win32";
+  const useScriptPty = process.platform !== "win32";
   let child;
   let launchMode = "direct";
   if (useScriptPty) {

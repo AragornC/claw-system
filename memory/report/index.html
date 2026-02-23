@@ -3306,6 +3306,8 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
   return true;
 }
 
+    let xbrainKnownCatalogKeys = new Set();
+
     (function disableLegacyPwaCaches() {
       try {
         if ('serviceWorker' in navigator && navigator.serviceWorker?.getRegistrations) {
@@ -3694,6 +3696,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const options = registered.filter(function(ref) {
           const key = String(ref || '').trim();
           if (!key || !key.includes('/')) return false;
+          if (xbrainKnownCatalogKeys.size > 0 && !xbrainKnownCatalogKeys.has(key)) return false;
           const provider = inferProviderFromModelRef(key);
           return connectedProviders.has(provider);
         });
@@ -4772,6 +4775,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             .map(function(item) { return String(item?.key || '').trim(); })
             .filter(Boolean),
         );
+        const registeredSet = new Set(
+          (Array.isArray(xbrainClientState.data?.base?.modelRegistry) ? xbrainClientState.data.base.modelRegistry : [])
+            .map(function(item) { return String(item || '').trim(); })
+            .filter(Boolean),
+        );
         const allCatalogKeys = new Set(
           (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
             .map(function(item) { return String(item?.key || '').trim(); })
@@ -4804,8 +4812,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const authMeta = xbrainModelCenterState.providerState?.[provider]?.auth || {};
           const providerConnected = Boolean(authMeta?.configured);
           const markers = [];
-          if (configuredSet.has(key) && providerConnected) markers.push('已配置');
-          else if (configuredSet.has(key) && !providerConnected) markers.push('历史配置');
+          if (registeredSet.has(key) && providerConnected) markers.push('已注册');
+          else if (registeredSet.has(key) && !providerConnected) markers.push('已注册/待连接');
+          if (configuredSet.has(key) && !registeredSet.has(key)) markers.push('OpenClaw已配(未注册)');
           if (item?.missing === true) markers.push('缺失');
           const suffix = markers.length ? (' [' + markers.join(' / ') + ']') : '';
           return '<option value="' + escapeHtml(key) + '" data-provider="' + escapeHtml(provider) + '">' + escapeHtml(name + ' (' + key + ')' + suffix) + '</option>';
@@ -4981,6 +4990,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           null,
         );
         xbrainModelCenterState.catalog = Array.isArray(payload.catalog) ? payload.catalog : [];
+        xbrainKnownCatalogKeys = new Set(
+          xbrainModelCenterState.catalog
+            .map(function(item) { return String(item?.key || '').trim(); })
+            .filter(Boolean),
+        );
         xbrainModelCenterState.configured = Array.isArray(payload.configured) ? payload.configured : [];
         xbrainModelCenterState.providers = Array.isArray(payload.providers)
           ? payload.providers.map(function(v) { return normalizeProviderKey(v); }).filter(Boolean)
