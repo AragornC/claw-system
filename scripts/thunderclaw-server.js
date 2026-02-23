@@ -1724,9 +1724,38 @@ async function buildXbrainState(forceRefresh = false) {
   return getXbrainStateSnapshot();
 }
 
+function getCurrentRuntimeModelRefFromStore() {
+  const runtimeProvider = normalizeProviderKey(
+    xbrainStore?.base?.runtimeModelProvider
+      || xbrainStore?.base?.modelProvider
+      || "deepseek",
+  );
+  const runtimeModelId = String(
+    xbrainStore?.base?.runtimeModelId
+      || xbrainStore?.base?.modelId
+      || "",
+  ).trim();
+  return toModelRef(runtimeProvider, runtimeModelId);
+}
+
+function buildModelScopedSessionId(sessionIdLike, modelRefLike) {
+  const baseSessionId = String(sessionIdLike ?? "thunderclaw-main").trim() || "thunderclaw-main";
+  const modelRef = String(modelRefLike || "").trim();
+  if (!modelRef) return baseSessionId;
+  const suffix = modelRef
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 72);
+  if (!suffix) return baseSessionId;
+  return `${baseSessionId}::${suffix}`;
+}
+
 async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
-  const sessionId = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
+  const sessionIdRaw = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
+  const preferredModelRef = String(params?.modelRef || "").trim() || getCurrentRuntimeModelRefFromStore();
+  const sessionId = buildModelScopedSessionId(sessionIdRaw, preferredModelRef);
   const thinking = String(params?.thinking ?? "").trim();
   const args = [
     "agent",
@@ -1754,12 +1783,67 @@ async function runAgentTurn(params) {
   if (!reply) {
     reply = "收到，但暂时没有可返回内容。";
   }
-  return { result, payload, reply };
+  return {
+    result,
+    payload,
+    reply,
+    sessionId,
+    modelRef: preferredModelRef,
+  };
+}
+
+function pickRegisteredModelRefByProvider(providerLike) {
+  const provider = normalizeProviderKey(providerLike || "");
+  const registry = uniqStrings(xbrainStore?.base?.modelRegistry || []);
+  const picked = registry.find((ref) => inferProviderFromModelRef(ref).provider === provider);
+  return String(picked || PROVIDER_DEFAULT_MODEL_REFS[provider] || "").trim();
+}
+
+function inferModelSwitchIntentModelRef(messageRaw) {
+  const message = String(messageRaw || "").trim();
+  if (!message) return "";
+  const directModelRefMatch = message.match(/\b([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)\b/i);
+  if (directModelRefMatch?.[1]) {
+    return String(directModelRefMatch[1] || "").trim();
+  }
+  const registry = uniqStrings(xbrainStore?.base?.modelRegistry || []);
+  const lower = message.toLowerCase();
+  const byRegistryName = registry.find((ref) => {
+    const normalizedRef = String(ref || "").trim().toLowerCase();
+    const modelToken = normalizedRef.includes("/") ? normalizedRef.split("/").slice(1).join("/") : normalizedRef;
+    return normalizedRef && (lower.includes(normalizedRef) || (modelToken && lower.includes(modelToken)));
+  });
+  if (byRegistryName) return String(byRegistryName);
+  if (/(deepseek)/i.test(message)) return pickRegisteredModelRefByProvider("deepseek");
+  if (/(chatgpt|codex|openai|gpt)/i.test(message)) return pickRegisteredModelRefByProvider("chatgpt");
+  if (/(anthropic|claude)/i.test(message)) return pickRegisteredModelRefByProvider("anthropic");
+  if (/(openrouter)/i.test(message)) return pickRegisteredModelRefByProvider("openrouter");
+  if (/(gemini|google)/i.test(message)) return pickRegisteredModelRefByProvider("gemini");
+  if (/(zai|glm)/i.test(message)) return pickRegisteredModelRefByProvider("zai");
+  return "";
 }
 
 function parseConfigIntent(messageRaw) {
   const message = String(messageRaw || "").trim();
   if (!message) return null;
+  const slashModel = message.match(/(?:^|\s)\/model\s+([^\s]+)/i);
+  if (slashModel?.[1]) {
+    return {
+      type: "switch_model",
+      modelRef: String(slashModel[1] || "").trim(),
+      from: "slash_command",
+    };
+  }
+  if (/(切换|改用|换成|设为|使用).{0,16}(模型|model|deepseek|openai|chatgpt|codex|gpt|anthropic|claude|openrouter|gemini|zai)/i.test(message)) {
+    const modelRef = inferModelSwitchIntentModelRef(message);
+    if (modelRef) {
+      return {
+        type: "switch_model",
+        modelRef,
+        from: "natural_language",
+      };
+    }
+  }
   const deepseekMatch = message.match(/(?:设置|绑定|配置).{0,8}(?:deepseek).{0,12}(?:key|api|apikey)?[^a-zA-Z0-9]*(sk-[a-zA-Z0-9]+)/i)
     || message.match(/(?:^|\s)(sk-[a-zA-Z0-9]{16,})\s*$/i);
   if (deepseekMatch?.[1]) {
@@ -1965,11 +2049,20 @@ async function handleAiChat(req, res) {
     source: "dashboard",
     text: message,
   });
-  const { result, reply } = await runAgentTurn({
+  await syncXbrainFromOpenClaw().catch(() => null);
+  const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
+  const { result, reply, sessionId: sessionIdUsed } = await runAgentTurn({
     message,
     sessionId: "thunderclaw-main",
+    modelRef: runtimeModelRefBefore,
     thinking: "medium",
   });
+  await syncXbrainFromOpenClaw().catch(() => null);
+  const stateAfter = getXbrainStateSnapshot();
+  const runtimeModelRefAfter = toModelRef(
+    stateAfter?.base?.runtimeModelProvider,
+    stateAfter?.base?.runtimeModelId,
+  );
   if (reply) {
     appendChatEvent({
       role: "bot",
@@ -1985,6 +2078,10 @@ async function handleAiChat(req, res) {
       source: "openclaw",
       actions: [],
       executionTrace: [],
+      state: stateAfter,
+      modelRefUsed: runtimeModelRefBefore,
+      runtimeModelRef: runtimeModelRefAfter,
+      sessionIdUsed,
     });
     return;
   }
@@ -1994,6 +2091,10 @@ async function handleAiChat(req, res) {
     source: "openclaw",
     actions: [],
     executionTrace: [],
+    state: stateAfter,
+    modelRefUsed: runtimeModelRefBefore,
+    runtimeModelRef: runtimeModelRefAfter,
+    sessionIdUsed,
   });
 }
 
@@ -2007,6 +2108,76 @@ async function handleConfigChat(req, res) {
   const intent = parseConfigIntent(message);
   if (!intent) {
     sendJson(res, 200, { ok: true, handled: false, reply: "" });
+    return;
+  }
+
+  if (intent.type === "switch_model") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    await syncXbrainFromOpenClaw().catch(() => null);
+    const stateBefore = getXbrainStateSnapshot();
+    const registry = uniqStrings(stateBefore?.base?.modelRegistry || []);
+    const modelRefRaw = String(intent.modelRef || "").trim();
+    const normalizedModelRef = modelRefRaw.includes("/")
+      ? modelRefRaw
+      : inferModelSwitchIntentModelRef(modelRefRaw) || modelRefRaw;
+    const modelRef = String(normalizedModelRef || "").trim();
+    if (!modelRef) {
+      const reply = "未识别到目标模型。请直接说“切换到 openai-codex/gpt-5.3-codex”。";
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, { ok: true, handled: true, reply, state: stateBefore });
+      return;
+    }
+    if (!registry.includes(modelRef)) {
+      const preview = registry.slice(0, 8).join("、");
+      const reply = preview
+        ? (`模型 ${modelRef} 尚未在虾脑注册。请先在虾脑注册后再切换。\n已注册：${preview}`)
+        : `模型 ${modelRef} 尚未在虾脑注册。请先在虾脑完成模型注册。`;
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, { ok: true, handled: true, reply, state: stateBefore });
+      return;
+    }
+    const targetProvider = inferProviderFromModelRef(modelRef).provider;
+    const providerConnected = Boolean(stateBefore?.base?.providerAuth?.[targetProvider]?.configured);
+    if (!providerConnected) {
+      const reply = `模型 ${modelRef} 对应 Provider（${targetProvider}）未连接，请先在虾脑完成连接。`;
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, { ok: true, handled: true, reply, state: stateBefore });
+      return;
+    }
+    const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
+    if (!setRes.ok) {
+      const err = (setRes.stderr || setRes.stdout || "").trim() || "models set failed";
+      const reply = `模型切换失败：${err}`;
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, {
+        ok: true,
+        handled: true,
+        reply,
+        state: stateBefore,
+        openclawModelSync: { ok: false, error: err },
+      });
+      return;
+    }
+    const inferred = inferProviderFromModelRef(modelRef);
+    xbrainStore.base.modelProvider = inferred.provider;
+    xbrainStore.base.modelId = inferred.modelId;
+    xbrainStore.base.runtimeModelProvider = inferred.provider;
+    xbrainStore.base.runtimeModelId = inferred.modelId;
+    saveXbrainStore();
+    await syncXbrainFromOpenClaw().catch(() => null);
+    const finalState = getXbrainStateSnapshot();
+    const runtimeRef = toModelRef(finalState?.base?.runtimeModelProvider, finalState?.base?.runtimeModelId);
+    const reply = `模型已切换：${runtimeRef}`;
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, {
+      ok: true,
+      handled: true,
+      reply,
+      state: finalState,
+      modelRefUsed: modelRef,
+      runtimeModelRef: runtimeRef,
+      openclawModelSync: { ok: true, error: null },
+    });
     return;
   }
 
@@ -2055,15 +2226,16 @@ async function handleConfigChat(req, res) {
       );
       await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], { timeoutMs: 40_000 });
       await syncXbrainFromOpenClaw();
+      const freshState = getXbrainStateSnapshot();
       const reply = "DeepSeek Key 已保存并完成基础配置。现在可以直接开始对话。";
       appendChatEvent({ role: "bot", source: "system", text: reply });
-      sendJson(res, 200, { ok: true, handled: true, reply });
+      sendJson(res, 200, { ok: true, handled: true, reply, state: freshState, runtimeModelRef: "deepseek/deepseek-chat" });
       return;
     }
     const err = setup.error || setup.stderr || setup.stdout || "DeepSeek 配置失败";
     const reply = `DeepSeek 配置失败：${String(err).trim()}`;
     appendChatEvent({ role: "bot", source: "system", text: reply });
-    sendJson(res, 200, { ok: true, handled: true, reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
     return;
   }
 
@@ -2072,9 +2244,10 @@ async function handleConfigChat(req, res) {
     xbrainStore.base.telegramTokenValue = intent.token;
     xbrainStore.base.telegramRelayEnabled = true;
     saveXbrainStore();
+    const freshState = getXbrainStateSnapshot();
     const reply = "Telegram Token 已保存，可在虾脑中继续测试与开关控制。";
     appendChatEvent({ role: "bot", source: "system", text: reply });
-    sendJson(res, 200, { ok: true, handled: true, reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: freshState });
     return;
   }
 
@@ -2091,7 +2264,7 @@ async function handleConfigChat(req, res) {
       ? "已发起 OpenAI(Codex) 登录流程，请在启动 thunderclaw 的终端完成授权。"
       : `无法发起 OAuth：${String(oauth.error || "unknown")}`;
     appendChatEvent({ role: "bot", source: "system", text: reply });
-    sendJson(res, 200, { ok: true, handled: true, reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
     return;
   }
 

@@ -668,6 +668,70 @@
     #xbrain-model-center-model {
       min-height: 36px;
     }
+    #xbrain-model-center label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.69rem;
+      color: var(--muted);
+    }
+    #xbrain-model-center input[type="text"],
+    #xbrain-model-center input[type="password"],
+    #xbrain-model-center select {
+      width: 100%;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
+        rgba(7, 13, 26, 0.82);
+      color: #d9ecff;
+      border: 1px solid rgba(88, 166, 255, 0.28);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+    #xbrain-model-center input[type="text"]::placeholder,
+    #xbrain-model-center input[type="password"]::placeholder {
+      color: rgba(206, 222, 238, 0.56);
+    }
+    #xbrain-model-center input[type="text"]:focus,
+    #xbrain-model-center input[type="password"]:focus,
+    #xbrain-model-center select:focus {
+      border-color: rgba(88, 166, 255, 0.72);
+      box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+      background: rgba(7, 16, 30, 0.95);
+    }
+    #xbrain-model-center .xbrain-actions button {
+      border: 1px solid rgba(88, 166, 255, 0.36);
+      background: linear-gradient(180deg, rgba(88,166,255,0.22), rgba(56,118,194,0.16));
+      color: #d8ebff;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.65rem;
+      cursor: pointer;
+    }
+    #xbrain-model-center .xbrain-actions button.primary {
+      border-color: rgba(88, 166, 255, 0.72);
+      background: linear-gradient(180deg, rgba(88,166,255,0.38), rgba(56,118,194,0.25));
+      color: #eef6ff;
+      font-weight: 700;
+    }
+    .xbrain-model-center-advanced {
+      border: 1px dashed rgba(139, 148, 158, 0.46);
+      border-radius: 10px;
+      padding: 6px 8px;
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .xbrain-model-center-advanced > summary {
+      font-size: 0.64rem;
+      color: #9ecbff;
+      cursor: pointer;
+      user-select: none;
+      outline: none;
+    }
+    .xbrain-model-center-advanced[open] > summary {
+      margin-bottom: 6px;
+    }
     .xbrain-model-selected {
       min-height: 34px;
       border: 1px solid var(--border);
@@ -2146,7 +2210,7 @@
               </div>
               <div class="xbrain-model-center-grid">
                 <div class="xbrain-model-center-card">
-                  <h4>连接并注册模型</h4>
+                  <h4>注册模型（自动连接）</h4>
                   <div class="xbrain-model-center-toolbar">
                     <label>Provider
                       <select id="xbrain-model-center-provider"></select>
@@ -2169,12 +2233,18 @@
                       <button id="xbrain-model-center-api-eye" class="xbrain-eye-btn" type="button" aria-label="显示 API Key">👁</button>
                     </div>
                   </label>
-                  <div id="xbrain-model-center-tip" class="xbrain-hint">选择模型后会自动显示可用连接方式。</div>
+                  <div id="xbrain-model-center-tip" class="xbrain-hint">推荐：直接点击“一键注册（自动连接）”，系统会自动判断 OAuth / API 方式并完成注册。</div>
                   <div class="xbrain-actions">
-                    <button id="xbrain-model-center-connect-btn" class="primary" type="button">连接并注册</button>
-                    <button id="xbrain-model-center-connect-only-btn" type="button">仅连接（不注册）</button>
-                    <button id="xbrain-model-center-register-btn" type="button">仅注册（已有连接）</button>
+                    <button id="xbrain-model-center-connect-btn" class="primary" type="button">一键注册（自动连接）</button>
                   </div>
+                  <details id="xbrain-model-center-advanced" class="xbrain-model-center-advanced">
+                    <summary>高级操作（可选）</summary>
+                    <div class="xbrain-actions">
+                      <button id="xbrain-model-center-connect-only-btn" type="button">仅连接（不注册）</button>
+                      <button id="xbrain-model-center-register-btn" type="button">仅注册（已有连接）</button>
+                    </div>
+                    <div class="xbrain-hint">仅连接：先打通 Provider 鉴权但不加入 ThunderClaw 切换列表；仅注册：Provider 已连接时把模型加入切换列表。</div>
+                  </details>
                   <div id="xbrain-model-center-status" class="xbrain-status"></div>
                   <div id="xbrain-model-center-oauth-prompt" class="xbrain-actions" style="display:none;">
                     <input id="xbrain-model-center-oauth-input" type="text" placeholder="如提示手动回调，请粘贴授权回调 URL 或验证码" />
@@ -2870,6 +2940,7 @@ function createChatHistoryStateRuntime(globalKeyLike) {
     seenIds: new Set(),
     bootRendered: false,
     pendingUserEchoes: [],
+    pendingBotEchoes: [],
     pendingSeq: 0,
   };
   if (g) g[key] = state;
@@ -2963,11 +3034,41 @@ function createChatLogStoreRuntime(storageKeyLike, maxRowsLike) {
     });
   }
 
+  function ackBotEcho(textLike, tsLike, idLike, sourceLike) {
+    const text = String(textLike || '').trim();
+    if (!text) return false;
+    const idNum = Number(idLike);
+    const tsMs = Number.isFinite(Date.parse(String(tsLike || ''))) ? Date.parse(String(tsLike || '')) : Date.now();
+    const source = String(sourceLike || 'dashboard') || 'dashboard';
+    const rows = load();
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
+      if (!row || String(row.role || '') !== 'bot') continue;
+      if (String(row.text || '').trim() !== text) continue;
+      if (String(row.source || '') !== source) continue;
+      if (Number.isFinite(Number(row.id)) && Number(row.id) > 0) continue;
+      const rowMs = Number.isFinite(Date.parse(String(row.ts || ''))) ? Date.parse(String(row.ts || '')) : tsMs;
+      if (Math.abs(tsMs - rowMs) > 180000) continue;
+      row.id = Number.isFinite(idNum) && idNum > 0 ? idNum : null;
+      row.ts = tsLike || row.ts;
+      save(rows);
+      return true;
+    }
+    return append({
+      source: source,
+      ts: tsLike || null,
+      id: Number.isFinite(idNum) ? idNum : null,
+      role: 'bot',
+      text,
+    });
+  }
+
   return {
     load,
     save,
     append,
     ackUserEcho,
+    ackBotEcho,
   };
 }
 
@@ -3196,6 +3297,10 @@ function createChatApiClientRuntime(optionsLike = {}) {
       actions: Array.isArray(payload.actions) ? payload.actions : [],
       source: String(payload.source || 'openclaw'),
       executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
+      state: payload && typeof payload.state === 'object' ? payload.state : null,
+      modelRefUsed: String(payload?.modelRefUsed || '').trim(),
+      runtimeModelRef: String(payload?.runtimeModelRef || '').trim(),
+      sessionIdUsed: String(payload?.sessionIdUsed || '').trim(),
     };
   }
 
@@ -3215,6 +3320,9 @@ function createChatApiClientRuntime(optionsLike = {}) {
     return {
       handled: Boolean(payload.handled),
       reply: String(payload.reply || '').trim(),
+      state: payload && typeof payload.state === 'object' ? payload.state : null,
+      modelRefUsed: String(payload?.modelRefUsed || '').trim(),
+      runtimeModelRef: String(payload?.runtimeModelRef || '').trim(),
     };
   }
 
@@ -4853,7 +4961,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const hasMixedProviders = selectedProviders.length > 1;
         const hasSelectedModel = selectedRefs.length > 0;
         if (hasMixedProviders) {
-          if (tipEl) tipEl.textContent = '当前多选包含多个 Provider。可直接“仅注册”，若要建连请改为单 Provider。';
+          if (tipEl) tipEl.textContent = '当前多选包含多个 Provider。建议拆分为单 Provider 分批“一键注册（自动连接）”。';
           if (apiWrap) apiWrap.style.display = 'none';
           if (connectBtn) connectBtn.disabled = true;
           if (connectOnlyBtn) connectOnlyBtn.disabled = true;
@@ -4865,11 +4973,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const canOauth = Boolean(support.oauth);
         if (apiWrap) apiWrap.style.display = canApiKey ? '' : 'none';
         if (tipEl) {
-          let tip = '连接并注册：建连后把所选模型加入顶部切换器；仅连接：只更新 Provider 连接，不加入切换器；仅注册：不改连接，仅加入切换器。';
+          let tip = '默认推荐：一键注册（自动连接）。系统会自动完成连接并把模型加入 ThunderClaw 顶部切换器。';
           if (canApiKey && canOauth) tip = providerLabel(selectedProvider) + ' 支持 API Key / OAuth。' + tip;
           else if (canApiKey) tip = providerLabel(selectedProvider) + ' 支持 API Key。' + tip;
           else if (canOauth) tip = providerLabel(selectedProvider) + ' 支持 OAuth。' + tip;
-          else tip = providerLabel(selectedProvider) + ' 暂无页面内建连能力，可使用“仅注册”。';
+          else tip = providerLabel(selectedProvider) + ' 暂无页面内建连能力，可在“高级操作”中仅注册。';
           tipEl.textContent = tip;
         }
         if (connectBtn) {
@@ -4902,7 +5010,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           providerGroups[provider].push(ref);
         });
         const providerKeys = Object.keys(providerGroups).sort();
-        summaryEl.textContent = '已注册模型：' + String(registry.length) + ' 个 ｜ Provider：' + String(providerKeys.length) + ' 个';
+        const connectedProviderCount = providerKeys.filter(function(provider) {
+          return Boolean(providerAuth?.[provider]?.configured);
+        }).length;
+        summaryEl.textContent = '已注册模型：' + String(registry.length)
+          + ' 个 ｜ Provider：' + String(providerKeys.length)
+          + ' 个 ｜ 已连接：' + String(connectedProviderCount) + ' 个';
         if (!registry.length) {
           listEl.innerHTML = '<div class="xbrain-hint">尚未注册模型。请先从上方目录选择并连接。</div>';
           return;
@@ -4922,6 +5035,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const authConfigured = Boolean(authMeta.configured);
           const authMasked = String(authMeta.masked || '(未设置)');
           const authSource = String(authMeta.source || '-');
+          const authTypeLabel = authType === 'oauth' ? 'OAuth' : 'API Key';
+          const authStatusLabel = authConfigured
+            ? (authType === 'oauth' ? 'OAuth已连接' : 'API已配置')
+            : (authType === 'oauth' ? 'OAuth未连接' : 'API未配置');
           const support = xbrainModelCenterState.authSupport?.[provider] || {};
           const canApiKey = Boolean(support.apiKey);
           const canOauth = Boolean(support.oauth);
@@ -4932,10 +5049,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             + escapeHtml(providerLabel(provider))
             + '<span class="xbrain-model-center-badge">' + escapeHtml(provider) + '</span>'
             + '<span class="xbrain-model-center-badge' + (authConfigured ? ' ok' : ' warn') + '">'
-            + (authConfigured ? '已连接' : '未连接')
+            + escapeHtml(authStatusLabel)
             + '</span>'
             + '</div><div class="xbrain-model-provider-meta">'
-            + escapeHtml('鉴权方式: ' + authType + ' | 凭证: ' + authMasked + ' | source: ' + authSource + ' | 模型数: ' + refs.length)
+            + escapeHtml('鉴权: ' + authTypeLabel + ' | 凭证: ' + authMasked + ' | source: ' + authSource + ' | 模型数: ' + refs.length)
             + '</div></div>'
             + '<div class="xbrain-model-provider-actions">'
             + (canApiKey
@@ -4967,10 +5084,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const badges = []
               .concat(isCurrent ? ['<span class="xbrain-model-center-badge ok">当前</span>'] : [])
               .concat(configured
-                ? ['<span class="xbrain-model-center-badge ok">已建连</span>']
+                ? ['<span class="xbrain-model-center-badge ok">' + escapeHtml(authType === 'oauth' ? 'OAuth可用' : 'API可用') + '</span>']
                 : historicalConfigured
                   ? ['<span class="xbrain-model-center-badge warn">历史配置</span>']
-                  : ['<span class="xbrain-model-center-badge warn">待确认</span>'])
+                  : ['<span class="xbrain-model-center-badge warn">未连通</span>'])
               .join('');
             return '<div class="xbrain-model-center-item">'
               + '<div class="meta"><div class="name">' + escapeHtml(ref) + '</div><div>'
@@ -7551,6 +7668,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
         const CHAT_LOG_MAX = 800;
         const chatHistoryState = createChatHistoryStateRuntime('__thunderclawChatHistoryState');
+        if (!Array.isArray(chatHistoryState.pendingBotEchoes)) chatHistoryState.pendingBotEchoes = [];
         const chatLogStore = createChatLogStoreRuntime(CHAT_LOG_KEY, CHAT_LOG_MAX);
         function loadLocalChatLog() {
           return chatLogStore.load();
@@ -7576,8 +7694,28 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         function ackLocalUserEcho(text, tsLike, idLike) {
           chatLogStore.ackUserEcho(text, tsLike, idLike);
         }
+        function ackLocalBotEcho(text, tsLike, idLike, sourceLike) {
+          chatLogStore.ackBotEcho(text, tsLike, idLike, sourceLike);
+        }
         function markPendingDelivered(pendingKey, tsLike) {
           markPendingDeliveredRuntime(box, pendingKey, tsLike);
+        }
+        function markPendingBotDelivered(pendingLike, tsLike) {
+          const pending = pendingLike && typeof pendingLike === 'object' ? pendingLike : null;
+          if (!pending || !pending.rowEl) return;
+          finishRowPendingState(pending.rowEl);
+          const metaEl = pending.rowEl.querySelector('.ai-msg-meta');
+          const tsEl = metaEl ? metaEl.querySelector('.ai-msg-time') : null;
+          if (tsEl) tsEl.textContent = fmtChatTs(tsLike);
+        }
+        function prunePendingBotEchoes() {
+          const now = Date.now();
+          chatHistoryState.pendingBotEchoes = (Array.isArray(chatHistoryState.pendingBotEchoes) ? chatHistoryState.pendingBotEchoes : [])
+            .filter(function(item) {
+              const createdAt = Number(item?.createdAt || 0);
+              return createdAt > 0 && Math.abs(now - createdAt) <= 5 * 60 * 1000;
+            })
+            .slice(-30);
         }
         function renderStoredChatLog() {
           const rows = loadLocalChatLog();
@@ -8944,7 +9082,14 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             try {
               const cfg = await askConfigChannel(q);
               if (cfg && cfg.handled) {
-                return { reply: cfg.reply || '配置已处理。', actions: [], source: 'config' };
+                return {
+                  reply: cfg.reply || '配置已处理。',
+                  actions: [],
+                  source: 'config',
+                  state: cfg?.state && typeof cfg.state === 'object' ? cfg.state : null,
+                  modelRefUsed: String(cfg?.modelRefUsed || '').trim(),
+                  runtimeModelRef: String(cfg?.runtimeModelRef || '').trim(),
+                };
               }
             } catch (_) {}
           }
@@ -8952,9 +9097,28 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             return await askOpenClaw(q);
           } catch (openclawErr) {
             const openclawMsg = String(openclawErr?.message || openclawErr || '').trim();
+            const currentRuntimeRef = getCurrentRuntimeModelRef(xbrainClientState.data || {});
+            const currentRuntimeProvider = inferProviderFromModelRef(currentRuntimeRef);
+            const allowDeepSeekFallback = currentRuntimeProvider === 'deepseek';
+            if (!allowDeepSeekFallback) {
+              setAiLinkStatus('warn', 'OpenClaw: 当前模型链路离线');
+              return {
+                reply:
+                  '当前选中模型为 ' + (currentRuntimeRef || '(未知)') + '。\n'
+                  + 'OpenClaw 请求失败：' + String(openclawMsg || 'unknown_error') + '\n'
+                  + '为避免误判，本次不会自动降级到 DeepSeek。请先修复当前模型连接后再重试。',
+                actions: [],
+                source: 'gateway_unavailable',
+                runtimeModelRef: currentRuntimeRef || '',
+              };
+            }
             try {
               const out = await askDeepSeekDirect(q);
-              return { ...out, source: 'deepseek' };
+              return {
+                ...out,
+                source: 'deepseek',
+                runtimeModelRef: 'deepseek/deepseek-chat',
+              };
             } catch (deepseekErr) {
               const msg = String(deepseekErr?.message || deepseekErr || '');
               if (msg === 'NO_DEEPSEEK_KEY') {
@@ -8999,8 +9163,14 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const actionNote = applyAiActions(result?.actions, text);
             const traceText = formatExecutionTraceLocal(result?.executionTrace);
             const traceNote = traceText ? ('\n\n执行轨迹：\n' + traceText) : '';
-            const finalText = (reply || '收到，但暂时没有可返回内容。') + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + traceNote;
+            const baseReply = reply || '收到，但暂时没有可返回内容。';
+            const runtimeModelRef = String(result?.runtimeModelRef || result?.modelRefUsed || '').trim();
+            const modelNote = runtimeModelRef ? ('\n\n当前模型：' + runtimeModelRef) : '';
+            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + traceNote + modelNote;
             const source = String(result?.source || 'dashboard');
+            const storeSource = source === 'openclaw'
+              ? 'dashboard'
+              : (source === 'config' ? 'system' : source);
             setRowTextWithTypewriter(thinking, finalText, {
               enabled: true,
               tickMs: 13,
@@ -9011,9 +9181,26 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             appendLocalChatLog({
               ts: new Date().toISOString(),
               role: 'bot',
-              source: source,
+              source: storeSource,
               text: finalText,
             });
+            if (source === 'openclaw' || source === 'config') {
+              chatHistoryState.pendingBotEchoes.push({
+                text: baseReply,
+                storeText: finalText,
+                createdAt: Date.now(),
+                rowEl: thinking,
+                source: storeSource,
+              });
+              prunePendingBotEchoes();
+            }
+            if (result?.state && typeof result.state === 'object') {
+              xbrainClientState.data = result.state;
+              xbrainClientState.loaded = true;
+              renderXbrainState();
+              renderThunderModelSwitch(result.state);
+              renderXbrainModelCenterConnected(result.state);
+            }
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,
@@ -9029,6 +9216,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             });
           }
           try { await pollChatHistory(); } catch (_) {}
+          try { await fetchXbrainState(true); } catch (_) {}
           box.scrollTop = box.scrollHeight;
         }
         async function send() {
@@ -9091,6 +9279,32 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               chatHistoryState.pendingUserEchoes.splice(idx, 1);
               markPendingDelivered(pending?.pendingKey || '', ev?.ts || null);
               ackLocalUserEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null);
+              return;
+            }
+          }
+          if ((source === 'dashboard' || source === 'system') && role === 'bot') {
+            const eventTsMs = Number.isFinite(Date.parse(String(ev?.ts || '')))
+              ? Date.parse(String(ev?.ts || ''))
+              : Date.now();
+            prunePendingBotEchoes();
+            const dedupeText = source === 'system' ? text : finalText;
+            const idx = (Array.isArray(chatHistoryState.pendingBotEchoes) ? chatHistoryState.pendingBotEchoes : [])
+              .findIndex(function(item) {
+                if (!item || typeof item !== 'object') return false;
+                if (String(item.source || '') !== source) return false;
+                if (String(item.text || '').trim() !== String(dedupeText || '').trim()) return false;
+                return Math.abs(eventTsMs - Number(item.createdAt || 0)) <= 180000;
+              });
+            if (idx >= 0) {
+              const pending = chatHistoryState.pendingBotEchoes[idx];
+              chatHistoryState.pendingBotEchoes.splice(idx, 1);
+              markPendingBotDelivered(pending, ev?.ts || null);
+              ackLocalBotEcho(
+                String(pending?.storeText || dedupeText || '').trim(),
+                ev?.ts || null,
+                Number.isFinite(idNum) ? idNum : null,
+                source,
+              );
               return;
             }
           }
