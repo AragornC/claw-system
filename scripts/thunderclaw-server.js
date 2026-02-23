@@ -1739,16 +1739,27 @@ function getCurrentRuntimeModelRefFromStore() {
 }
 
 function buildModelScopedSessionId(sessionIdLike, modelRefLike) {
-  const baseSessionId = String(sessionIdLike ?? "thunderclaw-main").trim() || "thunderclaw-main";
+  const normalizeSessionPart = (valueLike, fallback) => {
+    const raw = String(valueLike ?? "").trim().toLowerCase();
+    const normalized = raw
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72);
+    return normalized || fallback;
+  };
+  const baseSessionId = normalizeSessionPart(sessionIdLike ?? "thunderclaw-main", "thunderclaw-main");
   const modelRef = String(modelRefLike || "").trim();
   if (!modelRef) return baseSessionId;
-  const suffix = modelRef
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 72);
+  const suffix = normalizeSessionPart(modelRef, "");
   if (!suffix) return baseSessionId;
-  return `${baseSessionId}::${suffix}`;
+  return `${baseSessionId}--${suffix}`;
+}
+
+function looksLikeGatewayTransportError(textLike) {
+  const text = String(textLike || "").toLowerCase();
+  if (!text) return false;
+  return /gateway closed|abnormal closure|1006|websocket|ecconnrefused|pairing required|gateway agent failed/.test(text);
 }
 
 async function runAgentTurn(params) {
@@ -1768,7 +1779,20 @@ async function runAgentTurn(params) {
   if (thinking) {
     args.push("--thinking", thinking);
   }
-  const result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+  const gatewayBeforeRun = await waitGatewayHealthy({ timeoutMs: 4_000, pollMs: 700 }).catch(() => ({ ok: false }));
+  if (!gatewayBeforeRun?.ok) {
+    startGateway();
+    await waitGatewayHealthy({ timeoutMs: 20_000, pollMs: 1_000 }).catch(() => null);
+  }
+  let result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+  if (!result.ok) {
+    const errText = [result.stderr, result.stdout].filter(Boolean).join("\n");
+    if (looksLikeGatewayTransportError(errText)) {
+      startGateway();
+      await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1000 }).catch(() => null);
+      result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+    }
+  }
   const payload = parseJsonSafe(result.stdout);
   let reply = extractAgentReply(payload);
   if (!reply) {
