@@ -1850,67 +1850,114 @@ function pickRegisteredModelRefByProvider(providerLike) {
   return String(picked || PROVIDER_DEFAULT_MODEL_REFS[provider] || "").trim();
 }
 
-function inferModelSwitchIntentModelRef(messageRaw) {
+function parseSlashCommandMessage(messageRaw) {
   const message = String(messageRaw || "").trim();
-  if (!message) return "";
-  const directModelRefMatch = message.match(/\b([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)\b/i);
-  if (directModelRefMatch?.[1]) {
-    return String(directModelRefMatch[1] || "").trim();
+  if (!message.startsWith("/")) return { command: "", args: "", message };
+  const spaceIdx = message.indexOf(" ");
+  if (spaceIdx < 0) {
+    return { command: message.toLowerCase(), args: "", message };
   }
-  const registry = uniqStrings(xbrainStore?.base?.modelRegistry || []);
-  const lower = message.toLowerCase();
-  const byRegistryName = registry.find((ref) => {
-    const normalizedRef = String(ref || "").trim().toLowerCase();
-    const modelToken = normalizedRef.includes("/") ? normalizedRef.split("/").slice(1).join("/") : normalizedRef;
-    return normalizedRef && (lower.includes(normalizedRef) || (modelToken && lower.includes(modelToken)));
-  });
-  if (byRegistryName) return String(byRegistryName);
-  if (/(deepseek)/i.test(message)) return pickRegisteredModelRefByProvider("deepseek");
-  if (/(chatgpt|codex|openai|gpt)/i.test(message)) return pickRegisteredModelRefByProvider("chatgpt");
-  if (/(anthropic|claude)/i.test(message)) return pickRegisteredModelRefByProvider("anthropic");
-  if (/(openrouter)/i.test(message)) return pickRegisteredModelRefByProvider("openrouter");
-  if (/(gemini|google)/i.test(message)) return pickRegisteredModelRefByProvider("gemini");
-  if (/(zai|glm)/i.test(message)) return pickRegisteredModelRefByProvider("zai");
+  return {
+    command: message.slice(0, spaceIdx).toLowerCase(),
+    args: message.slice(spaceIdx + 1).trim(),
+    message,
+  };
+}
+
+function findTokenStartingWith(partsLike, prefixLike) {
+  const parts = Array.isArray(partsLike) ? partsLike : [];
+  const prefix = String(prefixLike || "").toLowerCase();
+  for (const partRaw of parts) {
+    const part = String(partRaw || "").trim();
+    if (!part) continue;
+    if (part.toLowerCase().startsWith(prefix)) return part;
+  }
   return "";
+}
+
+function isDigitsOnly(valueRaw) {
+  const value = String(valueRaw || "").trim();
+  if (!value) return false;
+  for (const ch of value) {
+    if (ch < "0" || ch > "9") return false;
+  }
+  return true;
+}
+
+function resolveModelRefFromToken(tokenRaw) {
+  const token = String(tokenRaw || "").trim();
+  if (!token) return "";
+  const normalized = token.toLowerCase();
+  if (normalized.includes("/")) return normalized;
+
+  if (normalized === "deepseek") return pickRegisteredModelRefByProvider("deepseek");
+  if (normalized === "chatgpt" || normalized === "openai" || normalized === "codex" || normalized === "gpt") {
+    return pickRegisteredModelRefByProvider("chatgpt");
+  }
+  if (normalized === "anthropic" || normalized === "claude") return pickRegisteredModelRefByProvider("anthropic");
+  if (normalized === "openrouter") return pickRegisteredModelRefByProvider("openrouter");
+  if (normalized === "gemini" || normalized === "google") return pickRegisteredModelRefByProvider("gemini");
+  if (normalized === "zai" || normalized === "glm") return pickRegisteredModelRefByProvider("zai");
+
+  const registry = uniqStrings(xbrainStore?.base?.modelRegistry || []);
+  for (const refRaw of registry) {
+    const ref = String(refRaw || "").trim();
+    if (!ref) continue;
+    const lower = ref.toLowerCase();
+    const modelPart = lower.includes("/") ? lower.split("/").slice(1).join("/") : lower;
+    if (normalized === lower || normalized === modelPart) return ref;
+  }
+  return "";
+}
+
+function parseSlashModelSwitchRef(messageRaw) {
+  const { command, args } = parseSlashCommandMessage(messageRaw);
+  if (command !== "/model" && command !== "/models") return "";
+  const firstArg = String(args || "").split(/\s+/, 1)[0] || "";
+  const target = String(firstArg || "").trim();
+  if (!target) return "";
+  const lower = target.toLowerCase();
+  if (lower === "list" || lower === "status" || isDigitsOnly(target)) return "";
+  return resolveModelRefFromToken(target);
 }
 
 function parseConfigIntent(messageRaw) {
   const message = String(messageRaw || "").trim();
   if (!message) return null;
-  const slashModel = message.match(/(?:^|\s)\/model\s+([^\s]+)/i);
-  if (slashModel?.[1]) {
-    return {
-      type: "switch_model",
-      modelRef: String(slashModel[1] || "").trim(),
-      from: "slash_command",
-    };
+  const { command, args } = parseSlashCommandMessage(message);
+  if (!command) return null;
+
+  if (command === "/model" || command === "/models") {
+    const modelRef = parseSlashModelSwitchRef(message);
+    if (!modelRef) return null;
+    return { type: "switch_model", modelRef, from: "slash_command" };
   }
-  if (/(切换|改用|换成|设为|使用).{0,16}(模型|model|deepseek|openai|chatgpt|codex|gpt|anthropic|claude|openrouter|gemini|zai)/i.test(message)) {
-    const modelRef = inferModelSwitchIntentModelRef(message);
-    if (modelRef) {
-      return {
-        type: "switch_model",
-        modelRef,
-        from: "natural_language",
-      };
+
+  if (command === "/deepseek") {
+    const token = findTokenStartingWith(String(args || "").split(/\s+/), "sk-");
+    if (!token) return { type: "deepseek_help" };
+    return { type: "deepseek_key", key: token };
+  }
+
+  if (command === "/telegram") {
+    const token = String(args || "").trim();
+    if (!token) return { type: "telegram_help" };
+    return { type: "telegram_token", token };
+  }
+
+  if (command === "/oauth" || command === "/openai" || command === "/chatgpt" || command === "/codex-login") {
+    const providerText = String(args || "").trim().toLowerCase();
+    if (providerText.includes("anthropic") || providerText.includes("claude")) {
+      return { type: "oauth", provider: "anthropic" };
     }
-  }
-  const deepseekMatch = message.match(/(?:设置|绑定|配置).{0,8}(?:deepseek).{0,12}(?:key|api|apikey)?[^a-zA-Z0-9]*(sk-[a-zA-Z0-9]+)/i)
-    || message.match(/(?:^|\s)(sk-[a-zA-Z0-9]{16,})\s*$/i);
-  if (deepseekMatch?.[1]) {
-    return { type: "deepseek_key", key: deepseekMatch[1] };
-  }
-  const tgMatch = message.match(/telegram\s*token[^a-zA-Z0-9]*([0-9]{5,}:[A-Za-z0-9_-]{20,})/i);
-  if (tgMatch?.[1]) {
-    return { type: "telegram_token", token: tgMatch[1] };
-  }
-  if (/(连接|登录|授权).{0,8}(chatgpt|codex|openai)/i.test(message)) {
     return { type: "oauth", provider: "chatgpt" };
   }
-  if (/(连接|登录|授权).{0,8}(anthropic|claude)/i.test(message)) {
+
+  if (command === "/anthropic" || command === "/claude-login") {
     return { type: "oauth", provider: "anthropic" };
   }
-  if (/(打开|进入|前往).{0,8}(配置|向导|xbrain|虾脑)/i.test(message)) {
+
+  if (command === "/xbrain" || command === "/xbrain-open" || command === "/onboard") {
     return { type: "open_xbrain" };
   }
   return null;
@@ -2167,13 +2214,9 @@ async function handleConfigChat(req, res) {
     await syncXbrainFromOpenClaw().catch(() => null);
     const stateBefore = getXbrainStateSnapshot();
     const registry = uniqStrings(stateBefore?.base?.modelRegistry || []);
-    const modelRefRaw = String(intent.modelRef || "").trim();
-    const normalizedModelRef = modelRefRaw.includes("/")
-      ? modelRefRaw
-      : inferModelSwitchIntentModelRef(modelRefRaw) || modelRefRaw;
-    const modelRef = String(normalizedModelRef || "").trim();
+    const modelRef = String(intent.modelRef || "").trim();
     if (!modelRef) {
-      const reply = "未识别到目标模型。请直接说“切换到 openai-codex/gpt-5.3-codex”。";
+      const reply = "未识别到目标模型。请使用：/model provider/model";
       appendChatEvent({ role: "bot", source: "system", text: reply });
       sendJson(res, 200, { ok: true, handled: true, reply, state: stateBefore });
       return;
@@ -2229,6 +2272,22 @@ async function handleConfigChat(req, res) {
       runtimeModelRef: runtimeRef,
       openclawModelSync: { ok: true, error: null },
     });
+    return;
+  }
+
+  if (intent.type === "deepseek_help") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    const reply = "请使用命令：/deepseek sk-你的DeepSeekKey";
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
+    return;
+  }
+
+  if (intent.type === "telegram_help") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    const reply = "请使用命令：/telegram 你的TelegramBotToken";
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, { ok: true, handled: true, reply, state: getXbrainStateSnapshot() });
     return;
   }
 
