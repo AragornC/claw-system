@@ -69,6 +69,11 @@ const modelCatalogCache = {
   configured: null,
   at: 0,
 };
+const sessionModelProbeCache = {
+  at: 0,
+  modelRef: "",
+  error: "",
+};
 
 function normalizeProviderKey(providerRaw) {
   const value = String(providerRaw ?? "")
@@ -1731,7 +1736,27 @@ function getXbrainStateSnapshot() {
 
 async function buildXbrainState(forceRefresh = false) {
   if (forceRefresh) {
-    await syncXbrainFromOpenClaw();
+    await syncXbrainFromOpenClaw().catch(() => null);
+    const now = Date.now();
+    const probeIntervalMs = 8_000;
+    const shouldProbeSession = (now - Number(sessionModelProbeCache.at || 0)) > probeIntervalMs;
+    if (shouldProbeSession) {
+      const refreshed = await refreshRuntimeModelFromSession({
+        sessionId: "thunderclaw-main",
+        syncDefault: false,
+      }).catch((error) => ({
+        ok: false,
+        changed: false,
+        modelRef: "",
+        probe: { error: String(error?.message || error || "session probe failed") },
+      }));
+      sessionModelProbeCache.at = now;
+      sessionModelProbeCache.modelRef = String(refreshed?.modelRef || "");
+      sessionModelProbeCache.error = String(refreshed?.probe?.error || "");
+      if (refreshed?.changed) {
+        await syncXbrainFromOpenClaw().catch(() => null);
+      }
+    }
   }
   return getXbrainStateSnapshot();
 }
@@ -1826,6 +1851,46 @@ function extractModelRefsFromText(textLike) {
   return uniqStrings(refs);
 }
 
+function pickCurrentModelRefFromText(textLike, fallbackRefRaw = "") {
+  const text = String(textLike || "").trim();
+  if (!text) return "";
+  const fallbackRef = String(fallbackRefRaw || "").trim();
+  const strongPatterns = [
+    /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|active\s+model|selected\s+model|using(?:\s+the)?\s+model|session\s+model|默认模型|default\s+model|模型已切换|switched\s+to|session status)[^\n]{0,180}?([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
+    /\/model\s+([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
+  ];
+  for (const pattern of strongPatterns) {
+    const m = text.match(pattern);
+    if (!m?.[1]) continue;
+    const candidate = resolveModelRefFromToken(String(m[1] || "").trim());
+    if (candidate) return candidate;
+  }
+
+  const lines = text.split(/\r?\n/).slice(0, 200);
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || "").trim();
+    if (!line) continue;
+    if (!/(current|active|selected|using|session|default|当前|运行|已切换|切换|模型)/i.test(line)) continue;
+    const refs = uniqStrings(
+      extractModelRefsFromText(line)
+        .map((ref) => resolveModelRefFromToken(ref))
+        .filter(Boolean),
+    );
+    if (refs.length === 1) return refs[0];
+    if (refs.length > 1 && fallbackRef && refs.includes(fallbackRef)) return fallbackRef;
+  }
+
+  const refs = uniqStrings(
+    extractModelRefsFromText(text)
+      .map((ref) => resolveModelRefFromToken(ref))
+      .filter(Boolean),
+  );
+  if (!refs.length) return "";
+  if (refs.length === 1) return refs[0];
+  if (fallbackRef && refs.includes(fallbackRef)) return fallbackRef;
+  return "";
+}
+
 function detectModelRefChangeFromAgentOutput(params = {}) {
   const message = String(params?.message || "").trim();
   const reply = String(params?.reply || "").trim();
@@ -1846,19 +1911,8 @@ function detectModelRefChangeFromAgentOutput(params = {}) {
   }
   const text = textParts.filter(Boolean).join("\n");
   if (!text) return "";
-
-  const strongPatterns = [
-    /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|using(?:\s+the)?\s+model|模型已切换|switched\s+to|session status)[^\n]{0,140}?([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
-    /\/model\s+([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
-  ];
-  for (const pattern of strongPatterns) {
-    const m = text.match(pattern);
-    if (!m?.[1]) continue;
-    const candidate = resolveModelRefFromToken(String(m[1] || "").trim());
-    if (!candidate) continue;
-    if (candidate === currentModelRef) continue;
-    return candidate;
-  }
+  const strongCandidate = pickCurrentModelRefFromText(text, currentModelRef);
+  if (strongCandidate && strongCandidate !== currentModelRef) return strongCandidate;
 
   const hasChangeHint = /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|session status|\/model|模型已切换|切换模型|switched\s+to|switch\s+model|set\s+model)/i.test(text);
   if (!hasChangeHint) return "";
@@ -1877,6 +1931,76 @@ function detectModelRefChangeFromAgentOutput(params = {}) {
     return registryHits[0];
   }
   return "";
+}
+
+async function probeThunderSessionModelRef(params = {}) {
+  const sessionId = normalizeSessionId(String(params?.sessionId || "thunderclaw-main").trim() || "thunderclaw-main");
+  const fallbackRef = String(params?.fallbackRef || getCurrentRuntimeModelRefFromStore()).trim();
+  const args = [
+    "agent",
+    "--session-id",
+    sessionId,
+    "--message",
+    "/model",
+    "--json",
+  ];
+  let result = await runOpenClawCommand(args, { timeoutMs: 120_000 });
+  if (!result.ok) {
+    const errText = [result.stderr, result.stdout].filter(Boolean).join("\n");
+    if (looksLikeGatewayTransportError(errText)) {
+      startGateway();
+      await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1_000 }).catch(() => null);
+      result = await runOpenClawCommand(args, { timeoutMs: 120_000 });
+    }
+  }
+  const payload = parseJsonSafe(result.stdout);
+  const reply = extractAgentReply(payload);
+  const text = [reply, result.stdout, result.stderr].filter(Boolean).join("\n");
+  const modelRef = pickCurrentModelRefFromText(text, fallbackRef);
+  return {
+    ok: Boolean(result.ok),
+    sessionId,
+    modelRef: String(modelRef || "").trim(),
+    reply: String(reply || "").trim(),
+    error: result.ok ? null : ((result.stderr || result.stdout || "").trim() || "session model probe failed"),
+  };
+}
+
+async function refreshRuntimeModelFromSession(params = {}) {
+  const sessionId = normalizeSessionId(String(params?.sessionId || "thunderclaw-main").trim() || "thunderclaw-main");
+  const syncDefault = params?.syncDefault !== false;
+  const fallbackRef = String(params?.fallbackRef || getCurrentRuntimeModelRefFromStore()).trim();
+  const probe = await probeThunderSessionModelRef({ sessionId, fallbackRef });
+  const modelRef = String(probe?.modelRef || "").trim();
+  const changed = Boolean(modelRef && modelRef !== fallbackRef);
+  const defaultSync = {
+    attempted: false,
+    ok: null,
+    error: null,
+  };
+  let applied = false;
+  if (changed) {
+    applied = applyRuntimeModelRefToStore(modelRef, { save: false, ensureRegistry: true });
+    if (syncDefault) {
+      const setRes = await setOpenClawDefaultModel(modelRef, 40_000);
+      defaultSync.attempted = true;
+      defaultSync.ok = Boolean(setRes.ok);
+      defaultSync.error = setRes.ok ? null : setRes.error;
+    }
+    if (applied) {
+      saveXbrainStore();
+    }
+  }
+  return {
+    ok: probe.ok,
+    sessionId,
+    changed,
+    applied,
+    modelRef,
+    fallbackRef,
+    defaultSync,
+    probe,
+  };
 }
 
 async function switchThunderSessionModel(params = {}) {
@@ -1928,7 +2052,7 @@ async function switchThunderSessionModel(params = {}) {
     defaultSync.attempted = true;
     defaultSync.ok = Boolean(setRes.ok);
     defaultSync.error = setRes.ok ? null : setRes.error;
-    applyRuntimeModelRefToStore(modelRef, { save: true });
+    applyRuntimeModelRefToStore(modelRef, { save: true, ensureRegistry: true });
   }
   await syncXbrainFromOpenClaw().catch(() => null);
   const state = getXbrainStateSnapshot();
@@ -2330,32 +2454,58 @@ async function handleAiChat(req, res) {
   });
   let modelAutoSync = {
     detected: false,
+    detectedBy: "",
     modelRef: "",
     defaultSync: { attempted: false, ok: null, error: null },
+    probe: null,
   };
   if (result.ok) {
-    const detectedModelRef = detectModelRefChangeFromAgentOutput({
-      message,
-      reply,
-      payload,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      currentModelRef: runtimeModelRefBefore,
-      registry: uniqStrings(xbrainStore?.base?.modelRegistry || []),
-    });
-    if (detectedModelRef && detectedModelRef !== runtimeModelRefBefore) {
-      const applied = applyRuntimeModelRefToStore(detectedModelRef, { save: false });
-      const defaultSync = await setOpenClawDefaultModel(detectedModelRef, 40_000);
-      if (applied) saveXbrainStore();
+    const refreshed = await refreshRuntimeModelFromSession({
+      sessionId: sessionIdUsed || "thunderclaw-main",
+      fallbackRef: runtimeModelRefBefore,
+      syncDefault: true,
+    }).catch((error) => ({
+      ok: false,
+      changed: false,
+      modelRef: "",
+      defaultSync: { attempted: false, ok: null, error: null },
+      probe: { error: String(error?.message || error || "session model probe failed") },
+    }));
+    modelAutoSync.probe = refreshed?.probe || null;
+    if (refreshed?.changed) {
       modelAutoSync = {
         detected: true,
-        modelRef: detectedModelRef,
-        defaultSync: {
-          attempted: true,
-          ok: defaultSync.ok,
-          error: defaultSync.error,
-        },
+        detectedBy: "session_probe",
+        modelRef: String(refreshed?.modelRef || "").trim(),
+        defaultSync: refreshed?.defaultSync || { attempted: false, ok: null, error: null },
+        probe: refreshed?.probe || null,
       };
+    } else {
+      const detectedModelRef = detectModelRefChangeFromAgentOutput({
+        message,
+        reply,
+        payload,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        currentModelRef: runtimeModelRefBefore,
+        registry: uniqStrings(xbrainStore?.base?.modelRegistry || []),
+      });
+      if (detectedModelRef && detectedModelRef !== runtimeModelRefBefore) {
+        const applied = applyRuntimeModelRefToStore(detectedModelRef, { save: false, ensureRegistry: true });
+        const defaultSync = await setOpenClawDefaultModel(detectedModelRef, 40_000);
+        if (applied) saveXbrainStore();
+        modelAutoSync = {
+          detected: true,
+          detectedBy: "agent_output",
+          modelRef: detectedModelRef,
+          defaultSync: {
+            attempted: true,
+            ok: defaultSync.ok,
+            error: defaultSync.error,
+          },
+          probe: refreshed?.probe || null,
+        };
+      }
     }
   }
   await syncXbrainFromOpenClaw().catch(() => null);

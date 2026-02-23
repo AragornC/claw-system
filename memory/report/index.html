@@ -3309,6 +3309,7 @@ function createChatApiClientRuntime(optionsLike = {}) {
       modelRefUsed: String(payload?.modelRefUsed || '').trim(),
       runtimeModelRef: String(payload?.runtimeModelRef || '').trim(),
       sessionIdUsed: String(payload?.sessionIdUsed || '').trim(),
+      modelAutoSync: payload && typeof payload.modelAutoSync === 'object' ? payload.modelAutoSync : null,
     };
   }
 
@@ -3825,6 +3826,14 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           if (xbrainKnownCatalogKeys.size > 0 && !xbrainKnownCatalogKeys.has(key)) return false;
           const provider = inferProviderFromModelRef(key);
           return connectedProviders.has(provider);
+        });
+        const mustKeepRefs = [];
+        const runtimeRef = String(base.runtimeModelRef || getCurrentRuntimeModelRef(state) || '').trim();
+        const configuredRef = String(base.configuredModelRef || buildModelRefFromProvider(base.modelProvider, base.modelId) || '').trim();
+        if (runtimeRef && runtimeRef.includes('/')) mustKeepRefs.push(runtimeRef);
+        if (configuredRef && configuredRef.includes('/')) mustKeepRefs.push(configuredRef);
+        mustKeepRefs.forEach(function(ref) {
+          if (!options.includes(ref)) options.unshift(ref);
         });
         const dedup = [];
         const seen = new Set();
@@ -9172,7 +9181,13 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const traceText = formatExecutionTraceLocal(result?.executionTrace);
             const traceNote = traceText ? ('\n\n执行轨迹：\n' + traceText) : '';
             const baseReply = reply || '收到，但暂时没有可返回内容。';
-            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + traceNote;
+            const modelAutoSync = result?.modelAutoSync && typeof result.modelAutoSync === 'object' ? result.modelAutoSync : null;
+            const syncDetected = Boolean(modelAutoSync?.detected);
+            const syncModelRef = String(modelAutoSync?.modelRef || result?.runtimeModelRef || '').trim();
+            const syncNote = syncDetected && syncModelRef
+              ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
+              : '';
+            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
             const source = String(result?.source || 'dashboard');
             const storeSource = source === 'openclaw'
               ? 'dashboard'
