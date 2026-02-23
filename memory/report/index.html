@@ -3682,10 +3682,27 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       function buildThunderModelOptionsFromState(stateLike) {
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const base = state.base && typeof state.base === 'object' ? state.base : {};
+        const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
+        const connectedProviders = new Set(
+          Object.keys(providerAuth).filter(function(providerKey) {
+            return Boolean(providerAuth?.[providerKey]?.configured);
+          }).map(function(providerKey) { return normalizeProviderKey(providerKey); }),
+        );
+        const knownCatalogKeys = new Set(
+          (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
+            .map(function(item) { return String(item?.key || '').trim(); })
+            .filter(Boolean),
+        );
         const registered = Array.isArray(base.modelRegistry)
           ? base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
           : [];
-        const options = registered.filter(function(ref) { return String(ref || '').includes('/'); });
+        const options = registered.filter(function(ref) {
+          const key = String(ref || '').trim();
+          if (!key || !key.includes('/')) return false;
+          if (knownCatalogKeys.size > 0 && !knownCatalogKeys.has(key)) return false;
+          const provider = inferProviderFromModelRef(key);
+          return connectedProviders.has(provider);
+        });
         const dedup = [];
         const seen = new Set();
         options.forEach(function(m) {
@@ -3731,8 +3748,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const currentRuntimeRef = getCurrentRuntimeModelRef(state);
         availableThunderModels = buildThunderModelOptionsFromState(state);
-        const shown = currentRuntimeRef || (availableThunderModels[0] || '');
-        modelSwitchToggleEl.textContent = '模型: ' + formatModelSwitchLabel(shown) + ' ▾';
+        const shown = availableThunderModels.includes(currentRuntimeRef)
+          ? currentRuntimeRef
+          : (availableThunderModels[0] || '');
+        modelSwitchToggleEl.textContent = '模型: ' + (shown ? formatModelSwitchLabel(shown) : '未连接模型') + ' ▾';
         const grouped = groupModelsByProvider(availableThunderModels);
         const knownOrder = ['chatgpt', 'deepseek', 'anthropic'];
         const dynamicKeys = Object.keys(grouped).filter(function(k) {
@@ -4978,6 +4997,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         xbrainModelCenterState.providerState = payload.providerState && typeof payload.providerState === 'object'
           ? payload.providerState
           : {};
+        if (payload.state && typeof payload.state === 'object') {
+          xbrainClientState.data = payload.state;
+          xbrainClientState.loaded = true;
+          renderXbrainState();
+        }
         renderXbrainModelCenterCatalog();
         renderXbrainModelCenterConnected(xbrainClientState.data || {});
         return payload;
@@ -5403,13 +5427,24 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       function getAvailableModelsForProvider(providerLike) {
         const rawProvider = String(providerLike || 'deepseek').trim() || 'deepseek';
         const provider = rawProvider === 'codex' ? 'chatgpt' : rawProvider;
+        const knownCatalogKeys = new Set(
+          (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
+            .map(function(item) { return String(item?.key || '').trim(); })
+            .filter(Boolean),
+        );
         const registry = Array.isArray(xbrainClientState.data?.base?.modelRegistry)
           ? xbrainClientState.data.base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
           : [];
         const options = Array.from(new Set(
           registry.filter(function(ref) {
             const p = inferProviderFromModelRef(ref);
-            return (provider === 'chatgpt' && p === 'chatgpt') || p === provider;
+            if (provider === 'chatgpt') {
+              if (p !== 'chatgpt') return false;
+            } else if (p !== provider) {
+              return false;
+            }
+            if (knownCatalogKeys.size > 0 && !knownCatalogKeys.has(ref)) return false;
+            return true;
           }),
         ));
         return options;
@@ -6087,19 +6122,24 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             await refreshXbrainModelCenterCatalog(false);
             if (authMethod === 'oauth') {
               const pending = Boolean(payload?.oauthPending);
-              const configured = Boolean(payload?.providerConfigured);
+              const attemptSucceeded = Boolean(payload?.oauthAttemptSucceeded);
+              const oauthUrl = String(payload?.oauthUrl || payload?.oauth?.url || '').trim();
               const hint = String(payload?.commandHint || payload?.oauth?.commandHint || '').trim();
+              const serverMsg = String(payload?.message || '').trim();
+              if (oauthUrl) {
+                try { window.open(oauthUrl, '_blank', 'noopener,noreferrer'); } catch (_) {}
+              }
               if (pending) {
                 setXbrainModelCenterStatus(
-                  'OAuth 已发起，等待授权完成...' + (hint ? ('\n' + hint) : ''),
+                  (serverMsg || 'OAuth 已发起，等待授权完成...') + (oauthUrl ? ('\n' + oauthUrl) : '') + (hint ? ('\n' + hint) : ''),
                   'ok',
                 );
                 void monitorModelCenterOauth(provider);
-              } else if (configured) {
-                setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
+              } else if (attemptSucceeded) {
+                setXbrainModelCenterStatus(serverMsg || (providerLabel(provider) + ' OAuth 已完成，Provider 已连接。'), 'ok');
               } else {
                 setXbrainModelCenterStatus(
-                  providerLabel(provider) + ' OAuth 未完成，请重试。' + (hint ? ('\n' + hint) : ''),
+                  (serverMsg || (providerLabel(provider) + ' OAuth 未进入有效授权流程，请重试。')) + (oauthUrl ? ('\n' + oauthUrl) : '') + (hint ? ('\n' + hint) : ''),
                   'err',
                 );
               }
@@ -6294,19 +6334,24 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
                 })
                   .then(function(payload) {
                     const pending = Boolean(payload?.oauthPending);
-                    const configured = Boolean(payload?.providerConfigured);
+                    const attemptSucceeded = Boolean(payload?.oauthAttemptSucceeded);
+                    const oauthUrl = String(payload?.oauthUrl || payload?.oauth?.url || '').trim();
                     const hint = String(payload?.commandHint || payload?.oauth?.commandHint || '').trim();
+                    const serverMsg = String(payload?.message || '').trim();
+                    if (oauthUrl) {
+                      try { window.open(oauthUrl, '_blank', 'noopener,noreferrer'); } catch (_) {}
+                    }
                     if (pending) {
                       setXbrainModelCenterStatus(
-                        'OAuth 已发起，等待授权完成...' + (hint ? ('\n' + hint) : ''),
+                        (serverMsg || 'OAuth 已发起，等待授权完成...') + (oauthUrl ? ('\n' + oauthUrl) : '') + (hint ? ('\n' + hint) : ''),
                         'ok',
                       );
                       void monitorModelCenterOauth(provider);
-                    } else if (configured) {
-                      setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
+                    } else if (attemptSucceeded) {
+                      setXbrainModelCenterStatus(serverMsg || (providerLabel(provider) + ' OAuth 已完成，Provider 已连接。'), 'ok');
                     } else {
                       setXbrainModelCenterStatus(
-                        providerLabel(provider) + ' OAuth 未完成，请重试。' + (hint ? ('\n' + hint) : ''),
+                        (serverMsg || (providerLabel(provider) + ' OAuth 未进入有效授权流程，请重试。')) + (oauthUrl ? ('\n' + oauthUrl) : '') + (hint ? ('\n' + hint) : ''),
                         'err',
                       );
                     }

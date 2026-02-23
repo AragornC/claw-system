@@ -31,6 +31,8 @@ const oauthState = {
   proc: null,
   provider: null,
   startedAt: null,
+  attemptId: 0,
+  attemptSeq: 0,
   last: null,
   logs: [],
   url: "",
@@ -183,6 +185,26 @@ function isProviderConfigured(providerRaw) {
   const provider = normalizeProviderKey(providerRaw);
   const authMeta = xbrainStore.base?.providerAuth?.[provider];
   return Boolean(authMeta && typeof authMeta === "object" && authMeta.configured);
+}
+
+function markProviderAuthSyncError(errorLike) {
+  const errorText = String(errorLike || "models status sync failed").trim() || "models status sync failed";
+  const providerCatalog = sanitizeProviderCatalog([
+    ...(xbrainStore.base.providerCatalog || []),
+    ...Object.keys(xbrainStore.base.providerAuth || {}),
+  ]);
+  for (const provider of providerCatalog) {
+    if (!providerSupportsOAuth(provider)) continue;
+    ensureProviderAuthEntry(provider, {
+      configured: false,
+      masked: "(未设置)",
+      plain: "",
+      source: "sync_error",
+      error: errorText,
+      type: "oauth",
+    });
+  }
+  saveXbrainStore();
 }
 
 function createInitialXbrainStore() {
@@ -763,6 +785,7 @@ function getOauthStatus() {
     running: oauthIsRunning(),
     provider: oauthState.provider,
     startedAt: oauthState.startedAt,
+    attemptId: Number(oauthState.attemptId || 0),
     last: oauthState.last,
     url: String(oauthState.url || ""),
     commandHint: String(oauthState.commandHint || ""),
@@ -782,11 +805,14 @@ function startOAuthLogin(providerIdRaw) {
   }
 
   if (oauthIsRunning()) {
+    const state = getOauthStatus();
     return {
       ok: true,
       started: false,
       message: "OAuth login is already running",
-      state: getOauthStatus(),
+      state,
+      attemptId: Number(state?.attemptId || 0),
+      startedAt: state?.startedAt || null,
     };
   }
 
@@ -819,6 +845,9 @@ function startOAuthLogin(providerIdRaw) {
     };
   }
 
+  const attemptId = Number(oauthState.attemptSeq || 0) + 1;
+  oauthState.attemptSeq = attemptId;
+  oauthState.attemptId = attemptId;
   oauthState.proc = child;
   oauthState.provider = providerId;
   oauthState.startedAt = new Date().toISOString();
@@ -826,6 +855,7 @@ function startOAuthLogin(providerIdRaw) {
   oauthState.url = "";
   oauthState.commandHint = commandHint;
   oauthState.logs = [];
+  const startedAt = String(oauthState.startedAt || new Date().toISOString());
   pushOauthLog("system", `oauth start mode=${launchMode}`);
   pushOauthLog("system", `oauth command: ${commandHint}`);
 
@@ -842,6 +872,7 @@ function startOAuthLogin(providerIdRaw) {
     const errText = String(error || "");
     pushOauthLog("system", `oauth process error: ${errText}`);
     oauthState.last = {
+      attemptId,
       provider: providerId,
       code: null,
       signal: null,
@@ -853,6 +884,7 @@ function startOAuthLogin(providerIdRaw) {
     oauthState.proc = null;
     oauthState.provider = null;
     oauthState.startedAt = null;
+    oauthState.attemptId = 0;
   });
 
   child.on("close", (code, signal) => {
@@ -862,6 +894,7 @@ function startOAuthLogin(providerIdRaw) {
       pushOauthLog("system", `oauth exit error: ${parsedError}`);
     }
     oauthState.last = {
+      attemptId,
       provider: providerId,
       code,
       signal: signal ?? null,
@@ -873,6 +906,7 @@ function startOAuthLogin(providerIdRaw) {
     oauthState.proc = null;
     oauthState.provider = null;
     oauthState.startedAt = null;
+    oauthState.attemptId = 0;
   });
 
   return {
@@ -885,6 +919,8 @@ function startOAuthLogin(providerIdRaw) {
     command: commandHint,
     launchMode,
     commandHint,
+    attemptId,
+    startedAt,
   };
 }
 
@@ -1264,6 +1300,7 @@ async function syncXbrainFromOpenClaw() {
     timeoutMs: 20_000,
   });
   if (!modelsRes.ok) {
+    markProviderAuthSyncError((modelsRes.stderr || modelsRes.stdout || "").trim() || "models status failed");
     return {
       ok: false,
       error: (modelsRes.stderr || modelsRes.stdout || "").trim() || "models status failed",
@@ -1271,6 +1308,7 @@ async function syncXbrainFromOpenClaw() {
   }
   const modelsJson = parseJsonSafe(modelsRes.stdout);
   if (!modelsJson || typeof modelsJson !== "object") {
+    markProviderAuthSyncError("invalid models status payload");
     return { ok: false, error: "invalid models status payload" };
   }
 
@@ -1283,12 +1321,11 @@ async function syncXbrainFromOpenClaw() {
     xbrainStore.base.runtimeModelId = inferred.modelId;
   }
 
-  const allowed = uniqStrings(modelsJson.allowed);
   if (!Array.isArray(xbrainStore.base.modelRegistry) || !xbrainStore.base.modelRegistry.length) {
-    if (allowed.length) {
-      xbrainStore.base.modelRegistry = allowed;
-    } else if (defaultModelRef) {
+    if (defaultModelRef) {
       xbrainStore.base.modelRegistry = [defaultModelRef];
+    } else {
+      xbrainStore.base.modelRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
     }
   }
 
@@ -2047,6 +2084,21 @@ async function handleXbrainModelSwitch(req, res) {
     });
     return;
   }
+  await syncXbrainFromOpenClaw().catch(() => null);
+  const stateBeforeSwitch = getXbrainStateSnapshot();
+  const targetProvider = inferProviderFromModelRef(modelRef).provider;
+  const providerConnected = Boolean(stateBeforeSwitch?.base?.providerAuth?.[targetProvider]?.configured);
+  if (!providerConnected) {
+    sendJson(res, 400, {
+      ok: false,
+      error: `provider ${targetProvider} is not connected`,
+      hint: "请先在虾脑-模型注册中心完成该 Provider 连接，然后再切换模型。",
+      modelRef,
+      provider: targetProvider,
+      state: stateBeforeSwitch,
+    });
+    return;
+  }
   const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
   if (!setRes.ok) {
     sendJson(res, 400, {
@@ -2087,6 +2139,22 @@ async function handleXbrainModelsCatalog(req, res) {
   if (!catalog.ok) {
     sendJson(res, 500, { ok: false, error: catalog.error || "获取模型目录失败" });
     return;
+  }
+  const catalogKeySet = new Set(
+    (Array.isArray(catalog.all) ? catalog.all : [])
+      .map((item) => String(item?.key || "").trim())
+      .filter(Boolean),
+  );
+  const currentRegistry = uniqStrings(xbrainStore.base.modelRegistry || []);
+  const prunedRegistry = currentRegistry.filter((ref) => catalogKeySet.has(ref));
+  if (prunedRegistry.length !== currentRegistry.length) {
+    xbrainStore.base.modelRegistry = prunedRegistry.length
+      ? prunedRegistry
+      : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+    saveXbrainStore();
+    if (refresh) {
+      await syncXbrainFromOpenClaw().catch(() => null);
+    }
   }
   const providers = sanitizeProviderCatalog([
     ...(xbrainStore.base.providerCatalog || []),
@@ -2184,6 +2252,9 @@ async function handleXbrainModelConnect(req, res) {
   let setupInfo = null;
   let oauthInfo = null;
   let providerConfiguredAfterAuth = isProviderConfigured(provider);
+  let oauthAttemptId = 0;
+  let oauthAttemptStartedAt = "";
+  let oauthLoginUrl = "";
   if (authMethod === "api-key") {
     const setupProvider = PROVIDER_TO_SETUP_PROVIDER[provider];
     if (!setupProvider) {
@@ -2248,42 +2319,27 @@ async function handleXbrainModelConnect(req, res) {
       sendJson(res, 400, { ok: false, error: `provider ${provider} does not support oauth connect in xbrain` });
       return;
     }
-    await syncXbrainFromOpenClaw().catch(() => null);
-    providerConfiguredAfterAuth = isProviderConfigured(provider);
+    const syncBeforeOauth = await syncXbrainFromOpenClaw().catch(() => ({ ok: false, error: "sync_before_oauth_failed" }));
+    providerConfiguredAfterAuth = Boolean(syncBeforeOauth?.ok && isProviderConfigured(provider));
     const outcome = startOAuthLogin(oauthProvider);
     if (!outcome.ok) {
       sendJson(res, 400, outcome);
       return;
     }
+    oauthAttemptId = Number(outcome?.attemptId || outcome?.state?.attemptId || 0);
+    oauthAttemptStartedAt = String(outcome?.startedAt || outcome?.state?.startedAt || "");
     ensureProviderAuthEntry(provider, {
-      configured: providerConfiguredAfterAuth,
-      masked: providerConfiguredAfterAuth ? "oauth-connected" : "等待授权",
+      configured: false,
+      masked: "等待授权",
       plain: "",
-      source: providerConfiguredAfterAuth ? "oauth" : "oauth_pending",
+      source: "oauth_pending",
       error: "",
       type: "oauth",
     });
     oauthInfo = outcome;
-    if (outcome.started) {
-      await sleepMs(1200);
-      const oauthStatus = getOauthStatus();
-      const relatedProvider = normalizeProviderKey(oauthStatus?.last?.provider || oauthStatus?.provider || "");
-      const justFinished = !oauthStatus.running && relatedProvider === provider;
-      if (justFinished) {
-        await syncXbrainFromOpenClaw().catch(() => null);
-        providerConfiguredAfterAuth = isProviderConfigured(provider);
-        if (!providerConfiguredAfterAuth) {
-          sendJson(res, 400, {
-            ok: false,
-            stage: "oauth",
-            error: String(oauthStatus?.last?.error || "OAuth 流程未完成，未检测到有效授权。"),
-            commandHint: String(oauthStatus?.commandHint || oauthStatus?.last?.commandHint || outcome.commandHint || ""),
-            oauth: oauthStatus,
-          });
-          return;
-        }
-      }
-    }
+    await sleepMs(1000);
+    const oauthStatus = getOauthStatus();
+    oauthLoginUrl = String(oauthStatus?.url || oauthStatus?.last?.url || "");
   } else {
     ensureProviderAuthEntry(provider, {
       source: "model_registry",
@@ -2291,14 +2347,15 @@ async function handleXbrainModelConnect(req, res) {
     });
   }
 
+  const registerApplied = registerModel && !(authMethod === "oauth" && !providerConfiguredAfterAuth);
   xbrainStore.base.providerCatalog = sanitizeProviderCatalog([...(xbrainStore.base.providerCatalog || []), provider]);
-  if (registerModel && modelRefs.length) {
+  if (registerApplied && modelRefs.length) {
     xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...modelRefs]);
   }
 
   let modelSet = { attempted: false, ok: null, error: null, modelRef: null, deferred: false };
-  const deferModelSetForOAuth = authMethod === "oauth" && !providerConfiguredAfterAuth;
-  if (registerModel && setAsCurrent && modelRefs.length && !deferModelSetForOAuth) {
+  const deferModelSetForOAuth = authMethod === "oauth" && (!providerConfiguredAfterAuth || !registerApplied);
+  if (registerApplied && setAsCurrent && modelRefs.length && !deferModelSetForOAuth) {
     const targetModelRef = String(body.defaultModelRef || modelRefs[0] || "").trim();
     const setRes = await runOpenClawCommand(["models", "set", targetModelRef], { timeoutMs: 40_000 });
     modelSet = {
@@ -2330,25 +2387,60 @@ async function handleXbrainModelConnect(req, res) {
   const finalState = getXbrainStateSnapshot();
   const providerConfiguredFinal = Boolean(finalState?.base?.providerAuth?.[provider]?.configured);
   const oauthStatusFinal = getOauthStatus();
+  const oauthCurrentAttemptId = Number(oauthStatusFinal?.attemptId || 0);
+  const oauthLastAttemptId = Number(oauthStatusFinal?.last?.attemptId || 0);
   const oauthPending = authMethod === "oauth"
     && Boolean(oauthStatusFinal?.running)
-    && normalizeProviderKey(oauthStatusFinal?.provider || "") === provider;
-  if (authMethod === "oauth" && !providerConfiguredFinal && !oauthPending) {
+    && normalizeProviderKey(oauthStatusFinal?.provider || "") === provider
+    && (!oauthAttemptId || oauthCurrentAttemptId === oauthAttemptId);
+  const oauthAttemptMatchedLast = authMethod === "oauth"
+    && oauthAttemptId > 0
+    && oauthLastAttemptId === oauthAttemptId;
+  const oauthAttemptSucceeded = authMethod === "oauth"
+    && oauthAttemptMatchedLast
+    && Number(oauthStatusFinal?.last?.code) === 0
+    && !String(oauthStatusFinal?.last?.error || "").trim();
+  const oauthAttemptFailed = authMethod === "oauth"
+    && oauthAttemptMatchedLast
+    && !oauthAttemptSucceeded;
+  const oauthUrl = String(oauthStatusFinal?.url || oauthStatusFinal?.last?.url || oauthLoginUrl || "").trim();
+  const oauthNoProgress = authMethod === "oauth"
+    && !oauthPending
+    && !oauthAttemptSucceeded
+    && !oauthAttemptFailed;
+  const oauthNeedsRollback = authMethod === "oauth" && (
+    oauthAttemptFailed
+    || oauthNoProgress
+    || (!oauthPending && !providerConfiguredFinal)
+  );
+  if (oauthNeedsRollback) {
     xbrainStore.base.providerCatalog = providerCatalogBeforeConnect;
     xbrainStore.base.modelRegistry = modelRegistryBeforeConnect;
     xbrainStore.base.providerAuth = providerAuthBeforeConnect;
     saveXbrainStore();
     await syncXbrainFromOpenClaw().catch(() => null);
     const rollbackState = getXbrainStateSnapshot();
+    const oauthError = String(oauthStatusFinal?.last?.error || "").trim();
+    const fallbackError = oauthNoProgress
+      ? "OAuth 未进入可追踪流程（未拿到登录页面或未开始授权）。"
+      : "OAuth 未完成，未检测到有效授权。";
     sendJson(res, 400, {
       ok: false,
       stage: "oauth",
-      error: String(oauthStatusFinal?.last?.error || "OAuth 未完成，未检测到有效授权。"),
+      error: oauthError || fallbackError,
       provider,
       modelRefs,
       registerModel,
+      registerApplied,
       authMethod,
       commandHint: String(oauthStatusFinal?.commandHint || oauthInfo?.commandHint || ""),
+      oauthPending,
+      oauthAttemptId,
+      oauthAttemptStartedAt,
+      oauthAttemptMatchedLast,
+      oauthAttemptSucceeded,
+      oauthAttemptFailed,
+      oauthUrl,
       oauth: oauthInfo,
       state: rollbackState,
       rolledBack: true,
@@ -2362,21 +2454,34 @@ async function handleXbrainModelConnect(req, res) {
     modelRef: primaryModelRef,
     modelRefs,
     registerModel,
+      registerApplied,
     setAsCurrent,
     authMethod,
     setup: setupInfo,
     oauth: oauthInfo,
     oauthPending,
+    oauthAttemptId,
+    oauthAttemptStartedAt,
+    oauthAttemptMatchedLast,
+    oauthAttemptSucceeded,
+    oauthAttemptFailed,
+    oauthUrl,
     providerConfigured: providerConfiguredFinal,
     commandHint: String(oauthStatusFinal?.commandHint || oauthInfo?.commandHint || ""),
     modelSet,
     state: finalState,
-    message: (authMethod === "oauth" && oauthPending)
+    message: (authMethod === "oauth" && oauthPending && registerModel && !registerApplied)
+        ? "OAuth 已发起，等待浏览器授权。授权完成后请点击“仅注册（已有连接）”。"
+      : (authMethod === "oauth" && oauthPending)
         ? "OAuth 已发起，等待浏览器授权完成后自动生效。"
-      : (authMethod === "oauth" && providerConfiguredFinal)
+      : (authMethod === "oauth" && oauthAttemptSucceeded && providerConfiguredFinal && !registerApplied)
+        ? "OAuth 已完成，Provider 已连接。请再点一次“仅注册（已有连接）”把模型加入切换列表。"
+      : (authMethod === "oauth" && oauthAttemptSucceeded && providerConfiguredFinal)
         ? (!registerModel ? "OAuth 已完成，Provider 已连接。" : "OAuth 已完成，模型已连接并可切换。")
+      : (authMethod === "oauth" && !oauthAttemptSucceeded)
+        ? "OAuth 未完成，请先完成授权页面操作后再继续。"
       : (authMethod === "oauth" && !providerConfiguredFinal)
-        ? (!registerModel ? "OAuth 未完成，连接尚未生效。" : "OAuth 未完成，模型仅已登记到列表。")
+        ? (!registerModel ? "OAuth 未完成，连接尚未生效。" : "OAuth 未完成，模型未注册到切换列表。")
       : !registerModel
         ? "连接信息已更新（未加入切换列表）。"
       : (modelSet.attempted && modelSet.ok)
@@ -2482,23 +2587,43 @@ async function handleXbrainAuthStart(req, res) {
   }
   await sleepMs(1200);
   const status = getOauthStatus();
-  const relatedProvider = normalizeProviderKey(status?.last?.provider || status?.provider || "");
-  if (!status.running && relatedProvider === provider) {
+  const relatedProvider = normalizeProviderKey(status?.provider || status?.last?.provider || "");
+  const attemptId = Number(outcome?.attemptId || status?.attemptId || 0);
+  const lastAttemptId = Number(status?.last?.attemptId || 0);
+  const pending = Boolean(status.running)
+    && relatedProvider === provider
+    && (!attemptId || Number(status?.attemptId || 0) === attemptId);
+  const attemptMatched = attemptId > 0 && lastAttemptId === attemptId;
+  const attemptSucceeded = attemptMatched && Number(status?.last?.code) === 0 && !String(status?.last?.error || "").trim();
+  const attemptFailed = attemptMatched && !attemptSucceeded;
+  if (!pending) {
     await syncXbrainFromOpenClaw().catch(() => null);
-    if (!isProviderConfigured(provider)) {
-      sendJson(res, 400, {
-        ok: false,
-        stage: "oauth",
-        error: String(status?.last?.error || "OAuth 流程未完成，未检测到有效授权。"),
-        commandHint: String(status?.commandHint || status?.last?.commandHint || outcome.commandHint || ""),
-        status,
-      });
-      return;
-    }
+  }
+  const configured = isProviderConfigured(provider);
+  if (attemptFailed || (!pending && !attemptSucceeded) || (!pending && !configured)) {
+    sendJson(res, 400, {
+      ok: false,
+      stage: "oauth",
+      error: String(status?.last?.error || "OAuth 流程未完成，未检测到有效授权。"),
+      commandHint: String(status?.commandHint || status?.last?.commandHint || outcome.commandHint || ""),
+      attemptId,
+      pending,
+      attemptMatched,
+      attemptSucceeded,
+      attemptFailed,
+      status,
+    });
+    return;
   }
   sendJson(res, 200, {
     ...outcome,
-    pending: Boolean(status.running && relatedProvider === provider),
+    pending,
+    attemptId,
+    attemptMatched,
+    attemptSucceeded,
+    attemptFailed,
+    providerConfigured: configured,
+    oauthUrl: String(status?.url || status?.last?.url || ""),
     commandHint: String(status?.commandHint || outcome.commandHint || ""),
     status,
   });
@@ -2512,6 +2637,8 @@ async function handleXbrainAuthStatus(req, res) {
       running: Boolean(status.running),
       provider: normalizeProviderKey(status.provider),
       phase: status.running ? "running" : "idle",
+      attemptId: Number(status?.attemptId || 0),
+      lastAttemptId: Number(status?.last?.attemptId || 0),
       url: String(status.url || status?.last?.url || ""),
       commandHint: String(status.commandHint || status?.last?.commandHint || ""),
       exitCode: status?.last?.code ?? null,
