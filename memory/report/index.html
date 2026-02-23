@@ -3688,18 +3688,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             return Boolean(providerAuth?.[providerKey]?.configured);
           }).map(function(providerKey) { return normalizeProviderKey(providerKey); }),
         );
-        const knownCatalogKeys = new Set(
-          (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
-            .map(function(item) { return String(item?.key || '').trim(); })
-            .filter(Boolean),
-        );
         const registered = Array.isArray(base.modelRegistry)
           ? base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
           : [];
         const options = registered.filter(function(ref) {
           const key = String(ref || '').trim();
           if (!key || !key.includes('/')) return false;
-          if (knownCatalogKeys.size > 0 && !knownCatalogKeys.has(key)) return false;
           const provider = inferProviderFromModelRef(key);
           return connectedProviders.has(provider);
         });
