@@ -715,6 +715,38 @@
       background-repeat: no-repeat;
       padding-right: 28px;
     }
+    #xbrain-model-center .xbrain-auth-segment {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      width: 100%;
+      border: 1px solid rgba(88, 166, 255, 0.26);
+      border-radius: 10px;
+      background: rgba(5, 12, 24, 0.74);
+      padding: 3px;
+      min-height: 36px;
+    }
+    #xbrain-model-center .xbrain-auth-segment button {
+      flex: 1 1 auto;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #9fb3c8;
+      font-size: 0.65rem;
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+    #xbrain-model-center .xbrain-auth-segment button.active {
+      border-color: rgba(88, 166, 255, 0.56);
+      background: linear-gradient(180deg, rgba(88,166,255,0.34), rgba(56,118,194,0.22));
+      color: #eaf4ff;
+      font-weight: 700;
+    }
+    #xbrain-model-center .xbrain-auth-segment button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
     #xbrain-model-center .xbrain-model-multi-picker {
       position: relative;
       display: flex;
@@ -723,24 +755,65 @@
     }
     #xbrain-model-center .xbrain-model-multi-toggle {
       width: 100%;
-      min-height: 36px;
+      min-height: 46px;
       border: 1px solid rgba(88, 166, 255, 0.28);
       border-radius: 10px;
       background:
         linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
         rgba(7, 13, 26, 0.82);
       color: #d9ecff;
-      padding: 8px 10px;
+      padding: 8px 28px 8px 10px;
       font: inherit;
-      text-align: left;
       cursor: pointer;
       transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 6px;
+      position: relative;
     }
     #xbrain-model-center .xbrain-model-multi-toggle:focus {
       outline: none;
       border-color: rgba(88, 166, 255, 0.72);
       box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
       background: rgba(7, 16, 30, 0.95);
+    }
+    #xbrain-model-center .xbrain-model-multi-toggle.is-disabled {
+      opacity: 0.62;
+      cursor: not-allowed;
+    }
+    #xbrain-model-center .xbrain-model-selected-inline {
+      width: 100%;
+      min-height: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: flex-start;
+      padding-right: 18px;
+    }
+    #xbrain-model-center .xbrain-model-multi-clear {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(248,81,73,0.52);
+      background: rgba(248,81,73,0.15);
+      color: #ffaba8;
+      font-size: 0.6rem;
+      line-height: 14px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    #xbrain-model-center .xbrain-model-multi-clear:hover {
+      background: rgba(248,81,73,0.25);
+      border-color: rgba(248,81,73,0.72);
+    }
+    #xbrain-model-center .xbrain-model-multi-clear:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     #xbrain-model-center .xbrain-model-multi-panel {
       position: absolute;
@@ -822,32 +895,15 @@
       color: #eef6ff;
       font-weight: 700;
     }
-    .xbrain-model-center-advanced {
-      border: 1px dashed rgba(139, 148, 158, 0.46);
-      border-radius: 10px;
-      padding: 6px 8px;
-      background: rgba(0, 0, 0, 0.12);
-    }
-    .xbrain-model-center-advanced > summary {
-      font-size: 0.64rem;
-      color: #9ecbff;
-      cursor: pointer;
-      user-select: none;
-      outline: none;
-    }
-    .xbrain-model-center-advanced[open] > summary {
-      margin-bottom: 6px;
-    }
     .xbrain-model-selected {
-      min-height: 34px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(0,0,0,0.16);
-      padding: 6px;
+      min-height: 0;
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       align-items: flex-start;
+      background: transparent;
+      border: none;
+      padding: 0;
     }
     .xbrain-model-selected-item {
       display: inline-flex;
@@ -858,14 +914,35 @@
       background: rgba(88,166,255,0.12);
       color: #cfe8ff;
       font-size: 0.62rem;
-      padding: 2px 7px;
+      padding: 2px 16px 2px 7px;
       max-width: 100%;
+      position: relative;
     }
     .xbrain-model-selected-item .text {
-      max-width: 320px;
+      max-width: 260px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .xbrain-model-selected-item button {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 13px;
+      height: 13px;
+      border-radius: 999px;
+      border: 1px solid rgba(248,81,73,0.5);
+      background: rgba(248,81,73,0.2);
+      color: #ffaba8;
+      font-size: 0.56rem;
+      line-height: 11px;
+      text-align: center;
+      padding: 0;
+      cursor: pointer;
+    }
+    .xbrain-model-selected-item button:hover {
+      background: rgba(248,81,73,0.34);
+      border-color: rgba(248,81,73,0.72);
     }
     .xbrain-model-center-toolbar {
       display: flex;
@@ -874,6 +951,37 @@
       align-items: center;
     }
     .xbrain-model-center-toolbar > * { flex: 1 1 120px; }
+    .xbrain-model-center-command-hints {
+      border: 1px dashed rgba(88,166,255,0.4);
+      border-radius: 10px;
+      background: rgba(8, 18, 34, 0.62);
+      padding: 8px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .xbrain-model-center-command-hints .title {
+      font-size: 0.66rem;
+      color: #9ecbff;
+      font-weight: 700;
+    }
+    .xbrain-model-center-command-hints ul {
+      margin: 0;
+      padding-left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      color: #c9d7e4;
+      font-size: 0.63rem;
+    }
+    .xbrain-model-center-command-hints code {
+      color: #8fd0ff;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 0.61rem;
+    }
     .xbrain-model-center-list {
       display: flex;
       flex-direction: column;
@@ -2313,19 +2421,22 @@
                       <select id="xbrain-model-center-provider" class="xbrain-select-field"></select>
                     </label>
                     <label class="xbrain-field">连接方式
-                      <select id="xbrain-model-center-auth-method" class="xbrain-select-field"></select>
+                      <div id="xbrain-model-center-auth-segment" class="xbrain-auth-segment"></div>
+                      <input id="xbrain-model-center-auth-method" type="hidden" value="" />
                     </label>
                   </div>
                   <label class="xbrain-field">模型（下拉搜索 + 多选）
                     <div id="xbrain-model-center-model-picker" class="xbrain-model-multi-picker">
-                      <button id="xbrain-model-center-model-toggle" class="xbrain-model-multi-toggle" type="button" aria-expanded="false">请选择模型</button>
+                      <div id="xbrain-model-center-model-toggle" class="xbrain-model-multi-toggle" role="button" tabindex="0" aria-expanded="false">
+                        <div id="xbrain-model-center-selected" class="xbrain-model-selected xbrain-model-selected-inline"></div>
+                        <button id="xbrain-model-center-selected-clear" class="xbrain-model-multi-clear" type="button" aria-label="清空已选" title="清空已选">×</button>
+                      </div>
                       <div id="xbrain-model-center-model-panel" class="xbrain-model-multi-panel hidden">
                         <input id="xbrain-model-center-model-search" type="text" autocomplete="off" placeholder="搜索模型关键字（如 deepseek / gpt / claude）" />
                         <div id="xbrain-model-center-model-options" class="xbrain-model-multi-options"></div>
                       </div>
                     </div>
                   </label>
-                  <div id="xbrain-model-center-selected" class="xbrain-model-selected"></div>
                   <label id="xbrain-model-center-api-wrap" class="xbrain-field">API Key（选择 API 连接时填写）
                     <div class="xbrain-secret-wrap">
                       <input id="xbrain-model-center-api-key" type="password" autocomplete="off" placeholder="sk-..." />
@@ -2337,6 +2448,17 @@
                     <button id="xbrain-model-center-connect-btn" class="primary" type="button">连接并注册</button>
                   </div>
                   <div id="xbrain-model-center-status" class="xbrain-status"></div>
+                  <div id="xbrain-model-center-command-hints" class="xbrain-model-center-command-hints">
+                    <div class="title">虾脑提示区（显式命令示例）</div>
+                    <div class="xbrain-hint">配置动作建议使用斜杠命令，系统可稳定识别，无需猜测意图：</div>
+                    <ul>
+                      <li><code>/model deepseek/deepseek-chat</code>：切到 DeepSeek</li>
+                      <li><code>/model openai-codex/gpt-5.3-codex</code>：切到 OpenAI/Codex</li>
+                      <li><code>/deepseek sk-...</code>：设置 DeepSeek Key</li>
+                      <li><code>/telegram 123456:ABC...</code>：设置 Telegram Channel</li>
+                      <li><code>/oauth openai-codex</code>：触发 OAuth 登录</li>
+                    </ul>
+                  </div>
                   <div id="xbrain-model-center-oauth-prompt" class="xbrain-actions" style="display:none;">
                     <input id="xbrain-model-center-oauth-input" type="text" placeholder="如提示手动回调，请粘贴授权回调 URL 或验证码" />
                     <button id="xbrain-model-center-oauth-submit-btn" type="button">提交授权回调</button>
@@ -3576,16 +3698,41 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       if (pos) pos.innerHTML = '<div class="position-item"><div class="position-meta">加载失败：' + (msg || 'unknown') + '</div></div>';
     }
 
+    let bootProgressValue = 0;
+
     function setBootProgress(percent, stepText, detailText) {
       const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
       const fillEl = document.getElementById('app-boot-progress-fill');
       const stepEl = document.getElementById('app-boot-step-text');
       const percentEl = document.getElementById('app-boot-percent-text');
       const detailEl = document.getElementById('app-boot-detail-text');
+      bootProgressValue = safePercent;
       if (fillEl) fillEl.style.width = String(safePercent) + '%';
       if (stepEl && stepText != null) stepEl.textContent = String(stepText);
       if (percentEl) percentEl.textContent = String(Math.round(safePercent)) + '%';
       if (detailEl) detailEl.textContent = detailText == null ? '' : String(detailText);
+    }
+
+    async function smoothBootProgressTo(percent, stepText, detailText, durationMs) {
+      const target = Math.max(0, Math.min(100, Number(percent) || 0));
+      const start = Math.max(0, Math.min(100, Number(bootProgressValue) || 0));
+      const duration = Math.max(80, Number(durationMs) || 220);
+      if (target <= start) {
+        setBootProgress(target, stepText, detailText);
+        return;
+      }
+      setBootProgress(start, stepText, detailText);
+      const t0 = Date.now();
+      while (true) {
+        const elapsed = Date.now() - t0;
+        const ratio = elapsed / duration;
+        if (ratio >= 1) break;
+        const eased = 1 - Math.pow(1 - ratio, 2);
+        const next = start + (target - start) * eased;
+        setBootProgress(next, stepText, detailText);
+        await new Promise(function(resolve) { window.setTimeout(resolve, 16); });
+      }
+      setBootProgress(target, stepText, detailText);
     }
 
     function finishBootOverlay() {
@@ -3621,24 +3768,35 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
     }
 
     async function load() {
-      setBootProgress(5, '准备启动', '正在初始化加载流程...');
-      await new Promise(function(resolve) { window.setTimeout(resolve, 30); });
-      setBootProgress(18, '加载基础数据', '正在获取决策、K线与订单数据...');
-      const [decisions, ohlcvPayload, ordersPayload] = await Promise.all([
-        fetchJsonWithFallback('decisions.json', []),
-        fetchJsonWithFallback('ohlcv.json', { symbol: 'BTC/USDT:USDT', data: {} }),
-        fetchJsonWithFallback('orders.json', { orders: [] }),
-      ]);
+      await smoothBootProgressTo(4, '准备启动', '正在初始化加载流程...', 140);
+      await new Promise(function(resolve) { window.setTimeout(resolve, 36); });
+      await smoothBootProgressTo(10, '连接数据源', '正在建立本地数据读取任务...', 180);
+
+      const decisionsPromise = fetchJsonWithFallback('decisions.json', []);
+      const ohlcvPromise = fetchJsonWithFallback('ohlcv.json', { symbol: 'BTC/USDT:USDT', data: {} });
+      const ordersPromise = fetchJsonWithFallback('orders.json', { orders: [] });
+
+      await smoothBootProgressTo(16, '加载基础数据', '正在读取决策记录...', 160);
+      const decisions = await decisionsPromise;
+      await smoothBootProgressTo(28, '加载基础数据', '决策记录已就绪，正在读取 K 线数据...', 200);
+      const ohlcvPayload = await ohlcvPromise;
+      await smoothBootProgressTo(40, '加载基础数据', 'K 线数据已就绪，正在读取订单数据...', 200);
+      const ordersPayload = await ordersPromise;
+      await smoothBootProgressTo(50, '加载基础数据', '订单数据已就绪，正在整理时间轴标记...', 200);
+
       const RECORDS = Array.isArray(decisions) ? decisions : [];
       const OHLCV_BY_TF = (ohlcvPayload && ohlcvPayload.data) ? ohlcvPayload.data : (ohlcvPayload || {});
       const symbol = (ohlcvPayload && ohlcvPayload.symbol) ? ohlcvPayload.symbol : 'BTC/USDT:USDT';
       const MARKERS_BY_TF = {};
       (TF_CONFIG || []).forEach(({ key, seconds }) => { MARKERS_BY_TF[key] = buildMarkersForTf(RECORDS, seconds); });
-      setBootProgress(56, '基础数据就绪', '正在初始化页面组件...');
+      await smoothBootProgressTo(58, '基础数据就绪', '正在初始化页面组件...', 180);
       try {
-        await init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload);
-        setBootProgress(92, '配置预热中', '正在同步虾脑配置状态...');
-        await new Promise(function(resolve) { window.setTimeout(resolve, 80); });
+        await init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload, {
+          setProgress: smoothBootProgressTo,
+        });
+        await smoothBootProgressTo(96, '配置预热中', '正在同步虾脑配置状态...', 190);
+        await new Promise(function(resolve) { window.setTimeout(resolve, 100); });
+        await smoothBootProgressTo(99, '即将完成', '正在进入主页面...', 120);
         finishBootOverlay();
       } catch (err) {
         console.error('[thunderclaw] init failed:', err);
@@ -3646,7 +3804,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       }
     }
 
-    async function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload) {
+    async function init(RECORDS, OHLCV_BY_TF, MARKERS_BY_TF, symbol, ordersPayload, bootLike) {
+      const boot = bootLike && typeof bootLike === 'object' ? bootLike : {};
+      const setInitProgress = typeof boot.setProgress === 'function'
+        ? boot.setProgress
+        : function() { return Promise.resolve(); };
+      await setInitProgress(62, '初始化页面组件', '正在构建运行时状态...', 150);
       const isTouchDevice = window.matchMedia('(hover: none), (pointer: coarse)').matches;
       const RECORDS_WITH_TS = RECORDS
         .filter(r => r && r.ts && !r.stage)
@@ -4947,17 +5110,24 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
 
       function renderXbrainModelCenterSelected() {
         const box = document.getElementById('xbrain-model-center-selected');
+        const clearBtn = document.getElementById('xbrain-model-center-selected-clear');
         if (!box) return;
         const refs = getSelectedModelCenterModelRefs();
+        const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
         if (!refs.length) {
-          box.innerHTML = '<span class="xbrain-hint">未选择模型。请在“模型（下拉搜索 + 多选）”中直接勾选。</span>';
+          box.innerHTML = '<span class="xbrain-hint">请选择模型（可多选）</span>';
+          if (clearBtn) clearBtn.disabled = true;
           return;
         }
         box.innerHTML = refs.map(function(ref) {
           return '<span class="xbrain-model-selected-item">'
             + '<span class="text">' + escapeHtml(ref) + '</span>'
+            + '<button type="button" data-model-selected-remove="' + escapeHtml(ref) + '"'
+            + (lockBase ? ' disabled' : '')
+            + ' aria-label="移除已选模型" title="移除">×</button>'
             + '</span>';
         }).join('');
+        if (clearBtn) clearBtn.disabled = lockBase;
       }
 
       function getModelCenterFilteredCatalogItems() {
@@ -5003,8 +5173,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       }
 
       function renderXbrainModelCenterAuthMethodOptions(providerLike) {
-        const authSelect = document.getElementById('xbrain-model-center-auth-method');
-        if (!authSelect) return '';
+        const authInput = document.getElementById('xbrain-model-center-auth-method');
+        const segmentWrap = document.getElementById('xbrain-model-center-auth-segment');
+        if (!authInput || !segmentWrap) return '';
         const provider = normalizeProviderKey(providerLike || '');
         const support = xbrainModelCenterState.authSupport?.[provider] || {};
         const canApiKey = Boolean(support.apiKey);
@@ -5013,27 +5184,37 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         if (canApiKey) options.push({ value: 'api-key', label: 'API Key 连接' });
         if (canOauth) options.push({ value: 'oauth', label: 'OAuth 连接' });
         if (!options.length) {
-          options.push({ value: '', label: '该 Provider 暂不支持页面内连接' });
+          options.push({ value: '', label: '暂不支持页面内连接', disabled: true });
         }
-        const selected = resolveModelCenterSelectedAuthMethod(provider, support);
-        authSelect.innerHTML = options.map(function(opt) {
+        let selected = resolveModelCenterSelectedAuthMethod(provider, support);
+        if (!options.some(function(opt) { return String(opt.value || '').trim() === selected; })) {
+          selected = String(options[0]?.value || '').trim();
+        }
+        authInput.value = selected;
+        const singleOption = options.length <= 1;
+        segmentWrap.innerHTML = options.map(function(opt) {
           const value = String(opt.value || '').trim();
-          const selectedFlag = value && value === selected ? ' selected' : '';
-          return '<option value="' + escapeHtml(value) + '"' + selectedFlag + '>' + escapeHtml(opt.label) + '</option>';
+          const active = value && value === selected;
+          const hardDisabled = Boolean(opt.disabled) || singleOption;
+          return '<button type="button" data-auth-method="' + escapeHtml(value) + '"'
+            + (active ? ' class="active"' : '')
+            + ' data-auth-disabled="' + (hardDisabled ? '1' : '0') + '"'
+            + (hardDisabled ? ' disabled' : '')
+            + '>'
+            + escapeHtml(opt.label)
+            + '</button>';
         }).join('');
-        authSelect.disabled = options.length <= 1;
-        const current = String(authSelect.value || '').trim();
         if (provider) {
-          xbrainModelCenterState.selectedAuthMethodByProvider[provider] = current;
+          xbrainModelCenterState.selectedAuthMethodByProvider[provider] = selected;
         }
-        return current;
+        return selected;
       }
 
       function renderXbrainModelCenterModelPicker() {
-        const toggleBtn = document.getElementById('xbrain-model-center-model-toggle');
+        const toggleWrap = document.getElementById('xbrain-model-center-model-toggle');
         const searchInput = document.getElementById('xbrain-model-center-model-search');
         const optionsEl = document.getElementById('xbrain-model-center-model-options');
-        if (!toggleBtn || !optionsEl) return;
+        if (!toggleWrap || !optionsEl) return;
         const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
         const allCatalogKeys = new Set(
           (Array.isArray(xbrainModelCenterState.catalog) ? xbrainModelCenterState.catalog : [])
@@ -5046,13 +5227,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           setSelectedModelCenterModelRefs(selectedFiltered);
         }
         const finalSelectedRefs = getSelectedModelCenterModelRefs();
-        if (!finalSelectedRefs.length) {
-          toggleBtn.textContent = '请选择模型';
-        } else if (finalSelectedRefs.length === 1) {
-          toggleBtn.textContent = finalSelectedRefs[0];
-        } else {
-          toggleBtn.textContent = '已选择 ' + String(finalSelectedRefs.length) + ' 个模型';
-        }
+        toggleWrap.setAttribute('aria-label', finalSelectedRefs.length ? ('已选择 ' + String(finalSelectedRefs.length) + ' 个模型') : '请选择模型');
         const filtered = getModelCenterFilteredCatalogItems();
         const registeredSet = new Set(
           (Array.isArray(xbrainClientState.data?.base?.modelRegistry) ? xbrainClientState.data.base.modelRegistry : [])
@@ -5122,31 +5297,54 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
 
       function syncXbrainModelCenterAuthUi() {
         const providerSelect = document.getElementById('xbrain-model-center-provider');
-        const authMethodSelect = document.getElementById('xbrain-model-center-auth-method');
+        const authMethodInput = document.getElementById('xbrain-model-center-auth-method');
+        const authSegment = document.getElementById('xbrain-model-center-auth-segment');
         const apiWrap = document.getElementById('xbrain-model-center-api-wrap');
         const tipEl = document.getElementById('xbrain-model-center-tip');
         const connectBtn = document.getElementById('xbrain-model-center-connect-btn');
+        const modelToggle = document.getElementById('xbrain-model-center-model-toggle');
+        const clearSelectedBtn = document.getElementById('xbrain-model-center-selected-clear');
         const lockBase = Boolean(xbrainClientState.data?.locks?.base?.locked);
+        if (modelToggle) {
+          modelToggle.setAttribute('aria-disabled', lockBase ? 'true' : 'false');
+          modelToggle.classList.toggle('is-disabled', lockBase);
+        }
         const selectedRefs = getSelectedModelCenterModelRefs();
         const selectedProviders = Array.from(new Set(selectedRefs.map(function(ref) {
           return inferProviderFromModelRef(ref);
         })));
+        const fallbackProvider = normalizeProviderKey(xbrainClientState.data?.base?.modelProvider || 'deepseek');
+        const providerFromSelectRaw = normalizeProviderKey(providerSelect?.value || fallbackProvider);
+        const providerFromSelect = providerFromSelectRaw === 'all' ? fallbackProvider : providerFromSelectRaw;
         const selectedProvider = selectedProviders.length === 1
           ? selectedProviders[0]
-          : normalizeProviderKey(providerSelect?.value || 'deepseek');
+          : providerFromSelect;
         const hasMixedProviders = selectedProviders.length > 1;
         const hasSelectedModel = selectedRefs.length > 0;
         if (hasMixedProviders) {
           if (tipEl) tipEl.textContent = '当前多选包含多个 Provider，请按单一 Provider 分批连接并注册。';
           if (apiWrap) apiWrap.style.display = 'none';
+          if (authSegment) {
+            authSegment.querySelectorAll('button[data-auth-method]').forEach(function(btn) {
+              btn.disabled = true;
+            });
+          }
           if (connectBtn) connectBtn.disabled = true;
+          if (clearSelectedBtn) clearSelectedBtn.disabled = lockBase || !selectedRefs.length;
           return;
         }
         const support = xbrainModelCenterState.authSupport?.[selectedProvider] || {};
         const canApiKey = Boolean(support.apiKey);
         const canOauth = Boolean(support.oauth);
         const selectedAuthMethod = renderXbrainModelCenterAuthMethodOptions(selectedProvider);
-        const authMethod = String(authMethodSelect?.value || selectedAuthMethod || '').trim();
+        const authMethod = String(authMethodInput?.value || selectedAuthMethod || '').trim();
+        if (authSegment) {
+          const disableByScope = lockBase || !selectedProvider || selectedProvider === 'all';
+          authSegment.querySelectorAll('button[data-auth-method]').forEach(function(btn) {
+            const hardDisabled = String(btn.getAttribute('data-auth-disabled') || '') === '1';
+            btn.disabled = hardDisabled || disableByScope;
+          });
+        }
         if (apiWrap) apiWrap.style.display = authMethod === 'api-key' && canApiKey ? '' : 'none';
         if (tipEl) {
           let tip = '连接成功后会自动把已选模型注册到 ThunderClaw 顶部切换器。';
@@ -5161,6 +5359,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const apiKey = String(document.getElementById('xbrain-model-center-api-key')?.value || '').trim();
           const apiNeedsKey = authMethod === 'api-key' && !providerConfigured && !apiKey;
           connectBtn.disabled = lockBase || !hasSelectedModel || !selectedProvider || selectedProvider === 'all' || apiNeedsKey;
+        }
+        if (clearSelectedBtn) {
+          clearSelectedBtn.disabled = lockBase || !selectedRefs.length;
         }
       }
 
@@ -5595,6 +5796,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             'xbrain-model-center-provider',
             'xbrain-model-center-auth-method',
             'xbrain-model-center-model-toggle',
+            'xbrain-model-center-selected-clear',
             'xbrain-model-center-model-search',
             'xbrain-model-center-api-key',
             'xbrain-model-center-api-eye',
@@ -5617,6 +5819,18 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const el = document.getElementById(id);
             if (el) el.disabled = disabled;
           });
+          const modelToggle = document.getElementById('xbrain-model-center-model-toggle');
+          if (modelToggle) {
+            modelToggle.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+            modelToggle.classList.toggle('is-disabled', disabled);
+          }
+          const authSegment = document.getElementById('xbrain-model-center-auth-segment');
+          if (authSegment) {
+            authSegment.querySelectorAll('button[data-auth-method]').forEach(function(btn) {
+              const hardDisabled = String(btn.getAttribute('data-auth-disabled') || '') === '1';
+              btn.disabled = disabled || hardDisabled;
+            });
+          }
           const connectedList = document.getElementById('xbrain-model-center-connected-list');
           if (connectedList) {
             connectedList.querySelectorAll('button[data-model-center-action]').forEach(function(btn) {
@@ -6253,10 +6467,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const modelCenterRefreshBtn = document.getElementById('xbrain-model-center-refresh-btn');
         const modelCenterProviderEl = document.getElementById('xbrain-model-center-provider');
         const modelCenterAuthMethodEl = document.getElementById('xbrain-model-center-auth-method');
+        const modelCenterAuthSegmentEl = document.getElementById('xbrain-model-center-auth-segment');
         const modelCenterModelToggleEl = document.getElementById('xbrain-model-center-model-toggle');
         const modelCenterModelPanelEl = document.getElementById('xbrain-model-center-model-panel');
         const modelCenterModelSearchEl = document.getElementById('xbrain-model-center-model-search');
         const modelCenterModelOptionsEl = document.getElementById('xbrain-model-center-model-options');
+        const modelCenterSelectedClearBtn = document.getElementById('xbrain-model-center-selected-clear');
         const modelCenterApiKeyEl = document.getElementById('xbrain-model-center-api-key');
         const modelCenterApiEyeBtn = document.getElementById('xbrain-model-center-api-eye');
         const modelCenterConnectBtn = document.getElementById('xbrain-model-center-connect-btn');
@@ -6577,19 +6793,38 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             renderXbrainModelCenterCatalog();
           });
         }
-        if (modelCenterAuthMethodEl) {
-          modelCenterAuthMethodEl.addEventListener('change', function() {
+        if (modelCenterAuthSegmentEl && modelCenterAuthMethodEl) {
+          modelCenterAuthSegmentEl.addEventListener('click', function(ev) {
+            const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-auth-method]') : null;
+            if (!btn || btn.disabled) return;
+            ev.preventDefault();
+            const method = String(btn.getAttribute('data-auth-method') || '').trim();
+            modelCenterAuthMethodEl.value = method;
             const provider = normalizeProviderKey(getModelCenterCurrentProvider() || '');
             if (provider) {
-              xbrainModelCenterState.selectedAuthMethodByProvider[provider] = String(modelCenterAuthMethodEl.value || '').trim();
+              xbrainModelCenterState.selectedAuthMethodByProvider[provider] = method;
+              renderXbrainModelCenterAuthMethodOptions(provider);
             }
             syncXbrainModelCenterAuthUi();
           });
         }
         if (modelCenterModelToggleEl) {
           modelCenterModelToggleEl.addEventListener('click', function(ev) {
+            const target = ev.target && ev.target.closest ? ev.target.closest('button[data-model-selected-remove],#xbrain-model-center-selected-clear') : null;
+            if (target) return;
             ev.preventDefault();
-            if (modelCenterModelToggleEl.disabled) return;
+            if (modelCenterModelToggleEl.disabled || modelCenterModelToggleEl.getAttribute('aria-disabled') === 'true') return;
+            setModelCenterModelPanelOpen(!xbrainModelCenterState.modelPanelOpen);
+            if (xbrainModelCenterState.modelPanelOpen && modelCenterModelSearchEl) {
+              window.requestAnimationFrame(function() {
+                try { modelCenterModelSearchEl.focus(); } catch (_) {}
+              });
+            }
+          });
+          modelCenterModelToggleEl.addEventListener('keydown', function(ev) {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            ev.preventDefault();
+            if (modelCenterModelToggleEl.disabled || modelCenterModelToggleEl.getAttribute('aria-disabled') === 'true') return;
             setModelCenterModelPanelOpen(!xbrainModelCenterState.modelPanelOpen);
             if (xbrainModelCenterState.modelPanelOpen && modelCenterModelSearchEl) {
               window.requestAnimationFrame(function() {
@@ -6633,15 +6868,30 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           setModelCenterModelPanelOpen(false);
         });
         if (modelCenterSelectedBox) {
-          modelCenterSelectedBox.addEventListener('click', function() {
-            if (modelCenterModelToggleEl && !modelCenterModelToggleEl.disabled) {
-              setModelCenterModelPanelOpen(true);
-              if (modelCenterModelSearchEl) {
-                window.requestAnimationFrame(function() {
-                  try { modelCenterModelSearchEl.focus(); } catch (_) {}
-                });
-              }
-            }
+          modelCenterSelectedBox.addEventListener('click', function(ev) {
+            const removeBtn = ev.target && ev.target.closest ? ev.target.closest('button[data-model-selected-remove]') : null;
+            if (!removeBtn) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (removeBtn.disabled) return;
+            const modelRef = String(removeBtn.getAttribute('data-model-selected-remove') || '').trim();
+            if (!modelRef) return;
+            const nextRefs = getSelectedModelCenterModelRefs().filter(function(ref) { return ref !== modelRef; });
+            setSelectedModelCenterModelRefs(nextRefs);
+            renderXbrainModelCenterModelPicker();
+            renderXbrainModelCenterSelected();
+            syncXbrainModelCenterAuthUi();
+          });
+        }
+        if (modelCenterSelectedClearBtn) {
+          modelCenterSelectedClearBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (modelCenterSelectedClearBtn.disabled) return;
+            setSelectedModelCenterModelRefs([]);
+            renderXbrainModelCenterModelPicker();
+            renderXbrainModelCenterSelected();
+            syncXbrainModelCenterAuthUi();
           });
         }
         if (modelCenterApiEyeBtn) {
@@ -11931,12 +12181,19 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       if (pagePrev) pagePrev.addEventListener('click', () => { if (currentPage > 1) { currentPage -= 1; render(); } });
       if (pageNext) pageNext.addEventListener('click', () => { currentPage += 1; render(); });
       [filterExecuted, filterSkipped, filterSignal, filterErrors].filter(Boolean).forEach(el => el.addEventListener('change', () => { currentPage = 1; render(); }));
+      await setInitProgress(68, '初始化页面组件', '正在渲染交易记录视图...', 170);
       render();
+      await setInitProgress(74, '初始化页面组件', '正在渲染订单历史视图...', 170);
       renderHistoryOrders();
+      await setInitProgress(80, '初始化页面组件', '正在渲染 ThunderClaw 主面板...', 180);
       renderDashboard();
+      await setInitProgress(85, '初始化页面组件', '正在加载虾策模块...', 160);
       setupBacktestPanel();
+      await setInitProgress(88, '初始化页面组件', '正在加载虾海模块...', 160);
       setupXseaPanel();
+      await setInitProgress(92, '初始化页面组件', '正在加载虾脑模型与控制台...', 190);
       await setupXbrainPanel();
+      await setInitProgress(94, '初始化收尾', '正在切换默认视图...', 120);
       switchView('dashboard');
     }
 
