@@ -622,6 +622,11 @@ function extractUrlFromText(textLike) {
   return m ? String(m[0] || "").trim() : "";
 }
 
+function sleepMs(msLike) {
+  const ms = Number.isFinite(Number(msLike)) ? Math.max(0, Number(msLike)) : 0;
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function pushOauthLog(stream, chunkLike) {
   const raw = String(chunkLike || "");
   const lines = stripAnsi(raw)
@@ -1300,69 +1305,73 @@ async function syncXbrainFromOpenClaw() {
   const deepseekEntry = getAuthProviderEntry(modelsJson, "deepseek");
   const openaiEntry = getAuthProviderEntry(modelsJson, "chatgpt");
   const anthropicEntry = getAuthProviderEntry(modelsJson, "anthropic");
+  const oauthRunningProvider = oauthIsRunning() ? normalizeProviderKey(oauthState.provider) : "";
+  const oauthLastProvider = normalizeProviderKey(oauthState?.last?.provider || "");
+  const oauthLastError = String(oauthState?.last?.error || "").trim();
+  const effectiveKind = (entryLike) => String(entryLike?.effective?.kind || "").trim();
+  const effectiveDetail = (entryLike) => String(entryLike?.effective?.detail || "").trim();
+  const hasEffectiveAuth = (entryLike) => Boolean(entryLike?.effective && String(entryLike.effective.kind || "") !== "none");
 
   const deepseekKey = String(xbrainStore.base.deepseekApiKey || "").trim();
-  const deepseekDetail = String(deepseekEntry?.effective?.detail || "").trim();
+  const deepseekDetail = effectiveDetail(deepseekEntry);
   const deepseekConfigured = Boolean(
-    deepseekKey || deepseekDetail || (deepseekEntry?.effective && deepseekEntry.effective.kind !== "none"),
+    deepseekKey || deepseekDetail || hasEffectiveAuth(deepseekEntry),
   );
+  const chatgptConfigured = hasEffectiveAuth(openaiEntry);
+  const chatgptPending = oauthRunningProvider === "chatgpt";
+  const anthropicConfigured = hasEffectiveAuth(anthropicEntry);
+  const anthropicPending = oauthRunningProvider === "anthropic";
   const providerAuth = {
     ...(baseAuth || {}),
     deepseek: {
       configured: deepseekConfigured,
       masked: deepseekKey ? maskSecret(deepseekKey) : deepseekDetail || "(未设置)",
       plain: deepseekKey,
-      source: String(deepseekEntry?.effective?.kind || (deepseekConfigured ? "xbrain" : "-")),
+      source: String(effectiveKind(deepseekEntry) || (deepseekConfigured ? "xbrain" : "-")),
       error: "",
       type: "apiKey",
     },
     chatgpt: {
-      configured: Boolean(openaiEntry?.effective && openaiEntry.effective.kind !== "none")
-        || Boolean(baseAuth?.chatgpt?.configured),
-      masked: Boolean(openaiEntry?.effective && openaiEntry.effective.kind !== "none") || Boolean(baseAuth?.chatgpt?.configured)
-        ? "oauth-connected"
-        : "(未设置)",
+      configured: chatgptConfigured,
+      masked: chatgptConfigured ? "oauth-connected" : (chatgptPending ? "等待授权" : "(未设置)"),
       plain: "",
-      source: String(openaiEntry?.effective?.kind || (baseAuth?.chatgpt?.configured ? "oauth" : "-")),
-      error: "",
-      type: "oauth",
+      source: chatgptConfigured ? String(effectiveKind(openaiEntry) || "oauth") : (chatgptPending ? "oauth_pending" : "-"),
+      error: !chatgptConfigured && !chatgptPending && oauthLastProvider === "chatgpt" ? oauthLastError : "",
+      type: String(baseAuth?.chatgpt?.type || "oauth"),
     },
     anthropic: {
-      configured: Boolean(anthropicEntry?.effective && anthropicEntry.effective.kind !== "none")
-        || Boolean(baseAuth?.anthropic?.configured),
-      masked: Boolean(anthropicEntry?.effective && anthropicEntry.effective.kind !== "none")
-        || Boolean(baseAuth?.anthropic?.configured)
-        ? "oauth-connected"
-        : "(未设置)",
+      configured: anthropicConfigured,
+      masked: anthropicConfigured ? "oauth-connected" : (anthropicPending ? "等待授权" : "(未设置)"),
       plain: "",
-      source: String(anthropicEntry?.effective?.kind || (baseAuth?.anthropic?.configured ? "oauth" : "-")),
-      error: "",
-      type: "oauth",
+      source: anthropicConfigured ? String(effectiveKind(anthropicEntry) || "oauth") : (anthropicPending ? "oauth_pending" : "-"),
+      error: !anthropicConfigured && !anthropicPending && oauthLastProvider === "anthropic" ? oauthLastError : "",
+      type: String(baseAuth?.anthropic?.type || "oauth"),
     },
   };
   for (const provider of xbrainStore.base.providerCatalog || []) {
     const key = normalizeProviderKey(provider);
     if (!providerAuth[key]) {
       const entry = getAuthProviderEntry(modelsJson, key);
-      const configured = Boolean(entry?.effective && entry.effective.kind !== "none");
+      const configured = hasEffectiveAuth(entry);
+      const pending = oauthRunningProvider === key;
+      const detail = effectiveDetail(entry);
       providerAuth[key] = {
         configured,
-        masked: configured ? String(entry?.effective?.detail || "configured") : "(未设置)",
+        masked: configured ? (detail || "configured") : (pending ? "等待授权" : "(未设置)"),
         plain: "",
-        source: String(entry?.effective?.kind || "-"),
-        error: "",
+        source: configured ? String(effectiveKind(entry) || "openclaw") : (pending ? "oauth_pending" : "-"),
+        error: !configured && !pending && oauthLastProvider === key ? oauthLastError : "",
         type: providerAuthType(key),
       };
-    } else {
-      providerAuth[key] = {
-        configured: Boolean(providerAuth[key].configured),
-        masked: String(providerAuth[key].masked || "(未设置)"),
-        plain: String(providerAuth[key].plain || ""),
-        source: String(providerAuth[key].source || "-"),
-        error: String(providerAuth[key].error || ""),
-        type: String(providerAuth[key].type || providerAuthType(key)),
-      };
     }
+    providerAuth[key] = {
+      configured: Boolean(providerAuth[key].configured),
+      masked: String(providerAuth[key].masked || "(未设置)"),
+      plain: String(providerAuth[key].plain || ""),
+      source: String(providerAuth[key].source || "-"),
+      error: String(providerAuth[key].error || ""),
+      type: String(providerAuth[key].type || providerAuthType(key)),
+    };
   }
   xbrainStore.base.providerAuth = providerAuth;
   xbrainStore.base.telegramRelayEnabled = Boolean(xbrainStore.base.telegramRelayEnabled);
@@ -2021,16 +2030,41 @@ async function handleXbrainModelSwitch(req, res) {
   const body = await readJsonBody(req);
   const modelRefInput = String(body.modelId || body.modelRef || "").trim();
   const provider = normalizeProviderKey(body.modelProvider || "");
+  if (!modelRefInput) {
+    sendJson(res, 400, { ok: false, error: "modelRef is required" });
+    return;
+  }
   const modelRef = modelRefInput.includes("/")
     ? modelRefInput
     : toModelRef(provider || xbrainStore.base.modelProvider, modelRefInput);
+  const registry = uniqStrings(xbrainStore.base.modelRegistry || []);
+  if (!registry.includes(modelRef)) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "model is not registered in ThunderClaw model registry",
+      modelRef,
+      registered: registry,
+    });
+    return;
+  }
   const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
+  if (!setRes.ok) {
+    sendJson(res, 400, {
+      ok: false,
+      error: (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      modelRef,
+      openclawModelSync: {
+        ok: false,
+        error: (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      },
+    });
+    return;
+  }
   const inferred = inferProviderFromModelRef(modelRef);
   xbrainStore.base.modelProvider = inferred.provider;
   xbrainStore.base.modelId = inferred.modelId;
   xbrainStore.base.runtimeModelProvider = inferred.provider;
   xbrainStore.base.runtimeModelId = inferred.modelId;
-  xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
   saveXbrainStore();
   await syncXbrainFromOpenClaw();
   sendJson(res, 200, {
@@ -2046,6 +2080,9 @@ async function handleXbrainModelSwitch(req, res) {
 async function handleXbrainModelsCatalog(req, res) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const refresh = String(url.searchParams.get("refresh") || "0") === "1";
+  if (refresh) {
+    await syncXbrainFromOpenClaw().catch(() => null);
+  }
   const catalog = await listOpenClawModelsCatalog(refresh);
   if (!catalog.ok) {
     sendJson(res, 500, { ok: false, error: catalog.error || "获取模型目录失败" });
@@ -2121,6 +2158,13 @@ async function handleXbrainModelConnect(req, res) {
     sendJson(res, 400, { ok: false, error: "all models in one request must belong to same provider" });
     return;
   }
+  const providerCatalogBeforeConnect = sanitizeProviderCatalog(xbrainStore.base.providerCatalog || []);
+  const modelRegistryBeforeConnect = uniqStrings(xbrainStore.base.modelRegistry || []);
+  const providerAuthBeforeConnect = JSON.parse(JSON.stringify(
+    xbrainStore.base.providerAuth && typeof xbrainStore.base.providerAuth === "object"
+      ? xbrainStore.base.providerAuth
+      : {},
+  ));
 
   const apiKey = String(body.apiKey || "").trim();
   let authMethod = String(body.authMethod || "").trim().toLowerCase();
@@ -2139,6 +2183,7 @@ async function handleXbrainModelConnect(req, res) {
 
   let setupInfo = null;
   let oauthInfo = null;
+  let providerConfiguredAfterAuth = isProviderConfigured(provider);
   if (authMethod === "api-key") {
     const setupProvider = PROVIDER_TO_SETUP_PROVIDER[provider];
     if (!setupProvider) {
@@ -2179,6 +2224,7 @@ async function handleXbrainModelConnect(req, res) {
         deepseekTune,
         reused: false,
       };
+      providerConfiguredAfterAuth = true;
     } else if (isProviderConfigured(provider)) {
       ensureProviderAuthEntry(provider, {
         configured: true,
@@ -2191,6 +2237,7 @@ async function handleXbrainModelConnect(req, res) {
         deepseekTune: null,
         reused: true,
       };
+      providerConfiguredAfterAuth = true;
     } else {
       sendJson(res, 400, { ok: false, error: "apiKey is required for api-key connect" });
       return;
@@ -2201,22 +2248,42 @@ async function handleXbrainModelConnect(req, res) {
       sendJson(res, 400, { ok: false, error: `provider ${provider} does not support oauth connect in xbrain` });
       return;
     }
+    await syncXbrainFromOpenClaw().catch(() => null);
+    providerConfiguredAfterAuth = isProviderConfigured(provider);
     const outcome = startOAuthLogin(oauthProvider);
     if (!outcome.ok) {
       sendJson(res, 400, outcome);
       return;
     }
-    const current = xbrainStore.base.providerAuth?.[provider];
-    const configured = Boolean(current?.configured);
     ensureProviderAuthEntry(provider, {
-      configured,
-      masked: configured ? "oauth-connected" : "等待授权",
+      configured: providerConfiguredAfterAuth,
+      masked: providerConfiguredAfterAuth ? "oauth-connected" : "等待授权",
       plain: "",
-      source: configured ? String(current?.source || "oauth") : "oauth_pending",
+      source: providerConfiguredAfterAuth ? "oauth" : "oauth_pending",
       error: "",
       type: "oauth",
     });
     oauthInfo = outcome;
+    if (outcome.started) {
+      await sleepMs(1200);
+      const oauthStatus = getOauthStatus();
+      const relatedProvider = normalizeProviderKey(oauthStatus?.last?.provider || oauthStatus?.provider || "");
+      const justFinished = !oauthStatus.running && relatedProvider === provider;
+      if (justFinished) {
+        await syncXbrainFromOpenClaw().catch(() => null);
+        providerConfiguredAfterAuth = isProviderConfigured(provider);
+        if (!providerConfiguredAfterAuth) {
+          sendJson(res, 400, {
+            ok: false,
+            stage: "oauth",
+            error: String(oauthStatus?.last?.error || "OAuth 流程未完成，未检测到有效授权。"),
+            commandHint: String(oauthStatus?.commandHint || oauthStatus?.last?.commandHint || outcome.commandHint || ""),
+            oauth: oauthStatus,
+          });
+          return;
+        }
+      }
+    }
   } else {
     ensureProviderAuthEntry(provider, {
       source: "model_registry",
@@ -2229,8 +2296,9 @@ async function handleXbrainModelConnect(req, res) {
     xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...modelRefs]);
   }
 
-  let modelSet = { attempted: false, ok: null, error: null, modelRef: null };
-  if (registerModel && setAsCurrent && modelRefs.length) {
+  let modelSet = { attempted: false, ok: null, error: null, modelRef: null, deferred: false };
+  const deferModelSetForOAuth = authMethod === "oauth" && !providerConfiguredAfterAuth;
+  if (registerModel && setAsCurrent && modelRefs.length && !deferModelSetForOAuth) {
     const targetModelRef = String(body.defaultModelRef || modelRefs[0] || "").trim();
     const setRes = await runOpenClawCommand(["models", "set", targetModelRef], { timeoutMs: 40_000 });
     modelSet = {
@@ -2238,6 +2306,7 @@ async function handleXbrainModelConnect(req, res) {
       ok: setRes.ok,
       error: setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed"),
       modelRef: targetModelRef,
+      deferred: false,
     };
     if (setRes.ok) {
       const inferred = inferProviderFromModelRef(targetModelRef);
@@ -2246,10 +2315,46 @@ async function handleXbrainModelConnect(req, res) {
       xbrainStore.base.runtimeModelProvider = inferred.provider;
       xbrainStore.base.runtimeModelId = inferred.modelId;
     }
+  } else if (registerModel && setAsCurrent && modelRefs.length && deferModelSetForOAuth) {
+    modelSet = {
+      attempted: false,
+      ok: null,
+      error: null,
+      modelRef: String(body.defaultModelRef || modelRefs[0] || "").trim(),
+      deferred: true,
+    };
   }
 
   saveXbrainStore();
   await syncXbrainFromOpenClaw();
+  const finalState = getXbrainStateSnapshot();
+  const providerConfiguredFinal = Boolean(finalState?.base?.providerAuth?.[provider]?.configured);
+  const oauthStatusFinal = getOauthStatus();
+  const oauthPending = authMethod === "oauth"
+    && Boolean(oauthStatusFinal?.running)
+    && normalizeProviderKey(oauthStatusFinal?.provider || "") === provider;
+  if (authMethod === "oauth" && !providerConfiguredFinal && !oauthPending) {
+    xbrainStore.base.providerCatalog = providerCatalogBeforeConnect;
+    xbrainStore.base.modelRegistry = modelRegistryBeforeConnect;
+    xbrainStore.base.providerAuth = providerAuthBeforeConnect;
+    saveXbrainStore();
+    await syncXbrainFromOpenClaw().catch(() => null);
+    const rollbackState = getXbrainStateSnapshot();
+    sendJson(res, 400, {
+      ok: false,
+      stage: "oauth",
+      error: String(oauthStatusFinal?.last?.error || "OAuth 未完成，未检测到有效授权。"),
+      provider,
+      modelRefs,
+      registerModel,
+      authMethod,
+      commandHint: String(oauthStatusFinal?.commandHint || oauthInfo?.commandHint || ""),
+      oauth: oauthInfo,
+      state: rollbackState,
+      rolledBack: true,
+    });
+    return;
+  }
   const primaryModelRef = modelRefs[0] || "";
   sendJson(res, 200, {
     ok: true,
@@ -2261,15 +2366,22 @@ async function handleXbrainModelConnect(req, res) {
     authMethod,
     setup: setupInfo,
     oauth: oauthInfo,
+    oauthPending,
+    providerConfigured: providerConfiguredFinal,
+    commandHint: String(oauthStatusFinal?.commandHint || oauthInfo?.commandHint || ""),
     modelSet,
-    state: getXbrainStateSnapshot(),
-    message: !registerModel
-      ? "连接信息已更新（未加入切换列表）。"
+    state: finalState,
+    message: (authMethod === "oauth" && oauthPending)
+        ? "OAuth 已发起，等待浏览器授权完成后自动生效。"
+      : (authMethod === "oauth" && providerConfiguredFinal)
+        ? (!registerModel ? "OAuth 已完成，Provider 已连接。" : "OAuth 已完成，模型已连接并可切换。")
+      : (authMethod === "oauth" && !providerConfiguredFinal)
+        ? (!registerModel ? "OAuth 未完成，连接尚未生效。" : "OAuth 未完成，模型仅已登记到列表。")
+      : !registerModel
+        ? "连接信息已更新（未加入切换列表）。"
       : (modelSet.attempted && modelSet.ok)
         ? "模型已连接并注册到 ThunderClaw 切换列表。"
-        : (authMethod === "oauth"
-          ? "OAuth 已发起，模型已注册；完成授权后可在顶部模型切换器切换。"
-          : "模型已注册到切换列表。"),
+        : "模型已注册到切换列表。",
   });
 }
 
@@ -2364,7 +2476,32 @@ async function handleXbrainAuthStart(req, res) {
     return;
   }
   const outcome = startOAuthLogin(oauthProvider);
-  sendJson(res, outcome.ok ? 200 : 400, outcome);
+  if (!outcome.ok) {
+    sendJson(res, 400, outcome);
+    return;
+  }
+  await sleepMs(1200);
+  const status = getOauthStatus();
+  const relatedProvider = normalizeProviderKey(status?.last?.provider || status?.provider || "");
+  if (!status.running && relatedProvider === provider) {
+    await syncXbrainFromOpenClaw().catch(() => null);
+    if (!isProviderConfigured(provider)) {
+      sendJson(res, 400, {
+        ok: false,
+        stage: "oauth",
+        error: String(status?.last?.error || "OAuth 流程未完成，未检测到有效授权。"),
+        commandHint: String(status?.commandHint || status?.last?.commandHint || outcome.commandHint || ""),
+        status,
+      });
+      return;
+    }
+  }
+  sendJson(res, 200, {
+    ...outcome,
+    pending: Boolean(status.running && relatedProvider === provider),
+    commandHint: String(status?.commandHint || outcome.commandHint || ""),
+    status,
+  });
 }
 
 async function handleXbrainAuthStatus(req, res) {

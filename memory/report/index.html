@@ -2776,10 +2776,16 @@
           continue;
         }
         if (Number(status?.exitCode) === 0) {
-          d.setOauthConnected?.(provider, true);
-          d.safeLocalJsonWrite?.(d.oauthConnectedKey, d.getOauthMap?.());
-          d.setXbrainBaseSubStatus?.('model', '登录完成，正在自动检测...', 'ok');
-          await runXbrainProviderProbeFlow({ provider, showModal: false });
+          const fresh = await d.fetchXbrainState(true).catch(function() { return null; });
+          const configured = Boolean(fresh?.base?.providerAuth?.[provider]?.configured);
+          if (configured) {
+            d.setOauthConnected?.(provider, true);
+            d.safeLocalJsonWrite?.(d.oauthConnectedKey, d.getOauthMap?.());
+            d.setXbrainBaseSubStatus?.('model', '登录完成，正在自动检测...', 'ok');
+            await runXbrainProviderProbeFlow({ provider, showModal: false });
+            break;
+          }
+          d.setXbrainBaseSubStatus?.('model', '登录流程结束，但未检测到有效授权。', 'err');
           break;
         }
         const err = String(status?.error || '').trim();
@@ -3300,11 +3306,6 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
   return true;
 }
 
-    const XBRAIN_MODEL_OPTIONS = {
-      deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
-      chatgpt: ['openai-codex/gpt-5.3-codex', 'openai-codex/gpt-5.2-codex', 'openai-codex/gpt-5.1-codex'],
-      anthropic: ['anthropic/claude-3-5-sonnet', 'anthropic/claude-opus-4-6'],
-    };
     (function disableLegacyPwaCaches() {
       try {
         if ('serviceWorker' in navigator && navigator.serviceWorker?.getRegistrations) {
@@ -3681,28 +3682,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       function buildThunderModelOptionsFromState(stateLike) {
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const base = state.base && typeof state.base === 'object' ? state.base : {};
-        const registered = Array.isArray(base.modelRegistry) ? base.modelRegistry : [];
-        const configuredModel = String(base.modelId || '').trim();
-        const runtimeModel = String(base.runtimeModelId || '').trim();
-        const options = [];
-        registered.forEach(function(m) { options.push(String(m || '')); });
-        // 厂商已上线时，ThunderClaw 侧自动补齐该厂商的全部可用模型选项。
-        const hasProvider = { deepseek: false, chatgpt: false, anthropic: false };
-        registered.forEach(function(m) {
-          const p = inferProviderFromModelRef(m);
-          if (p === 'deepseek' || p === 'chatgpt' || p === 'anthropic') hasProvider[p] = true;
-        });
-        if (hasProvider.deepseek) {
-          (XBRAIN_MODEL_OPTIONS.deepseek || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (hasProvider.chatgpt) {
-          (XBRAIN_MODEL_OPTIONS.chatgpt || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (hasProvider.anthropic) {
-          (XBRAIN_MODEL_OPTIONS.anthropic || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (configuredModel) options.push(configuredModel);
-        if (runtimeModel) options.push(runtimeModel);
+        const registered = Array.isArray(base.modelRegistry)
+          ? base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+          : [];
+        const options = registered.filter(function(ref) { return String(ref || '').includes('/'); });
         const dedup = [];
         const seen = new Set();
         options.forEach(function(m) {
@@ -3746,11 +3729,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       function renderThunderModelSwitch(stateLike) {
         if (!modelSwitchWrapEl || !modelSwitchToggleEl || !modelSwitchPopoverEl) return;
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
-        const base = state.base && typeof state.base === 'object' ? state.base : {};
-        const runtimeModel = String(base.runtimeModelId || base.modelId || '').trim();
-        const configuredModel = String(base.modelId || '').trim();
+        const currentRuntimeRef = getCurrentRuntimeModelRef(state);
         availableThunderModels = buildThunderModelOptionsFromState(state);
-        const shown = runtimeModel || configuredModel || (availableThunderModels[0] || '');
+        const shown = currentRuntimeRef || (availableThunderModels[0] || '');
         modelSwitchToggleEl.textContent = '模型: ' + formatModelSwitchLabel(shown) + ' ▾';
         const grouped = groupModelsByProvider(availableThunderModels);
         const knownOrder = ['chatgpt', 'deepseek', 'anthropic'];
@@ -5422,16 +5403,15 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
       function getAvailableModelsForProvider(providerLike) {
         const rawProvider = String(providerLike || 'deepseek').trim() || 'deepseek';
         const provider = rawProvider === 'codex' ? 'chatgpt' : rawProvider;
-        const defaults = Array.isArray(XBRAIN_MODEL_OPTIONS[provider]) ? XBRAIN_MODEL_OPTIONS[provider] : [];
         const registry = Array.isArray(xbrainClientState.data?.base?.modelRegistry)
           ? xbrainClientState.data.base.modelRegistry.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
           : [];
-        const options = Array.from(new Set(defaults.concat(
+        const options = Array.from(new Set(
           registry.filter(function(ref) {
             const p = inferProviderFromModelRef(ref);
             return (provider === 'chatgpt' && p === 'chatgpt') || p === provider;
           }),
-        )));
+        ));
         return options;
       }
 
@@ -5980,6 +5960,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           xbrainModelCenterState.oauthMonitorRunning = true;
           const startedAt = Date.now();
           let shownUrl = '';
+          let autoOpened = false;
           setXbrainModelCenterStatus('OAuth 已发起，正在等待授权完成...', 'ok');
           try {
             while (Date.now() - startedAt < 5 * 60 * 1000) {
@@ -5989,7 +5970,20 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               const loginUrl = String(authPayload?.status?.url || '').trim();
               if (running && loginUrl && loginUrl !== shownUrl) {
                 shownUrl = loginUrl;
-                setXbrainModelCenterStatus('请在新窗口完成 OAuth 授权：' + loginUrl, 'ok');
+                if (!autoOpened) {
+                  autoOpened = true;
+                  let opened = false;
+                  try {
+                    const win = window.open(loginUrl, '_blank', 'noopener,noreferrer');
+                    opened = Boolean(win);
+                  } catch (_) {}
+                  setXbrainModelCenterStatus(
+                    (opened ? '已尝试打开 OAuth 授权页面：' : '请手动打开 OAuth 授权页面：') + loginUrl,
+                    'ok',
+                  );
+                } else {
+                  setXbrainModelCenterStatus('请在新窗口完成 OAuth 授权：' + loginUrl, 'ok');
+                }
               }
               if (running) continue;
               await fetchXbrainState(true);
@@ -6091,10 +6085,27 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             }
             await fetchXbrainState(true);
             await refreshXbrainModelCenterCatalog(false);
-            const msg = String(payload?.message || '').trim() || '操作完成。';
-            setXbrainModelCenterStatus(msg, 'ok');
-            if (authMethod === 'oauth' && payload?.oauth?.ok) {
-              void monitorModelCenterOauth(provider);
+            if (authMethod === 'oauth') {
+              const pending = Boolean(payload?.oauthPending);
+              const configured = Boolean(payload?.providerConfigured);
+              const hint = String(payload?.commandHint || payload?.oauth?.commandHint || '').trim();
+              if (pending) {
+                setXbrainModelCenterStatus(
+                  'OAuth 已发起，等待授权完成...' + (hint ? ('\n' + hint) : ''),
+                  'ok',
+                );
+                void monitorModelCenterOauth(provider);
+              } else if (configured) {
+                setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
+              } else {
+                setXbrainModelCenterStatus(
+                  providerLabel(provider) + ' OAuth 未完成，请重试。' + (hint ? ('\n' + hint) : ''),
+                  'err',
+                );
+              }
+            } else {
+              const msg = String(payload?.message || '').trim() || '操作完成。';
+              setXbrainModelCenterStatus(msg, 'ok');
             }
           } catch (err) {
             setXbrainModelCenterStatus('模型处理失败：' + String(err?.message || err), 'err');
@@ -6282,9 +6293,23 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
                   setAsCurrent: false,
                 })
                   .then(function(payload) {
-                    const msg = String(payload?.message || 'OAuth 已发起，请完成授权。');
-                    setXbrainModelCenterStatus(msg, 'ok');
-                    void monitorModelCenterOauth(provider);
+                    const pending = Boolean(payload?.oauthPending);
+                    const configured = Boolean(payload?.providerConfigured);
+                    const hint = String(payload?.commandHint || payload?.oauth?.commandHint || '').trim();
+                    if (pending) {
+                      setXbrainModelCenterStatus(
+                        'OAuth 已发起，等待授权完成...' + (hint ? ('\n' + hint) : ''),
+                        'ok',
+                      );
+                      void monitorModelCenterOauth(provider);
+                    } else if (configured) {
+                      setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
+                    } else {
+                      setXbrainModelCenterStatus(
+                        providerLabel(provider) + ' OAuth 未完成，请重试。' + (hint ? ('\n' + hint) : ''),
+                        'err',
+                      );
+                    }
                   })
                   .catch(function(err) {
                     setXbrainModelCenterStatus('OAuth 发起失败：' + String(err?.message || err), 'err');
