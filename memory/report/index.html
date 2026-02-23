@@ -2176,6 +2176,10 @@
                     <button id="xbrain-model-center-register-btn" type="button">仅注册（已有连接）</button>
                   </div>
                   <div id="xbrain-model-center-status" class="xbrain-status"></div>
+                  <div id="xbrain-model-center-oauth-prompt" class="xbrain-actions" style="display:none;">
+                    <input id="xbrain-model-center-oauth-input" type="text" placeholder="如提示手动回调，请粘贴授权回调 URL 或验证码" />
+                    <button id="xbrain-model-center-oauth-submit-btn" type="button">提交授权回调</button>
+                  </div>
                 </div>
                 <div class="xbrain-model-center-card">
                   <h4>已注册模型</h4>
@@ -2630,6 +2634,12 @@
 };
     const requestXbrainAuthStart = async function requestXbrainAuthStart(fetchFn, provider) {
   return requestXbrainJson(fetchFn, '/api/xbrain/auth/start', { provider });
+};
+    const requestXbrainAuthInput = async function requestXbrainAuthInput(fetchFn, input, attemptId) {
+  return requestXbrainJson(fetchFn, '/api/xbrain/auth/input', {
+    input: String(input || ''),
+    attemptId: Number.isFinite(Number(attemptId)) ? Number(attemptId) : 0,
+  });
 };
     const requestXbrainModelSwitch = async function requestXbrainModelSwitch(fetchFn, modelRef, provider) {
   return requestXbrainJson(fetchFn, '/api/xbrain/model/switch', {
@@ -4770,11 +4780,6 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const selected = p === selectedProvider ? ' selected' : '';
             return '<option value="' + escapeHtml(p) + '"' + selected + '>' + escapeHtml(providerLabel(p)) + '</option>';
           }).join('');
-        const configuredSet = new Set(
-          (Array.isArray(xbrainModelCenterState.configured) ? xbrainModelCenterState.configured : [])
-            .map(function(item) { return String(item?.key || '').trim(); })
-            .filter(Boolean),
-        );
         const registeredSet = new Set(
           (Array.isArray(xbrainClientState.data?.base?.modelRegistry) ? xbrainClientState.data.base.modelRegistry : [])
             .map(function(item) { return String(item || '').trim(); })
@@ -4814,7 +4819,6 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           const markers = [];
           if (registeredSet.has(key) && providerConnected) markers.push('已注册');
           else if (registeredSet.has(key) && !providerConnected) markers.push('已注册/待连接');
-          if (configuredSet.has(key) && !registeredSet.has(key)) markers.push('OpenClaw已配(未注册)');
           if (item?.missing === true) markers.push('缺失');
           const suffix = markers.length ? (' [' + markers.join(' / ') + ']') : '';
           return '<option value="' + escapeHtml(key) + '" data-provider="' + escapeHtml(provider) + '">' + escapeHtml(name + ' (' + key + ')' + suffix) + '</option>';
@@ -5308,6 +5312,8 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             'xbrain-model-center-register-btn',
             'xbrain-model-center-pick-btn',
             'xbrain-model-center-clear-select-btn',
+            'xbrain-model-center-oauth-input',
+            'xbrain-model-center-oauth-submit-btn',
             'xbrain-guide-deepseek-key',
             'xbrain-guide-deepseek-eye',
             'xbrain-guide-deepseek-login-btn',
@@ -5964,6 +5970,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const modelCenterClearSelectBtn = document.getElementById('xbrain-model-center-clear-select-btn');
         const modelCenterSelectedBox = document.getElementById('xbrain-model-center-selected');
         const modelCenterConnectedList = document.getElementById('xbrain-model-center-connected-list');
+        const modelCenterOauthPromptWrap = document.getElementById('xbrain-model-center-oauth-prompt');
+        const modelCenterOauthInputEl = document.getElementById('xbrain-model-center-oauth-input');
+        const modelCenterOauthSubmitBtn = document.getElementById('xbrain-model-center-oauth-submit-btn');
         const initialModelCenterCatalogPromise = refreshXbrainModelCenterCatalog(false).catch(function(err) {
           setXbrainModelCenterStatus('模型目录加载失败：' + String(err?.message || err), 'err');
         });
@@ -5997,46 +6006,66 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           return json;
         }
 
+        function renderModelCenterOauthPrompt(statusLike) {
+          if (!modelCenterOauthPromptWrap || !modelCenterOauthInputEl || !modelCenterOauthSubmitBtn) return;
+          const status = statusLike && typeof statusLike === 'object' ? statusLike : {};
+          const prompt = status?.prompt && typeof status.prompt === 'object' ? status.prompt : null;
+          const hasPrompt = Boolean(prompt && String(prompt.message || '').trim());
+          if (!hasPrompt) {
+            modelCenterOauthPromptWrap.style.display = 'none';
+            modelCenterOauthInputEl.dataset.oauthAttemptId = '';
+            modelCenterOauthSubmitBtn.dataset.oauthAttemptId = '';
+            modelCenterOauthSubmitBtn.disabled = false;
+            modelCenterOauthSubmitBtn.textContent = '提交授权回调';
+            return;
+          }
+          modelCenterOauthPromptWrap.style.display = 'flex';
+          const hint = String(prompt.message || '').trim();
+          const placeholder = String(prompt.placeholder || '').trim();
+          modelCenterOauthInputEl.placeholder = placeholder || hint || '请粘贴授权回调 URL 或验证码';
+          const attemptId = Number(prompt.attemptId || status.attemptId || 0);
+          const attemptText = attemptId > 0 ? String(attemptId) : '';
+          modelCenterOauthInputEl.dataset.oauthAttemptId = attemptText;
+          modelCenterOauthSubmitBtn.dataset.oauthAttemptId = attemptText;
+        }
+
         async function monitorModelCenterOauth(providerLike) {
           if (xbrainModelCenterState.oauthMonitorRunning) return;
           const provider = normalizeProviderKey(providerLike || 'chatgpt');
           xbrainModelCenterState.oauthMonitorRunning = true;
           const startedAt = Date.now();
           let shownUrl = '';
-          let autoOpened = false;
           setXbrainModelCenterStatus('OAuth 已发起，正在等待授权完成...', 'ok');
           try {
             while (Date.now() - startedAt < 5 * 60 * 1000) {
               await new Promise(function(resolve) { setTimeout(resolve, 1200); });
               const authPayload = await requestXbrainAuthStatus(fetch, REPORT_BUILD_ID).catch(function() { return null; });
-              const running = Boolean(authPayload?.status?.running);
-              const loginUrl = String(authPayload?.status?.url || '').trim();
+              const authStatus = authPayload?.status && typeof authPayload.status === 'object' ? authPayload.status : {};
+              renderModelCenterOauthPrompt(authStatus);
+              const running = Boolean(authStatus.running);
+              const loginUrl = String(authStatus.url || '').trim();
               if (running && loginUrl && loginUrl !== shownUrl) {
                 shownUrl = loginUrl;
-                if (!autoOpened) {
-                  autoOpened = true;
-                  let opened = false;
-                  try {
-                    const win = window.open(loginUrl, '_blank', 'noopener,noreferrer');
-                    opened = Boolean(win);
-                  } catch (_) {}
-                  setXbrainModelCenterStatus(
-                    (opened ? '已尝试打开 OAuth 授权页面：' : '请手动打开 OAuth 授权页面：') + loginUrl,
-                    'ok',
-                  );
-                } else {
-                  setXbrainModelCenterStatus('请在新窗口完成 OAuth 授权：' + loginUrl, 'ok');
-                }
+                let opened = false;
+                try {
+                  const win = window.open(loginUrl, '_blank', 'noopener,noreferrer');
+                  opened = Boolean(win);
+                } catch (_) {}
+                setXbrainModelCenterStatus(
+                  (opened ? '已尝试打开 OAuth 授权页面：' : '请手动打开 OAuth 授权页面：') + loginUrl,
+                  'ok',
+                );
               }
               if (running) continue;
+              renderModelCenterOauthPrompt(null);
               await fetchXbrainState(true);
               await refreshXbrainModelCenterCatalog(true);
               const configured = Boolean(xbrainClientState.data?.base?.providerAuth?.[provider]?.configured);
               if (configured) {
                 setXbrainModelCenterStatus(providerLabel(provider) + ' OAuth 已完成，Provider 已连接。', 'ok');
               } else {
-                const oauthErr = String(authPayload?.status?.error || '').trim();
-                const oauthHint = String(authPayload?.status?.commandHint || '').trim();
+                const oauthErr = String(authStatus.error || '').trim();
+                const oauthHint = String(authStatus.commandHint || '').trim();
                 const reason = oauthErr || 'OAuth 流程已结束，请检查授权结果。';
                 setXbrainModelCenterStatus(
                   providerLabel(provider) + ' OAuth 未完成：' + reason + (oauthHint ? ('\n' + oauthHint) : ''),
@@ -6045,8 +6074,10 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               }
               return;
             }
+            renderModelCenterOauthPrompt(null);
             setXbrainModelCenterStatus('OAuth 等待超时，请在完成授权后点击“刷新模型目录”。', 'err');
           } finally {
+            renderModelCenterOauthPrompt(null);
             xbrainModelCenterState.oauthMonitorRunning = false;
           }
         }
@@ -6134,6 +6165,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               const oauthUrl = String(payload?.oauthUrl || payload?.oauth?.url || '').trim();
               const hint = String(payload?.commandHint || payload?.oauth?.commandHint || '').trim();
               const serverMsg = String(payload?.message || '').trim();
+              renderModelCenterOauthPrompt(payload?.status || null);
               if (oauthUrl) {
                 try { window.open(oauthUrl, '_blank', 'noopener,noreferrer'); } catch (_) {}
               }
@@ -6152,10 +6184,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
                 );
               }
             } else {
+              renderModelCenterOauthPrompt(null);
               const msg = String(payload?.message || '').trim() || '操作完成。';
               setXbrainModelCenterStatus(msg, 'ok');
             }
           } catch (err) {
+            renderModelCenterOauthPrompt(null);
             setXbrainModelCenterStatus('模型处理失败：' + String(err?.message || err), 'err');
           } finally {
             btn.disabled = false;
@@ -6222,6 +6256,51 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             modelCenterApiKeyEl.type = showing ? 'password' : 'text';
             modelCenterApiEyeBtn.classList.toggle('on', !showing);
             modelCenterApiEyeBtn.textContent = showing ? '👁' : '🙈';
+          });
+        }
+        if (modelCenterOauthSubmitBtn && modelCenterOauthInputEl) {
+          const submitOauthInput = function() {
+            if (modelCenterOauthSubmitBtn.disabled) return;
+            const input = String(modelCenterOauthInputEl.value || '').trim();
+            if (!input) {
+              setXbrainModelCenterStatus('请先粘贴 OAuth 回调 URL 或验证码。', 'err');
+              return;
+            }
+            const attemptId = Number(
+              modelCenterOauthSubmitBtn.getAttribute('data-oauth-attempt-id')
+              || modelCenterOauthInputEl.getAttribute('data-oauth-attempt-id')
+              || modelCenterOauthSubmitBtn.dataset.oauthAttemptId
+              || modelCenterOauthInputEl.dataset.oauthAttemptId
+              || 0,
+            );
+            const oldText = String(modelCenterOauthSubmitBtn.textContent || '提交授权回调');
+            modelCenterOauthSubmitBtn.disabled = true;
+            modelCenterOauthSubmitBtn.textContent = '提交中...';
+            setXbrainModelCenterStatus('已提交授权回调，正在确认授权状态...', 'ok');
+            void requestXbrainAuthInput(fetch, input, attemptId)
+              .then(function() {
+                modelCenterOauthInputEl.value = '';
+                const provider = normalizeProviderKey(getModelCenterCurrentProvider() || 'chatgpt');
+                if (!xbrainModelCenterState.oauthMonitorRunning) {
+                  void monitorModelCenterOauth(provider);
+                }
+              })
+              .catch(function(err) {
+                setXbrainModelCenterStatus('授权回调提交失败：' + String(err?.message || err), 'err');
+              })
+              .finally(function() {
+                modelCenterOauthSubmitBtn.disabled = false;
+                modelCenterOauthSubmitBtn.textContent = oldText;
+              });
+          };
+          modelCenterOauthSubmitBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            submitOauthInput();
+          });
+          modelCenterOauthInputEl.addEventListener('keydown', function(ev) {
+            if (ev.key !== 'Enter') return;
+            ev.preventDefault();
+            submitOauthInput();
           });
         }
         if (modelCenterConnectBtn) {

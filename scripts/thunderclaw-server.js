@@ -7,6 +7,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loginOpenAICodex } from "@mariozechner/pi-ai";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -29,6 +30,7 @@ const gatewayState = {
 
 const oauthState = {
   proc: null,
+  active: false,
   provider: null,
   startedAt: null,
   attemptId: 0,
@@ -37,6 +39,8 @@ const oauthState = {
   logs: [],
   url: "",
   commandHint: "",
+  prompt: null,
+  promptWaiter: null,
 };
 
 const SUPPORTED_OAUTH_PROVIDERS = new Set(["openai-codex"]);
@@ -649,6 +653,200 @@ function sleepMs(msLike) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveOpenClawStateDir() {
+  const explicit = String(process.env.OPENCLAW_STATE_DIR || "").trim();
+  if (explicit) return path.resolve(explicit);
+  const profile = String(process.env.OPENCLAW_PROFILE || "").trim();
+  return path.join(os.homedir(), profile ? `.openclaw-${profile}` : ".openclaw");
+}
+
+function resolveOpenClawConfigPath() {
+  const explicit = String(process.env.OPENCLAW_CONFIG_PATH || "").trim();
+  if (explicit) return path.resolve(explicit);
+  return path.join(resolveOpenClawStateDir(), "openclaw.json");
+}
+
+function readJsonFileSafe(filePath, fallback) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFileSafe(filePath, payloadLike) {
+  const payload = payloadLike && typeof payloadLike === "object" ? payloadLike : {};
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function resolveOpenClawDefaultAgentId(configLike) {
+  const cfg = configLike && typeof configLike === "object" ? configLike : {};
+  const candidates = [
+    cfg?.agents?.defaultAgentId,
+    cfg?.agents?.default,
+    cfg?.agent?.default,
+    cfg?.meta?.defaultAgentId,
+    process.env.OPENCLAW_AGENT_ID,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  return candidates[0] || "main";
+}
+
+function resolveOpenClawAgentDir(configLike) {
+  const explicit = String(process.env.OPENCLAW_AGENT_DIR || process.env.PI_CODING_AGENT_DIR || "").trim();
+  if (explicit) return path.resolve(explicit);
+  const stateDir = resolveOpenClawStateDir();
+  const agentsRoot = path.join(stateDir, "agents");
+  const preferred = resolveOpenClawDefaultAgentId(configLike);
+  const candidateIds = [];
+  if (preferred) candidateIds.push(preferred);
+  if (!candidateIds.includes("main")) candidateIds.push("main");
+  try {
+    const discovered = fs
+      .readdirSync(agentsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+    for (const id of discovered) {
+      if (!candidateIds.includes(id)) candidateIds.push(id);
+    }
+  } catch {}
+  for (const id of candidateIds) {
+    const agentDir = path.join(agentsRoot, id, "agent");
+    if (fs.existsSync(agentDir)) return agentDir;
+  }
+  return path.join(agentsRoot, preferred || "main", "agent");
+}
+
+function resolveOpenClawAuthStorePath(configLike) {
+  return path.join(resolveOpenClawAgentDir(configLike), "auth-profiles.json");
+}
+
+function persistOpenAICodexCredentials(credsLike) {
+  const creds = credsLike && typeof credsLike === "object" ? credsLike : {};
+  const access = String(creds.access || "").trim();
+  const refresh = String(creds.refresh || "").trim();
+  const expires = Number.isFinite(Number(creds.expires)) ? Number(creds.expires) : 0;
+  if (!access || !refresh || !expires) {
+    return { ok: false, error: "OAuth 凭证不完整（缺少 access/refresh/expires）" };
+  }
+  const configPath = resolveOpenClawConfigPath();
+  const config = readJsonFileSafe(configPath, {});
+  const authStorePath = resolveOpenClawAuthStorePath(config);
+  const authStore = readJsonFileSafe(authStorePath, { version: 1, profiles: {} });
+  authStore.version = 1;
+  authStore.profiles = authStore.profiles && typeof authStore.profiles === "object" ? authStore.profiles : {};
+  const email = String(creds.email || "").trim();
+  const profileId = `openai-codex:${email || "default"}`;
+  authStore.profiles[profileId] = {
+    type: "oauth",
+    provider: "openai-codex",
+    access,
+    refresh,
+    expires,
+    ...(email ? { email } : {}),
+    ...(creds.accountId ? { accountId: String(creds.accountId) } : {}),
+  };
+  const existingOrder = Array.isArray(authStore?.order?.["openai-codex"]) ? authStore.order["openai-codex"] : [];
+  authStore.order = authStore.order && typeof authStore.order === "object" ? authStore.order : {};
+  authStore.order["openai-codex"] = [profileId, ...existingOrder.filter((id) => id !== profileId)];
+  writeJsonFileSafe(authStorePath, authStore);
+
+  const nextConfig = config && typeof config === "object" ? config : {};
+  nextConfig.auth = nextConfig.auth && typeof nextConfig.auth === "object" ? nextConfig.auth : {};
+  nextConfig.auth.profiles = nextConfig.auth.profiles && typeof nextConfig.auth.profiles === "object"
+    ? nextConfig.auth.profiles
+    : {};
+  nextConfig.auth.profiles[profileId] = {
+    provider: "openai-codex",
+    mode: "oauth",
+    ...(email ? { email } : {}),
+  };
+  nextConfig.auth.order = nextConfig.auth.order && typeof nextConfig.auth.order === "object"
+    ? nextConfig.auth.order
+    : {};
+  const cfgOrder = Array.isArray(nextConfig.auth.order["openai-codex"]) ? nextConfig.auth.order["openai-codex"] : [];
+  nextConfig.auth.order["openai-codex"] = [profileId, ...cfgOrder.filter((id) => id !== profileId)];
+  writeJsonFileSafe(configPath, nextConfig);
+
+  return {
+    ok: true,
+    profileId,
+    authStorePath,
+    configPath,
+  };
+}
+
+function clearOauthPromptWaiter() {
+  if (!oauthState.promptWaiter) {
+    oauthState.prompt = null;
+    return;
+  }
+  const waiter = oauthState.promptWaiter;
+  if (waiter && waiter.timer) {
+    clearTimeout(waiter.timer);
+  }
+  oauthState.promptWaiter = null;
+  oauthState.prompt = null;
+}
+
+function waitForOauthPromptInput(attemptId, promptLike) {
+  const prompt = promptLike && typeof promptLike === "object" ? promptLike : {};
+  const message = String(prompt.message || "请粘贴 OAuth 回调 URL 或验证码").trim();
+  const placeholder = String(prompt.placeholder || "").trim();
+  const allowEmpty = Boolean(prompt.allowEmpty);
+  clearOauthPromptWaiter();
+  oauthState.prompt = {
+    attemptId,
+    message,
+    placeholder,
+    allowEmpty,
+  };
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (oauthState.promptWaiter && oauthState.promptWaiter.attemptId === attemptId) {
+        oauthState.promptWaiter = null;
+        oauthState.prompt = null;
+      }
+      reject(new Error("OAuth 等待输入超时，请重新发起登录并完成授权。"));
+    }, 10 * 60 * 1000);
+    oauthState.promptWaiter = {
+      attemptId,
+      timer,
+      resolve: (valueLike) => {
+        clearTimeout(timer);
+        oauthState.promptWaiter = null;
+        oauthState.prompt = null;
+        resolve(String(valueLike ?? ""));
+      },
+      reject: (errorLike) => {
+        clearTimeout(timer);
+        oauthState.promptWaiter = null;
+        oauthState.prompt = null;
+        reject(errorLike instanceof Error ? errorLike : new Error(String(errorLike || "OAuth 输入失败")));
+      },
+    };
+  });
+}
+
+function submitOauthPromptInput(inputLike, attemptIdLike) {
+  const input = String(inputLike ?? "");
+  const waiter = oauthState.promptWaiter;
+  if (!waiter) {
+    return { ok: false, error: "当前没有等待输入的 OAuth 流程。" };
+  }
+  const attemptId = Number.isFinite(Number(attemptIdLike)) ? Number(attemptIdLike) : 0;
+  if (attemptId > 0 && waiter.attemptId !== attemptId) {
+    return { ok: false, error: "OAuth 流程已变化，请刷新状态后重试。" };
+  }
+  waiter.resolve(input);
+  return { ok: true };
+}
+
 function pushOauthLog(stream, chunkLike) {
   const raw = String(chunkLike || "");
   const lines = stripAnsi(raw)
@@ -777,7 +975,10 @@ function gatewayIsRunning() {
 }
 
 function oauthIsRunning() {
-  return Boolean(oauthState.proc && oauthState.proc.exitCode === null);
+  return Boolean(
+    oauthState.active
+    || (oauthState.proc && oauthState.proc.exitCode === null),
+  );
 }
 
 function getOauthStatus() {
@@ -789,6 +990,7 @@ function getOauthStatus() {
     last: oauthState.last,
     url: String(oauthState.url || ""),
     commandHint: String(oauthState.commandHint || ""),
+    prompt: oauthState.prompt && typeof oauthState.prompt === "object" ? oauthState.prompt : null,
     logsTail: Array.isArray(oauthState.logs) ? oauthState.logs.slice(-80) : [],
     interactiveSupported: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   };
@@ -816,108 +1018,94 @@ function startOAuthLogin(providerIdRaw) {
     };
   }
 
-  const resolved = resolveOpenClawCommand();
-  const oauthArgs = [...resolved.prefixArgs, "models", "auth", "login", "--provider", providerId, "--set-default"];
-  const commandHint = `openclaw models auth login --provider ${providerId} --set-default`;
-  const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  const useScriptPty = process.platform !== "win32";
-  let child;
-  let launchMode = "direct";
-  if (useScriptPty) {
-    launchMode = "script-pty";
-    const cmdline = [resolved.command, ...oauthArgs].map((arg) => shellQuoteArg(arg)).join(" ");
-    child = spawn("script", ["-q", "-f", "-c", cmdline, "/dev/null"], {
-      cwd: ROOT_DIR,
-      env: process.env,
-      stdio: "pipe",
-    });
-  } else if (hasTty) {
-    child = spawn(resolved.command, oauthArgs, {
-      cwd: ROOT_DIR,
-      env: process.env,
-      stdio: "inherit",
-    });
-  } else {
-    return {
-      ok: false,
-      error: "OAuth login requires TTY on this OS (script pty is unavailable).",
-      commandHint,
-    };
-  }
-
   const attemptId = Number(oauthState.attemptSeq || 0) + 1;
   oauthState.attemptSeq = attemptId;
   oauthState.attemptId = attemptId;
-  oauthState.proc = child;
+  oauthState.proc = null;
+  oauthState.active = true;
   oauthState.provider = providerId;
   oauthState.startedAt = new Date().toISOString();
   oauthState.last = null;
   oauthState.url = "";
-  oauthState.commandHint = commandHint;
+  oauthState.commandHint = "完成授权后若未自动回跳，请粘贴授权回调 URL 到页面输入框。";
   oauthState.logs = [];
+  clearOauthPromptWaiter();
   const startedAt = String(oauthState.startedAt || new Date().toISOString());
-  pushOauthLog("system", `oauth start mode=${launchMode}`);
-  pushOauthLog("system", `oauth command: ${commandHint}`);
+  const commandHint = "在网页中完成 OpenAI 授权后，若提示需要手动输入，请粘贴回调 URL。";
+  pushOauthLog("system", "oauth start mode=native-openai-codex");
+  pushOauthLog("system", commandHint);
 
-  if (launchMode === "script-pty") {
-    child.stdout.on("data", (chunk) => {
-      pushOauthLog("stdout", chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      pushOauthLog("stderr", chunk);
-    });
-  }
-
-  child.on("error", (error) => {
-    const errText = String(error || "");
-    pushOauthLog("system", `oauth process error: ${errText}`);
-    oauthState.last = {
-      attemptId,
-      provider: providerId,
-      code: null,
-      signal: null,
-      error: errText,
-      commandHint,
-      url: String(oauthState.url || ""),
-      finishedAt: new Date().toISOString(),
-    };
-    oauthState.proc = null;
-    oauthState.provider = null;
-    oauthState.startedAt = null;
-    oauthState.attemptId = 0;
-  });
-
-  child.on("close", (code, signal) => {
-    const parsedFromLogs = detectOauthErrorFromLogs(oauthState.logs);
-    const parsedError = parsedFromLogs || (code === 0 ? null : `OAuth exited with code ${code}`);
-    if (parsedError && !parsedFromLogs) {
-      pushOauthLog("system", `oauth exit error: ${parsedError}`);
+  void (async () => {
+    try {
+      const creds = await loginOpenAICodex({
+        onAuth: (info) => {
+          const url = String(info?.url || "").trim();
+          if (url) {
+            oauthState.url = url;
+            pushOauthLog("system", `oauth url: ${url}`);
+          }
+          const instructions = String(info?.instructions || "").trim();
+          if (instructions) {
+            pushOauthLog("system", instructions);
+          }
+        },
+        onPrompt: async (prompt) => {
+          const message = String(prompt?.message || "请粘贴 OAuth 回调 URL").trim();
+          pushOauthLog("system", `oauth prompt: ${message}`);
+          const input = await waitForOauthPromptInput(attemptId, prompt);
+          return String(input || "").trim();
+        },
+        onProgress: (message) => {
+          const text = String(message || "").trim();
+          if (text) pushOauthLog("stdout", text);
+        },
+      });
+      const persisted = persistOpenAICodexCredentials(creds);
+      if (!persisted.ok) {
+        throw new Error(String(persisted.error || "OAuth 凭证保存失败"));
+      }
+      pushOauthLog("system", `oauth credentials saved: ${persisted.profileId}`);
+      oauthState.last = {
+        attemptId,
+        provider: providerId,
+        code: 0,
+        signal: null,
+        error: null,
+        commandHint,
+        url: String(oauthState.url || ""),
+        profileId: persisted.profileId,
+        finishedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      const errText = String(error?.message || error || "OAuth failed");
+      pushOauthLog("system", `oauth error: ${errText}`);
+      oauthState.last = {
+        attemptId,
+        provider: providerId,
+        code: 1,
+        signal: null,
+        error: errText,
+        commandHint,
+        url: String(oauthState.url || ""),
+        finishedAt: new Date().toISOString(),
+      };
+    } finally {
+      clearOauthPromptWaiter();
+      oauthState.proc = null;
+      oauthState.active = false;
+      oauthState.provider = null;
+      oauthState.startedAt = null;
+      oauthState.attemptId = 0;
     }
-    oauthState.last = {
-      attemptId,
-      provider: providerId,
-      code,
-      signal: signal ?? null,
-      error: parsedError,
-      commandHint,
-      url: String(oauthState.url || ""),
-      finishedAt: new Date().toISOString(),
-    };
-    oauthState.proc = null;
-    oauthState.provider = null;
-    oauthState.startedAt = null;
-    oauthState.attemptId = 0;
-  });
+  })();
 
   return {
     ok: true,
     started: true,
-    message: useScriptPty
-      ? "OAuth login started in pseudo-tty. 完成授权后状态会自动回写到页面。"
-      : "OAuth login started. Continue in terminal prompts.",
+    message: "OAuth 已发起。正在等待浏览器授权…",
     provider: providerId,
-    command: commandHint,
-    launchMode,
+    command: "native-openai-codex",
+    launchMode: "native-openai-codex",
     commandHint,
     attemptId,
     startedAt,
@@ -2644,8 +2832,30 @@ async function handleXbrainAuthStatus(req, res) {
       exitCode: status?.last?.code ?? null,
       error: status?.last?.error ?? null,
       startedAt: status.startedAt ?? null,
+      prompt: status?.prompt && typeof status.prompt === "object" ? status.prompt : null,
       logsTail: Array.isArray(status.logsTail) ? status.logsTail : [],
     },
+  });
+}
+
+async function handleXbrainAuthInput(req, res) {
+  const body = await readJsonBody(req);
+  const input = String(body.input ?? body.code ?? body.value ?? "").trim();
+  const attemptId = Number.isFinite(Number(body.attemptId)) ? Number(body.attemptId) : 0;
+  if (!input) {
+    sendJson(res, 400, { ok: false, error: "input is required" });
+    return;
+  }
+  const submitted = submitOauthPromptInput(input, attemptId);
+  if (!submitted.ok) {
+    sendJson(res, 400, submitted);
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    accepted: true,
+    attemptId,
+    status: getOauthStatus(),
   });
 }
 
@@ -3100,6 +3310,10 @@ async function requestHandler(req, res) {
     }
     if (method === "POST" && pathname === "/api/xbrain/auth/start") {
       await handleXbrainAuthStart(req, res);
+      return;
+    }
+    if (method === "POST" && pathname === "/api/xbrain/auth/input") {
+      await handleXbrainAuthInput(req, res);
       return;
     }
     if (method === "POST" && pathname === "/api/xbrain/auth/disconnect") {
