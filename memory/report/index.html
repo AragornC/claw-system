@@ -9164,9 +9164,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             const traceText = formatExecutionTraceLocal(result?.executionTrace);
             const traceNote = traceText ? ('\n\n执行轨迹：\n' + traceText) : '';
             const baseReply = reply || '收到，但暂时没有可返回内容。';
-            const runtimeModelRef = String(result?.runtimeModelRef || result?.modelRefUsed || '').trim();
-            const modelNote = runtimeModelRef ? ('\n\n当前模型：' + runtimeModelRef) : '';
-            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + traceNote + modelNote;
+            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + traceNote;
             const source = String(result?.source || 'dashboard');
             const storeSource = source === 'openclaw'
               ? 'dashboard'

@@ -1738,7 +1738,7 @@ function getCurrentRuntimeModelRefFromStore() {
   return toModelRef(runtimeProvider, runtimeModelId);
 }
 
-function buildModelScopedSessionId(sessionIdLike, modelRefLike) {
+function normalizeSessionId(sessionIdLike) {
   const normalizeSessionPart = (valueLike, fallback) => {
     const raw = String(valueLike ?? "").trim().toLowerCase();
     const normalized = raw
@@ -1748,12 +1748,7 @@ function buildModelScopedSessionId(sessionIdLike, modelRefLike) {
       .slice(0, 72);
     return normalized || fallback;
   };
-  const baseSessionId = normalizeSessionPart(sessionIdLike ?? "thunderclaw-main", "thunderclaw-main");
-  const modelRef = String(modelRefLike || "").trim();
-  if (!modelRef) return baseSessionId;
-  const suffix = normalizeSessionPart(modelRef, "");
-  if (!suffix) return baseSessionId;
-  return `${baseSessionId}--${suffix}`;
+  return normalizeSessionPart(sessionIdLike ?? "thunderclaw-main", "thunderclaw-main");
 }
 
 function looksLikeGatewayTransportError(textLike) {
@@ -1766,8 +1761,39 @@ async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
   const sessionIdRaw = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
   const preferredModelRef = String(params?.modelRef || "").trim() || getCurrentRuntimeModelRefFromStore();
-  const sessionId = buildModelScopedSessionId(sessionIdRaw, preferredModelRef);
+  const sessionId = normalizeSessionId(sessionIdRaw);
   const thinking = String(params?.thinking ?? "").trim();
+  const modelSet = {
+    attempted: Boolean(preferredModelRef),
+    ok: null,
+    error: null,
+    modelRef: preferredModelRef,
+  };
+  if (preferredModelRef) {
+    let modelSetRes = await runOpenClawCommand(["models", "set", preferredModelRef], { timeoutMs: 40_000 });
+    if (!modelSetRes.ok) {
+      const setErrText = [modelSetRes.stderr, modelSetRes.stdout].filter(Boolean).join("\n");
+      if (looksLikeGatewayTransportError(setErrText)) {
+        startGateway();
+        await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1_000 }).catch(() => null);
+        modelSetRes = await runOpenClawCommand(["models", "set", preferredModelRef], { timeoutMs: 40_000 });
+      }
+    }
+    modelSet.ok = Boolean(modelSetRes.ok);
+    modelSet.error = modelSetRes.ok
+      ? null
+      : ((modelSetRes.stderr || modelSetRes.stdout || "").trim() || "models set failed");
+    if (!modelSetRes.ok) {
+      return {
+        result: modelSetRes,
+        payload: null,
+        reply: "",
+        sessionId,
+        modelRef: preferredModelRef,
+        modelSet,
+      };
+    }
+  }
   const args = [
     "agent",
     "--session-id",
@@ -1813,6 +1839,7 @@ async function runAgentTurn(params) {
     reply,
     sessionId,
     modelRef: preferredModelRef,
+    modelSet,
   };
 }
 
