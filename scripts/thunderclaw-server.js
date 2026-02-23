@@ -1505,8 +1505,17 @@ async function syncXbrainFromOpenClaw() {
     const inferred = inferProviderFromModelRef(defaultModelRef);
     xbrainStore.base.modelProvider = inferred.provider;
     xbrainStore.base.modelId = inferred.modelId;
-    xbrainStore.base.runtimeModelProvider = inferred.provider;
-    xbrainStore.base.runtimeModelId = inferred.modelId;
+    const hasRuntimeModelId = Boolean(String(xbrainStore.base.runtimeModelId || "").trim());
+    if (!hasRuntimeModelId) {
+      xbrainStore.base.runtimeModelProvider = inferred.provider;
+      xbrainStore.base.runtimeModelId = inferred.modelId;
+    }
+  }
+  if (!String(xbrainStore.base.runtimeModelProvider || "").trim()) {
+    xbrainStore.base.runtimeModelProvider = xbrainStore.base.modelProvider || "deepseek";
+  }
+  if (!String(xbrainStore.base.runtimeModelId || "").trim()) {
+    xbrainStore.base.runtimeModelId = String(xbrainStore.base.modelId || "deepseek-chat");
   }
 
   if (!Array.isArray(xbrainStore.base.modelRegistry) || !xbrainStore.base.modelRegistry.length) {
@@ -1681,8 +1690,11 @@ function getXbrainStateSnapshot() {
     base: {
       modelProvider,
       modelId,
+      modelRef: toModelRef(modelProvider, modelId),
+      configuredModelRef: toModelRef(modelProvider, modelId),
       runtimeModelProvider: runtimeProvider,
       runtimeModelId,
+      runtimeModelRef: toModelRef(runtimeProvider, runtimeModelId),
       providerCatalog,
       modelRegistry,
       providerAuth,
@@ -1757,6 +1769,184 @@ function looksLikeGatewayTransportError(textLike) {
   return /gateway closed|abnormal closure|1006|websocket|ecconnrefused|pairing required|gateway agent failed/.test(text);
 }
 
+async function setOpenClawDefaultModel(modelRefRaw, timeoutMs = 40_000) {
+  const modelRef = String(modelRefRaw || "").trim();
+  if (!modelRef) {
+    return {
+      ok: false,
+      modelRef: "",
+      error: "modelRef is required",
+      result: { ok: false, stdout: "", stderr: "modelRef is required" },
+    };
+  }
+  let setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs });
+  if (!setRes.ok) {
+    const setErrText = [setRes.stderr, setRes.stdout].filter(Boolean).join("\n");
+    if (looksLikeGatewayTransportError(setErrText)) {
+      startGateway();
+      await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1_000 }).catch(() => null);
+      setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs });
+    }
+  }
+  return {
+    ok: Boolean(setRes.ok),
+    modelRef,
+    error: setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed"),
+    result: setRes,
+  };
+}
+
+function applyRuntimeModelRefToStore(modelRefRaw, options = {}) {
+  const modelRef = String(modelRefRaw || "").trim();
+  if (!modelRef || !modelRef.includes("/")) return false;
+  const inferred = inferProviderFromModelRef(modelRef);
+  xbrainStore.base.modelProvider = inferred.provider;
+  xbrainStore.base.modelId = inferred.modelId;
+  xbrainStore.base.runtimeModelProvider = inferred.provider;
+  xbrainStore.base.runtimeModelId = inferred.modelId;
+  if (options.ensureRegistry === true) {
+    xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
+  }
+  if (options.save !== false) {
+    saveXbrainStore();
+  }
+  return true;
+}
+
+function extractModelRefsFromText(textLike) {
+  const text = String(textLike || "");
+  if (!text) return [];
+  const refs = [];
+  const re = /\b([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)\b/ig;
+  let m = null;
+  while ((m = re.exec(text)) !== null) {
+    refs.push(String(m[1] || "").trim());
+    if (refs.length >= 120) break;
+  }
+  return uniqStrings(refs);
+}
+
+function detectModelRefChangeFromAgentOutput(params = {}) {
+  const message = String(params?.message || "").trim();
+  const reply = String(params?.reply || "").trim();
+  const stdout = String(params?.stdout || "").trim();
+  const stderr = String(params?.stderr || "").trim();
+  const payload = params?.payload && typeof params.payload === "object" ? params.payload : null;
+  const currentModelRef = String(params?.currentModelRef || "").trim();
+  const registry = uniqStrings(params?.registry || xbrainStore?.base?.modelRegistry || []);
+  const slashModelRef = parseSlashModelSwitchRef(message);
+  if (slashModelRef && slashModelRef !== currentModelRef) {
+    return slashModelRef;
+  }
+  const textParts = [reply, stdout, stderr];
+  if (payload) {
+    try {
+      textParts.push(JSON.stringify(payload));
+    } catch {}
+  }
+  const text = textParts.filter(Boolean).join("\n");
+  if (!text) return "";
+
+  const strongPatterns = [
+    /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|using(?:\s+the)?\s+model|模型已切换|switched\s+to|session status)[^\n]{0,140}?([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
+    /\/model\s+([a-z0-9][a-z0-9-]*(?:\/[a-z0-9._-]+)+)/i,
+  ];
+  for (const pattern of strongPatterns) {
+    const m = text.match(pattern);
+    if (!m?.[1]) continue;
+    const candidate = resolveModelRefFromToken(String(m[1] || "").trim());
+    if (!candidate) continue;
+    if (candidate === currentModelRef) continue;
+    return candidate;
+  }
+
+  const hasChangeHint = /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|session status|\/model|模型已切换|切换模型|switched\s+to|switch\s+model|set\s+model)/i.test(text);
+  if (!hasChangeHint) return "";
+
+  const candidates = extractModelRefsFromText(text)
+    .map((ref) => resolveModelRefFromToken(ref))
+    .filter(Boolean);
+  if (!candidates.length) return "";
+
+  const currentLower = currentModelRef.toLowerCase();
+  const registrySet = new Set(registry.map((ref) => String(ref).toLowerCase()));
+  const registryHits = uniqStrings(
+    candidates.filter((ref) => registrySet.has(String(ref).toLowerCase())),
+  ).filter((ref) => String(ref).toLowerCase() !== currentLower);
+  if (registryHits.length === 1) {
+    return registryHits[0];
+  }
+  return "";
+}
+
+async function switchThunderSessionModel(params = {}) {
+  const modelRefRaw = String(params?.modelRef || "").trim();
+  const modelRef = resolveModelRefFromToken(modelRefRaw) || modelRefRaw;
+  const sessionId = normalizeSessionId(String(params?.sessionId || "thunderclaw-main").trim() || "thunderclaw-main");
+  if (!modelRef) {
+    return {
+      ok: false,
+      modelRef: "",
+      sessionId,
+      sessionSync: { ok: false, error: "modelRef is required", reply: "" },
+      defaultSync: { attempted: false, ok: null, error: null },
+      state: getXbrainStateSnapshot(),
+      runtimeModelRef: getCurrentRuntimeModelRefFromStore(),
+    };
+  }
+  const args = [
+    "agent",
+    "--session-id",
+    sessionId,
+    "--message",
+    `/model ${modelRef}`,
+    "--json",
+  ];
+  let result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+  if (!result.ok) {
+    const errText = [result.stderr, result.stdout].filter(Boolean).join("\n");
+    if (looksLikeGatewayTransportError(errText)) {
+      startGateway();
+      await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1_000 }).catch(() => null);
+      result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
+    }
+  }
+  const payload = parseJsonSafe(result.stdout);
+  const reply = extractAgentReply(payload);
+  const sessionSync = {
+    ok: Boolean(result.ok),
+    error: result.ok ? null : ((result.stderr || result.stdout || "").trim() || "session /model failed"),
+    reply: String(reply || "").trim(),
+  };
+  const defaultSync = {
+    attempted: false,
+    ok: null,
+    error: null,
+  };
+  if (sessionSync.ok) {
+    const setRes = await setOpenClawDefaultModel(modelRef, 40_000);
+    defaultSync.attempted = true;
+    defaultSync.ok = Boolean(setRes.ok);
+    defaultSync.error = setRes.ok ? null : setRes.error;
+    applyRuntimeModelRefToStore(modelRef, { save: true });
+  }
+  await syncXbrainFromOpenClaw().catch(() => null);
+  const state = getXbrainStateSnapshot();
+  const runtimeModelRef = toModelRef(
+    state?.base?.runtimeModelProvider,
+    state?.base?.runtimeModelId,
+  );
+  return {
+    ok: sessionSync.ok,
+    modelRef,
+    sessionId,
+    sessionSync,
+    defaultSync,
+    state,
+    runtimeModelRef,
+  };
+}
+
 async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
   const sessionIdRaw = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
@@ -1764,36 +1954,11 @@ async function runAgentTurn(params) {
   const sessionId = normalizeSessionId(sessionIdRaw);
   const thinking = String(params?.thinking ?? "").trim();
   const modelSet = {
-    attempted: Boolean(preferredModelRef),
+    attempted: false,
     ok: null,
     error: null,
     modelRef: preferredModelRef,
   };
-  if (preferredModelRef) {
-    let modelSetRes = await runOpenClawCommand(["models", "set", preferredModelRef], { timeoutMs: 40_000 });
-    if (!modelSetRes.ok) {
-      const setErrText = [modelSetRes.stderr, modelSetRes.stdout].filter(Boolean).join("\n");
-      if (looksLikeGatewayTransportError(setErrText)) {
-        startGateway();
-        await waitGatewayHealthy({ timeoutMs: 15_000, pollMs: 1_000 }).catch(() => null);
-        modelSetRes = await runOpenClawCommand(["models", "set", preferredModelRef], { timeoutMs: 40_000 });
-      }
-    }
-    modelSet.ok = Boolean(modelSetRes.ok);
-    modelSet.error = modelSetRes.ok
-      ? null
-      : ((modelSetRes.stderr || modelSetRes.stdout || "").trim() || "models set failed");
-    if (!modelSetRes.ok) {
-      return {
-        result: modelSetRes,
-        payload: null,
-        reply: "",
-        sessionId,
-        modelRef: preferredModelRef,
-        modelSet,
-      };
-    }
-  }
   const args = [
     "agent",
     "--session-id",
@@ -1888,7 +2053,7 @@ function resolveModelRefFromToken(tokenRaw) {
   const token = String(tokenRaw || "").trim();
   if (!token) return "";
   const normalized = token.toLowerCase();
-  if (normalized.includes("/")) return normalized;
+  if (token.includes("/")) return token;
 
   if (normalized === "deepseek") return pickRegisteredModelRefByProvider("deepseek");
   if (normalized === "chatgpt" || normalized === "openai" || normalized === "codex" || normalized === "gpt") {
@@ -2024,8 +2189,9 @@ async function handleQuickSetup(req, res) {
         .filter(Boolean)
         .join("\n"),
     };
-    modelSetResult = await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], {
-      timeoutMs: 40_000,
+    modelSetResult = await switchThunderSessionModel({
+      modelRef: "deepseek/deepseek-chat",
+      sessionId: "thunderclaw-main",
     });
   }
 
@@ -2061,7 +2227,10 @@ async function handleQuickSetup(req, res) {
       ? {
           attempted: true,
           ok: modelSetResult.ok,
-          stderr: modelSetResult.ok ? null : (modelSetResult.stderr || modelSetResult.stdout || "").trim(),
+          stderr: modelSetResult.ok ? null : String(modelSetResult?.sessionSync?.error || "session /model failed"),
+          warning: modelSetResult?.defaultSync?.attempted && modelSetResult?.defaultSync?.ok === false
+            ? String(modelSetResult?.defaultSync?.error || "默认模型同步失败")
+            : "",
         }
       : { attempted: false, ok: null, stderr: null },
     deepseekTune,
@@ -2085,16 +2254,20 @@ async function handleOAuthStatus(req, res) {
 async function handleSetModel(req, res) {
   const body = await readJsonBody(req);
   const model = String(body.model ?? "").trim();
+  const sessionId = String(body.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
   if (!model) {
     sendJson(res, 400, { ok: false, error: "model is required" });
     return;
   }
-  const result = await runOpenClawCommand(["models", "set", model], { timeoutMs: 30_000 });
-  sendJson(res, result.ok ? 200 : 500, {
-    ok: result.ok,
-    exitCode: result.code,
-    stdout: result.stdout,
-    stderr: result.stderr,
+  const switched = await switchThunderSessionModel({ modelRef: model, sessionId });
+  sendJson(res, switched.ok ? 200 : 500, {
+    ok: switched.ok,
+    modelRef: model,
+    sessionId,
+    state: switched?.state || getXbrainStateSnapshot(),
+    sessionSync: switched?.sessionSync || null,
+    defaultSync: switched?.defaultSync || null,
+    error: switched.ok ? null : String(switched?.sessionSync?.error || "session /model failed"),
   });
 }
 
@@ -2149,12 +2322,42 @@ async function handleAiChat(req, res) {
   });
   await syncXbrainFromOpenClaw().catch(() => null);
   const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
-  const { result, reply, sessionId: sessionIdUsed } = await runAgentTurn({
+  const { result, payload, reply, sessionId: sessionIdUsed } = await runAgentTurn({
     message,
     sessionId: "thunderclaw-main",
     modelRef: runtimeModelRefBefore,
     thinking: "medium",
   });
+  let modelAutoSync = {
+    detected: false,
+    modelRef: "",
+    defaultSync: { attempted: false, ok: null, error: null },
+  };
+  if (result.ok) {
+    const detectedModelRef = detectModelRefChangeFromAgentOutput({
+      message,
+      reply,
+      payload,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      currentModelRef: runtimeModelRefBefore,
+      registry: uniqStrings(xbrainStore?.base?.modelRegistry || []),
+    });
+    if (detectedModelRef && detectedModelRef !== runtimeModelRefBefore) {
+      const applied = applyRuntimeModelRefToStore(detectedModelRef, { save: false });
+      const defaultSync = await setOpenClawDefaultModel(detectedModelRef, 40_000);
+      if (applied) saveXbrainStore();
+      modelAutoSync = {
+        detected: true,
+        modelRef: detectedModelRef,
+        defaultSync: {
+          attempted: true,
+          ok: defaultSync.ok,
+          error: defaultSync.error,
+        },
+      };
+    }
+  }
   await syncXbrainFromOpenClaw().catch(() => null);
   const stateAfter = getXbrainStateSnapshot();
   const runtimeModelRefAfter = toModelRef(
@@ -2177,9 +2380,10 @@ async function handleAiChat(req, res) {
       actions: [],
       executionTrace: [],
       state: stateAfter,
-      modelRefUsed: runtimeModelRefBefore,
+      modelRefUsed: modelAutoSync.detected ? modelAutoSync.modelRef : runtimeModelRefBefore,
       runtimeModelRef: runtimeModelRefAfter,
       sessionIdUsed,
+      modelAutoSync,
     });
     return;
   }
@@ -2190,9 +2394,10 @@ async function handleAiChat(req, res) {
     actions: [],
     executionTrace: [],
     state: stateAfter,
-    modelRefUsed: runtimeModelRefBefore,
+    modelRefUsed: modelAutoSync.detected ? modelAutoSync.modelRef : runtimeModelRefBefore,
     runtimeModelRef: runtimeModelRefAfter,
     sessionIdUsed,
+    modelAutoSync,
   });
 }
 
@@ -2238,9 +2443,12 @@ async function handleConfigChat(req, res) {
       sendJson(res, 200, { ok: true, handled: true, reply, state: stateBefore });
       return;
     }
-    const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
-    if (!setRes.ok) {
-      const err = (setRes.stderr || setRes.stdout || "").trim() || "models set failed";
+    const switched = await switchThunderSessionModel({
+      modelRef,
+      sessionId: "thunderclaw-main",
+    });
+    if (!switched.ok) {
+      const err = String(switched?.sessionSync?.error || "session /model failed");
       const reply = `模型切换失败：${err}`;
       appendChatEvent({ role: "bot", source: "system", text: reply });
       sendJson(res, 200, {
@@ -2248,20 +2456,21 @@ async function handleConfigChat(req, res) {
         handled: true,
         reply,
         state: stateBefore,
-        openclawModelSync: { ok: false, error: err },
+        openclawModelSync: {
+          ok: false,
+          error: err,
+          sessionSync: switched?.sessionSync || null,
+          defaultSync: switched?.defaultSync || null,
+        },
       });
       return;
     }
-    const inferred = inferProviderFromModelRef(modelRef);
-    xbrainStore.base.modelProvider = inferred.provider;
-    xbrainStore.base.modelId = inferred.modelId;
-    xbrainStore.base.runtimeModelProvider = inferred.provider;
-    xbrainStore.base.runtimeModelId = inferred.modelId;
-    saveXbrainStore();
-    await syncXbrainFromOpenClaw().catch(() => null);
-    const finalState = getXbrainStateSnapshot();
+    const finalState = switched?.state || getXbrainStateSnapshot();
     const runtimeRef = toModelRef(finalState?.base?.runtimeModelProvider, finalState?.base?.runtimeModelId);
-    const reply = `模型已切换：${runtimeRef}`;
+    const defaultWarn = switched?.defaultSync?.attempted && switched?.defaultSync?.ok === false
+      ? `（会话已切换，默认模型同步失败：${String(switched?.defaultSync?.error || "unknown")}）`
+      : "";
+    const reply = defaultWarn ? (`模型已切换：${runtimeRef}\n${defaultWarn}`) : `模型已切换：${runtimeRef}`;
     appendChatEvent({ role: "bot", source: "system", text: reply });
     sendJson(res, 200, {
       ok: true,
@@ -2270,7 +2479,13 @@ async function handleConfigChat(req, res) {
       state: finalState,
       modelRefUsed: modelRef,
       runtimeModelRef: runtimeRef,
-      openclawModelSync: { ok: true, error: null },
+      openclawModelSync: {
+        ok: true,
+        error: null,
+        warning: defaultWarn,
+        sessionSync: switched?.sessionSync || null,
+        defaultSync: switched?.defaultSync || null,
+      },
     });
     return;
   }
@@ -2334,7 +2549,10 @@ async function handleConfigChat(req, res) {
         ["config", "set", "models.providers.deepseek.models[0].maxTokens", "8192", "--strict-json"],
         { timeoutMs: 30_000 },
       );
-      await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], { timeoutMs: 40_000 });
+      await switchThunderSessionModel({
+        modelRef: "deepseek/deepseek-chat",
+        sessionId: "thunderclaw-main",
+      }).catch(() => null);
       await syncXbrainFromOpenClaw();
       const freshState = getXbrainStateSnapshot();
       const reply = "DeepSeek Key 已保存并完成基础配置。现在可以直接开始对话。";
@@ -2469,7 +2687,10 @@ async function handleXbrainUpdate(req, res) {
           ["config", "set", "models.providers.deepseek.models[0].maxTokens", "8192", "--strict-json"],
           { timeoutMs: 30_000 },
         );
-        await runOpenClawCommand(["models", "set", "deepseek/deepseek-chat"], { timeoutMs: 30_000 });
+        await switchThunderSessionModel({
+          modelRef: "deepseek/deepseek-chat",
+          sessionId: "thunderclaw-main",
+        }).catch(() => null);
       }
     }
     if (typeof values.telegramRelayEnabled === "boolean") {
@@ -2570,32 +2791,36 @@ async function handleXbrainModelSwitch(req, res) {
     });
     return;
   }
-  const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
-  if (!setRes.ok) {
+  const switched = await switchThunderSessionModel({
+    modelRef,
+    sessionId: "thunderclaw-main",
+  });
+  if (!switched.ok) {
     sendJson(res, 400, {
       ok: false,
-      error: (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      error: String(switched?.sessionSync?.error || "session /model failed"),
       modelRef,
       openclawModelSync: {
         ok: false,
-        error: (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+        error: String(switched?.sessionSync?.error || "session /model failed"),
+        sessionSync: switched?.sessionSync || null,
+        defaultSync: switched?.defaultSync || null,
       },
     });
     return;
   }
-  const inferred = inferProviderFromModelRef(modelRef);
-  xbrainStore.base.modelProvider = inferred.provider;
-  xbrainStore.base.modelId = inferred.modelId;
-  xbrainStore.base.runtimeModelProvider = inferred.provider;
-  xbrainStore.base.runtimeModelId = inferred.modelId;
-  saveXbrainStore();
-  await syncXbrainFromOpenClaw();
+  const defaultWarn = switched?.defaultSync?.attempted && switched?.defaultSync?.ok === false
+    ? `默认模型同步失败：${String(switched?.defaultSync?.error || "unknown")}`
+    : "";
   sendJson(res, 200, {
     ok: true,
-    state: getXbrainStateSnapshot(),
+    state: switched?.state || getXbrainStateSnapshot(),
     openclawModelSync: {
-      ok: setRes.ok,
-      error: setRes.ok ? null : (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      ok: true,
+      error: null,
+      warning: defaultWarn,
+      sessionSync: switched?.sessionSync || null,
+      defaultSync: switched?.defaultSync || null,
     },
   });
 }
@@ -2828,21 +3053,23 @@ async function handleXbrainModelConnect(req, res) {
   const deferModelSetForOAuth = authMethod === "oauth" && (!providerConfiguredAfterAuth || !registerApplied);
   if (registerApplied && setAsCurrent && modelRefs.length && !deferModelSetForOAuth) {
     const targetModelRef = String(body.defaultModelRef || modelRefs[0] || "").trim();
-    const setRes = await runOpenClawCommand(["models", "set", targetModelRef], { timeoutMs: 40_000 });
+    const switched = await switchThunderSessionModel({
+      modelRef: targetModelRef,
+      sessionId: "thunderclaw-main",
+    });
+    const defaultWarn = switched?.defaultSync?.attempted && switched?.defaultSync?.ok === false
+      ? `默认模型同步失败：${String(switched?.defaultSync?.error || "unknown")}`
+      : "";
     modelSet = {
       attempted: true,
-      ok: setRes.ok,
-      error: setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed"),
+      ok: switched?.ok === true,
+      error: switched?.ok === true ? null : String(switched?.sessionSync?.error || "session /model failed"),
+      warning: defaultWarn,
       modelRef: targetModelRef,
       deferred: false,
+      sessionSync: switched?.sessionSync || null,
+      defaultSync: switched?.defaultSync || null,
     };
-    if (setRes.ok) {
-      const inferred = inferProviderFromModelRef(targetModelRef);
-      xbrainStore.base.modelProvider = inferred.provider;
-      xbrainStore.base.modelId = inferred.modelId;
-      xbrainStore.base.runtimeModelProvider = inferred.provider;
-      xbrainStore.base.runtimeModelId = inferred.modelId;
-    }
   } else if (registerModel && setAsCurrent && modelRefs.length && deferModelSetForOAuth) {
     modelSet = {
       attempted: false,
@@ -3006,16 +3233,20 @@ async function handleXbrainModelDisconnect(req, res) {
   let switched = null;
   if (!xbrainStore.base.modelRegistry.includes(currentModelRef) || modelRefs.includes(currentModelRef)) {
     const fallbackRef = xbrainStore.base.modelRegistry[0];
-    const inferred = inferProviderFromModelRef(fallbackRef);
-    const setRes = await runOpenClawCommand(["models", "set", fallbackRef], { timeoutMs: 40_000 });
-    xbrainStore.base.modelProvider = inferred.provider;
-    xbrainStore.base.modelId = inferred.modelId;
-    xbrainStore.base.runtimeModelProvider = inferred.provider;
-    xbrainStore.base.runtimeModelId = inferred.modelId;
-    switched = {
-      ok: setRes.ok,
+    const switchRes = await switchThunderSessionModel({
       modelRef: fallbackRef,
-      error: setRes.ok ? null : (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      sessionId: "thunderclaw-main",
+    });
+    const defaultWarn = switchRes?.defaultSync?.attempted && switchRes?.defaultSync?.ok === false
+      ? `默认模型同步失败：${String(switchRes?.defaultSync?.error || "unknown")}`
+      : "";
+    switched = {
+      ok: switchRes?.ok === true,
+      modelRef: fallbackRef,
+      error: switchRes?.ok === true ? null : String(switchRes?.sessionSync?.error || "session /model failed"),
+      warning: defaultWarn,
+      sessionSync: switchRes?.sessionSync || null,
+      defaultSync: switchRes?.defaultSync || null,
     };
   }
 
