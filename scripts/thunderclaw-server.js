@@ -1297,6 +1297,8 @@ function getXbrainStateSnapshot() {
   const modelId = String(base.modelId || "deepseek-chat");
   const runtimeProvider = normalizeProviderKey(base.runtimeModelProvider || modelProvider);
   const runtimeModelId = String(base.runtimeModelId || modelId);
+  const configuredModelRef = toModelRef(modelProvider, modelId);
+  const runtimeModelRef = toModelRef(runtimeProvider, runtimeModelId);
   const modelRegistry = uniqStrings(base.modelRegistry || [toModelRef(modelProvider, modelId)]);
   const telegramToken = String(base.telegramTokenValue || "").trim();
   const telegramConfigured = Boolean(telegramToken);
@@ -1337,8 +1339,10 @@ function getXbrainStateSnapshot() {
     base: {
       modelProvider,
       modelId,
+      modelRef: configuredModelRef,
       runtimeModelProvider: runtimeProvider,
       runtimeModelId,
+      runtimeModelRef,
       providerCatalog,
       modelRegistry,
       providerAuth,
@@ -1380,6 +1384,205 @@ async function buildXbrainState(forceRefresh = false) {
   return getXbrainStateSnapshot();
 }
 
+function getCurrentConfiguredModelRefFromStore() {
+  const base = xbrainStore.base || {};
+  return toModelRef(base.modelProvider || "deepseek", base.modelId || "");
+}
+
+function getCurrentRuntimeModelRefFromStore() {
+  const base = xbrainStore.base || {};
+  const provider = base.runtimeModelProvider || base.modelProvider || "deepseek";
+  const modelId = base.runtimeModelId || base.modelId || "";
+  return toModelRef(provider, modelId);
+}
+
+function pickProviderModelRef(providerRaw) {
+  const provider = normalizeProviderKey(providerRaw);
+  const registry = uniqStrings(xbrainStore.base?.modelRegistry || []);
+  const fromRegistry = registry.find((ref) => inferProviderFromModelRef(ref).provider === provider);
+  if (fromRegistry) return fromRegistry;
+  return toModelRef(provider, "");
+}
+
+function resolveModelRefCandidate(inputRaw, providerHintRaw = "") {
+  const input = String(inputRaw || "").trim();
+  if (!input) {
+    if (providerHintRaw) return toModelRef(providerHintRaw, "");
+    return "";
+  }
+  const direct = input.match(/([a-zA-Z0-9._-]+\/[a-zA-Z0-9._:@-]+(?:\/[a-zA-Z0-9._:@-]+)*)/);
+  if (direct?.[1]) return String(direct[1]).trim().toLowerCase();
+  const normalized = input.toLowerCase();
+  const candidates = uniqStrings([
+    ...(xbrainStore.base?.modelRegistry || []),
+    ...Object.values(PROVIDER_DEFAULT_MODEL_REFS),
+  ]);
+  let winner = "";
+  for (const refRaw of candidates) {
+    const ref = String(refRaw || "").trim();
+    if (!ref) continue;
+    const lower = ref.toLowerCase();
+    const modelPart = lower.split("/").slice(1).join("/");
+    if (
+      normalized === lower
+      || normalized === modelPart
+      || normalized.includes(lower)
+      || (modelPart && normalized.includes(modelPart))
+    ) {
+      if (ref.length > winner.length) winner = ref;
+    }
+  }
+  if (winner) return winner;
+  if (providerHintRaw) {
+    return toModelRef(providerHintRaw, normalized);
+  }
+  if (/\bdeepseek\b/i.test(normalized)) return pickProviderModelRef("deepseek");
+  if (/\b(chatgpt|openai|codex|gpt)\b/i.test(normalized)) return pickProviderModelRef("chatgpt");
+  if (/\b(anthropic|claude)\b/i.test(normalized)) return pickProviderModelRef("anthropic");
+  if (/\b(openrouter)\b/i.test(normalized)) return pickProviderModelRef("openrouter");
+  if (/\b(gemini|google)\b/i.test(normalized)) return pickProviderModelRef("gemini");
+  if (/\b(zai|glm)\b/i.test(normalized)) return pickProviderModelRef("zai");
+  return "";
+}
+
+function parseSlashModelSwitchTarget(messageRaw) {
+  const message = String(messageRaw || "").trim();
+  if (!message) return "";
+  const slash = message.match(/^\/models?\s+(.+)$/i);
+  if (!slash?.[1]) return "";
+  const arg = String(slash[1]).trim();
+  if (!arg || /^(list|status)$/i.test(arg) || /^\d+$/.test(arg)) return "";
+  return resolveModelRefCandidate(arg);
+}
+
+function inferModelSwitchIntentModelRef(messageRaw) {
+  const message = String(messageRaw || "").trim();
+  if (!message) return "";
+  const slashTarget = parseSlashModelSwitchTarget(message);
+  if (slashTarget) return slashTarget;
+  const wantsSwitch = /(切换|换成|改成|改为|设为|使用|切到|switch|change)/i.test(message);
+  if (!wantsSwitch) return "";
+  let providerHint = "";
+  if (/(chatgpt|openai|codex|gpt)/i.test(message)) providerHint = "chatgpt";
+  else if (/(deepseek)/i.test(message)) providerHint = "deepseek";
+  else if (/(anthropic|claude)/i.test(message)) providerHint = "anthropic";
+  else if (/(openrouter)/i.test(message)) providerHint = "openrouter";
+  else if (/(gemini|google)/i.test(message)) providerHint = "gemini";
+  else if (/(zai|glm)/i.test(message)) providerHint = "zai";
+  const resolved = resolveModelRefCandidate(message, providerHint);
+  if (resolved) return resolved;
+  if (providerHint) return pickProviderModelRef(providerHint);
+  return "";
+}
+
+function looksLikeModelSwitchFailureText(textRaw) {
+  const text = String(textRaw || "").trim();
+  if (!text) return false;
+  if (/Model ".*" is not allowed/i.test(text)) return true;
+  if (/unknown model|model not found|invalid model/i.test(text)) return true;
+  if (/missing auth|no api key|authentication/i.test(text)) return true;
+  if (/模型.*(未|不).*(允许|可用|配置|存在)/i.test(text)) return true;
+  if (/切换失败|未知模型|未配置鉴权|鉴权失败/i.test(text)) return true;
+  return false;
+}
+
+function applyModelRefToStore(modelRefRaw) {
+  const modelRef = String(modelRefRaw || "").trim();
+  if (!modelRef) return inferProviderFromModelRef("");
+  const inferred = inferProviderFromModelRef(modelRef);
+  xbrainStore.base.modelProvider = inferred.provider;
+  xbrainStore.base.modelId = inferred.modelId;
+  xbrainStore.base.runtimeModelProvider = inferred.provider;
+  xbrainStore.base.runtimeModelId = inferred.modelId;
+  xbrainStore.base.providerCatalog = sanitizeProviderCatalog([...(xbrainStore.base.providerCatalog || []), inferred.provider]);
+  xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
+  saveXbrainStore();
+  return inferred;
+}
+
+async function persistModelSelection(modelRefRaw, options = {}) {
+  const modelRef = String(modelRefRaw || "").trim();
+  const syncDefault = options?.syncDefault !== false;
+  if (!modelRef) {
+    return {
+      ok: false,
+      modelRef: "",
+      inferred: inferProviderFromModelRef(""),
+      defaultSync: { attempted: false, ok: null, error: "modelRef required" },
+      state: getXbrainStateSnapshot(),
+    };
+  }
+  const inferred = applyModelRefToStore(modelRef);
+  const defaultSync = {
+    attempted: syncDefault,
+    ok: null,
+    error: null,
+  };
+  if (syncDefault) {
+    const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
+    defaultSync.ok = Boolean(setRes.ok);
+    defaultSync.error = setRes.ok ? null : ((setRes.stderr || setRes.stdout || "").trim() || "models set failed");
+    if (setRes.ok) {
+      await syncXbrainFromOpenClaw();
+    }
+  }
+  return {
+    ok: true,
+    modelRef,
+    inferred,
+    defaultSync,
+    state: getXbrainStateSnapshot(),
+  };
+}
+
+async function switchThunderSessionModel(params = {}) {
+  const modelRef = String(params?.modelRef || "").trim();
+  const sessionId = String(params?.sessionId || "thunderclaw-main").trim() || "thunderclaw-main";
+  if (!modelRef) {
+    return {
+      ok: false,
+      modelRef: "",
+      sessionId,
+      sessionSync: { ok: false, error: "modelRef is required", reply: "" },
+      defaultSync: { attempted: false, ok: null, error: null },
+      state: getXbrainStateSnapshot(),
+    };
+  }
+  const message = `/model ${modelRef}`;
+  const result = await runOpenClawCommand(
+    ["agent", "--session-id", sessionId, "--message", message, "--json"],
+    { timeoutMs: 180_000 },
+  );
+  const payload = parseJsonSafe(result.stdout);
+  const reply = String(extractAgentReply(payload) || "").trim();
+  const combinedErr = [result.stderr, result.stdout, reply].filter(Boolean).join("\n");
+  const sessionOk = Boolean(result.ok) && !looksLikeModelSwitchFailureText(combinedErr);
+  if (!sessionOk) {
+    return {
+      ok: false,
+      modelRef,
+      sessionId,
+      sessionSync: {
+        ok: false,
+        error: (result.stderr || result.stdout || reply || "session /model failed").trim(),
+        reply,
+      },
+      defaultSync: { attempted: false, ok: null, error: null },
+      state: getXbrainStateSnapshot(),
+    };
+  }
+  const persisted = await persistModelSelection(modelRef, { syncDefault: true });
+  return {
+    ok: true,
+    modelRef,
+    sessionId,
+    sessionSync: { ok: true, error: null, reply },
+    defaultSync: persisted.defaultSync,
+    state: persisted.state,
+    inferred: persisted.inferred,
+  };
+}
+
 async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
   const sessionId = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
@@ -1410,7 +1613,21 @@ async function runAgentTurn(params) {
   if (!reply) {
     reply = "收到，但暂时没有可返回内容。";
   }
-  return { result, payload, reply };
+  const slashModelRef = parseSlashModelSwitchTarget(message);
+  let modelSwitch = null;
+  if (slashModelRef && result.ok && !looksLikeModelSwitchFailureText(`${reply}\n${result.stderr || ""}`)) {
+    modelSwitch = await persistModelSelection(slashModelRef, { syncDefault: true });
+  }
+  const runtimeModelRef = getCurrentRuntimeModelRefFromStore();
+  return {
+    result,
+    payload,
+    reply,
+    sessionId,
+    runtimeModelRef,
+    modelRefUsed: runtimeModelRef,
+    modelSwitch,
+  };
 }
 
 function parseConfigIntent(messageRaw) {
@@ -1430,6 +1647,10 @@ function parseConfigIntent(messageRaw) {
   }
   if (/(连接|登录|授权).{0,8}(anthropic|claude)/i.test(message)) {
     return { type: "oauth", provider: "anthropic" };
+  }
+  const switchModelRef = inferModelSwitchIntentModelRef(message);
+  if (switchModelRef) {
+    return { type: "switch_model", modelRef: switchModelRef };
   }
   if (/(打开|进入|前往).{0,8}(配置|向导|xbrain|虾脑)/i.test(message)) {
     return { type: "open_xbrain" };
@@ -1621,11 +1842,18 @@ async function handleAiChat(req, res) {
     source: "dashboard",
     text: message,
   });
-  const { result, reply } = await runAgentTurn({
+  const turn = await runAgentTurn({
     message,
     sessionId: "thunderclaw-main",
     thinking: "medium",
   });
+  const {
+    result,
+    reply,
+    sessionId,
+    runtimeModelRef,
+    modelRefUsed,
+  } = turn;
   if (reply) {
     appendChatEvent({
       role: "bot",
@@ -1633,6 +1861,8 @@ async function handleAiChat(req, res) {
       text: reply,
     });
   }
+  const state = getXbrainStateSnapshot();
+  const activeModelRef = String(modelRefUsed || runtimeModelRef || getCurrentRuntimeModelRefFromStore()).trim();
   if (!result.ok) {
     sendJson(res, 500, {
       ok: false,
@@ -1641,6 +1871,10 @@ async function handleAiChat(req, res) {
       source: "openclaw",
       actions: [],
       executionTrace: [],
+      state,
+      modelRefUsed: activeModelRef,
+      runtimeModelRef: activeModelRef,
+      sessionIdUsed: sessionId || "thunderclaw-main",
     });
     return;
   }
@@ -1650,6 +1884,10 @@ async function handleAiChat(req, res) {
     source: "openclaw",
     actions: [],
     executionTrace: [],
+    state,
+    modelRefUsed: activeModelRef,
+    runtimeModelRef: activeModelRef,
+    sessionIdUsed: sessionId || "thunderclaw-main",
   });
 }
 
@@ -1663,6 +1901,76 @@ async function handleConfigChat(req, res) {
   const intent = parseConfigIntent(message);
   if (!intent) {
     sendJson(res, 200, { ok: true, handled: false, reply: "" });
+    return;
+  }
+
+  if (intent.type === "switch_model") {
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    const requestedRef = resolveModelRefCandidate(intent.modelRef || message);
+    if (!requestedRef) {
+      const reply = "未识别到可切换模型。请使用 provider/model（例如 openai-codex/gpt-5.3-codex）。";
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, {
+        ok: true,
+        handled: true,
+        reply,
+        state: getXbrainStateSnapshot(),
+      });
+      return;
+    }
+    const registry = new Set(uniqStrings(xbrainStore.base?.modelRegistry || []).map((v) => String(v).toLowerCase()));
+    if (!registry.has(requestedRef.toLowerCase())) {
+      const reply = `模型未注册：${requestedRef}。请先在「虾脑-模型注册中心」完成注册。`;
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, {
+        ok: true,
+        handled: true,
+        reply,
+        state: getXbrainStateSnapshot(),
+      });
+      return;
+    }
+    const switched = await switchThunderSessionModel({
+      modelRef: requestedRef,
+      sessionId: "thunderclaw-main",
+    });
+    if (!switched.ok) {
+      const switchErr = String(switched?.sessionSync?.error || switched?.defaultSync?.error || "unknown").trim();
+      const reply = `模型切换失败：${switchErr || "unknown"}`;
+      appendChatEvent({ role: "bot", source: "system", text: reply });
+      sendJson(res, 200, {
+        ok: true,
+        handled: true,
+        reply,
+        state: switched.state || getXbrainStateSnapshot(),
+        modelRefUsed: getCurrentRuntimeModelRefFromStore(),
+        runtimeModelRef: getCurrentRuntimeModelRefFromStore(),
+        sessionIdUsed: "thunderclaw-main",
+        openclawModelSync: {
+          ok: false,
+          error: switchErr || "session /model failed",
+        },
+      });
+      return;
+    }
+    const activeModelRef = getCurrentRuntimeModelRefFromStore();
+    const reply = `模型已切换并生效：${activeModelRef}`;
+    appendChatEvent({ role: "bot", source: "system", text: reply });
+    sendJson(res, 200, {
+      ok: true,
+      handled: true,
+      reply,
+      state: switched.state || getXbrainStateSnapshot(),
+      modelRefUsed: activeModelRef,
+      runtimeModelRef: activeModelRef,
+      sessionIdUsed: "thunderclaw-main",
+      openclawModelSync: {
+        ok: true,
+        error: null,
+        session: switched.sessionSync,
+        default: switched.defaultSync,
+      },
+    });
     return;
   }
 
@@ -1910,25 +2218,43 @@ async function handleXbrainUpdate(req, res) {
 async function handleXbrainModelSwitch(req, res) {
   const body = await readJsonBody(req);
   const modelRefInput = String(body.modelId || body.modelRef || "").trim();
-  const provider = normalizeProviderKey(body.modelProvider || "");
-  const modelRef = modelRefInput.includes("/")
-    ? modelRefInput
-    : toModelRef(provider || xbrainStore.base.modelProvider, modelRefInput);
-  const setRes = await runOpenClawCommand(["models", "set", modelRef], { timeoutMs: 40_000 });
-  const inferred = inferProviderFromModelRef(modelRef);
-  xbrainStore.base.modelProvider = inferred.provider;
-  xbrainStore.base.modelId = inferred.modelId;
-  xbrainStore.base.runtimeModelProvider = inferred.provider;
-  xbrainStore.base.runtimeModelId = inferred.modelId;
-  xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), modelRef]);
-  saveXbrainStore();
-  await syncXbrainFromOpenClaw();
+  const provider = normalizeProviderKey(body.modelProvider || xbrainStore.base?.modelProvider || "");
+  const modelRef = resolveModelRefCandidate(modelRefInput, provider);
+  if (!modelRef) {
+    sendJson(res, 400, { ok: false, error: "model is required" });
+    return;
+  }
+  const switched = await switchThunderSessionModel({
+    modelRef,
+    sessionId: "thunderclaw-main",
+  });
+  if (!switched.ok) {
+    const switchErr = String(switched?.sessionSync?.error || switched?.defaultSync?.error || "session /model failed").trim();
+    sendJson(res, 400, {
+      ok: false,
+      error: switchErr || "session /model failed",
+      state: switched.state || getXbrainStateSnapshot(),
+      openclawModelSync: {
+        ok: false,
+        error: switchErr || "session /model failed",
+        session: switched.sessionSync,
+        default: switched.defaultSync,
+      },
+    });
+    return;
+  }
+  const runtimeModelRef = getCurrentRuntimeModelRefFromStore();
   sendJson(res, 200, {
     ok: true,
-    state: getXbrainStateSnapshot(),
+    state: switched.state || getXbrainStateSnapshot(),
+    modelRefUsed: runtimeModelRef,
+    runtimeModelRef,
+    sessionIdUsed: "thunderclaw-main",
     openclawModelSync: {
-      ok: setRes.ok,
-      error: setRes.ok ? null : (setRes.stderr || setRes.stdout || "").trim() || "models set failed",
+      ok: true,
+      error: null,
+      session: switched.sessionSync,
+      default: switched.defaultSync,
     },
   });
 }

@@ -3053,6 +3053,10 @@ function createChatApiClientRuntime(optionsLike = {}) {
       actions: Array.isArray(payload.actions) ? payload.actions : [],
       source: String(payload.source || 'openclaw'),
       executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
+      state: payload && typeof payload.state === 'object' ? payload.state : null,
+      modelRefUsed: String(payload?.modelRefUsed || '').trim(),
+      runtimeModelRef: String(payload?.runtimeModelRef || '').trim(),
+      sessionIdUsed: String(payload?.sessionIdUsed || '').trim(),
     };
   }
 
@@ -3072,6 +3076,10 @@ function createChatApiClientRuntime(optionsLike = {}) {
     return {
       handled: Boolean(payload.handled),
       reply: String(payload.reply || '').trim(),
+      state: payload && typeof payload.state === 'object' ? payload.state : null,
+      modelRefUsed: String(payload?.modelRefUsed || '').trim(),
+      runtimeModelRef: String(payload?.runtimeModelRef || '').trim(),
+      sessionIdUsed: String(payload?.sessionIdUsed || '').trim(),
     };
   }
 
@@ -3555,27 +3563,19 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const base = state.base && typeof state.base === 'object' ? state.base : {};
         const registered = Array.isArray(base.modelRegistry) ? base.modelRegistry : [];
-        const configuredModel = String(base.modelId || '').trim();
-        const runtimeModel = String(base.runtimeModelId || '').trim();
+        const configuredModelRef = String(
+          base.modelRef || buildModelRefFromProvider(base.modelProvider || 'deepseek', base.modelId || ''),
+        ).trim();
+        const runtimeModelRef = String(
+          base.runtimeModelRef || buildModelRefFromProvider(
+            base.runtimeModelProvider || base.modelProvider || 'deepseek',
+            base.runtimeModelId || base.modelId || '',
+          ),
+        ).trim();
         const options = [];
         registered.forEach(function(m) { options.push(String(m || '')); });
-        // 厂商已上线时，ThunderClaw 侧自动补齐该厂商的全部可用模型选项。
-        const hasProvider = { deepseek: false, chatgpt: false, anthropic: false };
-        registered.forEach(function(m) {
-          const p = inferProviderFromModelRef(m);
-          if (p === 'deepseek' || p === 'chatgpt' || p === 'anthropic') hasProvider[p] = true;
-        });
-        if (hasProvider.deepseek) {
-          (XBRAIN_MODEL_OPTIONS.deepseek || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (hasProvider.chatgpt) {
-          (XBRAIN_MODEL_OPTIONS.chatgpt || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (hasProvider.anthropic) {
-          (XBRAIN_MODEL_OPTIONS.anthropic || []).forEach(function(m) { options.push(String(m || '')); });
-        }
-        if (configuredModel) options.push(configuredModel);
-        if (runtimeModel) options.push(runtimeModel);
+        if (configuredModelRef) options.push(configuredModelRef);
+        if (runtimeModelRef) options.push(runtimeModelRef);
         const dedup = [];
         const seen = new Set();
         options.forEach(function(m) {
@@ -3620,8 +3620,15 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         if (!modelSwitchWrapEl || !modelSwitchToggleEl || !modelSwitchPopoverEl) return;
         const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
         const base = state.base && typeof state.base === 'object' ? state.base : {};
-        const runtimeModel = String(base.runtimeModelId || base.modelId || '').trim();
-        const configuredModel = String(base.modelId || '').trim();
+        const runtimeModel = String(
+          base.runtimeModelRef || buildModelRefFromProvider(
+            base.runtimeModelProvider || base.modelProvider || 'deepseek',
+            base.runtimeModelId || base.modelId || '',
+          ),
+        ).trim();
+        const configuredModel = String(
+          base.modelRef || buildModelRefFromProvider(base.modelProvider || 'deepseek', base.modelId || ''),
+        ).trim();
         availableThunderModels = buildThunderModelOptionsFromState(state);
         const shown = runtimeModel || configuredModel || (availableThunderModels[0] || '');
         modelSwitchToggleEl.textContent = '模型: ' + formatModelSwitchLabel(shown) + ' ▾';
@@ -3789,8 +3796,15 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               const base = freshState && typeof freshState === 'object' && freshState.base && typeof freshState.base === 'object'
                 ? freshState.base
                 : {};
-              const runtimeModel = String(base.runtimeModelId || '').trim();
-              const configuredModel = String(base.modelId || '').trim();
+              const runtimeModel = String(
+                base.runtimeModelRef || buildModelRefFromProvider(
+                  base.runtimeModelProvider || base.modelProvider || 'deepseek',
+                  base.runtimeModelId || base.modelId || '',
+                ),
+              ).trim();
+              const configuredModel = String(
+                base.modelRef || buildModelRefFromProvider(base.modelProvider || 'deepseek', base.modelId || ''),
+              ).trim();
               if (runtimeModel && configuredModel && runtimeModel !== configuredModel) {
                 setXbrainBaseSubStatus('model', '模型已切换配置，但当前会话仍在使用 ' + runtimeModel + '，请稍候或点击“检测当前模型”。', 'err');
                 return;
@@ -5308,6 +5322,9 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
         const configuredModel = String(base.modelId || 'deepseek-chat');
         const runtimeProvider = String(base.runtimeModelProvider || configuredProvider || 'deepseek');
         const runtimeModel = String(base.runtimeModelId || configuredModel || 'deepseek-chat');
+        const runtimeModelRef = String(
+          base.runtimeModelRef || buildModelRefFromProvider(runtimeProvider, runtimeModel),
+        ).trim();
         const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
         const deepseekMeta = providerAuth.deepseek && typeof providerAuth.deepseek === 'object' ? providerAuth.deepseek : {};
         if (baseProvider) baseProvider.value = uiProvider;
@@ -5366,7 +5383,7 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
           setTelegramLinkStatus('warn', 'Telegram: 未配置');
         }
         if (a1RuntimeBadge) {
-          a1RuntimeBadge.textContent = '当前 ThunderClaw：' + runtimeProvider + '/' + runtimeModel;
+          a1RuntimeBadge.textContent = '当前 ThunderClaw：' + (runtimeModelRef || (runtimeProvider + '/' + runtimeModel));
         }
         renderXbrainProviderAuthMeta(uiProvider);
         renderThunderModelSwitch(state);
@@ -8230,7 +8247,12 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
             try {
               const cfg = await askConfigChannel(q);
               if (cfg && cfg.handled) {
-                return { reply: cfg.reply || '配置已处理。', actions: [], source: 'config' };
+                return {
+                  ...cfg,
+                  reply: cfg.reply || '配置已处理。',
+                  actions: [],
+                  source: 'config',
+                };
               }
             } catch (_) {}
           }
@@ -8300,6 +8322,11 @@ function attachExecutionTraceReplayRuntime(rowLike, traceLike) {
               source: source,
               text: finalText,
             });
+            if (result?.state && typeof result.state === 'object') {
+              xbrainClientState.data = result.state;
+              xbrainClientState.loaded = true;
+              renderXbrainState();
+            }
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,
