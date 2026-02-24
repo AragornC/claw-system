@@ -761,6 +761,20 @@
       font-size: 0.66rem;
       color: var(--muted);
     }
+    .ai-strategy-intent-taxonomy {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .ai-strategy-intent-taxonomy .chip {
+      border: 1px solid rgba(139,148,158,0.36);
+      border-radius: 999px;
+      padding: 0 6px;
+      font-size: 0.61rem;
+      color: #c0c8d2;
+      background: rgba(0,0,0,0.18);
+      line-height: 1.55;
+    }
     .ai-strategy-intent-detail {
       font-size: 0.69rem;
       color: #c0c8d2;
@@ -2582,6 +2596,12 @@
               <div class="strategy-lab-form">
                 <input id="sl-feature-q" type="text" placeholder="搜索特征（如 adx / atr / 回踩）" />
                 <div class="strategy-feature-toolbar">
+                  <select id="sl-feature-main-category">
+                    <option value="">全部主分类</option>
+                  </select>
+                  <select id="sl-feature-tag">
+                    <option value="">全部功能标签</option>
+                  </select>
                   <select id="sl-feature-group">
                     <option value="">全部分组</option>
                     <option value="trend">trend</option>
@@ -2615,6 +2635,8 @@
                     <option value="updatedAt">按更新时间</option>
                     <option value="createdAt">按创建时间</option>
                     <option value="name">按名称</option>
+                    <option value="mainCategory">按主分类</option>
+                    <option value="outputType">按输出类型</option>
                     <option value="group">按分组</option>
                     <option value="kind">按类型</option>
                     <option value="source">按来源</option>
@@ -3098,6 +3120,7 @@
   <script src="./js/modules/xsea-runtime.js"></script>
   <script src="./js/modules/xbrain-runtime.js"></script>
   <script src="./js/modules/chat-runtime.js"></script>
+  <script src="./js/modules/strategy-feature-runtime.js"></script>
   <script src="./js/modules/strategy-intent-runtime.js"></script>
   <script>
     const REPORT_BUILD_ID = "2026-02-21T18:33:40.794Z";
@@ -10809,6 +10832,8 @@
         const proposeBtn = document.getElementById('sl-propose-btn');
         const refreshBtn = document.getElementById('sl-refresh-btn');
         const featureQEl = document.getElementById('sl-feature-q');
+        const featureMainCategoryEl = document.getElementById('sl-feature-main-category');
+        const featureTagEl = document.getElementById('sl-feature-tag');
         const featureGroupEl = document.getElementById('sl-feature-group');
         const featureKindEl = document.getElementById('sl-feature-kind');
         const featureSourceEl = document.getElementById('sl-feature-source');
@@ -10840,7 +10865,7 @@
         const strategyPanelEl = document.getElementById('sl-panel-strategy');
         const labPanelEl = document.getElementById('sl-panel-lab');
         const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
-        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureMainCategoryEl || !featureTagEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
         const featureViewState = {
           page: 1,
           pageSize: Number(featurePageSizeEl.value || 40) || 40,
@@ -10851,6 +10876,9 @@
           presets: [],
         };
         const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
+        const featureTaxonomyConfig = typeof getStrategyFeatureConfigRuntime === 'function'
+          ? getStrategyFeatureConfigRuntime()
+          : null;
 
         function switchStrategyLabTab(tabKeyLike) {
           const tabKey = String(tabKeyLike || '').trim() || 'feature';
@@ -10921,6 +10949,8 @@
         function collectFeatureFilterState() {
           return {
             q: String(featureQEl.value || '').trim(),
+            mainCategory: getSelectValueSafe(featureMainCategoryEl, ''),
+            tag: getSelectValueSafe(featureTagEl, ''),
             group: getSelectValueSafe(featureGroupEl, ''),
             kind: getSelectValueSafe(featureKindEl, ''),
             source: getSelectValueSafe(featureSourceEl, ''),
@@ -10935,6 +10965,8 @@
         function applyFeatureFilterState(stateLike) {
           const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
           featureQEl.value = String(state.q || '');
+          setSelectValueSafe(featureMainCategoryEl, state.mainCategory || '');
+          setSelectValueSafe(featureTagEl, state.tag || '');
           setSelectValueSafe(featureGroupEl, state.group || '');
           setSelectValueSafe(featureKindEl, state.kind || '');
           setSelectValueSafe(featureSourceEl, state.source || '');
@@ -11078,474 +11110,45 @@
           }
           return payload;
         }
-        function clampSlNum(v, min, max, fallback) {
-          const n = Number(v);
-          if (!Number.isFinite(n)) return Number(fallback || 0);
-          if (Number.isFinite(min) && n < min) return min;
-          if (Number.isFinite(max) && n > max) return max;
-          return n;
-        }
-        function trimSlText(textLike, maxLen) {
-          const raw = String(textLike || '').trim();
-          const n = Number(maxLen) || 0;
-          if (!n || raw.length <= n) return raw;
-          return raw.slice(0, n) + '...';
-        }
-        function fmtFeatureTs(tsLike) {
-          const ts = String(tsLike || '').trim();
-          if (!ts) return '-';
-          const ms = Number.isFinite(Date.parse(ts)) ? Date.parse(ts) : 0;
-          if (!ms) return ts;
-          const d = new Date(ms);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          const hh = String(d.getHours()).padStart(2, '0');
-          const mm = String(d.getMinutes()).padStart(2, '0');
-          return y + '-' + m + '-' + day + ' ' + hh + ':' + mm;
-        }
-        function fmtFeatureBarLabel(secLike) {
-          const sec = Number(secLike);
-          if (!Number.isFinite(sec) || sec <= 0) return '-';
-          const d = new Date(sec * 1000);
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          const hh = String(d.getHours()).padStart(2, '0');
-          const mm = String(d.getMinutes()).padStart(2, '0');
-          return m + '-' + day + ' ' + hh + ':' + mm;
-        }
-        function getStrategyFeatureBars() {
-          const tfPrefer = String(featureViewState.previewTf || featurePreviewTfEl.value || 'auto').trim() || 'auto';
-          const windowSize = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120));
-          featureViewState.previewTf = tfPrefer;
-          featureViewState.previewWindow = windowSize;
-          if (tfPrefer !== 'auto') {
-            const rows = Array.isArray(OHLCV_BY_TF?.[tfPrefer]) ? OHLCV_BY_TF[tfPrefer] : [];
-            if (rows.length >= 16) {
-              return { bars: rows.slice(-windowSize), tf: tfPrefer, windowSize: windowSize };
-            }
-          }
-          const tfPriority = ['1h', '15m', '5m', '1m', '4h', '1d'];
-          for (let i = 0; i < tfPriority.length; i += 1) {
-            const tf = tfPriority[i];
-            const rows = Array.isArray(OHLCV_BY_TF?.[tf]) ? OHLCV_BY_TF[tf] : [];
-            if (rows.length >= 24) return { bars: rows.slice(-windowSize), tf: tf, windowSize: windowSize };
-          }
-          const allKeys = Object.keys(OHLCV_BY_TF || {});
-          for (let i = 0; i < allKeys.length; i += 1) {
-            const rows = Array.isArray(OHLCV_BY_TF?.[allKeys[i]]) ? OHLCV_BY_TF[allKeys[i]] : [];
-            if (rows.length >= 16) return { bars: rows.slice(-windowSize), tf: allKeys[i], windowSize: windowSize };
-          }
-          return { bars: [], tf: tfPrefer === 'auto' ? '-' : tfPrefer, windowSize: windowSize };
-        }
-        function calcSmaSeries(values, periodLike) {
-          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
-          const out = Array(values.length).fill(null);
-          let sum = 0;
-          for (let i = 0; i < values.length; i += 1) {
-            const val = Number(values[i]);
-            if (!Number.isFinite(val)) continue;
-            sum += val;
-            if (i >= period) {
-              const prev = Number(values[i - period]);
-              if (Number.isFinite(prev)) sum -= prev;
-            }
-            if (i >= period - 1) out[i] = sum / period;
-          }
-          return out;
-        }
-        function calcEmaSeries(values, periodLike) {
-          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
-          const alpha = 2 / (period + 1);
-          const out = Array(values.length).fill(null);
-          let ema = null;
-          for (let i = 0; i < values.length; i += 1) {
-            const v = Number(values[i]);
-            if (!Number.isFinite(v)) continue;
-            if (ema == null) ema = v;
-            else ema = (v - ema) * alpha + ema;
-            out[i] = ema;
-          }
-          return out;
-        }
-        function calcRsiSeries(values, periodLike) {
-          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
-          const out = Array(values.length).fill(null);
-          let gain = 0;
-          let loss = 0;
-          for (let i = 1; i < values.length; i += 1) {
-            const prev = Number(values[i - 1]);
-            const curr = Number(values[i]);
-            if (!Number.isFinite(prev) || !Number.isFinite(curr)) continue;
-            const diff = curr - prev;
-            if (i <= period) {
-              gain += Math.max(diff, 0);
-              loss += Math.max(-diff, 0);
-              if (i === period) {
-                const avgGain = gain / period;
-                const avgLoss = loss / period;
-                const rs = avgLoss <= 0 ? 100 : (avgGain / avgLoss);
-                out[i] = 100 - (100 / (1 + rs));
-              }
-              continue;
-            }
-            gain = ((gain * (period - 1)) + Math.max(diff, 0)) / period;
-            loss = ((loss * (period - 1)) + Math.max(-diff, 0)) / period;
-            const rs = loss <= 0 ? 100 : (gain / loss);
-            out[i] = 100 - (100 / (1 + rs));
-          }
-          return out;
-        }
-        function calcAtrSeries(highs, lows, closes, periodLike) {
-          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
-          const tr = Array(highs.length).fill(null);
-          for (let i = 0; i < highs.length; i += 1) {
-            const h = Number(highs[i]);
-            const l = Number(lows[i]);
-            const cPrev = i > 0 ? Number(closes[i - 1]) : Number(closes[i]);
-            if (!Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(cPrev)) continue;
-            tr[i] = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
-          }
-          const out = Array(highs.length).fill(null);
-          let atr = null;
-          for (let i = 0; i < tr.length; i += 1) {
-            const v = Number(tr[i]);
-            if (!Number.isFinite(v)) continue;
-            if (atr == null) atr = v;
-            else atr = ((atr * (period - 1)) + v) / period;
-            out[i] = atr;
-          }
-          return out;
-        }
-        function calcAdxSeries(highs, lows, closes, periodLike) {
-          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
-          const len = highs.length;
-          const plusDm = Array(len).fill(0);
-          const minusDm = Array(len).fill(0);
-          const tr = Array(len).fill(0);
-          for (let i = 1; i < len; i += 1) {
-            const up = Number(highs[i]) - Number(highs[i - 1]);
-            const down = Number(lows[i - 1]) - Number(lows[i]);
-            plusDm[i] = up > down && up > 0 ? up : 0;
-            minusDm[i] = down > up && down > 0 ? down : 0;
-            const h = Number(highs[i]);
-            const l = Number(lows[i]);
-            const cPrev = Number(closes[i - 1]);
-            tr[i] = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
-          }
-          const adx = Array(len).fill(null);
-          let trSm = 0;
-          let plusSm = 0;
-          let minusSm = 0;
-          for (let i = 1; i < len; i += 1) {
-            trSm = trSm - (trSm / period) + tr[i];
-            plusSm = plusSm - (plusSm / period) + plusDm[i];
-            minusSm = minusSm - (minusSm / period) + minusDm[i];
-            if (i < period) continue;
-            const pdi = trSm <= 0 ? 0 : (100 * plusSm / trSm);
-            const mdi = trSm <= 0 ? 0 : (100 * minusSm / trSm);
-            const dx = (pdi + mdi) <= 0 ? 0 : (100 * Math.abs(pdi - mdi) / (pdi + mdi));
-            if (adx[i - 1] == null) adx[i] = dx;
-            else adx[i] = ((adx[i - 1] * (period - 1)) + dx) / period;
-          }
-          return adx;
-        }
-        function seriesToSvgPath(values, width, height, pad, minVal, maxVal) {
-          const pts = [];
-          const span = Math.max(1e-9, maxVal - minVal);
-          const innerW = Math.max(1, width - pad * 2);
-          const innerH = Math.max(1, height - pad * 2);
-          for (let i = 0; i < values.length; i += 1) {
-            const v = Number(values[i]);
-            if (!Number.isFinite(v)) continue;
-            const x = pad + (i / Math.max(1, values.length - 1)) * innerW;
-            const y = pad + (1 - ((v - minVal) / span)) * innerH;
-            pts.push([x, y]);
-          }
-          if (pts.length < 2) return '';
-          return pts.map(function(p, idx) {
-            const cmd = idx === 0 ? 'M' : 'L';
-            return cmd + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
-          }).join(' ');
-        }
-        function getFeatureAlgorithmInfo(featureLike) {
-          const f = featureLike && typeof featureLike === 'object' ? featureLike : {};
-          const kind = String(f.kind || 'custom').toLowerCase();
-          const params = f.params && typeof f.params === 'object' ? f.params : {};
-          const period = Math.max(2, Math.floor(Number(params.period || 14) || 14));
-          if (kind === 'ema') {
-            return {
-              formula: 'EMA_t = EMA_{t-1} + alpha * (Close_t - EMA_{t-1}), alpha = 2/(N+1)',
-              pseudoCode: 'const ema = calcEMA(close, ' + period + ');\\nconst signal = close > ema ? 1 : -1;',
-              method: '指数加权平滑，近期K线权重更高，常用于趋势门控。',
-            };
-          }
-          if (kind === 'sma') {
-            return {
-              formula: 'SMA_t = mean(Close_{t-N+1 ... t})',
-              pseudoCode: 'const sma = calcSMA(close, ' + period + ');\\nconst signal = close > sma ? 1 : -1;',
-              method: '等权移动平均，噪音更低、反应稍慢。',
-            };
-          }
-          if (kind === 'rsi') {
-            return {
-              formula: 'RSI = 100 - 100 / (1 + AvgGain/AvgLoss)',
-              pseudoCode: 'const rsi = calcRSI(close, ' + period + ');\\nconst signal = (rsi < 30) ? 1 : ((rsi > 70) ? -1 : 0);',
-              method: '振荡指标，捕捉超买/超卖拐点。',
-            };
-          }
-          if (kind === 'adx') {
-            return {
-              formula: 'ADX = WilderSmooth(DX), DX = |+DI - -DI| / (+DI + -DI) * 100',
-              pseudoCode: 'const adx = calcADX(high, low, close, ' + period + ');\\nconst signal = adx > 20 ? 1 : 0;',
-              method: '趋势强度过滤，避免在弱趋势区间频繁交易。',
-            };
-          }
-          if (kind === 'atr') {
-            return {
-              formula: 'ATR = WilderSmooth(TR), TR = max(H-L, |H-C_prev|, |L-C_prev|)',
-              pseudoCode: 'const atr = calcATR(high, low, close, ' + period + ');\\nconst stop = entry - atr * (params.stopAtr || 1.2);',
-              method: '波动率度量，适合动态止损止盈和仓位控制。',
-            };
-          }
-          if (kind === 'volume') {
-            return {
-              formula: 'VolumeRatio = Vol_t / SMA(Vol, N)',
-              pseudoCode: 'const volMean = calcSMA(volume, ' + period + ');\\nconst ratio = volume[i] / volMean[i];',
-              method: '量能放大/缩量检测，验证突破或衰竭。',
-            };
-          }
-          return {
-            formula: 'CustomFeature(x_t, params)',
-            pseudoCode: 'function customFeature(candle, params) { /* 由策略器生成 */ }',
-            method: '自定义特征，由对话候选或策略DSL映射。',
-          };
-        }
-        function downsampleFeaturePreviewRows(barsLike, indicatorLike, maxPointsLike) {
-          const bars = Array.isArray(barsLike) ? barsLike : [];
-          const indicator = Array.isArray(indicatorLike) ? indicatorLike : [];
-          const maxPoints = Math.max(12, Math.min(60, Number(maxPointsLike || 32) || 32));
-          if (bars.length <= maxPoints) {
-            return bars.map(function(b, idx) {
-              return { idx: idx, bar: b, indicator: Number(indicator[idx]) };
-            });
-          }
-          const step = Math.max(1, Math.floor(bars.length / maxPoints));
-          const out = [];
-          for (let i = Math.max(0, bars.length - maxPoints * step); i < bars.length; i += step) {
-            out.push({ idx: i, bar: bars[i], indicator: Number(indicator[i]) });
-          }
-          if (out.length && out[out.length - 1].idx !== bars.length - 1) {
-            out.push({ idx: bars.length - 1, bar: bars[bars.length - 1], indicator: Number(indicator[bars.length - 1]) });
-          }
-          return out.slice(-maxPoints);
-        }
-        function describeFeatureValue(kindLike, barLike, valueLike, paramsLike) {
-          const kind = String(kindLike || 'custom').toLowerCase();
-          const bar = barLike && typeof barLike === 'object' ? barLike : {};
-          const value = Number(valueLike);
-          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
-          if (!Number.isFinite(value)) return '-';
-          if (kind === 'ema' || kind === 'sma') {
-            const close = Number(bar.close);
-            if (!Number.isFinite(close)) return '-';
-            return close >= value ? 'Close>=MA（趋势通过）' : 'Close<MA（趋势过滤）';
-          }
-          if (kind === 'rsi') {
-            if (value <= 30) return 'RSI<=30（超卖）';
-            if (value >= 70) return 'RSI>=70（超买）';
-            return '30<RSI<70（中性）';
-          }
-          if (kind === 'adx') {
-            const min = Number(params.min || 20) || 20;
-            return value >= min ? ('ADX>=' + String(min) + '（趋势有效）') : ('ADX<' + String(min) + '（趋势偏弱）');
-          }
-          if (kind === 'atr') {
-            const stopAtr = Number(params.stopAtr || 1.2) || 1.2;
-            return 'ATR=' + value.toFixed(2) + '，止损距离≈' + (value * stopAtr).toFixed(2);
-          }
-          if (kind === 'volume') {
-            const vol = Number(bar.volume);
-            if (!Number.isFinite(vol) || value <= 0) return '-';
-            const ratio = vol / value;
-            if (ratio >= 1.3) return '量能放大（ratio=' + ratio.toFixed(2) + '）';
-            if (ratio <= 0.8) return '量能偏弱（ratio=' + ratio.toFixed(2) + '）';
-            return '量能中性（ratio=' + ratio.toFixed(2) + '）';
-          }
-          return 'value=' + value.toFixed(4);
-        }
-        function buildFeatureSampleTable(featureLike, barsLike, indicatorLike, tfLike) {
-          const feature = featureLike && typeof featureLike === 'object' ? featureLike : {};
-          const bars = Array.isArray(barsLike) ? barsLike : [];
-          const indicator = Array.isArray(indicatorLike) ? indicatorLike : [];
-          const tf = String(tfLike || featureViewState.previewTf || '1h').trim() || '1h';
-          const params = feature.params && typeof feature.params === 'object' ? feature.params : {};
-          const kind = String(feature.kind || 'custom').toLowerCase();
-          const rows = [];
-          for (let i = bars.length - 1; i >= 0 && rows.length < 6; i -= 1) {
-            const bar = bars[i] && typeof bars[i] === 'object' ? bars[i] : null;
-            if (!bar) continue;
-            const value = Number(indicator[i]);
-            if (!Number.isFinite(value)) continue;
-            const close = Number(bar.close);
-            rows.push({
-              idx: i,
-              timeSec: Number(bar.time),
-              ts: fmtFeatureBarLabel(bar.time),
-              close: Number.isFinite(close) ? close : null,
-              value: value,
-              explain: describeFeatureValue(kind, bar, value, params),
-            });
-          }
-          if (!rows.length) return '';
-          const body = rows.map(function(row) {
-            const timeSec = Number(row.timeSec);
-            const timeAttr = Number.isFinite(timeSec) && timeSec > 0 ? String(Math.floor(timeSec)) : '';
-            const rowAttrs = timeAttr
-              ? (' data-feature-bar-time="' + escapeHtml(timeAttr) + '"'
-                + ' data-feature-tf="' + escapeHtml(tf) + '"'
-                + ' data-feature-value="' + escapeHtml(row.value.toFixed(6)) + '"'
-                + ' data-feature-label="' + escapeHtml(String(row.explain || '')) + '"'
-                + ' title="点击定位主K线"')
-              : '';
-            const jumpBtn = timeAttr
-              ? ('<button class="feature-jump-btn" type="button"'
-                + ' data-feature-bar-time="' + escapeHtml(timeAttr) + '"'
-                + ' data-feature-tf="' + escapeHtml(tf) + '"'
-                + ' data-feature-value="' + escapeHtml(row.value.toFixed(6)) + '"'
-                + ' data-feature-label="' + escapeHtml(String(row.explain || '')) + '">定位K线</button>')
-              : '-';
-            return '<tr' + rowAttrs + '>'
-              + '<td>' + escapeHtml(String(row.ts)) + '</td>'
-              + '<td>' + escapeHtml('#' + String(row.idx + 1)) + '</td>'
-              + '<td>' + escapeHtml(row.close == null ? '-' : row.close.toFixed(2)) + '</td>'
-              + '<td>' + escapeHtml(row.value.toFixed(4)) + '</td>'
-              + '<td>' + escapeHtml(String(row.explain || '-')) + '</td>'
-              + '<td>' + jumpBtn + '</td>'
-              + '</tr>';
-          }).join('');
-          return '<table class="feature-sample-table"><thead><tr>'
-            + '<th>时间</th><th>位置</th><th>Close</th><th>特征值</th><th>解释</th><th>联动</th>'
-            + '</tr></thead><tbody>' + body + '</tbody></table>';
-        }
-        function buildFeaturePreviewSvg(featureLike) {
-          const resolved = getStrategyFeatureBars();
-          const bars = Array.isArray(resolved?.bars) ? resolved.bars : [];
-          if (bars.length < 16) return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
-          const f = featureLike && typeof featureLike === 'object' ? featureLike : {};
-          const params = f.params && typeof f.params === 'object' ? f.params : {};
-          const closes = bars.map(function(b) { return Number(b.close); });
-          const highs = bars.map(function(b) { return Number(b.high); });
-          const lows = bars.map(function(b) { return Number(b.low); });
-          const volumes = bars.map(function(b) { return Number(b.volume); });
-          const period = Math.max(2, Math.floor(Number(params.period || 14) || 14));
-          const kind = String(f.kind || 'custom').toLowerCase();
-          let indicator = [];
-          if (kind === 'ema') indicator = calcEmaSeries(closes, period);
-          else if (kind === 'sma') indicator = calcSmaSeries(closes, period);
-          else if (kind === 'rsi') indicator = calcRsiSeries(closes, period);
-          else if (kind === 'adx') indicator = calcAdxSeries(highs, lows, closes, period);
-          else if (kind === 'atr') indicator = calcAtrSeries(highs, lows, closes, period);
-          else if (kind === 'volume') indicator = calcSmaSeries(volumes, period);
-          else indicator = calcSmaSeries(closes, period);
-
-          const validIndicator = indicator.filter(function(v) { return Number.isFinite(Number(v)); }).map(function(v) { return Number(v); });
-          if (!validIndicator.length) {
-            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
-          }
-          const sampled = downsampleFeaturePreviewRows(bars, indicator, 36);
-          if (!sampled.length) {
-            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
-          }
-          const sampledBars = sampled.map(function(item) { return item.bar; });
-          const sampledInd = sampled.map(function(item) { return item.indicator; });
-          const highsValid = sampledBars.map(function(b) { return Number(b.high); }).filter(function(v) { return Number.isFinite(v); });
-          const lowsValid = sampledBars.map(function(b) { return Number(b.low); }).filter(function(v) { return Number.isFinite(v); });
-          const indValid = sampledInd.filter(function(v) { return Number.isFinite(v); });
-          if (!highsValid.length || !lowsValid.length || !indValid.length) {
-            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
-          }
-          const width = 460;
-          const height = 88;
-          const pad = 6;
-          const top0 = 6;
-          const top1 = 48;
-          const bottom0 = 54;
-          const bottom1 = 84;
-          const innerW = Math.max(1, width - pad * 2);
-          const priceMin = Math.min.apply(null, lowsValid);
-          const priceMax = Math.max.apply(null, highsValid);
-          const indMin = Math.min.apply(null, indValid);
-          const indMax = Math.max.apply(null, indValid);
-          const priceSpan = Math.max(1e-9, priceMax - priceMin);
-          const indSpan = Math.max(1e-9, indMax - indMin);
-          function scalePrice(v) {
-            const n = Number(v);
-            if (!Number.isFinite(n)) return top1;
-            return top1 - ((n - priceMin) / priceSpan) * (top1 - top0);
-          }
-          function scaleInd(v) {
-            const n = Number(v);
-            if (!Number.isFinite(n)) return bottom1;
-            return bottom1 - ((n - indMin) / indSpan) * (bottom1 - bottom0);
-          }
-          const slot = sampled.length > 1 ? innerW / (sampled.length - 1) : innerW;
-          const wickPath = [];
-          const bodyRects = [];
-          const indPts = [];
-          sampled.forEach(function(item, idx) {
-            const bar = item.bar && typeof item.bar === 'object' ? item.bar : {};
-            const x = pad + idx * slot;
-            const yH = scalePrice(bar.high);
-            const yL = scalePrice(bar.low);
-            wickPath.push('M' + x.toFixed(2) + ' ' + yH.toFixed(2) + 'L' + x.toFixed(2) + ' ' + yL.toFixed(2));
-            const yO = scalePrice(bar.open);
-            const yC = scalePrice(bar.close);
-            const top = Math.min(yO, yC);
-            const h = Math.max(1, Math.abs(yO - yC));
-            const bodyW = Math.max(1.6, Math.min(6, slot * 0.45));
-            const color = Number(bar.close) >= Number(bar.open) ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)';
-            bodyRects.push('<rect x="' + (x - bodyW / 2).toFixed(2) + '" y="' + top.toFixed(2) + '" width="' + bodyW.toFixed(2) + '" height="' + h.toFixed(2) + '" fill="' + color + '"></rect>');
-            if (Number.isFinite(Number(item.indicator))) {
-              indPts.push([x, scaleInd(item.indicator), item.indicator]);
-            }
-          });
-          const indPath = indPts.map(function(p, idx) {
-            return (idx === 0 ? 'M' : 'L') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
-          }).join(' ');
-          const markerPts = indPts.slice(-3);
-          const markerHtml = markerPts.map(function(p) {
-            return '<circle cx="' + p[0].toFixed(2) + '" cy="' + p[1].toFixed(2) + '" r="2.2" fill="rgba(121,192,255,0.95)"></circle>';
-          }).join('');
-          const firstLabel = sampled.length ? fmtFeatureBarLabel(sampled[0]?.bar?.time) : '-';
-          const lastLabel = sampled.length ? fmtFeatureBarLabel(sampled[sampled.length - 1]?.bar?.time) : '-';
-          const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">'
-            + '<line x1="' + pad + '" y1="' + top1 + '" x2="' + (width - pad) + '" y2="' + top1 + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
-            + '<line x1="' + pad + '" y1="' + bottom0 + '" x2="' + (width - pad) + '" y2="' + bottom0 + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
-            + '<path d="' + wickPath.join('') + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
-            + bodyRects.join('')
-            + '<path d="' + indPath + '" fill="none" stroke="rgba(88,166,255,0.92)" stroke-width="1.6"></path>'
-            + markerHtml
-            + '<text x="' + pad + '" y="' + (height - 2) + '" fill="rgba(139,148,158,0.85)" font-size="8">' + escapeHtml(firstLabel) + '</text>'
-            + '<text x="' + (width - pad) + '" y="' + (height - 2) + '" fill="rgba(139,148,158,0.85)" font-size="8" text-anchor="end">' + escapeHtml(lastLabel) + '</text>'
-            + '</svg>';
-          return {
-            svg: svg,
-            sampleTable: buildFeatureSampleTable(f, bars, indicator, String(resolved?.tf || '')),
-            tf: String(resolved?.tf || '-'),
-            windowSize: Number(resolved?.windowSize || bars.length || 0),
-          };
-        }
-        function syncSelectOptions(selectEl, valuesLike, defaultText, keepValue) {
+        // 特征详情与分类可视化已拆分到 ./js/modules/strategy-feature-runtime.js
+        function syncSelectOptions(selectEl, valuesLike, defaultText, keepValue, labelFnLike) {
           const el = selectEl;
           if (!el) return;
           const values = Array.isArray(valuesLike) ? valuesLike.map(function(v) { return String(v || '').trim(); }).filter(Boolean) : [];
           const selected = String(keepValue != null ? keepValue : el.value || '');
+          const labelFn = typeof labelFnLike === 'function' ? labelFnLike : null;
           const options = ['<option value="">' + escapeHtml(defaultText || '全部') + '</option>']
-            .concat(values.map(function(v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }));
+            .concat(values.map(function(v) {
+              const labelRaw = labelFn ? String(labelFn(v) || v) : v;
+              return '<option value="' + escapeHtml(v) + '">' + escapeHtml(labelRaw) + '</option>';
+            }));
           el.innerHTML = options.join('');
           if (selected && values.includes(selected)) el.value = selected;
           else if (!selected) el.value = '';
+        }
+        if (featureTaxonomyConfig && featureTaxonomyConfig.mainCategories) {
+          syncSelectOptions(
+            featureMainCategoryEl,
+            Object.keys(featureTaxonomyConfig.mainCategories || {}),
+            '全部主分类',
+            '',
+            function(v) {
+              const row = featureTaxonomyConfig.mainCategories && featureTaxonomyConfig.mainCategories[v];
+              return String(row?.label || v || '');
+            },
+          );
+        }
+        if (featureTaxonomyConfig && featureTaxonomyConfig.tags) {
+          syncSelectOptions(
+            featureTagEl,
+            Object.keys(featureTaxonomyConfig.tags || {}),
+            '全部功能标签',
+            '',
+            function(v) {
+              const row = featureTaxonomyConfig.tags && featureTaxonomyConfig.tags[v];
+              return String(row?.label || v || '');
+            },
+          );
         }
         function renderFeaturePagination(payloadLike) {
           const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
@@ -11560,6 +11163,8 @@
         }
         async function fetchFeatures() {
           const q = String(featureQEl.value || '').trim();
+          const mainCategory = String(featureMainCategoryEl.value || '').trim();
+          const tag = String(featureTagEl.value || '').trim();
           const group = String(featureGroupEl.value || '').trim();
           const kind = String(featureKindEl.value || '').trim();
           const source = String(featureSourceEl.value || '').trim();
@@ -11570,6 +11175,8 @@
           featureViewState.pageSize = pageSize;
           const url = '/api/strategy/features'
             + '?q=' + encodeURIComponent(q)
+            + '&mainCategory=' + encodeURIComponent(mainCategory)
+            + '&tag=' + encodeURIComponent(tag)
             + '&group=' + encodeURIComponent(group)
             + '&kind=' + encodeURIComponent(kind)
             + '&source=' + encodeURIComponent(source)
@@ -11590,88 +11197,50 @@
           const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
           featureViewState.lastFeaturePayload = payload;
           const facets = payload.facets && typeof payload.facets === 'object' ? payload.facets : {};
+          const taxonomy = facets.taxonomy && typeof facets.taxonomy === 'object'
+            ? facets.taxonomy
+            : (typeof getStrategyFeatureConfigRuntime === 'function' ? getStrategyFeatureConfigRuntime() : null);
+          const categoryLabeler = function(keyLike) {
+            const key = String(keyLike || '').trim().toLowerCase();
+            const row = taxonomy && taxonomy.mainCategories && taxonomy.mainCategories[key];
+            if (row && row.label) return String(row.label);
+            if (typeof getStrategyFeatureLabelRuntime === 'function') {
+              return String(getStrategyFeatureLabelRuntime('category', key) || key);
+            }
+            return key;
+          };
+          const tagLabeler = function(keyLike) {
+            const key = String(keyLike || '').trim().toLowerCase();
+            const row = taxonomy && taxonomy.tags && taxonomy.tags[key];
+            if (row && row.label) return String(row.label);
+            if (typeof getStrategyFeatureLabelRuntime === 'function') {
+              return String(getStrategyFeatureLabelRuntime('tag', key) || key);
+            }
+            return key;
+          };
           syncSelectOptions(featureSourceEl, Array.isArray(facets.sources) ? facets.sources : [], '全部来源', featureSourceEl.value);
+          syncSelectOptions(featureMainCategoryEl, Array.isArray(facets.mainCategories) ? facets.mainCategories : [], '全部主分类', featureMainCategoryEl.value, categoryLabeler);
+          syncSelectOptions(featureTagEl, Array.isArray(facets.tags) ? facets.tags : [], '全部功能标签', featureTagEl.value, tagLabeler);
           renderFeaturePagination(payload);
           if (!rows.length) {
             featureListEl.innerHTML = '<div class="strategy-feature-item"><div class="meta">暂无特征</div></div>';
             return;
           }
-          featureListEl.innerHTML = rows.map(function(f) {
-            const feature = f && typeof f === 'object' ? f : {};
-            const featureId = String(feature.featureId || '-');
-            const name = escapeHtml(String(feature.name || featureId || '-'));
-            const group = String(feature.group || '-');
-            const kind = String(feature.kind || '-');
-            const enabled = feature.enabled !== false;
-            const source = String(feature.source || '-');
-            const desc = escapeHtml(String(feature.description || ''));
-            const createdAt = fmtFeatureTs(feature.createdAt);
-            const updatedAt = fmtFeatureTs(feature.updatedAt);
-            const originConversationId = String(feature.originConversationId || '').trim();
-            const originEventId = Number(feature.originEventId);
-            const originCardId = String(feature.originCardId || '').trim();
-            const sourceMeta = [
-              '来源=' + source,
-              originConversationId ? ('会话=' + originConversationId) : '',
-              Number.isFinite(originEventId) && originEventId > 0 ? ('消息#' + String(originEventId)) : '',
-              originCardId ? ('卡片=' + originCardId) : '',
-            ].filter(Boolean).join(' · ');
-            const originQuery = trimSlText(String(feature.originQuery || ''), 180);
-            const originReply = trimSlText(String(feature.originReply || ''), 180);
-            const paramsJson = escapeHtml(JSON.stringify(feature.params && typeof feature.params === 'object' ? feature.params : {}, null, 2));
-            const algo = getFeatureAlgorithmInfo(feature);
-            const previewPayload = buildFeaturePreviewSvg(feature);
-            const previewSvg = String(previewPayload?.svg || '');
-            const previewTable = String(previewPayload?.sampleTable || '');
-            const previewTf = String(previewPayload?.tf || '-');
-            const previewWindow = Number(previewPayload?.windowSize || 0) || 0;
-            const trail = Array.isArray(feature.originTrail) ? feature.originTrail : [];
-            const trailHtml = trail.slice(-4).reverse().map(function(item) {
-              const row = item && typeof item === 'object' ? item : {};
-              const rowEventId = Number(row.eventId);
-              const line = [
-                fmtFeatureTs(row.ts),
-                String(row.source || ''),
-                row.conversationId ? ('会话=' + String(row.conversationId)) : '',
-                Number.isFinite(rowEventId) ? ('消息#' + String(rowEventId)) : '',
-                row.cardId ? ('卡片=' + String(row.cardId)) : '',
-              ].filter(Boolean).join(' · ');
-              const q = trimSlText(String(row.query || ''), 120);
-              const jumpBtn = Number.isFinite(rowEventId) && rowEventId > 0
-                ? ('<button class="feature-jump-btn" type="button" data-feature-jump-event="' + escapeHtml(String(rowEventId)) + '">跳转对话</button>')
-                : '';
-              return '<div class="meta mini-mono">' + escapeHtml(line) + jumpBtn + (q ? ('<br/>Q: ' + escapeHtml(q)) : '') + '</div>';
-            }).join('');
-            return '<div class="strategy-feature-item">'
-              + '<div class="head"><div class="name">' + name + '</div><div class="tags">'
-              + '<span class="tag">' + escapeHtml(group) + '</span>'
-              + '<span class="tag">' + escapeHtml(kind) + '</span>'
-              + '<span class="tag ' + (enabled ? 'ok' : 'warn') + '">' + (enabled ? '启用' : '关闭') + '</span>'
-              + '</div></div>'
-              + '<div class="meta">id=' + escapeHtml(featureId) + ' · 创建=' + escapeHtml(createdAt) + ' · 更新=' + escapeHtml(updatedAt) + '</div>'
-              + '<div class="meta">' + escapeHtml(sourceMeta || ('来源=' + source)) + '</div>'
-              + '<div class="meta">' + desc + '</div>'
-              + '<details><summary>展开特征详情（来源 / 算法 / 可视化）</summary>'
-              + '<div class="detail-wrap">'
-              + '<div class="detail-block"><div class="detail-title">来源追踪</div>'
-              + '<div class="meta">来源：' + escapeHtml(source || '-') + '</div>'
-              + (originQuery ? ('<div class="meta">触发问题：' + escapeHtml(originQuery) + '</div>') : '')
-              + (originReply ? ('<div class="meta">触发回复：' + escapeHtml(originReply) + '</div>') : '')
-              + (trailHtml ? ('<div class="meta" style="margin-top:4px;">最近链路：</div>' + trailHtml) : '')
-              + '</div>'
-              + '<div class="detail-block"><div class="detail-title">算法说明</div>'
-              + '<div class="meta">' + escapeHtml(algo.method) + '</div>'
-              + '<div class="meta mini-mono">公式：' + escapeHtml(algo.formula) + '</div>'
-              + '<pre class="mini-mono">' + escapeHtml(algo.pseudoCode) + '</pre>'
-              + '</div>'
-              + '<div class="detail-block"><div class="detail-title">参数与计算预览</div>'
-              + '<pre class="mini-mono">' + paramsJson + '</pre>'
-              + (previewSvg
-                ? ('<div class="meta" style="margin-top:4px;">K线/指标预览（上=K线，下=特征值） · 周期=' + escapeHtml(previewTf) + ' · 窗口=' + escapeHtml(String(previewWindow || '-')) + '</div>' + previewSvg + previewTable)
-                : '<div class="meta" style="margin-top:4px;">暂无可视化预览（当前K线样本不足或特征不支持）。</div>')
-              + '</div>'
-              + '</div></details>'
-              + '</div>';
+          const renderCard = typeof renderStrategyFeatureCardRuntime === 'function'
+            ? renderStrategyFeatureCardRuntime
+            : null;
+          const renderContext = {
+            previewTf: String(featureViewState.previewTf || featurePreviewTfEl.value || 'auto'),
+            previewWindow: Math.max(60, Math.min(360, Number(featureViewState.previewWindow || featurePreviewWindowEl.value || 120) || 120)),
+            ohlcvByTf: OHLCV_BY_TF || {},
+            originTrailLimit: 4,
+          };
+          featureListEl.innerHTML = rows.map(function(item) {
+            if (renderCard) {
+              return renderCard(item, renderContext);
+            }
+            const fallbackName = String(item?.name || item?.featureId || '-');
+            return '<div class="strategy-feature-item"><div class="name">' + escapeHtml(fallbackName) + '</div><div class="meta">特征渲染模块未加载。</div></div>';
           }).join('');
         }
         function renderVersionSelectors(list) {
@@ -11780,6 +11349,8 @@
             resetFeaturePageAndReload();
           }, 260);
         });
+        featureMainCategoryEl.addEventListener('change', resetFeaturePageAndReload);
+        featureTagEl.addEventListener('change', resetFeaturePageAndReload);
         featureGroupEl.addEventListener('change', resetFeaturePageAndReload);
         featureKindEl.addEventListener('change', resetFeaturePageAndReload);
         featureSourceEl.addEventListener('change', resetFeaturePageAndReload);

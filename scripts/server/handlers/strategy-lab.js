@@ -29,6 +29,8 @@ export function createStrategyLabHandlers(deps = {}) {
     const q = toText(url.searchParams.get("q") || "");
     const group = toText(url.searchParams.get("group") || "");
     const kind = toText(url.searchParams.get("kind") || "");
+    const mainCategory = toText(url.searchParams.get("mainCategory") || "");
+    const tag = toText(url.searchParams.get("tag") || "");
     const source = toText(url.searchParams.get("source") || "");
     const enabled = toText(url.searchParams.get("enabled") || "");
     const sortBy = toText(url.searchParams.get("sortBy") || "updatedAt");
@@ -39,6 +41,8 @@ export function createStrategyLabHandlers(deps = {}) {
       q,
       group,
       kind,
+      mainCategory,
+      tag,
       source,
       enabled,
       sortBy,
@@ -48,7 +52,17 @@ export function createStrategyLabHandlers(deps = {}) {
     });
     const facets = typeof strategyLabStore.getFeatureFacets === "function"
       ? strategyLabStore.getFeatureFacets()
-      : { groups: [], kinds: [], sources: [], enabledCount: 0, disabledCount: 0 };
+      : {
+        groups: [],
+        kinds: [],
+        mainCategories: [],
+        tags: [],
+        outputTypes: [],
+        sources: [],
+        taxonomy: null,
+        enabledCount: 0,
+        disabledCount: 0,
+      };
     sendJson(res, 200, {
       ok: true,
       total: Number(result?.total || 0),

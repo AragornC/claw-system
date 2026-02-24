@@ -28,6 +28,13 @@ function normalizeIntentCandidateRuntime(rawLike) {
     const feature = raw.feature && typeof raw.feature === "object" ? raw.feature : {};
     const name = tcSafeText(feature.name || raw.title || "");
     if (!name) return null;
+    const normalizedFeature = typeof normalizeStrategyFeatureRuntime === "function"
+      ? normalizeStrategyFeatureRuntime({
+        ...feature,
+        name: name,
+        description: tcSafeText(feature.description || raw.summary || ""),
+      })
+      : null;
     return {
       id: id || tcSafeText(raw.candidateId || "cand_feature"),
       candidateId: tcSafeText(raw.candidateId || "cand_feature"),
@@ -42,6 +49,14 @@ function normalizeIntentCandidateRuntime(rawLike) {
         kind: tcSafeText(feature.kind || "custom"),
         description: tcSafeText(feature.description || raw.summary || ""),
         params: feature.params && typeof feature.params === "object" ? feature.params : {},
+        mainCategory: normalizedFeature ? tcSafeText(normalizedFeature.mainCategory || "") : tcSafeText(feature.mainCategory || ""),
+        mainCategoryLabel: normalizedFeature ? tcSafeText(normalizedFeature.mainCategoryLabel || "") : "",
+        tags: normalizedFeature && Array.isArray(normalizedFeature.tags) ? normalizedFeature.tags.slice(0, 3) : (Array.isArray(feature.tags) ? feature.tags.slice(0, 3) : []),
+        tagLabels: normalizedFeature && Array.isArray(normalizedFeature.tagLabels) ? normalizedFeature.tagLabels.slice(0, 3) : [],
+        outputType: normalizedFeature ? tcSafeText(normalizedFeature.outputType || "") : tcSafeText(feature.outputType || ""),
+        outputTypeLabel: normalizedFeature ? tcSafeText(normalizedFeature.outputTypeLabel || "") : "",
+        usageSummary: normalizedFeature ? tcSafeText(normalizedFeature.usageSummary || "") : tcSafeText(feature.usageSummary || ""),
+        triggerLogic: normalizedFeature ? tcSafeText(normalizedFeature.triggerLogic || "") : tcSafeText(feature.triggerLogic || ""),
       },
     };
   }
@@ -148,7 +163,19 @@ function renderCandidateMetaRuntime(candidateLike) {
   const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
   if (candidate.kind === "feature") {
     const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
-    return "Group: " + tcSafeText(feature.group || "custom") + " · Kind: " + tcSafeText(feature.kind || "custom");
+    const cat = tcSafeText(feature.mainCategoryLabel || feature.mainCategory || "");
+    const tags = Array.isArray(feature.tagLabels) && feature.tagLabels.length
+      ? feature.tagLabels.slice(0, 2).join("/")
+      : Array.isArray(feature.tags) && feature.tags.length
+        ? feature.tags.slice(0, 2).join("/")
+        : "";
+    const output = tcSafeText(feature.outputTypeLabel || feature.outputType || "");
+    const parts = [
+      "分类: " + tcSafeText(cat || "未分类"),
+      tags ? ("标签: " + tags) : "",
+      output ? ("输出: " + output) : "",
+    ].filter(Boolean);
+    return parts.join(" · ");
   }
   const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
   return "Horizon: " + tcSafeText(strategy.horizon || "intraday") + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced");
@@ -158,12 +185,14 @@ function renderCandidateDetailRuntime(candidateLike) {
   const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
   if (candidate.kind === "feature") {
     const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
-    const desc = tcSafeText(feature.description || candidate.summary || "");
+    const desc = tcSafeText(feature.usageSummary || feature.description || candidate.summary || "");
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
     const entries = Object.entries(params).slice(0, 4).map(function(item) {
       return String(item[0]) + "=" + String(item[1]);
     });
-    return entries.length ? (desc + " · " + entries.join(", ")) : desc;
+    const trigger = tcSafeText(feature.triggerLogic || "");
+    const info = trigger ? (desc + "；触发：" + trigger) : desc;
+    return entries.length ? (info + " · " + entries.join(", ")) : info;
   }
   const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
   const parts = [];
@@ -237,6 +266,31 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     m.className = "ai-strategy-intent-meta";
     m.textContent = renderCandidateMetaRuntime(candidate);
     card.appendChild(m);
+
+    if (candidate.kind === "feature") {
+      const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
+      const chips = [];
+      const categoryLabel = tcSafeText(feature.mainCategoryLabel || feature.mainCategory || "");
+      if (categoryLabel) chips.push(categoryLabel);
+      const tagLabels = Array.isArray(feature.tagLabels) && feature.tagLabels.length
+        ? feature.tagLabels.slice(0, 2)
+        : Array.isArray(feature.tags) ? feature.tags.slice(0, 2) : [];
+      tagLabels.forEach(function(tag) { if (tcSafeText(tag)) chips.push(tcSafeText(tag)); });
+      if (tcSafeText(feature.outputTypeLabel || feature.outputType || "")) {
+        chips.push("输出:" + tcSafeText(feature.outputTypeLabel || feature.outputType || ""));
+      }
+      if (chips.length) {
+        const taxonomyEl = document.createElement("div");
+        taxonomyEl.className = "ai-strategy-intent-taxonomy";
+        chips.forEach(function(chipText) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = tcSafeText(chipText);
+          taxonomyEl.appendChild(chip);
+        });
+        card.appendChild(taxonomyEl);
+      }
+    }
 
     const d = document.createElement("div");
     d.className = "ai-strategy-intent-detail";

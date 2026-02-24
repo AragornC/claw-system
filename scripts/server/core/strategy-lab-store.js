@@ -1,5 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  FEATURE_TAXONOMY,
+  MAIN_CATEGORY_CONFIG,
+  TAG_CONFIG,
+  OUTPUT_TYPE_CONFIG,
+  buildFeatureProductProfile,
+  buildFeatureVersionInfo,
+} from "../domain/feature-taxonomy.js";
 
 const FEATURE_GROUPS = new Set(["trend", "momentum", "volatility", "risk", "execution", "custom"]);
 const FEATURE_KINDS = new Set([
@@ -15,7 +23,17 @@ const FEATURE_KINDS = new Set([
 ]);
 const STRATEGY_HORIZONS = new Set(["scalp", "intraday", "swing", "position"]);
 const STRATEGY_RISK_LEVELS = new Set(["conservative", "balanced", "aggressive"]);
-const FEATURE_SORT_FIELDS = new Set(["updatedAt", "createdAt", "name", "group", "kind", "source", "enabled"]);
+const FEATURE_SORT_FIELDS = new Set([
+  "updatedAt",
+  "createdAt",
+  "name",
+  "group",
+  "kind",
+  "source",
+  "enabled",
+  "mainCategory",
+  "outputType",
+]);
 
 function clampNumber(valueLike, min, max, fallback = 0) {
   const n = Number(valueLike);
@@ -86,10 +104,22 @@ function normalizeEnabledFilter(valueLike) {
   return "";
 }
 
+function normalizeMainCategoryFilter(valueLike) {
+  const raw = String(valueLike ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  return MAIN_CATEGORY_CONFIG[raw] ? raw : "";
+}
+
+function normalizeTagFilter(valueLike) {
+  const raw = String(valueLike ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  return TAG_CONFIG[raw] ? raw : "";
+}
+
 function buildSeedStore() {
   const ts = nowIso();
   return {
-    version: 1,
+    version: 2,
     updatedAt: ts,
     seq: {
       feature: 4,
@@ -239,12 +269,47 @@ function normalizeFeatureCandidate(rawLike = {}) {
         params[key] = v;
       }
     });
+  const tags = uniqStrings(Array.isArray(raw.tags) ? raw.tags : []).slice(0, 3);
+  const algorithmSteps = Array.isArray(raw.algorithmSteps)
+    ? raw.algorithmSteps.map((v) => toText(v)).filter(Boolean).slice(0, 5)
+    : [];
+  const pseudoCode = Array.isArray(raw.pseudoCode)
+    ? raw.pseudoCode.map((v) => toText(v)).filter(Boolean).slice(0, 16)
+    : toText(raw.pseudoCode)
+      ? [toText(raw.pseudoCode)]
+      : [];
+  const paramSpecs = Array.isArray(raw.paramSpecs)
+    ? raw.paramSpecs
+      .map((item) => {
+        const row = item && typeof item === "object" ? item : {};
+        return {
+          name: toText(row.name || ""),
+          defaultValue: row.defaultValue,
+          type: toText(row.type || typeof row.defaultValue || "string"),
+          note: toText(row.note || ""),
+        };
+      })
+      .filter((item) => item.name)
+      .slice(0, 20)
+    : [];
   return {
     name,
     group,
     kind,
     description,
     params,
+    mainCategory: toText(raw.mainCategory || ""),
+    tags,
+    displayMode: toText(raw.displayMode || ""),
+    outputType: toText(raw.outputType || ""),
+    usageSummary: toText(raw.usageSummary || ""),
+    triggerLogic: toText(raw.triggerLogic || ""),
+    algorithmSummary: toText(raw.algorithmSummary || ""),
+    algorithmSteps,
+    pseudoCode,
+    paramSpecs,
+    sourceType: toText(raw.sourceType || ""),
+    createdBy: toText(raw.createdBy || raw.creator || ""),
     enabled: raw.enabled !== false,
   };
 }
@@ -381,6 +446,63 @@ function applyProvenanceMeta(targetLike, metaLike, tsLike, fallbackSource = "cha
   return target;
 }
 
+function applyFeatureProductMeta(targetLike, metaLike = {}) {
+  const target = targetLike && typeof targetLike === "object" ? targetLike : {};
+  const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+  const profile = buildFeatureProductProfile(target, {
+    source: toText(meta.source || target.source || "chat_intent"),
+    sourceType: toText(meta.sourceType || target.sourceType || meta.source || target.source || "chat_intent"),
+    creator: toText(meta.creator || meta.createdBy || target.createdBy || "ThunderClaw"),
+  });
+  Object.assign(target, profile);
+  target.versionInfo = buildFeatureVersionInfo(target, {
+    bumpRevision: Boolean(meta.bumpRevision),
+    versionNote: toText(meta.versionNote || ""),
+  });
+  return target;
+}
+
+function migrateStoreShape(storeLike) {
+  const store = storeLike && typeof storeLike === "object" ? storeLike : buildSeedStore();
+  let changed = false;
+  if (!Number.isFinite(Number(store.version)) || Number(store.version) < 2) {
+    store.version = 2;
+    changed = true;
+  }
+  if (!Array.isArray(store.features)) {
+    store.features = [];
+    changed = true;
+  }
+  store.features.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const mainCategoryBefore = toText(item.mainCategory || "");
+    const displayModeBefore = toText(item.displayMode || "");
+    const outputTypeBefore = toText(item.outputType || "");
+    const tagsBefore = JSON.stringify(Array.isArray(item.tags) ? item.tags : []);
+    const versionBefore = JSON.stringify(item.versionInfo && typeof item.versionInfo === "object" ? item.versionInfo : {});
+    applyFeatureProductMeta(item, {
+      source: toText(item.source || "chat_intent"),
+      sourceType: toText(item.sourceType || item.source || "chat_intent"),
+      creator: toText(item.createdBy || "ThunderClaw"),
+      bumpRevision: false,
+    });
+    if (!Array.isArray(item.originTrail)) {
+      item.originTrail = [];
+      changed = true;
+    }
+    if (
+      mainCategoryBefore !== toText(item.mainCategory || "")
+      || displayModeBefore !== toText(item.displayMode || "")
+      || outputTypeBefore !== toText(item.outputType || "")
+      || tagsBefore !== JSON.stringify(Array.isArray(item.tags) ? item.tags : [])
+      || versionBefore !== JSON.stringify(item.versionInfo && typeof item.versionInfo === "object" ? item.versionInfo : {})
+    ) {
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 export function createStrategyLabStore(deps = {}) {
   const statePath = String(deps.statePath || "").trim();
   if (!statePath) throw new Error("statePath is required");
@@ -418,6 +540,9 @@ export function createStrategyLabStore(deps = {}) {
         versions: Array.isArray(parsed.versions) ? parsed.versions : seed.versions,
         artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
       };
+      if (migrateStoreShape(storeCache)) {
+        persistSafe(storeCache);
+      }
       return storeCache;
     } catch {
       storeCache = buildSeedStore();
@@ -443,6 +568,8 @@ export function createStrategyLabStore(deps = {}) {
     const q = toText(options.q).toLowerCase();
     const group = pickEnum(options.group || "", FEATURE_GROUPS, "");
     const kind = pickEnum(options.kind || "", FEATURE_KINDS, "");
+    const mainCategory = normalizeMainCategoryFilter(options.mainCategory);
+    const tag = normalizeTagFilter(options.tag);
     const source = toText(options.source || "");
     const enabledFilter = normalizeEnabledFilter(options.enabled);
     const sortBy = normalizeSortField(options.sortBy);
@@ -455,6 +582,12 @@ export function createStrategyLabStore(deps = {}) {
     }
     if (kind) {
       rows = rows.filter((item) => String(item?.kind || "") === kind);
+    }
+    if (mainCategory) {
+      rows = rows.filter((item) => String(item?.mainCategory || "") === mainCategory);
+    }
+    if (tag) {
+      rows = rows.filter((item) => Array.isArray(item?.tags) && item.tags.includes(tag));
     }
     if (source) {
       rows = rows.filter((item) => String(item?.source || "") === source);
@@ -470,7 +603,12 @@ export function createStrategyLabStore(deps = {}) {
           item?.name,
           item?.group,
           item?.kind,
+          item?.mainCategory,
+          item?.outputType,
           item?.description,
+          item?.usageSummary,
+          item?.triggerLogic,
+          ...(Array.isArray(item?.tags) ? item.tags : []),
           item?.source,
           item?.originQuery,
           item?.originReply,
@@ -484,7 +622,14 @@ export function createStrategyLabStore(deps = {}) {
     }
     rows.sort((a, b) => {
       let cmp = 0;
-      if (sortBy === "name" || sortBy === "group" || sortBy === "kind" || sortBy === "source") {
+      if (
+        sortBy === "name"
+        || sortBy === "group"
+        || sortBy === "kind"
+        || sortBy === "source"
+        || sortBy === "mainCategory"
+        || sortBy === "outputType"
+      ) {
         cmp = String(a?.[sortBy] || "").localeCompare(String(b?.[sortBy] || ""));
       } else if (sortBy === "enabled") {
         cmp = Number(Boolean(a?.enabled !== false)) - Number(Boolean(b?.enabled !== false));
@@ -517,11 +662,30 @@ export function createStrategyLabStore(deps = {}) {
     const groups = uniqStrings(rows.map((item) => item?.group)).sort((a, b) => a.localeCompare(b));
     const kinds = uniqStrings(rows.map((item) => item?.kind)).sort((a, b) => a.localeCompare(b));
     const sources = uniqStrings(rows.map((item) => item?.source)).sort((a, b) => a.localeCompare(b));
+    const mainCategories = uniqStrings(rows.map((item) => item?.mainCategory))
+      .filter((key) => Boolean(MAIN_CATEGORY_CONFIG[key]))
+      .sort((a, b) => a.localeCompare(b));
+    const tags = uniqStrings(
+      rows.flatMap((item) => (Array.isArray(item?.tags) ? item.tags : [])),
+    )
+      .filter((key) => Boolean(TAG_CONFIG[key]))
+      .sort((a, b) => a.localeCompare(b));
+    const outputTypes = uniqStrings(rows.map((item) => item?.outputType))
+      .filter((key) => Boolean(OUTPUT_TYPE_CONFIG[key]))
+      .sort((a, b) => a.localeCompare(b));
     const enabledCount = rows.filter((item) => item?.enabled !== false).length;
     return {
       groups,
       kinds,
       sources,
+      mainCategories,
+      tags,
+      outputTypes,
+      taxonomy: {
+        mainCategories: FEATURE_TAXONOMY.mainCategories,
+        tags: FEATURE_TAXONOMY.tags,
+        outputTypes: FEATURE_TAXONOMY.outputTypes,
+      },
       enabledCount,
       disabledCount: Math.max(0, rows.length - enabledCount),
     };
@@ -556,8 +720,33 @@ export function createStrategyLabStore(deps = {}) {
       existing.kind = normalized.kind;
       existing.description = normalized.description;
       existing.params = normalized.params;
+      existing.mainCategory = normalized.mainCategory || existing.mainCategory;
+      existing.tags = normalized.tags && normalized.tags.length ? normalized.tags : existing.tags;
+      existing.displayMode = normalized.displayMode || existing.displayMode;
+      existing.outputType = normalized.outputType || existing.outputType;
+      existing.usageSummary = normalized.usageSummary || existing.usageSummary;
+      existing.triggerLogic = normalized.triggerLogic || existing.triggerLogic;
+      existing.algorithmSummary = normalized.algorithmSummary || existing.algorithmSummary;
+      existing.algorithmSteps = normalized.algorithmSteps && normalized.algorithmSteps.length
+        ? normalized.algorithmSteps
+        : existing.algorithmSteps;
+      existing.pseudoCode = normalized.pseudoCode && normalized.pseudoCode.length
+        ? normalized.pseudoCode
+        : existing.pseudoCode;
+      existing.paramSpecs = normalized.paramSpecs && normalized.paramSpecs.length
+        ? normalized.paramSpecs
+        : existing.paramSpecs;
+      existing.sourceType = normalized.sourceType || existing.sourceType;
+      existing.createdBy = normalized.createdBy || existing.createdBy;
       existing.enabled = normalized.enabled !== false;
       applyProvenanceMeta(existing, metaLike, now, toText(existing.source || "chat_intent", "chat_intent"));
+      applyFeatureProductMeta(existing, {
+        ...metaLike,
+        source: toText(metaLike?.source || existing.source || "chat_intent"),
+        sourceType: toText(metaLike?.sourceType || existing.sourceType || existing.source || "chat_intent"),
+        creator: toText(metaLike?.createdBy || metaLike?.creator || existing.createdBy || "ThunderClaw"),
+        bumpRevision: true,
+      });
       existing.updatedAt = now;
       saveStore();
       return { created: false, feature: existing };
@@ -569,14 +758,33 @@ export function createStrategyLabStore(deps = {}) {
       kind: normalized.kind,
       description: normalized.description,
       params: normalized.params,
+      mainCategory: normalized.mainCategory,
+      tags: normalized.tags,
+      displayMode: normalized.displayMode,
+      outputType: normalized.outputType,
+      usageSummary: normalized.usageSummary,
+      triggerLogic: normalized.triggerLogic,
+      algorithmSummary: normalized.algorithmSummary,
+      algorithmSteps: normalized.algorithmSteps,
+      pseudoCode: normalized.pseudoCode,
+      paramSpecs: normalized.paramSpecs,
       enabled: normalized.enabled !== false,
       source: "chat_intent",
+      sourceType: toText(normalized.sourceType || metaLike?.sourceType || metaLike?.source || "chat_intent"),
+      createdBy: toText(normalized.createdBy || metaLike?.createdBy || metaLike?.creator || "ThunderClaw"),
       originQuery: "",
       originReply: "",
       createdAt: now,
       updatedAt: now,
     };
     applyProvenanceMeta(item, metaLike, now, "chat_intent");
+    applyFeatureProductMeta(item, {
+      ...metaLike,
+      source: toText(metaLike?.source || "chat_intent"),
+      sourceType: toText(metaLike?.sourceType || metaLike?.source || "chat_intent"),
+      creator: toText(metaLike?.createdBy || metaLike?.creator || "ThunderClaw"),
+      bumpRevision: false,
+    });
     store.features.push(item);
     saveStore();
     return { created: true, feature: item };
