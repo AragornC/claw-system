@@ -1384,6 +1384,7 @@ const {
   toModelRef,
   maskSecret,
   parseJsonSafe,
+  extractTradingIntentCandidates,
   xbrainStore,
   chatHistory,
   gatewayState,

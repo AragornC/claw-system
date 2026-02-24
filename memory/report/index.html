@@ -7543,8 +7543,22 @@
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
         }
-        function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass) {
-          return createChatMessageElementRuntime(roleClass, text, tsLike, statusText, pendingKey, statusClass);
+        function shouldRenderMarkdownForSource(roleClassLike, sourceLike) {
+          const roleClass = String(roleClassLike || '').trim().toLowerCase();
+          if (roleClass !== 'bot') return false;
+          const source = String(sourceLike || 'dashboard').trim().toLowerCase();
+          return source === 'dashboard' || source === 'openclaw' || source === 'deepseek';
+        }
+        function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass, sourceLike) {
+          return createChatMessageElementRuntime(
+            roleClass,
+            text,
+            tsLike,
+            statusText,
+            pendingKey,
+            statusClass,
+            shouldRenderMarkdownForSource(roleClass, sourceLike),
+          );
         }
         function finishRowPendingState(row) {
           finishRowPendingStateRuntime(row);
@@ -7592,7 +7606,7 @@
               chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
             }
             const role = r.role === 'user' ? 'user' : 'bot';
-            const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '');
+            const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '', '', String(r.source || 'dashboard'));
             box.appendChild(div);
           });
           box.scrollTop = box.scrollHeight;
@@ -7604,6 +7618,7 @@
           if (!t) return;
           const pendingKey = options.pendingKey ? String(options.pendingKey) : '';
           const sending = options.sending === true;
+          const source = String(options.source || 'dashboard');
           const div = createChatMessageElement(
             roleClass,
             t,
@@ -7611,6 +7626,7 @@
             sending ? 'sending...' : String(options.statusText || ''),
             pendingKey,
             sending ? 'sending' : String(options.statusClass || ''),
+            source,
           );
           if (options.pendingClass) div.classList.add(String(options.pendingClass));
           box.appendChild(div);
@@ -7619,6 +7635,7 @@
               enabled: true,
               tickMs: Number(options.typewriterTickMs) || 14,
               maxDurationMs: Number(options.typewriterMaxMs) || 2600,
+              renderMarkdown: shouldRenderMarkdownForSource(roleClass, source),
               onDone: function() {
                 if (options.typewriterFinishPending) finishRowPendingState(div);
               },
@@ -7630,7 +7647,7 @@
               id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
               ts: options.ts || new Date().toISOString(),
               role: roleClass,
-              source: String(options.source || 'dashboard'),
+              source: source,
               text: t,
             });
           }
@@ -8950,34 +8967,109 @@
             window.dispatchEvent(new CustomEvent('thunderclaw:strategy-updated', { detail: detail }));
           } catch (_) {}
         }
+        function buildIntentCandidatesFromActions(actionsLike) {
+          const actions = Array.isArray(actionsLike) ? actionsLike : [];
+          const out = [];
+          actions.slice(0, 6).forEach(function(action, idx) {
+            if (!action || typeof action !== 'object') return;
+            const type = String(action.type || '').toLowerCase();
+            if (type === 'run_strategy_dsl') {
+              const dsl = normalizeStrategyDslSpec(action.dsl || action.spec || {});
+              if (!dsl || !Object.keys(dsl).length) return;
+              const title = String(dsl.name || ('DSL 策略候选 ' + String(idx + 1))).trim();
+              out.push({
+                candidateId: 'action_dsl_' + String(idx + 1),
+                kind: 'strategy',
+                title: title,
+                summary: '来自结构化动作：run_strategy_dsl',
+                confidence: 0.68,
+                strategy: {
+                  title: title,
+                  thesis: '根据对话动作自动生成的 DSL 策略候选',
+                  horizon: 'intraday',
+                  riskLevel: 'balanced',
+                  entry: String(dsl.entryLong || dsl.entryShort || ''),
+                  riskControl: dsl.risk ? JSON.stringify(dsl.risk) : '',
+                  exit: String(dsl.exitLong || dsl.exitShort || ''),
+                  featureRefs: Array.isArray(dsl.features) ? dsl.features.map(function(f) { return String(f?.name || '').trim(); }).filter(Boolean) : [],
+                  features: Array.isArray(dsl.features) ? dsl.features : [],
+                  dsl: dsl,
+                },
+              });
+              return;
+            }
+            if (type === 'run_custom_backtest') {
+              const custom = normalizeCustomBacktestSpec(action.custom || {});
+              const strategyName = String(action.strategy || 'custom').trim() || 'custom';
+              const title = '自定义回测策略 · ' + strategyName;
+              out.push({
+                candidateId: 'action_custom_' + String(idx + 1),
+                kind: 'strategy',
+                title: title,
+                summary: '来自结构化动作：run_custom_backtest',
+                confidence: 0.62,
+                strategy: {
+                  title: title,
+                  thesis: '根据对话动作自动生成的自定义策略候选',
+                  horizon: 'intraday',
+                  riskLevel: 'balanced',
+                  entry: '按动作参数执行',
+                  riskControl: Object.keys(custom).length ? JSON.stringify(custom) : '',
+                  exit: '按动作参数执行',
+                  featureRefs: [],
+                  features: [],
+                  dsl: null,
+                },
+              });
+            }
+          });
+          return out.slice(0, 3);
+        }
         async function maybeRenderStrategyIntentSuggestions(paramsLike) {
-          if (!strategyIntentApiClient || typeof createStrategyIntentSuggestionRowRuntime !== 'function') return;
+          if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return;
           const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
-          const source = String(params.source || '').trim();
-          if (source !== 'openclaw') return;
           const userText = String(params.userText || '').trim();
           const assistantText = String(params.assistantText || '').trim();
           if (!userText || !assistantText) return;
+          const actions = Array.isArray(params.actions) ? params.actions : [];
           const fp = [
             String(params.sessionId || ''),
             userText.slice(0, 220),
             assistantText.slice(0, 220),
+            JSON.stringify(actions.slice(0, 3)),
           ].join('||');
           if (!rememberStrategyIntentFingerprint(fp)) return;
-          const detected = await strategyIntentApiClient.detect({
-            userMessage: userText,
-            assistantReply: assistantText,
-            sessionId: String(params.sessionId || 'thunderclaw-main'),
-            runtimeModelRef: String(params.runtimeModelRef || ''),
-            clientContext: buildClientContext(),
-          }).catch(function() { return null; });
-          if (!detected || !detected.intentDetected) return;
-          const candidates = Array.isArray(detected.candidates) ? detected.candidates : [];
+          let candidates = (Array.isArray(params.intentCandidates) ? params.intentCandidates : [])
+            .map(function(item) {
+              return typeof normalizeIntentCandidateRuntime === 'function'
+                ? normalizeIntentCandidateRuntime(item)
+                : item;
+            })
+            .filter(Boolean);
+          let detected = null;
+          if (!candidates.length && strategyIntentApiClient) {
+            detected = await strategyIntentApiClient.detect({
+              userMessage: userText,
+              assistantReply: assistantText,
+              sessionId: String(params.sessionId || 'thunderclaw-main'),
+              runtimeModelRef: String(params.runtimeModelRef || ''),
+              clientContext: buildClientContext(),
+            }).catch(function() { return null; });
+            if (detected && detected.intentDetected) {
+              candidates = Array.isArray(detected.candidates) ? detected.candidates : [];
+            }
+          }
+          if (!candidates.length) {
+            candidates = buildIntentCandidatesFromActions(actions);
+          }
           if (!candidates.length) return;
           const row = createStrategyIntentSuggestionRowRuntime({
             candidates: candidates,
-            confidence: Number(detected.confidence || 0.72),
+            confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
             onApply: function(candidate) {
+              if (!strategyIntentApiClient) {
+                return Promise.resolve({ ok: false, message: '策略候选写入器未就绪' });
+              }
               return strategyIntentApiClient.apply(candidate, {
                 source: 'chat_intent',
                 query: userText,
@@ -9085,6 +9177,7 @@
             '思考中',
             localPendingKey,
             'thinking',
+            'dashboard',
           );
           thinking.classList.add('pending');
           box.appendChild(thinking);
@@ -9111,6 +9204,7 @@
               enabled: true,
               tickMs: 13,
               maxDurationMs: 2400,
+              renderMarkdown: shouldRenderMarkdownForSource('bot', storeSource),
               onDone: function() { finishRowPendingState(thinking); },
             });
             attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
@@ -9143,12 +9237,15 @@
               assistantText: baseReply,
               sessionId: String(result?.sessionIdUsed || 'thunderclaw-main'),
               runtimeModelRef: String(result?.runtimeModelRef || ''),
+              actions: Array.isArray(result?.actions) ? result.actions : [],
+              intentCandidates: Array.isArray(result?.intentCandidates) ? result.intentCandidates : [],
             });
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,
               tickMs: 13,
               maxDurationMs: 1500,
+              renderMarkdown: false,
               onDone: function() { finishRowPendingState(thinking); },
             });
             appendLocalChatLog({
@@ -9193,6 +9290,29 @@
         }
         sendBtn.addEventListener('click', function() { void send(); });
         bindChatInputEnterRuntime(input, function() { void send(); });
+        function findRecentLocalDuplicate(roleLike, sourceLike, textLike, eventTsMsLike, maxAgeMsLike) {
+          const role = String(roleLike || '').trim().toLowerCase();
+          const source = String(sourceLike || 'dashboard').trim();
+          const text = String(textLike || '').trim();
+          if (!role || !text) return null;
+          const eventTsMs = Number(eventTsMsLike) || Date.now();
+          const maxAgeMs = Math.max(2000, Number(maxAgeMsLike || 12000) || 12000);
+          const rows = loadLocalChatLog();
+          for (let i = rows.length - 1; i >= 0 && i >= rows.length - 40; i -= 1) {
+            const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
+            if (!row) continue;
+            if (String(row.role || '').trim().toLowerCase() !== role) continue;
+            if (String(row.source || '').trim() !== source) continue;
+            if (String(row.text || '').trim() !== text) continue;
+            const rowTsMs = Number.isFinite(Date.parse(String(row.ts || '')))
+              ? Date.parse(String(row.ts || ''))
+              : 0;
+            if (!rowTsMs) continue;
+            if (Math.abs(eventTsMs - rowTsMs) > maxAgeMs) continue;
+            return row;
+          }
+          return null;
+        }
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
           if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
@@ -9224,6 +9344,14 @@
               ackLocalUserEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null);
               return;
             }
+            const duplicateUser = findRecentLocalDuplicate('user', 'dashboard', finalText, eventTsMs, 12000);
+            if (duplicateUser) {
+              const existingId = Number(duplicateUser.id);
+              if (!Number.isFinite(existingId) || !Number.isFinite(idNum) || existingId === idNum) {
+                ackLocalUserEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null);
+                return;
+              }
+            }
           }
           if ((source === 'dashboard' || source === 'system') && role === 'bot') {
             const eventTsMs = Number.isFinite(Date.parse(String(ev?.ts || '')))
@@ -9249,6 +9377,16 @@
                 source,
               );
               return;
+            }
+            if (source === 'dashboard') {
+              const duplicateBot = findRecentLocalDuplicate('bot', 'dashboard', finalText, eventTsMs, 12000);
+              if (duplicateBot) {
+                const existingId = Number(duplicateBot.id);
+                if (!Number.isFinite(existingId) || !Number.isFinite(idNum) || existingId === idNum) {
+                  ackLocalBotEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null, 'dashboard');
+                  return;
+                }
+              }
             }
           }
           pushMsg(role, finalText, {

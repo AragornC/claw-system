@@ -26,6 +26,7 @@ export function createChatConfigHandlers(deps = {}) {
     toModelRef,
     maskSecret,
     parseJsonSafe,
+    extractTradingIntentCandidates,
   } = deps;
 
   const xbrainStore = deps.xbrainStore;
@@ -418,6 +419,33 @@ async function handleAiChat(req, res) {
     stateAfter?.base?.runtimeModelProvider,
     stateAfter?.base?.runtimeModelId,
   );
+  let intentSkill = {
+    ok: false,
+    intentDetected: false,
+    confidence: 0,
+    reasoning: "",
+    candidates: [],
+    error: "",
+  };
+  if (result.ok && typeof extractTradingIntentCandidates === "function") {
+    intentSkill = await extractTradingIntentCandidates({
+      userMessage: message,
+      assistantReply: String(reply || ""),
+      sessionId: sessionIdUsed || "thunderclaw-main",
+      runtimeModelRef: runtimeModelRefAfter || runtimeModelRefBefore,
+      clientContext: body?.clientContext && typeof body.clientContext === "object" ? body.clientContext : {},
+    }).catch((error) => ({
+      ok: false,
+      intentDetected: false,
+      confidence: 0,
+      reasoning: "",
+      candidates: [],
+      error: String(error?.message || error || "intent skill failed"),
+    }));
+  }
+  const intentCandidates = intentSkill?.ok && intentSkill?.intentDetected
+    ? (Array.isArray(intentSkill.candidates) ? intentSkill.candidates : [])
+    : [];
   if (reply) {
     appendChatEvent({
       role: "bot",
@@ -438,6 +466,14 @@ async function handleAiChat(req, res) {
       runtimeModelRef: runtimeModelRefAfter,
       sessionIdUsed,
       modelAutoSync,
+      intentCandidates: [],
+      intentSkill: {
+        ok: Boolean(intentSkill?.ok),
+        intentDetected: Boolean(intentSkill?.intentDetected),
+        confidence: Number(intentSkill?.confidence || 0),
+        reasoning: String(intentSkill?.reasoning || ""),
+        error: String(intentSkill?.error || ""),
+      },
     });
     return;
   }
@@ -452,6 +488,14 @@ async function handleAiChat(req, res) {
     runtimeModelRef: runtimeModelRefAfter,
     sessionIdUsed,
     modelAutoSync,
+    intentCandidates,
+    intentSkill: {
+      ok: Boolean(intentSkill?.ok),
+      intentDetected: Boolean(intentSkill?.intentDetected),
+      confidence: Number(intentSkill?.confidence || 0),
+      reasoning: String(intentSkill?.reasoning || ""),
+      error: String(intentSkill?.error || ""),
+    },
   });
 }
 
