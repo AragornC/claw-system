@@ -515,6 +515,117 @@
       margin-left: 1px;
       animation: ai-dots 1.1s steps(1, end) infinite;
     }
+    .ai-strategy-intent-row { max-width: min(76%, 980px); }
+    .ai-strategy-intent-bubble {
+      width: 100%;
+      border: 1px solid rgba(88,166,255,0.55) !important;
+      background:
+        radial-gradient(120% 120% at 0% 0%, rgba(88,166,255,0.18), rgba(88,166,255,0.05) 45%, rgba(0,0,0,0.14) 100%),
+        rgba(0,0,0,0.18);
+      box-shadow: 0 10px 26px rgba(17, 24, 39, 0.34);
+    }
+    .ai-strategy-intent-title {
+      font-size: 0.74rem;
+      color: #c9d1d9;
+      margin-bottom: 8px;
+    }
+    .ai-strategy-intent-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .ai-strategy-intent-card {
+      border: 1px solid rgba(139, 148, 158, 0.32);
+      border-radius: 10px;
+      background: rgba(1, 4, 9, 0.34);
+      padding: 8px;
+      display: grid;
+      gap: 5px;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+    .ai-strategy-intent-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(88,166,255,0.62);
+      background: rgba(0, 10, 24, 0.42);
+    }
+    .ai-strategy-intent-card.accepted {
+      border-color: rgba(63,185,80,0.66);
+      background: rgba(16, 46, 28, 0.34);
+    }
+    .ai-strategy-intent-card.ignored {
+      opacity: 0.72;
+      filter: grayscale(0.2);
+    }
+    .ai-strategy-intent-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .ai-strategy-intent-badge {
+      font-size: 0.63rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 1px 7px;
+      color: var(--muted);
+    }
+    .ai-strategy-intent-badge.feature {
+      border-color: rgba(63,185,80,0.56);
+      color: #7ee787;
+    }
+    .ai-strategy-intent-badge.strategy {
+      border-color: rgba(88,166,255,0.56);
+      color: #79c0ff;
+    }
+    .ai-strategy-intent-conf {
+      font-size: 0.64rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .ai-strategy-intent-name {
+      font-size: 0.74rem;
+      color: var(--text);
+      font-weight: 600;
+    }
+    .ai-strategy-intent-meta {
+      font-size: 0.66rem;
+      color: var(--muted);
+    }
+    .ai-strategy-intent-detail {
+      font-size: 0.69rem;
+      color: #c0c8d2;
+      line-height: 1.35;
+      min-height: 34px;
+    }
+    .ai-strategy-intent-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .ai-strategy-intent-actions button {
+      border: 1px solid rgba(88,166,255,0.52);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      padding: 3px 8px;
+      font-size: 0.66rem;
+      cursor: pointer;
+    }
+    .ai-strategy-intent-actions button.ghost {
+      border-color: var(--border);
+      background: rgba(0,0,0,0.14);
+      color: var(--muted);
+    }
+    .ai-strategy-intent-actions button:disabled {
+      opacity: 0.62;
+      cursor: not-allowed;
+    }
+    .ai-strategy-intent-status {
+      font-size: 0.65rem;
+      color: var(--muted);
+    }
     @keyframes ai-dots {
       0% { content: ''; }
       25% { content: '.'; }
@@ -2746,7 +2857,8 @@
 
   <script src="./js/modules/xsea-runtime.js"></script>
   <script src="./js/modules/xbrain-runtime.js"></script>
-<script src="./js/modules/chat-runtime.js"></script>
+  <script src="./js/modules/chat-runtime.js"></script>
+  <script src="./js/modules/strategy-intent-runtime.js"></script>
   <script>
     const REPORT_BUILD_ID = "2026-02-21T18:33:40.794Z";
     const TF_CONFIG = [{"key":"1m","label":"分时(1分钟)","seconds":60},{"key":"5m","label":"5分钟","seconds":300},{"key":"15m","label":"15分钟","seconds":900},{"key":"1h","label":"1小时","seconds":3600},{"key":"4h","label":"4小时","seconds":14400},{"key":"1d","label":"日线","seconds":86400}];
@@ -7357,6 +7469,10 @@
           chatHistory: '/api/chat/history',
           aiHealth: '/api/ai/health',
         };
+        const STRATEGY_INTENT_ROUTES = {
+          detect: '/api/strategy/intent-candidates',
+          apply: '/api/strategy/intent-candidates/apply',
+        };
         const CHAT_HISTORY_LIMIT = 220;
         const CHAT_HISTORY_POLL_MS = 1200;
         const SUPPORTED_STRATEGY_LIST = ["v5_hybrid","v5_retest","v5_reentry","v4_breakout"];
@@ -8764,6 +8880,74 @@
           buildClientContext: buildClientContext,
           setAiLinkStatus: setAiLinkStatus,
         });
+        const strategyIntentApiClient = typeof createStrategyIntentApiClientRuntime === 'function'
+          ? createStrategyIntentApiClientRuntime({ routes: STRATEGY_INTENT_ROUTES })
+          : null;
+        const strategyIntentFingerprints = [];
+        function rememberStrategyIntentFingerprint(fingerprintLike) {
+          const fp = String(fingerprintLike || '').trim();
+          if (!fp) return false;
+          if (strategyIntentFingerprints.includes(fp)) return false;
+          strategyIntentFingerprints.push(fp);
+          if (strategyIntentFingerprints.length > 40) {
+            strategyIntentFingerprints.splice(0, strategyIntentFingerprints.length - 30);
+          }
+          return true;
+        }
+        function emitStrategyLabUpdated(detailLike) {
+          const detail = detailLike && typeof detailLike === 'object' ? detailLike : {};
+          try {
+            window.dispatchEvent(new CustomEvent('thunderclaw:strategy-updated', { detail: detail }));
+          } catch (_) {}
+        }
+        async function maybeRenderStrategyIntentSuggestions(paramsLike) {
+          if (!strategyIntentApiClient || typeof createStrategyIntentSuggestionRowRuntime !== 'function') return;
+          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+          const source = String(params.source || '').trim();
+          if (source !== 'openclaw') return;
+          const userText = String(params.userText || '').trim();
+          const assistantText = String(params.assistantText || '').trim();
+          if (!userText || !assistantText) return;
+          const fp = [
+            String(params.sessionId || ''),
+            userText.slice(0, 220),
+            assistantText.slice(0, 220),
+          ].join('||');
+          if (!rememberStrategyIntentFingerprint(fp)) return;
+          const detected = await strategyIntentApiClient.detect({
+            userMessage: userText,
+            assistantReply: assistantText,
+            sessionId: String(params.sessionId || 'thunderclaw-main'),
+            runtimeModelRef: String(params.runtimeModelRef || ''),
+            clientContext: buildClientContext(),
+          }).catch(function() { return null; });
+          if (!detected || !detected.intentDetected) return;
+          const candidates = Array.isArray(detected.candidates) ? detected.candidates : [];
+          if (!candidates.length) return;
+          const row = createStrategyIntentSuggestionRowRuntime({
+            candidates: candidates,
+            confidence: Number(detected.confidence || 0.72),
+            onApply: function(candidate) {
+              return strategyIntentApiClient.apply(candidate, {
+                source: 'chat_intent',
+                query: userText,
+                reply: assistantText,
+              }).then(function(payload) {
+                if (payload && payload.ok) {
+                  emitStrategyLabUpdated(payload);
+                  return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
+                }
+                return { ok: false, message: String(payload?.error || '写入失败') };
+              }).catch(function(err) {
+                return { ok: false, message: String(err?.message || err || '写入失败') };
+              });
+            },
+            onIgnore: function() {},
+          });
+          if (!row) return;
+          box.appendChild(row);
+          box.scrollTop = box.scrollHeight;
+        }
         async function askOpenClaw(q) {
           return chatApiClient.askOpenClaw(q);
         }
@@ -8903,6 +9087,13 @@
               renderThunderModelSwitch(result.state);
               renderXbrainModelCenterConnected(result.state);
             }
+            void maybeRenderStrategyIntentSuggestions({
+              source: source,
+              userText: text,
+              assistantText: baseReply,
+              sessionId: String(result?.sessionIdUsed || 'thunderclaw-main'),
+              runtimeModelRef: String(result?.runtimeModelRef || ''),
+            });
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,
@@ -10175,6 +10366,13 @@
             .finally(function() {
               evalBtn.disabled = false;
             });
+        });
+
+        window.addEventListener('thunderclaw:strategy-updated', function(ev) {
+          const detail = ev && ev.detail && typeof ev.detail === 'object' ? ev.detail : {};
+          const hint = String(detail.reply || detail.message || '已从对话同步新的特征/策略候选。').trim();
+          setStatus(statusEl, hint, 'ok');
+          void reloadAll();
         });
 
         void reloadAll();

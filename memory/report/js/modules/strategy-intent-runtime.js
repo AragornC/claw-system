@@ -1,0 +1,275 @@
+function tcSafeText(valueLike, fallback) {
+  const s = String(valueLike == null ? "" : valueLike).trim();
+  return s || String(fallback || "");
+}
+
+function tcClamp(valueLike, min, max, fallback) {
+  const n = Number(valueLike);
+  if (!Number.isFinite(n)) return Number(fallback || 0);
+  if (Number.isFinite(min) && n < min) return min;
+  if (Number.isFinite(max) && n > max) return max;
+  return n;
+}
+
+function normalizeIntentCandidateRuntime(rawLike) {
+  const raw = rawLike && typeof rawLike === "object" ? rawLike : {};
+  const kind = String(raw.kind || "").trim().toLowerCase();
+  if (kind !== "feature" && kind !== "strategy") return null;
+  const confidence = tcClamp(raw.confidence, 0, 1, 0.6);
+  if (kind === "feature") {
+    const feature = raw.feature && typeof raw.feature === "object" ? raw.feature : {};
+    const name = tcSafeText(feature.name || raw.title || "");
+    if (!name) return null;
+    return {
+      candidateId: tcSafeText(raw.candidateId || "cand_feature"),
+      kind: "feature",
+      title: tcSafeText(raw.title || name || "交易特征候选"),
+      summary: tcSafeText(raw.summary || feature.description || "来自对话提案"),
+      confidence: confidence,
+      feature: {
+        name: name,
+        group: tcSafeText(feature.group || "custom"),
+        kind: tcSafeText(feature.kind || "custom"),
+        description: tcSafeText(feature.description || raw.summary || ""),
+        params: feature.params && typeof feature.params === "object" ? feature.params : {},
+      },
+    };
+  }
+  const strategy = raw.strategy && typeof raw.strategy === "object" ? raw.strategy : {};
+  const title = tcSafeText(raw.title || strategy.title || "");
+  if (!title) return null;
+  return {
+    candidateId: tcSafeText(raw.candidateId || "cand_strategy"),
+    kind: "strategy",
+    title: title,
+    summary: tcSafeText(raw.summary || strategy.thesis || "来自对话提案"),
+    confidence: confidence,
+    strategy: {
+      title: title,
+      thesis: tcSafeText(strategy.thesis || raw.summary || ""),
+      horizon: tcSafeText(strategy.horizon || "intraday"),
+      riskLevel: tcSafeText(strategy.riskLevel || "balanced"),
+      entry: tcSafeText(strategy.entry || ""),
+      riskControl: tcSafeText(strategy.riskControl || ""),
+      exit: tcSafeText(strategy.exit || ""),
+      featureRefs: Array.isArray(strategy.featureRefs) ? strategy.featureRefs.map(function(x) { return tcSafeText(x); }).filter(Boolean) : [],
+      features: Array.isArray(strategy.features) ? strategy.features : [],
+      dsl: strategy.dsl && typeof strategy.dsl === "object" ? strategy.dsl : null,
+    },
+  };
+}
+
+var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClientRuntime(optionsLike) {
+  const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+  const routes = options.routes && typeof options.routes === "object" ? options.routes : {};
+  const detectRoute = tcSafeText(routes.detect || "/api/strategy/intent-candidates", "/api/strategy/intent-candidates");
+  const applyRoute = tcSafeText(routes.apply || "/api/strategy/intent-candidates/apply", "/api/strategy/intent-candidates/apply");
+
+  async function postJson(url, body) {
+    const resp = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const payload = await resp.json().catch(function() { return null; });
+    if (!resp.ok || !payload) {
+      throw new Error(payload && payload.error ? String(payload.error) : ("HTTP " + resp.status));
+    }
+    return payload;
+  }
+
+  async function detect(paramsLike) {
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const payload = await postJson(detectRoute, params);
+    const candidates = (Array.isArray(payload.candidates) ? payload.candidates : [])
+      .map(function(item) { return normalizeIntentCandidateRuntime(item); })
+      .filter(Boolean);
+    return {
+      ok: Boolean(payload.ok),
+      intentDetected: Boolean(payload.intentDetected) && candidates.length > 0,
+      confidence: tcClamp(payload.confidence, 0, 1, candidates.length ? 0.7 : 0),
+      reasoning: tcSafeText(payload.reasoning || ""),
+      candidates: candidates,
+      error: tcSafeText(payload.error || ""),
+    };
+  }
+
+  async function apply(candidateLike, metaLike) {
+    const candidate = normalizeIntentCandidateRuntime(candidateLike);
+    if (!candidate) throw new Error("invalid candidate");
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    return await postJson(applyRoute, {
+      candidate: candidate,
+      source: tcSafeText(meta.source || "chat_intent"),
+      query: tcSafeText(meta.query || ""),
+      reply: tcSafeText(meta.reply || ""),
+      parentVersionId: tcSafeText(meta.parentVersionId || ""),
+    });
+  }
+
+  return {
+    detect: detect,
+    apply: apply,
+  };
+};
+
+function renderCandidateMetaRuntime(candidateLike) {
+  const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
+  if (candidate.kind === "feature") {
+    const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
+    return "Group: " + tcSafeText(feature.group || "custom") + " · Kind: " + tcSafeText(feature.kind || "custom");
+  }
+  const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
+  return "Horizon: " + tcSafeText(strategy.horizon || "intraday") + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced");
+}
+
+function renderCandidateDetailRuntime(candidateLike) {
+  const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
+  if (candidate.kind === "feature") {
+    const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
+    const desc = tcSafeText(feature.description || candidate.summary || "");
+    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const entries = Object.entries(params).slice(0, 4).map(function(item) {
+      return String(item[0]) + "=" + String(item[1]);
+    });
+    return entries.length ? (desc + " · " + entries.join(", ")) : desc;
+  }
+  const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
+  const parts = [];
+  if (strategy.entry) parts.push("入场: " + String(strategy.entry));
+  if (strategy.riskControl) parts.push("风控: " + String(strategy.riskControl));
+  if (strategy.exit) parts.push("退出: " + String(strategy.exit));
+  if (!parts.length) return tcSafeText(candidate.summary || "");
+  return parts.slice(0, 2).join("；");
+}
+
+var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSuggestionRowRuntime(optionsLike) {
+  const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+  const candidatesRaw = Array.isArray(options.candidates) ? options.candidates : [];
+  const candidates = candidatesRaw
+    .map(function(item) { return normalizeIntentCandidateRuntime(item); })
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!candidates.length) return null;
+
+  const onApply = typeof options.onApply === "function" ? options.onApply : null;
+  const onIgnore = typeof options.onIgnore === "function" ? options.onIgnore : null;
+  const confidence = tcClamp(options.confidence, 0, 1, 0.7);
+
+  const row = document.createElement("div");
+  row.className = "ai-msg-row bot ai-strategy-intent-row";
+
+  const meta = document.createElement("div");
+  meta.className = "ai-msg-meta";
+  meta.textContent = "策略技能建议 · 置信度 " + String((confidence * 100).toFixed(0)) + "%";
+  row.appendChild(meta);
+
+  const bubble = document.createElement("div");
+  bubble.className = "ai-msg bot ai-strategy-intent-bubble";
+  row.appendChild(bubble);
+
+  const title = document.createElement("div");
+  title.className = "ai-strategy-intent-title";
+  title.textContent = "检测到可落地的虾策候选，确认后将写入「虾策」列表";
+  bubble.appendChild(title);
+
+  const cardWrap = document.createElement("div");
+  cardWrap.className = "ai-strategy-intent-cards";
+  bubble.appendChild(cardWrap);
+
+  candidates.forEach(function(candidate) {
+    const card = document.createElement("div");
+    card.className = "ai-strategy-intent-card";
+
+    const top = document.createElement("div");
+    top.className = "ai-strategy-intent-card-top";
+
+    const badge = document.createElement("span");
+    badge.className = "ai-strategy-intent-badge " + (candidate.kind === "feature" ? "feature" : "strategy");
+    badge.textContent = candidate.kind === "feature" ? "交易特征" : "交易策略";
+
+    const conf = document.createElement("span");
+    conf.className = "ai-strategy-intent-conf";
+    conf.textContent = String((tcClamp(candidate.confidence, 0, 1, 0.6) * 100).toFixed(0)) + "%";
+
+    top.appendChild(badge);
+    top.appendChild(conf);
+    card.appendChild(top);
+
+    const h = document.createElement("div");
+    h.className = "ai-strategy-intent-name";
+    h.textContent = tcSafeText(candidate.title || "");
+    card.appendChild(h);
+
+    const m = document.createElement("div");
+    m.className = "ai-strategy-intent-meta";
+    m.textContent = renderCandidateMetaRuntime(candidate);
+    card.appendChild(m);
+
+    const d = document.createElement("div");
+    d.className = "ai-strategy-intent-detail";
+    d.textContent = renderCandidateDetailRuntime(candidate);
+    card.appendChild(d);
+
+    const actions = document.createElement("div");
+    actions.className = "ai-strategy-intent-actions";
+
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "apply";
+    applyBtn.textContent = "加入虾策";
+
+    const ignoreBtn = document.createElement("button");
+    ignoreBtn.type = "button";
+    ignoreBtn.className = "ghost";
+    ignoreBtn.textContent = "忽略";
+
+    const status = document.createElement("span");
+    status.className = "ai-strategy-intent-status";
+    status.textContent = "";
+
+    actions.appendChild(applyBtn);
+    actions.appendChild(ignoreBtn);
+    actions.appendChild(status);
+    card.appendChild(actions);
+
+    applyBtn.addEventListener("click", function() {
+      if (!onApply) return;
+      applyBtn.disabled = true;
+      ignoreBtn.disabled = true;
+      status.textContent = "写入中...";
+      Promise.resolve(onApply(candidate))
+        .then(function(outcome) {
+          const ok = Boolean(outcome && outcome.ok);
+          if (ok) {
+            status.textContent = tcSafeText(outcome.message || "已加入");
+            card.classList.add("accepted");
+            applyBtn.textContent = "已加入";
+            ignoreBtn.style.display = "none";
+          } else {
+            status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
+            applyBtn.disabled = false;
+            ignoreBtn.disabled = false;
+          }
+        })
+        .catch(function(err) {
+          status.textContent = "写入失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
+          applyBtn.disabled = false;
+          ignoreBtn.disabled = false;
+        });
+    });
+
+    ignoreBtn.addEventListener("click", function() {
+      if (typeof onIgnore === "function") onIgnore(candidate);
+      card.classList.add("ignored");
+      status.textContent = "已忽略";
+      applyBtn.disabled = true;
+      ignoreBtn.disabled = true;
+    });
+
+    cardWrap.appendChild(card);
+  });
+
+  return row;
+};

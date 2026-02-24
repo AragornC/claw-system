@@ -62,10 +62,13 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `scripts/server/domain/model-provider.js`（模型/provider 领域能力）
 - `scripts/server/domain/chat-intent.js`（显式命令与模型引用解析）
 - `scripts/server/core/openclaw-xbrain-runtime.js`（OpenClaw/Xbrain 运行时核心）
+- `scripts/server/core/strategy-lab-store.js`（虾策特征/策略/工件持久化）
+- `scripts/server/core/trading-intent-skill.js`（交易意图技能：模型结构化候选提取）
 - `scripts/server/handlers/chat-config.js`（聊天与配置域 handlers）
 - `scripts/server/handlers/xbrain-core.js`（虾脑主 handlers）
 - `scripts/server/handlers/openclaw-console.js`（OpenClaw 配置台 handlers）
 - `scripts/server/handlers/telegram.js`（Telegram handlers）
+- `scripts/server/handlers/strategy-lab.js`（虾策实验室与候选确认 handlers）
 
 前端：
 
@@ -73,6 +76,7 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `memory/report/js/modules/xsea-runtime.js`（虾海辅助运行时）
 - `memory/report/js/modules/xbrain-runtime.js`（虾脑辅助运行时）
 - `memory/report/js/modules/chat-runtime.js`（聊天运行时辅助模块）
+- `memory/report/js/modules/strategy-intent-runtime.js`（对话候选卡片与确认流）
 
 提供 API：
 
@@ -89,6 +93,13 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `GET /api/ai/health`：旧主页面 AI 链路健康检查
 - `GET/POST /api/xbrain/*`：旧主页面虾脑配置接口兼容
 - `GET /api/xbrain/models/catalog`：获取 OpenClaw 全模型目录（含 provider 能力）
+- `GET /api/strategy/features`：虾策特征列表查询
+- `GET /api/strategy/versions`：虾策策略版本列表查询
+- `POST /api/strategy/versions/propose`：根据目标生成候选策略版本
+- `POST /api/strategy/versions/evaluate`：写入策略评估并计算 score
+- `POST /api/strategy/artifacts/report`：回测工件上报
+- `POST /api/strategy/intent-candidates`：对话交易意图结构化提案
+- `POST /api/strategy/intent-candidates/apply`：确认候选并写入虾策列表
 - `POST /api/xbrain/models/connect`：连接并注册模型（支持 API Key / OAuth / 仅注册）
 - `POST /api/xbrain/models/disconnect`：从虾脑模型列表移除已注册模型
 - `GET /api/openclaw/status`：OpenClaw 配置台状态摘要
