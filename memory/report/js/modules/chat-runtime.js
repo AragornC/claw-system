@@ -153,7 +153,187 @@ function fmtChatTsRuntime(tsLike) {
   return hh + ':' + mm + ':' + ss;
 }
 
-function createChatMessageElementRuntime(roleClass, textLike, tsLike, statusTextLike, pendingKeyLike, statusClassLike) {
+function escapeHtmlRuntime(textLike) {
+  return String(textLike || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeHrefRuntime(urlLike) {
+  const raw = String(urlLike || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/[<>"'`]/g, '');
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')) {
+    return normalized;
+  }
+  return '';
+}
+
+function renderInlineMarkdownRuntime(textLike) {
+  let text = String(textLike || '');
+  if (!text) return '';
+
+  const tokens = [];
+  function stash(html) {
+    const idx = tokens.length;
+    tokens.push(String(html || ''));
+    return '\u0000TK' + String(idx) + '\u0000';
+  }
+
+  text = text.replace(/`([^`\n]+)`/g, function(_m, codeLike) {
+    return stash('<code>' + escapeHtmlRuntime(codeLike) + '</code>');
+  });
+  text = text.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, function(_m, labelLike, hrefLike) {
+    const safeHref = sanitizeHrefRuntime(hrefLike);
+    const label = escapeHtmlRuntime(labelLike);
+    if (!safeHref) return label;
+    return stash('<a href="' + escapeHtmlRuntime(safeHref) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>');
+  });
+
+  text = escapeHtmlRuntime(text);
+  text = text.replace(/(https?:\/\/[^\s<]+)/g, function(urlLike) {
+    const safeHref = sanitizeHrefRuntime(urlLike);
+    if (!safeHref) return urlLike;
+    return stash('<a href="' + escapeHtmlRuntime(safeHref) + '" target="_blank" rel="noopener noreferrer">' + escapeHtmlRuntime(urlLike) + '</a>');
+  });
+
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  text = text.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+
+  text = text.replace(/\u0000TK(\d+)\u0000/g, function(_m, idxLike) {
+    const idx = Number(idxLike);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= tokens.length) return '';
+    return tokens[idx];
+  });
+  return text;
+}
+
+function renderMarkdownToHtmlRuntime(markdownLike) {
+  const raw = String(markdownLike || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+
+  const codeBlocks = [];
+  const codeTokenPrefix = '\u0001CODE';
+  const textWithoutCode = raw.replace(/```([a-zA-Z0-9_-]+)?\n([\s\S]*?)```/g, function(_m, langLike, codeLike) {
+    const lang = String(langLike || '').trim().toLowerCase().slice(0, 24);
+    const code = String(codeLike || '');
+    const html = '<pre><code' + (lang ? (' class="language-' + escapeHtmlRuntime(lang) + '"') : '') + '>' + escapeHtmlRuntime(code) + '</code></pre>';
+    const token = codeTokenPrefix + String(codeBlocks.length) + '\u0001';
+    codeBlocks.push({ token: token, html: html });
+    return token;
+  });
+
+  const lines = textWithoutCode.split('\n');
+  const out = [];
+  let para = [];
+  let listType = '';
+  let listItems = [];
+
+  function flushParagraph() {
+    if (!para.length) return;
+    out.push('<p>' + para.map(function(line) { return renderInlineMarkdownRuntime(line); }).join('<br/>') + '</p>');
+    para = [];
+  }
+  function flushList() {
+    if (!listType || !listItems.length) {
+      listType = '';
+      listItems = [];
+      return;
+    }
+    out.push('<' + listType + '>' + listItems.join('') + '</' + listType + '>');
+    listType = '';
+    listItems = [];
+  }
+
+  lines.forEach(function(lineRaw) {
+    const line = String(lineRaw || '').replace(/\s+$/g, '');
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    if (trimmed.indexOf(codeTokenPrefix) === 0 && /\u0001$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      out.push(trimmed);
+      return;
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.max(1, Math.min(6, String(heading[1] || '').length));
+      out.push('<h' + String(level) + '>' + renderInlineMarkdownRuntime(heading[2]) + '</h' + String(level) + '>');
+      return;
+    }
+    if (/^([-*_])\1{2,}$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      out.push('<hr/>');
+      return;
+    }
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      out.push('<blockquote>' + renderInlineMarkdownRuntime(quote[1]) + '</blockquote>');
+      return;
+    }
+    const ul = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (ul) {
+      flushParagraph();
+      if (listType && listType !== 'ul') flushList();
+      listType = 'ul';
+      listItems.push('<li>' + renderInlineMarkdownRuntime(ul[1]) + '</li>');
+      return;
+    }
+    const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (ol) {
+      flushParagraph();
+      if (listType && listType !== 'ol') flushList();
+      listType = 'ol';
+      listItems.push('<li>' + renderInlineMarkdownRuntime(ol[1]) + '</li>');
+      return;
+    }
+    flushList();
+    para.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  let html = out.join('');
+  codeBlocks.forEach(function(item) {
+    html = html.split(item.token).join(item.html);
+  });
+  return html;
+}
+
+function setChatMessageTextRuntime(textElLike, textLike, optionsLike) {
+  const textEl = textElLike || null;
+  if (!textEl) return;
+  const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+  const useMarkdown = options.useMarkdown === true;
+  const text = String(textLike || '');
+  if (!useMarkdown) {
+    textEl.classList.remove('md');
+    textEl.textContent = text;
+    return;
+  }
+  textEl.classList.add('md');
+  const html = renderMarkdownToHtmlRuntime(text);
+  textEl.innerHTML = html || escapeHtmlRuntime(text);
+}
+
+function createChatMessageElementRuntime(roleClass, textLike, tsLike, statusTextLike, pendingKeyLike, statusClassLike, renderMarkdownLike) {
   const row = document.createElement('div');
   row.className = 'ai-msg-row ' + String(roleClass || 'bot');
   const pendingKey = String(pendingKeyLike || '').trim();
@@ -163,7 +343,10 @@ function createChatMessageElementRuntime(roleClass, textLike, tsLike, statusText
   div.className = 'ai-msg ' + String(roleClass || 'bot');
   const textEl = document.createElement('div');
   textEl.className = 'ai-msg-text';
-  textEl.textContent = String(textLike || '').trim();
+  const renderMarkdown = renderMarkdownLike == null
+    ? String(roleClass || '').toLowerCase() === 'bot'
+    : Boolean(renderMarkdownLike);
+  setChatMessageTextRuntime(textEl, String(textLike || '').trim(), { useMarkdown: renderMarkdown });
 
   const metaEl = document.createElement('div');
   metaEl.className = 'ai-msg-meta';
@@ -202,9 +385,12 @@ function setRowTextWithTypewriterRuntime(rowLike, textLike, optionsLike) {
   const text = String(textLike || '');
   const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
   const enabled = options.enabled !== false;
+  const renderMarkdown = options.renderMarkdown == null
+    ? row.classList.contains('bot')
+    : Boolean(options.renderMarkdown);
   const onDone = typeof options.onDone === 'function' ? options.onDone : null;
   if (!enabled || !text) {
-    textEl.textContent = text;
+    setChatMessageTextRuntime(textEl, text, { useMarkdown: renderMarkdown });
     if (onDone) onDone();
     return;
   }
@@ -213,11 +399,13 @@ function setRowTextWithTypewriterRuntime(rowLike, textLike, optionsLike) {
   const maxDurationMs = Math.max(700, Number(options.maxDurationMs) || 2600);
   const step = Math.max(1, Math.ceil(len / Math.max(1, Math.floor(maxDurationMs / tickMs))));
   let cursor = 0;
+  textEl.classList.remove('md');
   textEl.textContent = '';
   (function draw() {
     cursor = Math.min(len, cursor + step);
     textEl.textContent = text.slice(0, cursor);
     if (cursor >= len) {
+      setChatMessageTextRuntime(textEl, text, { useMarkdown: renderMarkdown });
       if (onDone) onDone();
       return;
     }
