@@ -9423,7 +9423,10 @@
         }
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
-          if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
+          if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) {
+            renderStrategyIntentCardsFromEvent(ev, String(ev?.text || ''), idNum);
+            return;
+          }
           rememberSeenEventIdRuntime(chatHistoryState, idNum, 3000, 1800);
           const text = String(ev?.text || '').trim();
           if (!text) return;
@@ -9539,6 +9542,9 @@
           if (chatHistoryState.started) return;
           chatHistoryState.started = true;
           renderStoredChatLog();
+          if (Number.isFinite(chatHistoryState.afterId) && chatHistoryState.afterId > 0) {
+            chatHistoryState.afterId = Math.max(0, chatHistoryState.afterId - CHAT_HISTORY_LIMIT);
+          }
           void pollChatHistory();
           chatHistoryState.timer = window.setInterval(function() {
             void pollChatHistory();

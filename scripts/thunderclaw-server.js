@@ -489,30 +489,58 @@ async function runOpenClawCommand(args, options = {}) {
 }
 
 function extractAgentReply(payload) {
+  function stripControlFragments(textLike) {
+    const raw = String(textLike || "");
+    if (!raw) return "";
+    return raw.replace(/[【\[]([^】\]]{0,480})[】\]]/g, (full, inner) => {
+      const body = String(inner || "").trim().toLowerCase();
+      if (!body) return full;
+      const hasControl =
+        body.includes("assistant to=final")
+        || body.includes("reply tag")
+        || body.includes("no tools")
+        || body.includes("consistent tone")
+        || body.includes("just output")
+        || body.includes("need respond")
+        || body.includes("with tag")
+        || body.includes("קצר");
+      return hasControl ? "" : full;
+    });
+  }
   function isLikelyInternalControlLine(lineLike) {
     const line = String(lineLike || "").trim().toLowerCase();
     if (!line) return false;
+    if (line.includes("no tools") && (line.includes("tag") || line.includes("respond") || line.includes("need"))) {
+      return true;
+    }
     let score = 0;
     if (line.includes("assistant to=final")) score += 2;
     if (line.includes("reply tag")) score += 2;
     if (line.includes("no tools")) score += 2;
+    if (line.includes("need respond")) score += 2;
+    if (line.includes("with tag") || line.endsWith(" tag")) score += 1;
     if (line.includes("consistent tone")) score += 1;
     if (line.includes("output.") || line.includes("just output")) score += 1;
+    if (line.includes("קצר")) score += 1;
+    if (line.startsWith("need ")) score += 1;
     if (line.startsWith("need just ")) score += 1;
     return score >= 3;
   }
   function sanitizeAgentReplyText(textLike) {
-    const raw = String(textLike || "").trim();
+    const original = String(textLike || "").trim();
+    const raw = stripControlFragments(original).trim();
     if (!raw) return "";
     const cleanedLines = raw
       .split(/\r?\n/)
       .map((line) => String(line || "").trimEnd())
       .filter((line) => !isLikelyInternalControlLine(line));
-    let cleaned = cleanedLines.join("\n").trim();
+    let cleaned = stripControlFragments(cleanedLines.join("\n")).trim();
     if (!cleaned) {
-      cleaned = raw.replace(/【[^】]{0,320}(assistant to=final|reply tag|no tools)[^】]{0,320}】/ig, "").trim();
+      cleaned = stripControlFragments(
+        original.replace(/【[^】]{0,480}(assistant to=final|reply tag|no tools|need respond|with tag|just output)[^】]{0,480}】/ig, ""),
+      ).trim();
     }
-    return cleaned || raw;
+    return cleaned || raw || original;
   }
   if (!payload || typeof payload !== "object") {
     return "";

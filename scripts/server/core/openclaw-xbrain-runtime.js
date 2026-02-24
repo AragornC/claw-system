@@ -1,5 +1,7 @@
 import { createChatIntentUtils } from "../domain/chat-intent.js";
 
+const MODEL_CATALOG_CACHE_TTL_MS = 60_000;
+
 export function createOpenClawXbrainRuntime(deps = {}) {
   const {
     normalizeProviderKey,
