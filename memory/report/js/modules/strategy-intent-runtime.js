@@ -118,6 +118,9 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
       query: tcSafeText(meta.query || ""),
       reply: tcSafeText(meta.reply || ""),
       parentVersionId: tcSafeText(meta.parentVersionId || ""),
+      conversationId: tcSafeText(meta.conversationId || meta.sessionId || "thunderclaw-main"),
+      eventId: Number(meta.eventId) || null,
+      cardId: tcSafeText(meta.cardId || candidate.id || candidate.candidateId || ""),
     });
   }
 

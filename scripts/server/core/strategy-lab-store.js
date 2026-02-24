@@ -15,6 +15,7 @@ const FEATURE_KINDS = new Set([
 ]);
 const STRATEGY_HORIZONS = new Set(["scalp", "intraday", "swing", "position"]);
 const STRATEGY_RISK_LEVELS = new Set(["conservative", "balanced", "aggressive"]);
+const FEATURE_SORT_FIELDS = new Set(["updatedAt", "createdAt", "name", "group", "kind", "source", "enabled"]);
 
 function clampNumber(valueLike, min, max, fallback = 0) {
   const n = Number(valueLike);
@@ -57,6 +58,32 @@ function pickEnum(valueLike, allowedSet, fallback) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function parsePositiveInt(valueLike, fallback, min, max) {
+  const n = Number.parseInt(String(valueLike ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  if (Number.isFinite(min) && n < min) return fallback;
+  if (Number.isFinite(max) && n > max) return max;
+  return n;
+}
+
+function normalizeSortField(valueLike) {
+  const raw = String(valueLike ?? "").trim();
+  if (FEATURE_SORT_FIELDS.has(raw)) return raw;
+  return "updatedAt";
+}
+
+function normalizeSortOrder(valueLike) {
+  const raw = String(valueLike ?? "").trim().toLowerCase();
+  return raw === "asc" ? "asc" : "desc";
+}
+
+function normalizeEnabledFilter(valueLike) {
+  const raw = String(valueLike ?? "").trim().toLowerCase();
+  if (raw === "enabled" || raw === "true" || raw === "1") return "enabled";
+  if (raw === "disabled" || raw === "false" || raw === "0") return "disabled";
+  return "";
 }
 
 function buildSeedStore() {
@@ -287,6 +314,73 @@ function computeScore(metricsLike = {}) {
   return score;
 }
 
+function normalizeProvenanceMeta(metaLike = {}, fallbackSource = "chat_intent") {
+  const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+  const source = toText(meta.source || fallbackSource, fallbackSource);
+  const conversationId = toText(meta.conversationId || meta.sessionId || "");
+  const cardId = toText(meta.cardId || meta.candidateId || "");
+  const eventIdNum = Number(meta.eventId);
+  const eventId = Number.isFinite(eventIdNum) && eventIdNum > 0 ? Math.floor(eventIdNum) : null;
+  const query = toText(meta.query || meta.userMessage || "");
+  const reply = toText(meta.reply || meta.assistantReply || "");
+  return {
+    source,
+    conversationId,
+    cardId,
+    eventId,
+    query,
+    reply,
+  };
+}
+
+function applyProvenanceMeta(targetLike, metaLike, tsLike, fallbackSource = "chat_intent") {
+  const target = targetLike && typeof targetLike === "object" ? targetLike : {};
+  const ts = toText(tsLike || nowIso(), nowIso());
+  const provenance = normalizeProvenanceMeta(metaLike, fallbackSource);
+  target.source = toText(provenance.source || target.source || fallbackSource, fallbackSource);
+  target.originQuery = toText(provenance.query || target.originQuery || "");
+  target.originReply = toText(provenance.reply || target.originReply || "");
+  if (provenance.conversationId) {
+    target.originConversationId = provenance.conversationId;
+  } else if (!toText(target.originConversationId)) {
+    target.originConversationId = "thunderclaw-main";
+  }
+  if (provenance.eventId) target.originEventId = provenance.eventId;
+  if (provenance.cardId) target.originCardId = provenance.cardId;
+
+  const entry = {
+    ts,
+    source: target.source,
+    conversationId: toText(target.originConversationId || ""),
+    eventId: Number.isFinite(Number(target.originEventId)) ? Number(target.originEventId) : null,
+    cardId: toText(target.originCardId || ""),
+    query: toText(provenance.query || target.originQuery || "").slice(0, 260),
+    reply: toText(provenance.reply || target.originReply || "").slice(0, 260),
+  };
+  const key = [
+    entry.source,
+    entry.conversationId,
+    String(entry.eventId || ""),
+    entry.cardId,
+    entry.query,
+  ].join("|");
+  const trail = Array.isArray(target.originTrail) ? target.originTrail.slice(-20) : [];
+  const exists = trail.some((item) => {
+    const it = item && typeof item === "object" ? item : {};
+    const itKey = [
+      toText(it.source || ""),
+      toText(it.conversationId || ""),
+      String(Number.isFinite(Number(it.eventId)) ? Number(it.eventId) : ""),
+      toText(it.cardId || ""),
+      toText(it.query || ""),
+    ].join("|");
+    return itKey === key;
+  });
+  if (!exists) trail.push(entry);
+  target.originTrail = trail.slice(-16);
+  return target;
+}
+
 export function createStrategyLabStore(deps = {}) {
   const statePath = String(deps.statePath || "").trim();
   if (!statePath) throw new Error("statePath is required");
@@ -348,10 +442,26 @@ export function createStrategyLabStore(deps = {}) {
     const store = loadStore();
     const q = toText(options.q).toLowerCase();
     const group = pickEnum(options.group || "", FEATURE_GROUPS, "");
-    const limit = Math.max(1, Math.min(300, Number(options.limit) || 120));
+    const kind = pickEnum(options.kind || "", FEATURE_KINDS, "");
+    const source = toText(options.source || "");
+    const enabledFilter = normalizeEnabledFilter(options.enabled);
+    const sortBy = normalizeSortField(options.sortBy);
+    const sortOrder = normalizeSortOrder(options.sortOrder);
+    const page = parsePositiveInt(options.page, 1, 1, 9999);
+    const pageSize = parsePositiveInt(options.pageSize || options.limit, 40, 10, 120);
     let rows = Array.isArray(store.features) ? store.features.slice() : [];
     if (group) {
       rows = rows.filter((item) => String(item?.group || "") === group);
+    }
+    if (kind) {
+      rows = rows.filter((item) => String(item?.kind || "") === kind);
+    }
+    if (source) {
+      rows = rows.filter((item) => String(item?.source || "") === source);
+    }
+    if (enabledFilter) {
+      const enabledVal = enabledFilter === "enabled";
+      rows = rows.filter((item) => Boolean(item?.enabled !== false) === enabledVal);
     }
     if (q) {
       rows = rows.filter((item) => {
@@ -361,16 +471,59 @@ export function createStrategyLabStore(deps = {}) {
           item?.group,
           item?.kind,
           item?.description,
+          item?.source,
+          item?.originQuery,
+          item?.originReply,
+          item?.originConversationId,
+          item?.originCardId,
         ]
           .map((v) => String(v || "").toLowerCase())
           .join(" ");
         return text.includes(q);
       });
     }
-    rows.sort((a, b) => String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || "")));
+    rows.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "name" || sortBy === "group" || sortBy === "kind" || sortBy === "source") {
+        cmp = String(a?.[sortBy] || "").localeCompare(String(b?.[sortBy] || ""));
+      } else if (sortBy === "enabled") {
+        cmp = Number(Boolean(a?.enabled !== false)) - Number(Boolean(b?.enabled !== false));
+      } else {
+        cmp = String(a?.[sortBy] || "").localeCompare(String(b?.[sortBy] || ""));
+      }
+      if (cmp === 0) {
+        cmp = String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const normalizedPage = Math.min(page, totalPages);
+    const start = (normalizedPage - 1) * pageSize;
     return {
-      total: rows.length,
-      features: rows.slice(0, limit),
+      total,
+      page: normalizedPage,
+      pageSize,
+      totalPages,
+      sortBy,
+      sortOrder,
+      features: rows.slice(start, start + pageSize),
+    };
+  }
+
+  function getFeatureFacets() {
+    const store = loadStore();
+    const rows = Array.isArray(store.features) ? store.features : [];
+    const groups = uniqStrings(rows.map((item) => item?.group)).sort((a, b) => a.localeCompare(b));
+    const kinds = uniqStrings(rows.map((item) => item?.kind)).sort((a, b) => a.localeCompare(b));
+    const sources = uniqStrings(rows.map((item) => item?.source)).sort((a, b) => a.localeCompare(b));
+    const enabledCount = rows.filter((item) => item?.enabled !== false).length;
+    return {
+      groups,
+      kinds,
+      sources,
+      enabledCount,
+      disabledCount: Math.max(0, rows.length - enabledCount),
     };
   }
 
@@ -404,9 +557,7 @@ export function createStrategyLabStore(deps = {}) {
       existing.description = normalized.description;
       existing.params = normalized.params;
       existing.enabled = normalized.enabled !== false;
-      existing.source = toText(metaLike.source || existing.source || "chat_intent");
-      existing.originQuery = toText(metaLike.query || existing.originQuery || "");
-      existing.originReply = toText(metaLike.reply || existing.originReply || "");
+      applyProvenanceMeta(existing, metaLike, now, toText(existing.source || "chat_intent", "chat_intent"));
       existing.updatedAt = now;
       saveStore();
       return { created: false, feature: existing };
@@ -419,12 +570,13 @@ export function createStrategyLabStore(deps = {}) {
       description: normalized.description,
       params: normalized.params,
       enabled: normalized.enabled !== false,
-      source: toText(metaLike.source || "chat_intent"),
-      originQuery: toText(metaLike.query || ""),
-      originReply: toText(metaLike.reply || ""),
+      source: "chat_intent",
+      originQuery: "",
+      originReply: "",
       createdAt: now,
       updatedAt: now,
     };
+    applyProvenanceMeta(item, metaLike, now, "chat_intent");
     store.features.push(item);
     saveStore();
     return { created: true, feature: item };
@@ -461,6 +613,7 @@ export function createStrategyLabStore(deps = {}) {
       existing.source = toText(metaLike.source || existing.source || "chat_intent");
       existing.originQuery = toText(metaLike.query || existing.originQuery || "");
       existing.originReply = toText(metaLike.reply || existing.originReply || "");
+      applyProvenanceMeta(existing, metaLike, now, toText(existing.source || "chat_intent", "chat_intent"));
       existing.updatedAt = now;
       saveStore();
       return { created: false, version: existing };
@@ -488,6 +641,7 @@ export function createStrategyLabStore(deps = {}) {
       createdAt: now,
       updatedAt: now,
     };
+    applyProvenanceMeta(item, metaLike, now, "chat_intent");
     store.versions.push(item);
     saveStore();
     return { created: true, version: item };
@@ -668,6 +822,7 @@ export function createStrategyLabStore(deps = {}) {
 
   return {
     listFeatures,
+    getFeatureFacets,
     listVersions,
     applyIntentCandidate,
     proposeVersionsFromMessage,

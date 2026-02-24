@@ -28,12 +28,37 @@ export function createStrategyLabHandlers(deps = {}) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const q = toText(url.searchParams.get("q") || "");
     const group = toText(url.searchParams.get("group") || "");
-    const limit = parsePositiveInt(url.searchParams.get("limit"), 120, 1, 300);
-    const result = strategyLabStore.listFeatures({ q, group, limit });
+    const kind = toText(url.searchParams.get("kind") || "");
+    const source = toText(url.searchParams.get("source") || "");
+    const enabled = toText(url.searchParams.get("enabled") || "");
+    const sortBy = toText(url.searchParams.get("sortBy") || "updatedAt");
+    const sortOrder = toText(url.searchParams.get("sortOrder") || "desc");
+    const page = parsePositiveInt(url.searchParams.get("page"), 1, 1, 9999);
+    const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 40, 10, 120);
+    const result = strategyLabStore.listFeatures({
+      q,
+      group,
+      kind,
+      source,
+      enabled,
+      sortBy,
+      sortOrder,
+      page,
+      pageSize,
+    });
+    const facets = typeof strategyLabStore.getFeatureFacets === "function"
+      ? strategyLabStore.getFeatureFacets()
+      : { groups: [], kinds: [], sources: [], enabledCount: 0, disabledCount: 0 };
     sendJson(res, 200, {
       ok: true,
       total: Number(result?.total || 0),
+      page: Number(result?.page || page),
+      pageSize: Number(result?.pageSize || pageSize),
+      totalPages: Number(result?.totalPages || 1),
+      sortBy: toText(result?.sortBy || sortBy),
+      sortOrder: toText(result?.sortOrder || sortOrder),
       features: Array.isArray(result?.features) ? result.features : [],
+      facets,
       stats: strategyLabStore.getStats(),
     });
   }
@@ -170,6 +195,9 @@ export function createStrategyLabHandlers(deps = {}) {
       query: toText(body.query || body.userMessage || ""),
       reply: toText(body.reply || body.assistantReply || ""),
       parentVersionId: toText(body.parentVersionId || ""),
+      conversationId: toText(body.conversationId || body.sessionId || "thunderclaw-main"),
+      eventId: Number(body.eventId),
+      cardId: toText(body.cardId || ""),
     };
     try {
       const applied = strategyLabStore.applyIntentCandidate(candidate, meta);

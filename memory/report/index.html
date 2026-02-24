@@ -447,10 +447,81 @@
     .strategy-lab-status { font-size: 0.7rem; color: var(--muted); min-height: 18px; }
     .strategy-lab-status.ok { color: var(--green); }
     .strategy-lab-status.err { color: var(--red); }
+    .strategy-feature-toolbar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 6px;
+    }
+    .strategy-feature-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.69rem;
+      color: var(--muted);
+    }
     .strategy-feature-list, .strategy-version-list { display: grid; gap: 6px; max-height: 300px; overflow: auto; }
     .strategy-feature-item, .strategy-version-item { border: 1px solid var(--border); border-radius: 8px; padding: 6px 7px; background: rgba(0,0,0,0.12); }
+    .strategy-feature-item .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .strategy-feature-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-feature-item .meta, .strategy-version-item .meta { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
+    .strategy-feature-item .tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .strategy-feature-item .tag {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0 6px;
+      font-size: 0.62rem;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.15);
+      line-height: 1.5;
+    }
+    .strategy-feature-item .tag.ok { border-color: rgba(63,185,80,0.45); color: #9be9a8; }
+    .strategy-feature-item .tag.warn { border-color: rgba(210,153,34,0.45); color: #f2cc60; }
+    .strategy-feature-item details {
+      margin-top: 6px;
+      border-top: 1px dashed rgba(139,148,158,0.32);
+      padding-top: 6px;
+    }
+    .strategy-feature-item summary {
+      cursor: pointer;
+      color: #79c0ff;
+      font-size: 0.69rem;
+      user-select: none;
+      outline: none;
+    }
+    .strategy-feature-item .detail-wrap {
+      margin-top: 6px;
+      display: grid;
+      gap: 6px;
+    }
+    .strategy-feature-item .detail-block {
+      border: 1px solid rgba(139,148,158,0.28);
+      border-radius: 8px;
+      padding: 6px;
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .strategy-feature-item .detail-title {
+      font-size: 0.67rem;
+      color: #79c0ff;
+      margin-bottom: 3px;
+    }
+    .strategy-feature-item pre {
+      margin: 0;
+      font-size: 0.66rem;
+      line-height: 1.45;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .strategy-feature-item .feature-preview-svg {
+      width: 100%;
+      height: 72px;
+      border: 1px solid rgba(139,148,158,0.22);
+      border-radius: 8px;
+      background: rgba(9,12,16,0.35);
+      display: block;
+    }
+    .strategy-feature-item .mini-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .strategy-version-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-version-item .score { color: #7ee787; font-size: 0.69rem; font-weight: 600; margin-top: 3px; }
     .view-panel { display: none; }
@@ -2461,16 +2532,60 @@
               <h4>交易特征（由 ThunderClaw 对话产出）</h4>
               <div class="strategy-lab-form">
                 <input id="sl-feature-q" type="text" placeholder="搜索特征（如 adx / atr / 回踩）" />
-                <select id="sl-feature-group">
-                  <option value="">全部分组</option>
-                  <option value="trend">trend</option>
-                  <option value="momentum">momentum</option>
-                  <option value="volatility">volatility</option>
-                  <option value="structure">structure</option>
-                  <option value="risk">risk</option>
-                  <option value="session">session</option>
-                </select>
+                <div class="strategy-feature-toolbar">
+                  <select id="sl-feature-group">
+                    <option value="">全部分组</option>
+                    <option value="trend">trend</option>
+                    <option value="momentum">momentum</option>
+                    <option value="volatility">volatility</option>
+                    <option value="risk">risk</option>
+                    <option value="execution">execution</option>
+                    <option value="custom">custom</option>
+                  </select>
+                  <select id="sl-feature-kind">
+                    <option value="">全部类型</option>
+                    <option value="ema">ema</option>
+                    <option value="sma">sma</option>
+                    <option value="rsi">rsi</option>
+                    <option value="adx">adx</option>
+                    <option value="atr">atr</option>
+                    <option value="volume">volume</option>
+                    <option value="price_action">price_action</option>
+                    <option value="risk_rule">risk_rule</option>
+                    <option value="custom">custom</option>
+                  </select>
+                  <select id="sl-feature-source">
+                    <option value="">全部来源</option>
+                  </select>
+                  <select id="sl-feature-enabled">
+                    <option value="">全部状态</option>
+                    <option value="enabled">启用</option>
+                    <option value="disabled">关闭</option>
+                  </select>
+                  <select id="sl-feature-sort-by">
+                    <option value="updatedAt">按更新时间</option>
+                    <option value="createdAt">按创建时间</option>
+                    <option value="name">按名称</option>
+                    <option value="group">按分组</option>
+                    <option value="kind">按类型</option>
+                    <option value="source">按来源</option>
+                  </select>
+                  <select id="sl-feature-sort-order">
+                    <option value="desc">降序</option>
+                    <option value="asc">升序</option>
+                  </select>
+                  <select id="sl-feature-page-size">
+                    <option value="20">每页20</option>
+                    <option value="40" selected>每页40</option>
+                    <option value="80">每页80</option>
+                  </select>
+                </div>
                 <div id="sl-feature-list" class="strategy-feature-list"></div>
+                <div class="strategy-feature-pagination">
+                  <button id="sl-feature-prev" class="ghost" type="button">上一页</button>
+                  <span id="sl-feature-page-info">第 1 页</span>
+                  <button id="sl-feature-next" class="ghost" type="button">下一页</button>
+                </div>
                 <div id="sl-status" class="strategy-lab-status">就绪</div>
               </div>
             </div>
@@ -9256,6 +9371,9 @@
                 source: 'chat_intent',
                 query: userText,
                 reply: assistantText,
+                conversationId: 'thunderclaw-main',
+                eventId: hasEventId ? eventId : null,
+                cardId: String(candidate?.id || candidate?.candidateId || ''),
               }).then(function(payload) {
                 if (payload && payload.ok) {
                   if (hasEventId && candidate && candidate.id) {
@@ -10617,6 +10735,15 @@
         const refreshBtn = document.getElementById('sl-refresh-btn');
         const featureQEl = document.getElementById('sl-feature-q');
         const featureGroupEl = document.getElementById('sl-feature-group');
+        const featureKindEl = document.getElementById('sl-feature-kind');
+        const featureSourceEl = document.getElementById('sl-feature-source');
+        const featureEnabledEl = document.getElementById('sl-feature-enabled');
+        const featureSortByEl = document.getElementById('sl-feature-sort-by');
+        const featureSortOrderEl = document.getElementById('sl-feature-sort-order');
+        const featurePageSizeEl = document.getElementById('sl-feature-page-size');
+        const featurePrevBtn = document.getElementById('sl-feature-prev');
+        const featureNextBtn = document.getElementById('sl-feature-next');
+        const featurePageInfoEl = document.getElementById('sl-feature-page-info');
         const promptEl = document.getElementById('sl-prompt');
         const fillBtn = document.getElementById('sl-fill-latest-btn');
         const evalBtn = document.getElementById('sl-eval-btn');
@@ -10631,7 +10758,13 @@
         const strategyPanelEl = document.getElementById('sl-panel-strategy');
         const labPanelEl = document.getElementById('sl-panel-lab');
         const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
-        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+        const featureViewState = {
+          page: 1,
+          pageSize: Number(featurePageSizeEl.value || 40) || 40,
+          totalPages: 1,
+          lastTotal: 0,
+        };
 
         function switchStrategyLabTab(tabKeyLike) {
           const tabKey = String(tabKeyLike || '').trim() || 'feature';
@@ -10664,10 +10797,307 @@
           }
           return payload;
         }
+        function clampSlNum(v, min, max, fallback) {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return Number(fallback || 0);
+          if (Number.isFinite(min) && n < min) return min;
+          if (Number.isFinite(max) && n > max) return max;
+          return n;
+        }
+        function trimSlText(textLike, maxLen) {
+          const raw = String(textLike || '').trim();
+          const n = Number(maxLen) || 0;
+          if (!n || raw.length <= n) return raw;
+          return raw.slice(0, n) + '...';
+        }
+        function fmtFeatureTs(tsLike) {
+          const ts = String(tsLike || '').trim();
+          if (!ts) return '-';
+          const ms = Number.isFinite(Date.parse(ts)) ? Date.parse(ts) : 0;
+          if (!ms) return ts;
+          const d = new Date(ms);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          return y + '-' + m + '-' + day + ' ' + hh + ':' + mm;
+        }
+        function getStrategyFeatureBars() {
+          const tfPriority = ['1h', '15m', '5m', '1m'];
+          for (let i = 0; i < tfPriority.length; i += 1) {
+            const tf = tfPriority[i];
+            const rows = Array.isArray(OHLCV_BY_TF?.[tf]) ? OHLCV_BY_TF[tf] : [];
+            if (rows.length >= 40) return rows.slice(-220);
+          }
+          const allKeys = Object.keys(OHLCV_BY_TF || {});
+          for (let i = 0; i < allKeys.length; i += 1) {
+            const rows = Array.isArray(OHLCV_BY_TF?.[allKeys[i]]) ? OHLCV_BY_TF[allKeys[i]] : [];
+            if (rows.length >= 20) return rows.slice(-180);
+          }
+          return [];
+        }
+        function calcSmaSeries(values, periodLike) {
+          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
+          const out = Array(values.length).fill(null);
+          let sum = 0;
+          for (let i = 0; i < values.length; i += 1) {
+            const val = Number(values[i]);
+            if (!Number.isFinite(val)) continue;
+            sum += val;
+            if (i >= period) {
+              const prev = Number(values[i - period]);
+              if (Number.isFinite(prev)) sum -= prev;
+            }
+            if (i >= period - 1) out[i] = sum / period;
+          }
+          return out;
+        }
+        function calcEmaSeries(values, periodLike) {
+          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
+          const alpha = 2 / (period + 1);
+          const out = Array(values.length).fill(null);
+          let ema = null;
+          for (let i = 0; i < values.length; i += 1) {
+            const v = Number(values[i]);
+            if (!Number.isFinite(v)) continue;
+            if (ema == null) ema = v;
+            else ema = (v - ema) * alpha + ema;
+            out[i] = ema;
+          }
+          return out;
+        }
+        function calcRsiSeries(values, periodLike) {
+          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
+          const out = Array(values.length).fill(null);
+          let gain = 0;
+          let loss = 0;
+          for (let i = 1; i < values.length; i += 1) {
+            const prev = Number(values[i - 1]);
+            const curr = Number(values[i]);
+            if (!Number.isFinite(prev) || !Number.isFinite(curr)) continue;
+            const diff = curr - prev;
+            if (i <= period) {
+              gain += Math.max(diff, 0);
+              loss += Math.max(-diff, 0);
+              if (i === period) {
+                const avgGain = gain / period;
+                const avgLoss = loss / period;
+                const rs = avgLoss <= 0 ? 100 : (avgGain / avgLoss);
+                out[i] = 100 - (100 / (1 + rs));
+              }
+              continue;
+            }
+            gain = ((gain * (period - 1)) + Math.max(diff, 0)) / period;
+            loss = ((loss * (period - 1)) + Math.max(-diff, 0)) / period;
+            const rs = loss <= 0 ? 100 : (gain / loss);
+            out[i] = 100 - (100 / (1 + rs));
+          }
+          return out;
+        }
+        function calcAtrSeries(highs, lows, closes, periodLike) {
+          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
+          const tr = Array(highs.length).fill(null);
+          for (let i = 0; i < highs.length; i += 1) {
+            const h = Number(highs[i]);
+            const l = Number(lows[i]);
+            const cPrev = i > 0 ? Number(closes[i - 1]) : Number(closes[i]);
+            if (!Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(cPrev)) continue;
+            tr[i] = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
+          }
+          const out = Array(highs.length).fill(null);
+          let atr = null;
+          for (let i = 0; i < tr.length; i += 1) {
+            const v = Number(tr[i]);
+            if (!Number.isFinite(v)) continue;
+            if (atr == null) atr = v;
+            else atr = ((atr * (period - 1)) + v) / period;
+            out[i] = atr;
+          }
+          return out;
+        }
+        function calcAdxSeries(highs, lows, closes, periodLike) {
+          const period = Math.max(2, Math.floor(Number(periodLike) || 14));
+          const len = highs.length;
+          const plusDm = Array(len).fill(0);
+          const minusDm = Array(len).fill(0);
+          const tr = Array(len).fill(0);
+          for (let i = 1; i < len; i += 1) {
+            const up = Number(highs[i]) - Number(highs[i - 1]);
+            const down = Number(lows[i - 1]) - Number(lows[i]);
+            plusDm[i] = up > down && up > 0 ? up : 0;
+            minusDm[i] = down > up && down > 0 ? down : 0;
+            const h = Number(highs[i]);
+            const l = Number(lows[i]);
+            const cPrev = Number(closes[i - 1]);
+            tr[i] = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
+          }
+          const adx = Array(len).fill(null);
+          let trSm = 0;
+          let plusSm = 0;
+          let minusSm = 0;
+          for (let i = 1; i < len; i += 1) {
+            trSm = trSm - (trSm / period) + tr[i];
+            plusSm = plusSm - (plusSm / period) + plusDm[i];
+            minusSm = minusSm - (minusSm / period) + minusDm[i];
+            if (i < period) continue;
+            const pdi = trSm <= 0 ? 0 : (100 * plusSm / trSm);
+            const mdi = trSm <= 0 ? 0 : (100 * minusSm / trSm);
+            const dx = (pdi + mdi) <= 0 ? 0 : (100 * Math.abs(pdi - mdi) / (pdi + mdi));
+            if (adx[i - 1] == null) adx[i] = dx;
+            else adx[i] = ((adx[i - 1] * (period - 1)) + dx) / period;
+          }
+          return adx;
+        }
+        function seriesToSvgPath(values, width, height, pad, minVal, maxVal) {
+          const pts = [];
+          const span = Math.max(1e-9, maxVal - minVal);
+          const innerW = Math.max(1, width - pad * 2);
+          const innerH = Math.max(1, height - pad * 2);
+          for (let i = 0; i < values.length; i += 1) {
+            const v = Number(values[i]);
+            if (!Number.isFinite(v)) continue;
+            const x = pad + (i / Math.max(1, values.length - 1)) * innerW;
+            const y = pad + (1 - ((v - minVal) / span)) * innerH;
+            pts.push([x, y]);
+          }
+          if (pts.length < 2) return '';
+          return pts.map(function(p, idx) {
+            const cmd = idx === 0 ? 'M' : 'L';
+            return cmd + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+          }).join(' ');
+        }
+        function getFeatureAlgorithmInfo(featureLike) {
+          const f = featureLike && typeof featureLike === 'object' ? featureLike : {};
+          const kind = String(f.kind || 'custom').toLowerCase();
+          const params = f.params && typeof f.params === 'object' ? f.params : {};
+          const period = Math.max(2, Math.floor(Number(params.period || 14) || 14));
+          if (kind === 'ema') {
+            return {
+              formula: 'EMA_t = EMA_{t-1} + alpha * (Close_t - EMA_{t-1}), alpha = 2/(N+1)',
+              pseudoCode: 'const ema = calcEMA(close, ' + period + ');\\nconst signal = close > ema ? 1 : -1;',
+              method: '指数加权平滑，近期K线权重更高，常用于趋势门控。',
+            };
+          }
+          if (kind === 'sma') {
+            return {
+              formula: 'SMA_t = mean(Close_{t-N+1 ... t})',
+              pseudoCode: 'const sma = calcSMA(close, ' + period + ');\\nconst signal = close > sma ? 1 : -1;',
+              method: '等权移动平均，噪音更低、反应稍慢。',
+            };
+          }
+          if (kind === 'rsi') {
+            return {
+              formula: 'RSI = 100 - 100 / (1 + AvgGain/AvgLoss)',
+              pseudoCode: 'const rsi = calcRSI(close, ' + period + ');\\nconst signal = (rsi < 30) ? 1 : ((rsi > 70) ? -1 : 0);',
+              method: '振荡指标，捕捉超买/超卖拐点。',
+            };
+          }
+          if (kind === 'adx') {
+            return {
+              formula: 'ADX = WilderSmooth(DX), DX = |+DI - -DI| / (+DI + -DI) * 100',
+              pseudoCode: 'const adx = calcADX(high, low, close, ' + period + ');\\nconst signal = adx > 20 ? 1 : 0;',
+              method: '趋势强度过滤，避免在弱趋势区间频繁交易。',
+            };
+          }
+          if (kind === 'atr') {
+            return {
+              formula: 'ATR = WilderSmooth(TR), TR = max(H-L, |H-C_prev|, |L-C_prev|)',
+              pseudoCode: 'const atr = calcATR(high, low, close, ' + period + ');\\nconst stop = entry - atr * (params.stopAtr || 1.2);',
+              method: '波动率度量，适合动态止损止盈和仓位控制。',
+            };
+          }
+          if (kind === 'volume') {
+            return {
+              formula: 'VolumeRatio = Vol_t / SMA(Vol, N)',
+              pseudoCode: 'const volMean = calcSMA(volume, ' + period + ');\\nconst ratio = volume[i] / volMean[i];',
+              method: '量能放大/缩量检测，验证突破或衰竭。',
+            };
+          }
+          return {
+            formula: 'CustomFeature(x_t, params)',
+            pseudoCode: 'function customFeature(candle, params) { /* 由策略器生成 */ }',
+            method: '自定义特征，由对话候选或策略DSL映射。',
+          };
+        }
+        function buildFeaturePreviewSvg(featureLike) {
+          const bars = getStrategyFeatureBars();
+          if (bars.length < 16) return '';
+          const f = featureLike && typeof featureLike === 'object' ? featureLike : {};
+          const params = f.params && typeof f.params === 'object' ? f.params : {};
+          const closes = bars.map(function(b) { return Number(b.close); });
+          const highs = bars.map(function(b) { return Number(b.high); });
+          const lows = bars.map(function(b) { return Number(b.low); });
+          const volumes = bars.map(function(b) { return Number(b.volume); });
+          const period = Math.max(2, Math.floor(Number(params.period || 14) || 14));
+          const kind = String(f.kind || 'custom').toLowerCase();
+          let indicator = [];
+          if (kind === 'ema') indicator = calcEmaSeries(closes, period);
+          else if (kind === 'sma') indicator = calcSmaSeries(closes, period);
+          else if (kind === 'rsi') indicator = calcRsiSeries(closes, period);
+          else if (kind === 'adx') indicator = calcAdxSeries(highs, lows, closes, period);
+          else if (kind === 'atr') indicator = calcAtrSeries(highs, lows, closes, period);
+          else if (kind === 'volume') indicator = calcSmaSeries(volumes, period);
+          else indicator = calcSmaSeries(closes, period);
+
+          const validIndicator = indicator.filter(function(v) { return Number.isFinite(Number(v)); }).map(function(v) { return Number(v); });
+          if (!validIndicator.length) return '';
+          const validClose = closes.filter(function(v) { return Number.isFinite(Number(v)); }).map(function(v) { return Number(v); });
+          if (!validClose.length) return '';
+          const width = 460;
+          const height = 72;
+          const pad = 6;
+          const indMin = Math.min.apply(null, validIndicator);
+          const indMax = Math.max.apply(null, validIndicator);
+          const indPath = seriesToSvgPath(indicator, width, height, pad, indMin, indMax);
+          const closePath = seriesToSvgPath(closes, width, height, pad, Math.min.apply(null, validClose), Math.max.apply(null, validClose));
+          if (!indPath) return '';
+          return '<svg class="feature-preview-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">'
+            + '<path d="' + closePath + '" fill="none" stroke="rgba(139,148,158,0.45)" stroke-width="1.2"></path>'
+            + '<path d="' + indPath + '" fill="none" stroke="rgba(88,166,255,0.9)" stroke-width="1.6"></path>'
+            + '</svg>';
+        }
+        function syncSelectOptions(selectEl, valuesLike, defaultText, keepValue) {
+          const el = selectEl;
+          if (!el) return;
+          const values = Array.isArray(valuesLike) ? valuesLike.map(function(v) { return String(v || '').trim(); }).filter(Boolean) : [];
+          const selected = String(keepValue != null ? keepValue : el.value || '');
+          const options = ['<option value="">' + escapeHtml(defaultText || '全部') + '</option>']
+            .concat(values.map(function(v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }));
+          el.innerHTML = options.join('');
+          if (selected && values.includes(selected)) el.value = selected;
+          else if (!selected) el.value = '';
+        }
+        function renderFeaturePagination(payloadLike) {
+          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          featureViewState.page = Math.max(1, Number(payload.page || featureViewState.page || 1));
+          featureViewState.pageSize = Math.max(10, Math.min(120, Number(payload.pageSize || featureViewState.pageSize || 40)));
+          featureViewState.totalPages = Math.max(1, Number(payload.totalPages || 1));
+          featureViewState.lastTotal = Math.max(0, Number(payload.total || 0));
+          featurePageInfoEl.textContent = '第 ' + String(featureViewState.page) + '/' + String(featureViewState.totalPages) + ' 页 · 共 ' + String(featureViewState.lastTotal) + ' 个';
+          featurePrevBtn.disabled = featureViewState.page <= 1;
+          featureNextBtn.disabled = featureViewState.page >= featureViewState.totalPages;
+        }
         async function fetchFeatures() {
           const q = String(featureQEl.value || '').trim();
           const group = String(featureGroupEl.value || '').trim();
-          const url = '/api/strategy/features?q=' + encodeURIComponent(q) + '&group=' + encodeURIComponent(group);
+          const kind = String(featureKindEl.value || '').trim();
+          const source = String(featureSourceEl.value || '').trim();
+          const enabled = String(featureEnabledEl.value || '').trim();
+          const sortBy = String(featureSortByEl.value || 'updatedAt').trim() || 'updatedAt';
+          const sortOrder = String(featureSortOrderEl.value || 'desc').trim() || 'desc';
+          const pageSize = Math.max(10, Math.min(120, Number(featurePageSizeEl.value || featureViewState.pageSize || 40) || 40));
+          featureViewState.pageSize = pageSize;
+          const url = '/api/strategy/features'
+            + '?q=' + encodeURIComponent(q)
+            + '&group=' + encodeURIComponent(group)
+            + '&kind=' + encodeURIComponent(kind)
+            + '&source=' + encodeURIComponent(source)
+            + '&enabled=' + encodeURIComponent(enabled)
+            + '&sortBy=' + encodeURIComponent(sortBy)
+            + '&sortOrder=' + encodeURIComponent(sortOrder)
+            + '&page=' + encodeURIComponent(String(featureViewState.page))
+            + '&pageSize=' + encodeURIComponent(String(pageSize));
           const resp = await fetch(url, { cache: 'no-store' });
           return readJson(resp);
         }
@@ -10675,17 +11105,84 @@
           const resp = await fetch('/api/strategy/versions?limit=80', { cache: 'no-store' });
           return readJson(resp);
         }
-        function renderFeatures(list) {
+        function renderFeatures(list, payloadLike) {
           const rows = Array.isArray(list) ? list : [];
+          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          const facets = payload.facets && typeof payload.facets === 'object' ? payload.facets : {};
+          syncSelectOptions(featureSourceEl, Array.isArray(facets.sources) ? facets.sources : [], '全部来源', featureSourceEl.value);
+          renderFeaturePagination(payload);
           if (!rows.length) {
             featureListEl.innerHTML = '<div class="strategy-feature-item"><div class="meta">暂无特征</div></div>';
             return;
           }
-          featureListEl.innerHTML = rows.slice(0, 80).map(function(f) {
-            const name = escapeHtml(String(f?.name || f?.featureId || '-'));
-            const meta = escapeHtml(String(f?.group || '-') + ' · ' + String(f?.kind || '-') + ' · ' + (f?.enabled === false ? '关闭' : '启用'));
-            const desc = escapeHtml(String(f?.description || ''));
-            return '<div class="strategy-feature-item"><div class="name">' + name + '</div><div class="meta">' + meta + '</div><div class="meta">' + desc + '</div></div>';
+          featureListEl.innerHTML = rows.map(function(f) {
+            const feature = f && typeof f === 'object' ? f : {};
+            const featureId = String(feature.featureId || '-');
+            const name = escapeHtml(String(feature.name || featureId || '-'));
+            const group = String(feature.group || '-');
+            const kind = String(feature.kind || '-');
+            const enabled = feature.enabled !== false;
+            const source = String(feature.source || '-');
+            const desc = escapeHtml(String(feature.description || ''));
+            const createdAt = fmtFeatureTs(feature.createdAt);
+            const updatedAt = fmtFeatureTs(feature.updatedAt);
+            const originConversationId = String(feature.originConversationId || '').trim();
+            const originEventId = Number(feature.originEventId);
+            const originCardId = String(feature.originCardId || '').trim();
+            const sourceMeta = [
+              '来源=' + source,
+              originConversationId ? ('会话=' + originConversationId) : '',
+              Number.isFinite(originEventId) && originEventId > 0 ? ('消息#' + String(originEventId)) : '',
+              originCardId ? ('卡片=' + originCardId) : '',
+            ].filter(Boolean).join(' · ');
+            const originQuery = trimSlText(String(feature.originQuery || ''), 180);
+            const originReply = trimSlText(String(feature.originReply || ''), 180);
+            const paramsJson = escapeHtml(JSON.stringify(feature.params && typeof feature.params === 'object' ? feature.params : {}, null, 2));
+            const algo = getFeatureAlgorithmInfo(feature);
+            const previewSvg = buildFeaturePreviewSvg(feature);
+            const trail = Array.isArray(feature.originTrail) ? feature.originTrail : [];
+            const trailHtml = trail.slice(-4).reverse().map(function(item) {
+              const row = item && typeof item === 'object' ? item : {};
+              const line = [
+                fmtFeatureTs(row.ts),
+                String(row.source || ''),
+                row.conversationId ? ('会话=' + String(row.conversationId)) : '',
+                Number.isFinite(Number(row.eventId)) ? ('消息#' + String(Number(row.eventId))) : '',
+                row.cardId ? ('卡片=' + String(row.cardId)) : '',
+              ].filter(Boolean).join(' · ');
+              const q = trimSlText(String(row.query || ''), 120);
+              return '<div class="meta mini-mono">' + escapeHtml(line) + (q ? ('<br/>Q: ' + escapeHtml(q)) : '') + '</div>';
+            }).join('');
+            return '<div class="strategy-feature-item">'
+              + '<div class="head"><div class="name">' + name + '</div><div class="tags">'
+              + '<span class="tag">' + escapeHtml(group) + '</span>'
+              + '<span class="tag">' + escapeHtml(kind) + '</span>'
+              + '<span class="tag ' + (enabled ? 'ok' : 'warn') + '">' + (enabled ? '启用' : '关闭') + '</span>'
+              + '</div></div>'
+              + '<div class="meta">id=' + escapeHtml(featureId) + ' · 创建=' + escapeHtml(createdAt) + ' · 更新=' + escapeHtml(updatedAt) + '</div>'
+              + '<div class="meta">' + escapeHtml(sourceMeta || ('来源=' + source)) + '</div>'
+              + '<div class="meta">' + desc + '</div>'
+              + '<details><summary>展开特征详情（来源 / 算法 / 可视化）</summary>'
+              + '<div class="detail-wrap">'
+              + '<div class="detail-block"><div class="detail-title">来源追踪</div>'
+              + '<div class="meta">来源：' + escapeHtml(source || '-') + '</div>'
+              + (originQuery ? ('<div class="meta">触发问题：' + escapeHtml(originQuery) + '</div>') : '')
+              + (originReply ? ('<div class="meta">触发回复：' + escapeHtml(originReply) + '</div>') : '')
+              + (trailHtml ? ('<div class="meta" style="margin-top:4px;">最近链路：</div>' + trailHtml) : '')
+              + '</div>'
+              + '<div class="detail-block"><div class="detail-title">算法说明</div>'
+              + '<div class="meta">' + escapeHtml(algo.method) + '</div>'
+              + '<div class="meta mini-mono">公式：' + escapeHtml(algo.formula) + '</div>'
+              + '<pre class="mini-mono">' + escapeHtml(algo.pseudoCode) + '</pre>'
+              + '</div>'
+              + '<div class="detail-block"><div class="detail-title">参数与计算预览</div>'
+              + '<pre class="mini-mono">' + paramsJson + '</pre>'
+              + (previewSvg
+                ? ('<div class="meta" style="margin-top:4px;">K线/指标预览（灰=价格，蓝=特征值）</div>' + previewSvg)
+                : '<div class="meta" style="margin-top:4px;">暂无可视化预览（当前K线样本不足或特征不支持）。</div>')
+              + '</div>'
+              + '</div></details>'
+              + '</div>';
           }).join('');
         }
         function renderVersionSelectors(list) {
@@ -10724,7 +11221,7 @@
           setStatus(statusEl, '加载实验室数据中...', '');
           try {
             const featuresPayload = await fetchFeatures();
-            renderFeatures(featuresPayload.features);
+            renderFeatures(featuresPayload.features, featuresPayload);
             const versionsPayload = await fetchVersions();
             renderVersions(versionsPayload.versions);
             renderVersionSelectors(versionsPayload.versions);
@@ -10732,6 +11229,18 @@
           } catch (err) {
             setStatus(statusEl, '加载失败：' + String(err?.message || err), 'err');
           }
+        }
+        async function reloadFeaturesOnly() {
+          try {
+            const payload = await fetchFeatures();
+            renderFeatures(payload.features, payload);
+          } catch (err) {
+            setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err');
+          }
+        }
+        function resetFeaturePageAndReload() {
+          featureViewState.page = 1;
+          void reloadFeaturesOnly();
         }
 
         proposeBtn.addEventListener('click', function() {
@@ -10765,15 +11274,32 @@
         refreshBtn.addEventListener('click', function() {
           void reloadAll();
         });
-        featureQEl.addEventListener('change', function() {
-          void fetchFeatures()
-            .then(function(payload) { renderFeatures(payload.features); })
-            .catch(function(err) { setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err'); });
+        let featureSearchTimer = null;
+        featureQEl.addEventListener('input', function() {
+          if (featureSearchTimer) clearTimeout(featureSearchTimer);
+          featureSearchTimer = window.setTimeout(function() {
+            resetFeaturePageAndReload();
+          }, 260);
         });
-        featureGroupEl.addEventListener('change', function() {
-          void fetchFeatures()
-            .then(function(payload) { renderFeatures(payload.features); })
-            .catch(function(err) { setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err'); });
+        featureGroupEl.addEventListener('change', resetFeaturePageAndReload);
+        featureKindEl.addEventListener('change', resetFeaturePageAndReload);
+        featureSourceEl.addEventListener('change', resetFeaturePageAndReload);
+        featureEnabledEl.addEventListener('change', resetFeaturePageAndReload);
+        featureSortByEl.addEventListener('change', resetFeaturePageAndReload);
+        featureSortOrderEl.addEventListener('change', resetFeaturePageAndReload);
+        featurePageSizeEl.addEventListener('change', function() {
+          featureViewState.pageSize = Math.max(10, Math.min(120, Number(featurePageSizeEl.value || 40) || 40));
+          resetFeaturePageAndReload();
+        });
+        featurePrevBtn.addEventListener('click', function() {
+          if (featureViewState.page <= 1) return;
+          featureViewState.page -= 1;
+          void reloadFeaturesOnly();
+        });
+        featureNextBtn.addEventListener('click', function() {
+          if (featureViewState.page >= featureViewState.totalPages) return;
+          featureViewState.page += 1;
+          void reloadFeaturesOnly();
         });
 
         fillBtn.addEventListener('click', function() {
