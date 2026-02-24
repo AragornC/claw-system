@@ -1,15 +1,18 @@
 (function(globalObj) {
-  function defaultEscapeHtml(valueLike) {
-    return String(valueLike == null ? '' : valueLike)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   function setupStrategyLabPanelRuntime(optionsLike) {
     const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+    const runtimeUtils = globalObj.reportRuntimeUtils && typeof globalObj.reportRuntimeUtils === 'object'
+      ? globalObj.reportRuntimeUtils
+      : {};
+    const localJsonState = globalObj.reportLocalJsonState && typeof globalObj.reportLocalJsonState === 'object'
+      ? globalObj.reportLocalJsonState
+      : {};
+    const apiRuntime = globalObj.reportApiRuntime && typeof globalObj.reportApiRuntime === 'object'
+      ? globalObj.reportApiRuntime
+      : {};
+    const constants = globalObj.strategyLabConstants && typeof globalObj.strategyLabConstants === 'object'
+      ? globalObj.strategyLabConstants
+      : {};
     const getLatestBacktestResult = typeof options.getLatestBacktestResult === 'function'
       ? options.getLatestBacktestResult
       : function() { return null; };
@@ -24,7 +27,20 @@
       : function() { return { ok: false }; };
     const escapeHtml = typeof options.escapeHtml === 'function'
       ? options.escapeHtml
-      : defaultEscapeHtml;
+      : (runtimeUtils.escapeHtml || function(valueLike) { return String(valueLike == null ? '' : valueLike); });
+    const getSelectValueSafe = runtimeUtils.getSelectValueSafe || function(selectElLike, fallbackLike) { return String(selectElLike?.value || fallbackLike || ''); };
+    const setSelectValueSafe = runtimeUtils.setSelectValueSafe || function(selectElLike, valueLike) { if (selectElLike) selectElLike.value = String(valueLike || ''); };
+    const normalizePresetName = runtimeUtils.normalizePresetName || function(nameLike) { return String(nameLike || '').trim().slice(0, 28); };
+    const syncSelectOptions = runtimeUtils.syncSelectOptions || function() {};
+    const readLocalJson = localJsonState.readJson || function(_keyLike, fallbackLike) { return fallbackLike; };
+    const writeLocalJson = localJsonState.writeJson || function() { return false; };
+    const readJsonResponse = apiRuntime.readJsonResponse || (async function(resp) { return resp.json(); });
+    const fetchStrategyFeatures = typeof apiRuntime.fetchStrategyFeatures === 'function'
+      ? apiRuntime.fetchStrategyFeatures
+      : null;
+    const fetchStrategyVersions = typeof apiRuntime.fetchStrategyVersions === 'function'
+      ? apiRuntime.fetchStrategyVersions
+      : null;
 
         const statusEl = document.getElementById('sl-status');
         const evalStatusEl = document.getElementById('sl-eval-status');
@@ -82,7 +98,7 @@
           presets: [],
           featureByKey: {},
         };
-        const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
+        const FEATURE_FILTER_PRESET_KEY = String(constants.FEATURE_FILTER_PRESET_KEY || 'thunderclaw.strategy.feature.presets.v1');
         const featureTaxonomyConfig = typeof getStrategyFeatureConfigRuntime === 'function'
           ? getStrategyFeatureConfigRuntime()
           : null;
@@ -99,14 +115,10 @@
           if (labPanelEl) labPanelEl.classList.toggle('active', tabKey === 'lab');
           if (backtestCoreEl) backtestCoreEl.style.display = tabKey === 'lab' ? '' : 'none';
         }
-        function featureKeyOf(featureLike) {
+        const featureKeyOf = function(featureLike) {
           const feature = featureLike && typeof featureLike === 'object' ? featureLike : {};
-          const id = String(feature.featureId || '').trim();
-          if (id) return id;
-          const name = String(feature.name || '').trim();
-          if (name) return name;
-          return '';
-        }
+          return String(feature.featureId || feature.name || '').trim();
+        };
         function closeFeatureDetailModal() {
           if (featureDetailModalEl.hidden) return;
           featureDetailModalEl.hidden = true;
@@ -203,44 +215,6 @@
           if (kind === 'ok') el.classList.add('ok');
           if (kind === 'err') el.classList.add('err');
         }
-        function safeLocalReadJson(keyLike, fallbackLike) {
-          const key = String(keyLike || '').trim();
-          if (!key) return fallbackLike;
-          try {
-            const raw = localStorage.getItem(key);
-            if (!raw) return fallbackLike;
-            const parsed = JSON.parse(raw);
-            return parsed == null ? fallbackLike : parsed;
-          } catch {
-            return fallbackLike;
-          }
-        }
-        function safeLocalWriteJson(keyLike, valueLike) {
-          const key = String(keyLike || '').trim();
-          if (!key) return false;
-          try {
-            localStorage.setItem(key, JSON.stringify(valueLike));
-            return true;
-          } catch {
-            return false;
-          }
-        }
-        function normalizePresetName(nameLike) {
-          const n = String(nameLike || '').trim().replace(/\s+/g, ' ');
-          return n.slice(0, 28);
-        }
-        function getSelectValueSafe(selectElLike, fallbackLike) {
-          const el = selectElLike;
-          if (!el) return String(fallbackLike || '');
-          return String(el.value || fallbackLike || '');
-        }
-        function setSelectValueSafe(selectElLike, valueLike) {
-          const el = selectElLike;
-          if (!el) return;
-          const value = String(valueLike || '');
-          const options = Array.from(el.options || []).map(function(op) { return String(op?.value || ''); });
-          el.value = options.includes(value) ? value : '';
-        }
         function collectFeatureFilterState() {
           return {
             q: String(featureQEl.value || '').trim(),
@@ -272,7 +246,7 @@
           featureViewState.previewWindow = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120));
         }
         function loadFeaturePresets() {
-          const rows = safeLocalReadJson(FEATURE_FILTER_PRESET_KEY, []);
+          const rows = readLocalJson(FEATURE_FILTER_PRESET_KEY, []);
           if (!Array.isArray(rows)) return [];
           return rows
             .map(function(item) {
@@ -294,7 +268,7 @@
         function saveFeaturePresets(rowsLike) {
           const rows = Array.isArray(rowsLike) ? rowsLike : [];
           featureViewState.presets = rows.slice(-20);
-          safeLocalWriteJson(FEATURE_FILTER_PRESET_KEY, featureViewState.presets);
+          writeLocalJson(FEATURE_FILTER_PRESET_KEY, featureViewState.presets);
         }
         function renderFeaturePresetOptions(selectedIdLike) {
           const selectedId = String(selectedIdLike || featurePresetSelectEl.value || '').trim();
@@ -394,29 +368,7 @@
             setStatus(statusEl, '已跳转并高亮消息 #' + String(eventId), 'ok');
           }, 90);
         }
-        async function readJson(resp) {
-          const payload = await resp.json().catch(function() { return null; });
-          if (!resp.ok || !payload || payload.ok !== true) {
-            throw new Error(String(payload?.error || ('HTTP ' + resp.status)));
-          }
-          return payload;
-        }
         // 特征详情与分类可视化已拆分到 ./js/modules/strategy-feature-runtime.js
-        function syncSelectOptions(selectEl, valuesLike, defaultText, keepValue, labelFnLike) {
-          const el = selectEl;
-          if (!el) return;
-          const values = Array.isArray(valuesLike) ? valuesLike.map(function(v) { return String(v || '').trim(); }).filter(Boolean) : [];
-          const selected = String(keepValue != null ? keepValue : el.value || '');
-          const labelFn = typeof labelFnLike === 'function' ? labelFnLike : null;
-          const options = ['<option value="">' + escapeHtml(defaultText || '全部') + '</option>']
-            .concat(values.map(function(v) {
-              const labelRaw = labelFn ? String(labelFn(v) || v) : v;
-              return '<option value="' + escapeHtml(v) + '">' + escapeHtml(labelRaw) + '</option>';
-            }));
-          el.innerHTML = options.join('');
-          if (selected && values.includes(selected)) el.value = selected;
-          else if (!selected) el.value = '';
-        }
         if (featureTaxonomyConfig && featureTaxonomyConfig.mainCategories) {
           syncSelectOptions(
             featureMainCategoryEl,
@@ -462,6 +414,19 @@
           const sortOrder = String(featureSortOrderEl.value || 'desc').trim() || 'desc';
           const pageSize = Math.max(10, Math.min(120, Number(featurePageSizeEl.value || featureViewState.pageSize || 40) || 40));
           featureViewState.pageSize = pageSize;
+          if (fetchStrategyFeatures) {
+            return fetchStrategyFeatures({
+              q: q,
+              mainCategory: mainCategory,
+              tag: tag,
+              source: source,
+              enabled: enabled,
+              sortBy: sortBy,
+              sortOrder: sortOrder,
+              page: featureViewState.page,
+              pageSize: pageSize,
+            });
+          }
           const url = '/api/strategy/features'
             + '?q=' + encodeURIComponent(q)
             + '&mainCategory=' + encodeURIComponent(mainCategory)
@@ -473,11 +438,14 @@
             + '&page=' + encodeURIComponent(String(featureViewState.page))
             + '&pageSize=' + encodeURIComponent(String(pageSize));
           const resp = await fetch(url, { cache: 'no-store' });
-          return readJson(resp);
+          return readJsonResponse(resp);
         }
         async function fetchVersions() {
+          if (fetchStrategyVersions) {
+            return fetchStrategyVersions(80);
+          }
           const resp = await fetch('/api/strategy/versions?limit=80', { cache: 'no-store' });
-          return readJson(resp);
+          return readJsonResponse(resp);
         }
         function renderFeatures(list, payloadLike) {
           const rows = Array.isArray(list) ? list : [];
@@ -623,7 +591,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: message, baseVersionId: baseVersionId || null }),
           })
-            .then(readJson)
+            .then(readJsonResponse)
             .then(function(payload) {
               const count = Array.isArray(payload.proposals) ? payload.proposals.length : 0;
               setStatus(statusEl, '已生成 ' + String(count) + ' 个候选版本。', 'ok');
@@ -795,7 +763,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ versionId: versionId, metrics: metrics }),
           })
-            .then(readJson)
+            .then(readJsonResponse)
             .then(function(payload) {
               const score = Number(payload?.report?.score);
               const scoreText = Number.isFinite(score) ? score.toFixed(4) : 'NA';
