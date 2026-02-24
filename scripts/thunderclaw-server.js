@@ -827,6 +827,18 @@ function guessContentType(filePath) {
   if (filePath.endsWith(".svg")) {
     return "image/svg+xml";
   }
+  if (filePath.endsWith(".webp")) {
+    return "image/webp";
+  }
+  if (filePath.endsWith(".png")) {
+    return "image/png";
+  }
+  if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (filePath.endsWith(".gif")) {
+    return "image/gif";
+  }
   if (filePath.endsWith(".json")) {
     return "application/json; charset=utf-8";
   }
