@@ -11,21 +11,31 @@ function tcClamp(valueLike, min, max, fallback) {
   return n;
 }
 
+function normalizeCardStatusRuntime(statusLike) {
+  const status = String(statusLike || "").trim().toLowerCase();
+  if (status === "accepted" || status === "ignored" || status === "registered") return status;
+  return "proposed";
+}
+
 function normalizeIntentCandidateRuntime(rawLike) {
   const raw = rawLike && typeof rawLike === "object" ? rawLike : {};
   const kind = String(raw.kind || "").trim().toLowerCase();
   if (kind !== "feature" && kind !== "strategy") return null;
   const confidence = tcClamp(raw.confidence, 0, 1, 0.6);
+  const id = tcSafeText(raw.id || raw.cardId || raw.candidateId || "");
+  const status = normalizeCardStatusRuntime(raw.status);
   if (kind === "feature") {
     const feature = raw.feature && typeof raw.feature === "object" ? raw.feature : {};
     const name = tcSafeText(feature.name || raw.title || "");
     if (!name) return null;
     return {
+      id: id || tcSafeText(raw.candidateId || "cand_feature"),
       candidateId: tcSafeText(raw.candidateId || "cand_feature"),
       kind: "feature",
       title: tcSafeText(raw.title || name || "交易特征候选"),
       summary: tcSafeText(raw.summary || feature.description || "来自对话提案"),
       confidence: confidence,
+      status: status,
       feature: {
         name: name,
         group: tcSafeText(feature.group || "custom"),
@@ -39,11 +49,13 @@ function normalizeIntentCandidateRuntime(rawLike) {
   const title = tcSafeText(raw.title || strategy.title || "");
   if (!title) return null;
   return {
+    id: id || tcSafeText(raw.candidateId || "cand_strategy"),
     candidateId: tcSafeText(raw.candidateId || "cand_strategy"),
     kind: "strategy",
     title: title,
     summary: tcSafeText(raw.summary || strategy.thesis || "来自对话提案"),
     confidence: confidence,
+    status: status,
     strategy: {
       title: title,
       thesis: tcSafeText(strategy.thesis || raw.summary || ""),
@@ -64,6 +76,7 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
   const routes = options.routes && typeof options.routes === "object" ? options.routes : {};
   const detectRoute = tcSafeText(routes.detect || "/api/strategy/intent-candidates", "/api/strategy/intent-candidates");
   const applyRoute = tcSafeText(routes.apply || "/api/strategy/intent-candidates/apply", "/api/strategy/intent-candidates/apply");
+  const statusRoute = tcSafeText(routes.status || "/api/chat/cards/status", "/api/chat/cards/status");
 
   async function postJson(url, body) {
     const resp = await fetch(url, {
@@ -108,9 +121,23 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
     });
   }
 
+  async function updateStatus(eventIdLike, cardIdLike, statusLike) {
+    const eventId = Number(eventIdLike);
+    const cardId = tcSafeText(cardIdLike || "");
+    const status = normalizeCardStatusRuntime(statusLike);
+    if (!Number.isFinite(eventId) || eventId <= 0) throw new Error("eventId is required");
+    if (!cardId) throw new Error("cardId is required");
+    return await postJson(statusRoute, {
+      eventId: eventId,
+      cardId: cardId,
+      status: status,
+    });
+  }
+
   return {
     detect: detect,
     apply: apply,
+    updateStatus: updateStatus,
   };
 };
 
@@ -155,6 +182,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
 
   const onApply = typeof options.onApply === "function" ? options.onApply : null;
   const onIgnore = typeof options.onIgnore === "function" ? options.onIgnore : null;
+  const onStatusChange = typeof options.onStatusChange === "function" ? options.onStatusChange : null;
   const confidence = tcClamp(options.confidence, 0, 1, 0.7);
 
   const row = document.createElement("div");
@@ -234,6 +262,28 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     actions.appendChild(status);
     card.appendChild(actions);
 
+    function setAccepted(textLike) {
+      card.classList.add("accepted");
+      applyBtn.textContent = "已加入";
+      applyBtn.disabled = true;
+      ignoreBtn.disabled = true;
+      ignoreBtn.style.display = "none";
+      status.textContent = tcSafeText(textLike || "已加入");
+    }
+    function setIgnored(textLike) {
+      card.classList.add("ignored");
+      applyBtn.disabled = true;
+      ignoreBtn.disabled = true;
+      status.textContent = tcSafeText(textLike || "已忽略");
+    }
+
+    const initialStatus = normalizeCardStatusRuntime(candidate.status);
+    if (initialStatus === "accepted" || initialStatus === "registered") {
+      setAccepted(initialStatus === "registered" ? "已注册" : "已加入");
+    } else if (initialStatus === "ignored") {
+      setIgnored("已忽略");
+    }
+
     applyBtn.addEventListener("click", function() {
       if (!onApply) return;
       applyBtn.disabled = true;
@@ -243,10 +293,16 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
         .then(function(outcome) {
           const ok = Boolean(outcome && outcome.ok);
           if (ok) {
-            status.textContent = tcSafeText(outcome.message || "已加入");
-            card.classList.add("accepted");
-            applyBtn.textContent = "已加入";
-            ignoreBtn.style.display = "none";
+            const done = function() {
+              setAccepted(outcome.message || "已加入");
+            };
+            if (onStatusChange) {
+              Promise.resolve(onStatusChange(candidate, "accepted"))
+                .then(done)
+                .catch(function() { done(); });
+            } else {
+              done();
+            }
           } else {
             status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
             applyBtn.disabled = false;
@@ -261,11 +317,17 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     });
 
     ignoreBtn.addEventListener("click", function() {
-      if (typeof onIgnore === "function") onIgnore(candidate);
-      card.classList.add("ignored");
-      status.textContent = "已忽略";
-      applyBtn.disabled = true;
-      ignoreBtn.disabled = true;
+      const doIgnore = function() {
+        if (typeof onIgnore === "function") onIgnore(candidate);
+        setIgnored("已忽略");
+      };
+      if (onStatusChange) {
+        Promise.resolve(onStatusChange(candidate, "ignored"))
+          .then(doIgnore)
+          .catch(function() { doIgnore(); });
+      } else {
+        doIgnore();
+      }
     });
 
     cardWrap.appendChild(card);

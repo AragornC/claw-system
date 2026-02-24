@@ -27,6 +27,7 @@ export function createChatConfigHandlers(deps = {}) {
     maskSecret,
     parseJsonSafe,
     extractTradingIntentCandidates,
+    updateChatCardStatus,
   } = deps;
 
   const xbrainStore = deps.xbrainStore;
@@ -446,11 +447,13 @@ async function handleAiChat(req, res) {
   const intentCandidates = intentSkill?.ok && intentSkill?.intentDetected
     ? (Array.isArray(intentSkill.candidates) ? intentSkill.candidates : [])
     : [];
+  let replyEvent = null;
   if (reply) {
-    appendChatEvent({
+    replyEvent = appendChatEvent({
       role: "bot",
       source: "dashboard",
       text: reply,
+      cards: intentCandidates,
     });
   }
   if (!result.ok) {
@@ -488,7 +491,7 @@ async function handleAiChat(req, res) {
     runtimeModelRef: runtimeModelRefAfter,
     sessionIdUsed,
     modelAutoSync,
-    intentCandidates,
+      intentCandidates: Array.isArray(replyEvent?.cards) ? replyEvent.cards : intentCandidates,
     intentSkill: {
       ok: Boolean(intentSkill?.ok),
       intentDetected: Boolean(intentSkill?.intentDetected),
@@ -496,6 +499,7 @@ async function handleAiChat(req, res) {
       reasoning: String(intentSkill?.reasoning || ""),
       error: String(intentSkill?.error || ""),
     },
+      replyEventId: Number(replyEvent?.id || 0) || null,
   });
 }
 
@@ -739,6 +743,41 @@ async function handleChatHistory(req, res) {
   });
 }
 
+async function handleChatCardStatus(req, res) {
+  const body = await readJsonBody(req);
+  if (typeof updateChatCardStatus !== "function") {
+    sendJson(res, 500, { ok: false, error: "chat card status updater not available" });
+    return;
+  }
+  const eventId = Number(body?.eventId);
+  const cardId = String(body?.cardId || "").trim();
+  const status = String(body?.status || "").trim().toLowerCase();
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    sendJson(res, 400, { ok: false, error: "eventId is required" });
+    return;
+  }
+  if (!cardId) {
+    sendJson(res, 400, { ok: false, error: "cardId is required" });
+    return;
+  }
+  if (!["proposed", "accepted", "ignored", "registered"].includes(status)) {
+    sendJson(res, 400, { ok: false, error: "invalid status" });
+    return;
+  }
+  const updated = updateChatCardStatus({ eventId, cardId, status });
+  if (!updated?.ok) {
+    sendJson(res, 404, { ok: false, error: String(updated?.error || "update failed") });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    eventId,
+    cardId,
+    status,
+    card: updated.card || null,
+  });
+}
+
 
   return {
     handleSetup,
@@ -751,5 +790,6 @@ async function handleChatHistory(req, res) {
     handleConfigChat,
     handleAiHealth,
     handleChatHistory,
+    handleChatCardStatus,
   };
 }

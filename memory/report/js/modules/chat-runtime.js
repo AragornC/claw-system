@@ -586,6 +586,7 @@ function createChatApiClientRuntime(optionsLike = {}) {
       modelAutoSync: payload && typeof payload.modelAutoSync === 'object' ? payload.modelAutoSync : null,
       intentCandidates: Array.isArray(payload?.intentCandidates) ? payload.intentCandidates : [],
       intentSkill: payload && typeof payload.intentSkill === 'object' ? payload.intentSkill : null,
+      replyEventId: Number.isFinite(Number(payload?.replyEventId)) ? Number(payload.replyEventId) : null,
     };
   }
 

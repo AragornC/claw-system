@@ -21,6 +21,7 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/ai/chat", handler: expectHandler(handlers, "handleAiChat") },
     { method: "POST", path: "/api/config/chat", handler: expectHandler(handlers, "handleConfigChat") },
     { method: "GET", path: "/api/chat/history", handler: expectHandler(handlers, "handleChatHistory") },
+    { method: "POST", path: "/api/chat/cards/status", handler: expectHandler(handlers, "handleChatCardStatus") },
     { method: "GET", path: "/api/xbrain/state", handler: expectHandler(handlers, "handleXbrainState") },
     { method: "POST", path: "/api/xbrain/update", handler: expectHandler(handlers, "handleXbrainUpdate") },
     { method: "POST", path: "/api/xbrain/model/switch", handler: expectHandler(handlers, "handleXbrainModelSwitch") },

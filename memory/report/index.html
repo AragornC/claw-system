@@ -7522,6 +7522,7 @@
         const STRATEGY_INTENT_ROUTES = {
           detect: '/api/strategy/intent-candidates',
           apply: '/api/strategy/intent-candidates/apply',
+          status: '/api/chat/cards/status',
         };
         const CHAT_HISTORY_LIMIT = 220;
         const CHAT_HISTORY_POLL_MS = 1200;
@@ -7533,6 +7534,9 @@
         const CHAT_LOG_MAX = 800;
         const chatHistoryState = createChatHistoryStateRuntime('__thunderclawChatHistoryState');
         if (!Array.isArray(chatHistoryState.pendingBotEchoes)) chatHistoryState.pendingBotEchoes = [];
+        if (!(chatHistoryState.renderedCardEventIds instanceof Set)) {
+          chatHistoryState.renderedCardEventIds = new Set();
+        }
         const chatLogStore = createChatLogStoreRuntime(CHAT_LOG_KEY, CHAT_LOG_MAX);
         function loadLocalChatLog() {
           return chatLogStore.load();
@@ -7608,72 +7612,6 @@
           });
           return out.slice(-CHAT_LOG_MAX);
         }
-        function persistStrategyIntentCard(payloadLike) {
-          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
-          const candidatesRaw = Array.isArray(payload.candidates) ? payload.candidates : [];
-          const candidates = candidatesRaw
-            .map(function(item) {
-              return typeof normalizeIntentCandidateRuntime === 'function'
-                ? normalizeIntentCandidateRuntime(item)
-                : item;
-            })
-            .filter(Boolean)
-            .slice(0, 4);
-          if (!candidates.length) return;
-          const fingerprint = String(payload.fingerprint || '').trim();
-          if (fingerprint) {
-            const exists = loadLocalChatLog().some(function(row) {
-              const source = String(row?.source || '').trim();
-              const fp = String(row?.meta?.fingerprint || '').trim();
-              return source === 'strategy_intent' && fp === fingerprint;
-            });
-            if (exists) return;
-          }
-          appendLocalChatLog({
-            ts: new Date().toISOString(),
-            role: 'bot',
-            source: 'strategy_intent',
-            text: '策略候选卡片',
-            meta: {
-              fingerprint: fingerprint,
-              confidence: Number(payload.confidence || 0.72),
-              intentCandidates: candidates,
-              userText: String(payload.userText || ''),
-              assistantText: String(payload.assistantText || ''),
-            },
-          });
-        }
-        function createStrategyIntentCardRowFromMeta(metaLike) {
-          if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return null;
-          const meta = metaLike && typeof metaLike === 'object' ? metaLike : {};
-          const candidates = Array.isArray(meta.intentCandidates) ? meta.intentCandidates : [];
-          if (!candidates.length) return null;
-          const userText = String(meta.userText || '').trim();
-          const assistantText = String(meta.assistantText || '').trim();
-          return createStrategyIntentSuggestionRowRuntime({
-            candidates: candidates,
-            confidence: Number(meta.confidence || 0.72),
-            onApply: function(candidate) {
-              if (!strategyIntentApiClient) {
-                return Promise.resolve({ ok: false, message: '策略候选写入器未就绪' });
-              }
-              return strategyIntentApiClient.apply(candidate, {
-                source: 'chat_intent',
-                query: userText,
-                reply: assistantText,
-              }).then(function(payload) {
-                if (payload && payload.ok) {
-                  emitStrategyLabUpdated(payload);
-                  return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
-                }
-                return { ok: false, message: String(payload?.error || '写入失败') };
-              }).catch(function(err) {
-                return { ok: false, message: String(err?.message || err || '写入失败') };
-              });
-            },
-            onIgnore: function() {},
-          });
-        }
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
         }
@@ -7740,13 +7678,7 @@
               chatHistoryState.seenIds.add(idNum);
               chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
             }
-            if (String(r?.source || '') === 'strategy_intent') {
-              const cardRow = createStrategyIntentCardRowFromMeta(r?.meta);
-              if (cardRow) {
-                box.appendChild(cardRow);
-                return;
-              }
-            }
+            if (String(r?.source || '') === 'strategy_intent') return;
             const role = r.role === 'user' ? 'user' : 'bot';
             const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '', '', String(r.source || 'dashboard'));
             box.appendChild(div);
@@ -9173,15 +9105,17 @@
           const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
           const userText = String(params.userText || '').trim();
           const assistantText = String(params.assistantText || '').trim();
-          const shouldPersist = params.persist !== false;
-          if (!userText || !assistantText) return;
+          const eventId = Number(params.eventId);
+          const hasEventId = Number.isFinite(eventId) && eventId > 0;
           const actions = Array.isArray(params.actions) ? params.actions : [];
-          const fp = [
-            String(params.sessionId || ''),
-            userText.slice(0, 220),
-            assistantText.slice(0, 220),
-            JSON.stringify(actions.slice(0, 3)),
-          ].join('||');
+          const fp = hasEventId
+            ? ('event:' + String(eventId))
+            : [
+                String(params.sessionId || ''),
+                userText.slice(0, 220),
+                assistantText.slice(0, 220),
+                JSON.stringify(actions.slice(0, 3)),
+              ].join('||');
           if (!rememberStrategyIntentFingerprint(fp)) return;
           let candidates = (Array.isArray(params.intentCandidates) ? params.intentCandidates : [])
             .map(function(item) {
@@ -9191,7 +9125,8 @@
             })
             .filter(Boolean);
           let detected = null;
-          if (!candidates.length && strategyIntentApiClient) {
+          const allowDetect = params.skipDetect !== true;
+          if (!candidates.length && strategyIntentApiClient && allowDetect && userText && assistantText) {
             detected = await strategyIntentApiClient.detect({
               userMessage: userText,
               assistantReply: assistantText,
@@ -9220,6 +9155,9 @@
                 reply: assistantText,
               }).then(function(payload) {
                 if (payload && payload.ok) {
+                  if (hasEventId && candidate && candidate.id) {
+                    void strategyIntentApiClient.updateStatus(eventId, candidate.id, 'accepted').catch(function() {});
+                  }
                   emitStrategyLabUpdated(payload);
                   return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
                 }
@@ -9229,19 +9167,17 @@
               });
             },
             onIgnore: function() {},
+            onStatusChange: function(candidate, status) {
+              if (!strategyIntentApiClient || !hasEventId || !candidate || !candidate.id) return Promise.resolve({ ok: true });
+              return strategyIntentApiClient.updateStatus(eventId, candidate.id, status).catch(function() {
+                return { ok: false };
+              });
+            },
           });
           if (!row) return;
+          if (hasEventId) row.setAttribute('data-card-event-id', String(eventId));
           box.appendChild(row);
           box.scrollTop = box.scrollHeight;
-          if (shouldPersist) {
-            persistStrategyIntentCard({
-              fingerprint: fp,
-              confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
-              candidates: candidates,
-              userText: userText,
-              assistantText: assistantText,
-            });
-          }
         }
         async function askOpenClaw(q) {
           return chatApiClient.askOpenClaw(q);
@@ -9384,15 +9320,6 @@
               renderThunderModelSwitch(result.state);
               renderXbrainModelCenterConnected(result.state);
             }
-            void maybeRenderStrategyIntentSuggestions({
-              source: source,
-              userText: text,
-              assistantText: baseReply,
-              sessionId: String(result?.sessionIdUsed || 'thunderclaw-main'),
-              runtimeModelRef: String(result?.runtimeModelRef || ''),
-              actions: Array.isArray(result?.actions) ? result.actions : [],
-              intentCandidates: Array.isArray(result?.intentCandidates) ? result.intentCandidates : [],
-            });
           } catch {
             setRowTextWithTypewriter(thinking, '本次请求失败，请稍后重试。', {
               enabled: true,
@@ -9466,6 +9393,34 @@
           }
           return null;
         }
+        function renderStrategyIntentCardsFromEvent(evLike, finalTextLike, idLike) {
+          const ev = evLike && typeof evLike === 'object' ? evLike : null;
+          if (!ev) return;
+          const cards = Array.isArray(ev.cards) ? ev.cards : [];
+          if (!cards.length) return;
+          const eventIdNum = Number.isFinite(Number(idLike)) ? Number(idLike) : Number(ev.id || 0);
+          if (!Number.isFinite(eventIdNum) || eventIdNum <= 0) return;
+          if (chatHistoryState.renderedCardEventIds && chatHistoryState.renderedCardEventIds.has(eventIdNum)) return;
+          void maybeRenderStrategyIntentSuggestions({
+            source: 'history',
+            eventId: eventIdNum,
+            userText: '',
+            assistantText: String(finalTextLike || ev.text || '').trim(),
+            sessionId: 'thunderclaw-main',
+            runtimeModelRef: '',
+            actions: [],
+            intentCandidates: cards,
+            skipDetect: true,
+            persist: false,
+          });
+          if (chatHistoryState.renderedCardEventIds instanceof Set) {
+            chatHistoryState.renderedCardEventIds.add(eventIdNum);
+            if (chatHistoryState.renderedCardEventIds.size > 1200) {
+              const keep = Array.from(chatHistoryState.renderedCardEventIds).slice(-900);
+              chatHistoryState.renderedCardEventIds = new Set(keep);
+            }
+          }
+        }
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
           if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) return;
@@ -9529,6 +9484,7 @@
                 Number.isFinite(idNum) ? idNum : null,
                 source,
               );
+              renderStrategyIntentCardsFromEvent(ev, finalText, idNum);
               return;
             }
             if (source === 'dashboard') {
@@ -9537,6 +9493,7 @@
                 const existingId = Number(duplicateBot.id);
                 if (!Number.isFinite(existingId) || !Number.isFinite(idNum) || existingId === idNum) {
                   ackLocalBotEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null, 'dashboard');
+                  renderStrategyIntentCardsFromEvent(ev, finalText, idNum);
                   return;
                 }
               }
@@ -9552,6 +9509,7 @@
             pendingClass: source === 'dashboard' && role === 'bot' ? 'pending' : '',
             typewriterFinishPending: source === 'dashboard' && role === 'bot',
           });
+          renderStrategyIntentCardsFromEvent(ev, finalText, idNum);
           if (source === 'telegram' && role === 'user') {
             ensureTelegramThinking(chatId, ev?.ts || null);
           }
