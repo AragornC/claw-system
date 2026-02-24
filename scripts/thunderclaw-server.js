@@ -420,6 +420,31 @@ async function runOpenClawCommand(args, options = {}) {
 }
 
 function extractAgentReply(payload) {
+  function isLikelyInternalControlLine(lineLike) {
+    const line = String(lineLike || "").trim().toLowerCase();
+    if (!line) return false;
+    let score = 0;
+    if (line.includes("assistant to=final")) score += 2;
+    if (line.includes("reply tag")) score += 2;
+    if (line.includes("no tools")) score += 2;
+    if (line.includes("consistent tone")) score += 1;
+    if (line.includes("output.") || line.includes("just output")) score += 1;
+    if (line.startsWith("need just ")) score += 1;
+    return score >= 3;
+  }
+  function sanitizeAgentReplyText(textLike) {
+    const raw = String(textLike || "").trim();
+    if (!raw) return "";
+    const cleanedLines = raw
+      .split(/\r?\n/)
+      .map((line) => String(line || "").trimEnd())
+      .filter((line) => !isLikelyInternalControlLine(line));
+    let cleaned = cleanedLines.join("\n").trim();
+    if (!cleaned) {
+      cleaned = raw.replace(/【[^】]{0,320}(assistant to=final|reply tag|no tools)[^】]{0,320}】/ig, "").trim();
+    }
+    return cleaned || raw;
+  }
   if (!payload || typeof payload !== "object") {
     return "";
   }
@@ -437,12 +462,12 @@ function extractAgentReply(payload) {
         continue;
       }
       if (typeof item.text === "string" && item.text.trim()) {
-        texts.push(item.text.trim());
+        texts.push(sanitizeAgentReplyText(item.text));
         continue;
       }
       const content = item.content;
       if (typeof content === "string" && content.trim()) {
-        texts.push(content.trim());
+        texts.push(sanitizeAgentReplyText(content));
         continue;
       }
       if (Array.isArray(content)) {
@@ -455,13 +480,13 @@ function extractAgentReply(payload) {
           .filter(Boolean)
           .join("\n");
         if (joined) {
-          texts.push(joined);
+          texts.push(sanitizeAgentReplyText(joined));
         }
       }
     }
   }
   if (texts.length > 0) {
-    return texts.join("\n\n");
+    return sanitizeAgentReplyText(texts.join("\n\n"));
   }
   if (typeof payload.summary === "string") {
     return payload.summary;

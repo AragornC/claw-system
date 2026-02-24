@@ -36,18 +36,33 @@ function createChatLogStoreRuntime(storageKeyLike, maxRowsLike) {
     return 'bot';
   }
 
+  function normalizeMeta(metaLike) {
+    if (!metaLike || typeof metaLike !== 'object') return null;
+    try {
+      const raw = JSON.stringify(metaLike);
+      if (!raw || raw.length > 120000) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
   function normalizeRow(rowLike) {
     const row = rowLike && typeof rowLike === 'object' ? rowLike : {};
     const text = String(row.text || '').trim();
     if (!text) return null;
     const idNum = Number(row.id);
-    return {
+    const out = {
       id: Number.isFinite(idNum) && idNum > 0 ? idNum : null,
       ts: row.ts || new Date().toISOString(),
       role: normalizeRole(row.role),
       source: String(row.source || 'dashboard'),
       text,
     };
+    const meta = normalizeMeta(row.meta);
+    if (meta) out.meta = meta;
+    return out;
   }
 
   function load() {

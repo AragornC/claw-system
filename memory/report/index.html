@@ -7540,6 +7540,140 @@
         function saveLocalChatLog(rows) {
           chatLogStore.save(rows);
         }
+        function parseRowTsMs(rowLike) {
+          const ts = String(rowLike?.ts || '');
+          const ms = Number.isFinite(Date.parse(ts)) ? Date.parse(ts) : 0;
+          return ms > 0 ? ms : 0;
+        }
+        function buildStrategyIntentFingerprint(metaLike) {
+          const meta = metaLike && typeof metaLike === 'object' ? metaLike : {};
+          const fp = String(meta.fingerprint || '').trim();
+          if (fp) return fp;
+          const candidates = Array.isArray(meta.intentCandidates) ? meta.intentCandidates : [];
+          const key = candidates
+            .slice(0, 3)
+            .map(function(c) {
+              const item = c && typeof c === 'object' ? c : {};
+              return [
+                String(item.kind || ''),
+                String(item.title || ''),
+                String(item?.feature?.name || ''),
+                String(item?.strategy?.title || ''),
+              ].join('#');
+            })
+            .join('||');
+          return key || '';
+        }
+        function dedupeStoredChatRows(rowsLike) {
+          const rows = Array.isArray(rowsLike) ? rowsLike : [];
+          if (!rows.length) return [];
+          const out = [];
+          const keyIndex = new Map();
+          rows.forEach(function(rowLike) {
+            const row = rowLike && typeof rowLike === 'object' ? rowLike : null;
+            if (!row) return;
+            const role = String(row.role || 'bot').trim().toLowerCase();
+            const source = String(row.source || 'dashboard').trim();
+            const text = String(row.text || '').trim();
+            if (!text) return;
+            const tsMs = parseRowTsMs(row) || Date.now();
+            let dedupeKey = role + '|' + source + '|' + text;
+            let dedupeWindowMs = 2 * 60 * 1000;
+            if (source === 'strategy_intent') {
+              const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+              const fp = buildStrategyIntentFingerprint(meta);
+              dedupeKey = 'strategy_intent|' + (fp || text);
+              dedupeWindowMs = 24 * 60 * 60 * 1000;
+            }
+            const prevIdx = keyIndex.get(dedupeKey);
+            if (prevIdx == null) {
+              keyIndex.set(dedupeKey, out.length);
+              out.push(row);
+              return;
+            }
+            const prev = out[prevIdx];
+            const prevTsMs = parseRowTsMs(prev) || tsMs;
+            if (Math.abs(tsMs - prevTsMs) > dedupeWindowMs) {
+              keyIndex.set(dedupeKey, out.length);
+              out.push(row);
+              return;
+            }
+            const prevId = Number(prev?.id);
+            const currId = Number(row?.id);
+            const prevIdOk = Number.isFinite(prevId) && prevId > 0;
+            const currIdOk = Number.isFinite(currId) && currId > 0;
+            if (!prevIdOk && currIdOk) {
+              out[prevIdx] = row;
+            }
+          });
+          return out.slice(-CHAT_LOG_MAX);
+        }
+        function persistStrategyIntentCard(payloadLike) {
+          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          const candidatesRaw = Array.isArray(payload.candidates) ? payload.candidates : [];
+          const candidates = candidatesRaw
+            .map(function(item) {
+              return typeof normalizeIntentCandidateRuntime === 'function'
+                ? normalizeIntentCandidateRuntime(item)
+                : item;
+            })
+            .filter(Boolean)
+            .slice(0, 4);
+          if (!candidates.length) return;
+          const fingerprint = String(payload.fingerprint || '').trim();
+          if (fingerprint) {
+            const exists = loadLocalChatLog().some(function(row) {
+              const source = String(row?.source || '').trim();
+              const fp = String(row?.meta?.fingerprint || '').trim();
+              return source === 'strategy_intent' && fp === fingerprint;
+            });
+            if (exists) return;
+          }
+          appendLocalChatLog({
+            ts: new Date().toISOString(),
+            role: 'bot',
+            source: 'strategy_intent',
+            text: '策略候选卡片',
+            meta: {
+              fingerprint: fingerprint,
+              confidence: Number(payload.confidence || 0.72),
+              intentCandidates: candidates,
+              userText: String(payload.userText || ''),
+              assistantText: String(payload.assistantText || ''),
+            },
+          });
+        }
+        function createStrategyIntentCardRowFromMeta(metaLike) {
+          if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return null;
+          const meta = metaLike && typeof metaLike === 'object' ? metaLike : {};
+          const candidates = Array.isArray(meta.intentCandidates) ? meta.intentCandidates : [];
+          if (!candidates.length) return null;
+          const userText = String(meta.userText || '').trim();
+          const assistantText = String(meta.assistantText || '').trim();
+          return createStrategyIntentSuggestionRowRuntime({
+            candidates: candidates,
+            confidence: Number(meta.confidence || 0.72),
+            onApply: function(candidate) {
+              if (!strategyIntentApiClient) {
+                return Promise.resolve({ ok: false, message: '策略候选写入器未就绪' });
+              }
+              return strategyIntentApiClient.apply(candidate, {
+                source: 'chat_intent',
+                query: userText,
+                reply: assistantText,
+              }).then(function(payload) {
+                if (payload && payload.ok) {
+                  emitStrategyLabUpdated(payload);
+                  return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
+                }
+                return { ok: false, message: String(payload?.error || '写入失败') };
+              }).catch(function(err) {
+                return { ok: false, message: String(err?.message || err || '写入失败') };
+              });
+            },
+            onIgnore: function() {},
+          });
+        }
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
         }
@@ -7596,7 +7730,8 @@
             .slice(-30);
         }
         function renderStoredChatLog() {
-          const rows = loadLocalChatLog();
+          const rows = dedupeStoredChatRows(loadLocalChatLog());
+          if (rows.length) saveLocalChatLog(rows);
           box.innerHTML = '';
           if (!rows.length) return;
           rows.slice(-CHAT_LOG_MAX).forEach(function(r) {
@@ -7604,6 +7739,13 @@
             if (Number.isFinite(idNum) && idNum > 0) {
               chatHistoryState.seenIds.add(idNum);
               chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+            }
+            if (String(r?.source || '') === 'strategy_intent') {
+              const cardRow = createStrategyIntentCardRowFromMeta(r?.meta);
+              if (cardRow) {
+                box.appendChild(cardRow);
+                return;
+              }
             }
             const role = r.role === 'user' ? 'user' : 'bot';
             const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '', '', String(r.source || 'dashboard'));
@@ -7649,6 +7791,7 @@
               role: roleClass,
               source: source,
               text: t,
+              meta: options.meta && typeof options.meta === 'object' ? options.meta : undefined,
             });
           }
         }
@@ -9030,6 +9173,7 @@
           const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
           const userText = String(params.userText || '').trim();
           const assistantText = String(params.assistantText || '').trim();
+          const shouldPersist = params.persist !== false;
           if (!userText || !assistantText) return;
           const actions = Array.isArray(params.actions) ? params.actions : [];
           const fp = [
@@ -9089,6 +9233,15 @@
           if (!row) return;
           box.appendChild(row);
           box.scrollTop = box.scrollHeight;
+          if (shouldPersist) {
+            persistStrategyIntentCard({
+              fingerprint: fp,
+              confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
+              candidates: candidates,
+              userText: userText,
+              assistantText: assistantText,
+            });
+          }
         }
         async function askOpenClaw(q) {
           return chatApiClient.askOpenClaw(q);
@@ -9296,9 +9449,9 @@
           const text = String(textLike || '').trim();
           if (!role || !text) return null;
           const eventTsMs = Number(eventTsMsLike) || Date.now();
-          const maxAgeMs = Math.max(2000, Number(maxAgeMsLike || 12000) || 12000);
+          const maxAgeMs = Math.max(2000, Number(maxAgeMsLike || (5 * 60 * 1000)) || (5 * 60 * 1000));
           const rows = loadLocalChatLog();
-          for (let i = rows.length - 1; i >= 0 && i >= rows.length - 40; i -= 1) {
+          for (let i = rows.length - 1; i >= 0 && i >= rows.length - 600; i -= 1) {
             const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
             if (!row) continue;
             if (String(row.role || '').trim().toLowerCase() !== role) continue;
