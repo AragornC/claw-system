@@ -656,7 +656,9 @@
     return out;
   }
 
-  function buildSampleTableRuntime(rowsLike, tfLike) {
+  function buildSampleTableRuntime(rowsLike, tfLike, optionsLike) {
+    const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    const detailMode = Boolean(options.detailMode);
     const rows = Array.isArray(rowsLike) ? rowsLike : [];
     const tf = sfText(tfLike, "1h");
     if (!rows.length) return "";
@@ -687,25 +689,27 @@
         + "<td>" + jumpBtn + "</td>"
         + "</tr>";
     }).join("");
-    return '<table class="feature-sample-table"><thead><tr>'
+    const tableClassName = detailMode ? "feature-sample-table detail" : "feature-sample-table";
+    return '<table class="' + tableClassName + '"><thead><tr>'
       + "<th>时间</th><th>位置</th><th>Close</th><th>特征值</th><th>解释</th><th>联动</th>"
       + "</tr></thead><tbody>" + body + "</tbody></table>";
   }
 
   function renderTrendOverlayComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
-    const bars = downsampleRowsRuntime(params.bars || [], 38);
+    const bars = downsampleRowsRuntime(params.bars || [], detailMode ? 76 : 38);
     if (!bars.length) return { visualHtml: "", sampleRows: [], tf: params.tf || "-", windowSize: params.windowSize || 0 };
     const indicator = downsampleRowsRuntime(getIndicatorSeriesRuntime(feature, params.bars || []).map(function mapSeries(v, idx) {
       return { idx: idx, v: v };
-    }), 38).map(function pick(item) { return item.v; });
-    const width = 460;
-    const height = 96;
-    const left = 8;
-    const right = width - 8;
-    const top = 8;
-    const bottom = 70;
+    }), detailMode ? 76 : 38).map(function pick(item) { return item.v; });
+    const width = detailMode ? 980 : 460;
+    const height = detailMode ? 280 : 96;
+    const left = detailMode ? 16 : 8;
+    const right = width - (detailMode ? 16 : 8);
+    const top = detailMode ? 16 : 8;
+    const bottom = detailMode ? 218 : 70;
     const candleLayer = buildCandleLayerRuntime(bars, left, right, top, bottom);
     const validIndicator = indicator.filter(function onlyFinite(v) { return Number.isFinite(sfNum(v, Number.NaN)); });
     const minVal = validIndicator.length ? Math.min.apply(null, validIndicator.concat([candleLayer.min])) : candleLayer.min;
@@ -713,17 +717,17 @@
     const linePath = seriesPathRuntime(indicator, minVal, maxVal, left, right, top, bottom);
     const firstLabel = bars.length ? sfFormatBarTs(bars[0].time) : "-";
     const lastLabel = bars.length ? sfFormatBarTs(bars[bars.length - 1].time) : "-";
-    const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    const svg = '<svg class="feature-preview-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + candleLayer.wickPath + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
       + candleLayer.bodyHtml
       + '<path d="' + linePath + '" fill="none" stroke="rgba(88,166,255,0.95)" stroke-width="1.6"></path>'
-      + '<text x="' + left + '" y="' + (height - 2) + '" fill="rgba(139,148,158,0.86)" font-size="8">' + sfEscapeHtml(firstLabel) + "</text>"
-      + '<text x="' + right + '" y="' + (height - 2) + '" text-anchor="end" fill="rgba(139,148,158,0.86)" font-size="8">' + sfEscapeHtml(lastLabel) + "</text>"
+      + '<text x="' + left + '" y="' + (height - (detailMode ? 10 : 2)) + '" fill="rgba(139,148,158,0.86)" font-size="' + (detailMode ? "12" : "8") + '">' + sfEscapeHtml(firstLabel) + "</text>"
+      + '<text x="' + right + '" y="' + (height - (detailMode ? 10 : 2)) + '" text-anchor="end" fill="rgba(139,148,158,0.86)" font-size="' + (detailMode ? "12" : "8") + '">' + sfEscapeHtml(lastLabel) + "</text>"
       + "</svg>";
     const fullSeries = getIndicatorSeriesRuntime(feature, params.bars || []);
     return {
       visualHtml: '<div class="meta">模板：K线 + 指标线叠加（趋势） · TF=' + sfEscapeHtml(sfText(params.tf, "-")) + "</div>" + svg,
-      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, 6),
+      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, detailMode ? 10 : 6),
       tf: params.tf || "-",
       windowSize: params.windowSize || 0,
     };
@@ -731,27 +735,28 @@
 
   function renderMomentumOscillatorComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
-    const bars = downsampleRowsRuntime(params.bars || [], 36);
+    const bars = downsampleRowsRuntime(params.bars || [], detailMode ? 72 : 36);
     if (!bars.length) return { visualHtml: "", sampleRows: [], tf: params.tf || "-", windowSize: params.windowSize || 0 };
-    const width = 460;
-    const height = 108;
-    const left = 8;
-    const right = width - 8;
-    const topA = 8;
-    const bottomA = 52;
-    const topB = 64;
-    const bottomB = 98;
+    const width = detailMode ? 980 : 460;
+    const height = detailMode ? 320 : 108;
+    const left = detailMode ? 16 : 8;
+    const right = width - (detailMode ? 16 : 8);
+    const topA = detailMode ? 16 : 8;
+    const bottomA = detailMode ? 150 : 52;
+    const topB = detailMode ? 180 : 64;
+    const bottomB = detailMode ? 292 : 98;
     const candleLayer = buildCandleLayerRuntime(bars, left, right, topA, bottomA);
     const fullSeries = getIndicatorSeriesRuntime(feature, params.bars || []);
-    const sampledSeries = downsampleRowsRuntime(fullSeries, 36);
+    const sampledSeries = downsampleRowsRuntime(fullSeries, detailMode ? 72 : 36);
     const valid = sampledSeries.filter(function finite(v) { return Number.isFinite(sfNum(v, Number.NaN)); });
     const minVal = valid.length ? Math.min.apply(null, valid.concat([0])) : 0;
     const maxVal = valid.length ? Math.max.apply(null, valid.concat([100])) : 100;
     const linePath = seriesPathRuntime(sampledSeries, minVal, maxVal, left, right, topB, bottomB);
     const lowLine = seriesPathRuntime([30, 30], 0, 100, left, right, topB, bottomB);
     const highLine = seriesPathRuntime([70, 70], 0, 100, left, right, topB, bottomB);
-    const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    const svg = '<svg class="feature-preview-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + candleLayer.wickPath + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
       + candleLayer.bodyHtml
       + '<line x1="' + left + '" y1="' + topB + '" x2="' + right + '" y2="' + topB + '" stroke="rgba(139,148,158,0.20)" stroke-width="1"></line>'
@@ -762,7 +767,7 @@
       + "</svg>";
     return {
       visualHtml: '<div class="meta">模板：K线 + 副图震荡指标（动量） · TF=' + sfEscapeHtml(sfText(params.tf, "-")) + "</div>" + svg,
-      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, 6),
+      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, detailMode ? 10 : 6),
       tf: params.tf || "-",
       windowSize: params.windowSize || 0,
     };
@@ -770,6 +775,7 @@
 
   function renderVolatilityRiskComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
     const bars = Array.isArray(params.bars) ? params.bars : [];
     if (!bars.length) return { visualHtml: "", sampleRows: [], tf: params.tf || "-", windowSize: params.windowSize || 0 };
@@ -778,20 +784,20 @@
     const closes = bars.map(function c(item) { return sfNum(item && item.close, Number.NaN); });
     const period = Math.max(2, Math.floor(sfNum(feature.params && feature.params.period, 14)));
     const series = calcAtrSeries(highs, lows, closes, period);
-    const sampledSeries = downsampleRowsRuntime(series, 42);
+    const sampledSeries = downsampleRowsRuntime(series, detailMode ? 88 : 42);
     const valid = sampledSeries.filter(function finite(v) { return Number.isFinite(sfNum(v, Number.NaN)); });
     const latest = valid.length ? valid[valid.length - 1] : 0;
     const max = valid.length ? Math.max.apply(null, valid) : 1;
     const level = latest >= max * 0.72 ? "高风险" : (latest >= max * 0.42 ? "中风险" : "低风险");
     const levelClass = level === "高风险" ? "warn" : (level === "中风险" ? "ok" : "");
-    const width = 460;
-    const height = 86;
-    const left = 8;
-    const right = width - 8;
-    const top = 10;
-    const bottom = 62;
+    const width = detailMode ? 980 : 460;
+    const height = detailMode ? 240 : 86;
+    const left = detailMode ? 16 : 8;
+    const right = width - (detailMode ? 16 : 8);
+    const top = detailMode ? 30 : 10;
+    const bottom = detailMode ? 170 : 62;
     const path = seriesPathRuntime(sampledSeries, Math.min.apply(null, valid.concat([0])), Math.max.apply(null, valid.concat([1])), left, right, top, bottom);
-    const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    const svg = '<svg class="feature-preview-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + path + '" fill="none" stroke="rgba(210,153,34,0.92)" stroke-width="1.8"></path>'
       + "</svg>";
     const panel = '<div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;">'
@@ -801,7 +807,7 @@
       + "</div>";
     return {
       visualHtml: '<div class="meta">模板：风险等级卡片 + 波动趋势图（波动） · TF=' + sfEscapeHtml(sfText(params.tf, "-")) + "</div>" + panel + svg,
-      sampleRows: buildSampleRowsRuntime(feature, bars, series, 6),
+      sampleRows: buildSampleRowsRuntime(feature, bars, series, detailMode ? 10 : 6),
       tf: params.tf || "-",
       windowSize: params.windowSize || 0,
     };
@@ -809,17 +815,18 @@
 
   function renderVolumeHighlightComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
-    const bars = downsampleRowsRuntime(params.bars || [], 34);
+    const bars = downsampleRowsRuntime(params.bars || [], detailMode ? 68 : 34);
     if (!bars.length) return { visualHtml: "", sampleRows: [], tf: params.tf || "-", windowSize: params.windowSize || 0 };
-    const width = 460;
-    const height = 106;
-    const left = 8;
-    const right = width - 8;
-    const topA = 8;
-    const bottomA = 56;
-    const topB = 66;
-    const bottomB = 98;
+    const width = detailMode ? 980 : 460;
+    const height = detailMode ? 300 : 106;
+    const left = detailMode ? 16 : 8;
+    const right = width - (detailMode ? 16 : 8);
+    const topA = detailMode ? 18 : 8;
+    const bottomA = detailMode ? 152 : 56;
+    const topB = detailMode ? 182 : 66;
+    const bottomB = detailMode ? 288 : 98;
     const candleLayer = buildCandleLayerRuntime(bars, left, right, topA, bottomA);
     const vols = bars.map(function v(item) { return sfNum(item && item.volume, Number.NaN); });
     const volMa = calcSmaSeries(vols, Math.max(2, Math.floor(sfNum(feature.params && feature.params.period, 14))));
@@ -838,7 +845,7 @@
       const w = Math.max(1.4, Math.min(6.6, slot * 0.52));
       volRects.push('<rect x="' + (x - w / 2).toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + h.toFixed(2) + '" fill="' + color + '"></rect>');
     });
-    const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    const svg = '<svg class="feature-preview-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + candleLayer.wickPath + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
       + candleLayer.bodyHtml
       + volRects.join("")
@@ -846,7 +853,7 @@
     const fullSeries = calcSmaSeries((params.bars || []).map(function m(item) { return sfNum(item && item.volume, Number.NaN); }), Math.max(2, Math.floor(sfNum(feature.params && feature.params.period, 14))));
     return {
       visualHtml: '<div class="meta">模板：K线 + 成交量高亮（成交量） · TF=' + sfEscapeHtml(sfText(params.tf, "-")) + "</div>" + svg,
-      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, 6),
+      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, detailMode ? 10 : 6),
       tf: params.tf || "-",
       windowSize: params.windowSize || 0,
     };
@@ -854,15 +861,16 @@
 
   function renderStructureLevelsComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
-    const bars = downsampleRowsRuntime(params.bars || [], 40);
+    const bars = downsampleRowsRuntime(params.bars || [], detailMode ? 80 : 40);
     if (!bars.length) return { visualHtml: "", sampleRows: [], tf: params.tf || "-", windowSize: params.windowSize || 0 };
-    const width = 460;
-    const height = 92;
-    const left = 8;
-    const right = width - 8;
-    const top = 8;
-    const bottom = 72;
+    const width = detailMode ? 980 : 460;
+    const height = detailMode ? 270 : 92;
+    const left = detailMode ? 16 : 8;
+    const right = width - (detailMode ? 16 : 8);
+    const top = detailMode ? 16 : 8;
+    const bottom = detailMode ? 226 : 72;
     const candleLayer = buildCandleLayerRuntime(bars, left, right, top, bottom);
     const lookback = Math.max(8, Math.min(48, Math.floor(sfNum(feature.params && feature.params.lookback, 20))));
     const focus = bars.slice(-lookback);
@@ -873,7 +881,7 @@
     const lastClose = sfNum(bars[bars.length - 1] && bars[bars.length - 1].close, 0);
     const trigger = lastClose >= high ? "突破上沿" : (lastClose <= low ? "跌破下沿" : "区间内");
     const triggerColor = trigger === "区间内" ? "rgba(139,148,158,0.86)" : "rgba(210,153,34,0.9)";
-    const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    const svg = '<svg class="feature-preview-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + candleLayer.wickPath + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
       + candleLayer.bodyHtml
       + '<line x1="' + left + '" y1="' + levelTopY.toFixed(2) + '" x2="' + right + '" y2="' + levelTopY.toFixed(2) + '" stroke="rgba(210,153,34,0.75)" stroke-width="1.2" stroke-dasharray="4 3"></line>'
@@ -883,7 +891,7 @@
     const fullSeries = getIndicatorSeriesRuntime(feature, params.bars || []);
     return {
       visualHtml: '<div class="meta">模板：K线 + 关键位/箱体/触发标记（结构） · TF=' + sfEscapeHtml(sfText(params.tf, "-")) + "</div>" + svg,
-      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, 6),
+      sampleRows: buildSampleRowsRuntime(feature, params.bars || [], fullSeries, detailMode ? 10 : 6),
       tf: params.tf || "-",
       windowSize: params.windowSize || 0,
     };
@@ -891,6 +899,7 @@
 
   function renderRiskPanelComponent(paramsLike) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const detailMode = Boolean(params.context && params.context.detailMode);
     const feature = params.feature;
     const bars = Array.isArray(params.bars) ? params.bars : [];
     const rows = bars.slice(-8);
@@ -918,7 +927,7 @@
         value: sfNum(riskScores[idx], 0),
         explain: sfNum(riskScores[idx], 0) >= max * 0.75 ? "触发风险约束" : "风险可控",
       };
-    }).reverse().slice(0, 6);
+    }).reverse().slice(0, detailMode ? 10 : 6);
     return {
       visualHtml: '<div class="meta">模板：状态面板展示（风控，无需K线）</div>' + panel,
       sampleRows: derivedRows,
@@ -939,6 +948,7 @@
   function renderFeatureVisualizationRuntime(featureLike, contextLike) {
     const feature = normalizeStrategyFeatureRuntime(featureLike);
     const context = contextLike && typeof contextLike === "object" ? contextLike : {};
+    const detailMode = Boolean(context.detailMode);
     const barsPayload = resolvePreviewBarsRuntime(context);
     const component = FEATURE_DISPLAY_COMPONENTS[feature.displayMode]
       || FEATURE_DISPLAY_COMPONENTS[(FEATURE_MAIN_CATEGORY_CONFIG[feature.mainCategory] || {}).displayMode]
@@ -950,7 +960,7 @@
       windowSize: barsPayload.windowSize,
       context: context,
     }) || { visualHtml: "", sampleRows: [], tf: barsPayload.tf, windowSize: barsPayload.windowSize };
-    const sampleTable = buildSampleTableRuntime(result.sampleRows, result.tf || barsPayload.tf);
+    const sampleTable = buildSampleTableRuntime(result.sampleRows, result.tf || barsPayload.tf, { detailMode: detailMode });
     return {
       html: result.visualHtml + (sampleTable || ""),
       tf: sfText(result.tf || barsPayload.tf || "-"),
@@ -1007,59 +1017,86 @@
   function renderStrategyFeatureCardRuntime(featureLike, contextLike) {
     const feature = normalizeStrategyFeatureRuntime(featureLike);
     const context = contextLike && typeof contextLike === "object" ? contextLike : {};
-    const preview = renderFeatureVisualizationRuntime(feature, context);
+    const itemKey = sfText(context.itemKey || feature.featureId || feature.name || "");
     const listTags = feature.tags.slice(0, 2).map(function mapTag(key) {
       const label = FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key;
       return '<span class="tag">' + sfEscapeHtml(label) + "</span>";
     }).join("");
-    const allTags = feature.tags.slice(0, 3).map(function mapTag(key) {
-      const label = FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key;
-      return '<span class="tag">' + sfEscapeHtml(label) + "</span>";
-    }).join("");
-    const stepsHtml = feature.algorithmSteps.slice(0, 5).map(function mapStep(step, idx) {
-      return "<li>" + sfEscapeHtml(String(idx + 1) + ". " + sfText(step, "")) + "</li>";
-    }).join("");
-    const pseudoCodeText = feature.pseudoCode.join("\n");
-    const version = feature.versionInfo || {};
-    const trailHtml = renderOriginTrailRuntime(feature, context.originTrailLimit || 4);
     const createdAt = sfFormatTs(feature.createdAt);
     const updatedAt = sfFormatTs(feature.updatedAt);
     const headerTags = '<span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + "</span>"
-      + allTags
+      + listTags
+      + '<span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + "</span>"
       + '<span class="tag ' + (feature.enabled ? "ok" : "warn") + '">' + (feature.enabled ? "启用" : "关闭") + "</span>";
     return '<div class="strategy-feature-item">'
       + '<div class="head"><div class="name">' + sfEscapeHtml(feature.title) + '</div><div class="tags">' + headerTags + "</div></div>"
       + '<div class="meta">id=' + sfEscapeHtml(feature.featureId || "-") + " · 创建=" + sfEscapeHtml(createdAt) + " · 更新=" + sfEscapeHtml(updatedAt) + "</div>"
       + '<div class="meta">用途：' + sfEscapeHtml(feature.usageSummary) + "</div>"
       + '<div class="meta">触发逻辑：' + sfEscapeHtml(feature.triggerLogic) + "</div>"
-      + '<div class="meta">输出类型：<span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + "</span> · 功能标签：" + (listTags || '<span class="tag">过滤</span>') + "</div>"
-      + '<details><summary>展开特征详情（来源 / 算法 / 参数 / 可视化）</summary>'
-      + '<div class="detail-wrap">'
-      + '<div class="detail-block"><div class="detail-title">来源模块</div>'
+      + '<div class="strategy-feature-item-actions">'
+      + '<button class="feature-open-detail-btn" type="button" data-feature-detail-key="' + sfEscapeHtml(itemKey) + '">查看详情</button>'
+      + "</div>"
+      + "</div>";
+  }
+
+  function renderStrategyFeatureDetailModalRuntime(featureLike, contextLike) {
+    const feature = normalizeStrategyFeatureRuntime(featureLike);
+    const context = contextLike && typeof contextLike === "object" ? contextLike : {};
+    const detailContext = {
+      ...context,
+      detailMode: true,
+      previewWindow: Math.max(180, Math.floor(sfNum(context.previewWindow, 220))),
+      originTrailLimit: Math.max(6, Math.floor(sfNum(context.originTrailLimit, 8))),
+    };
+    const preview = renderFeatureVisualizationRuntime(feature, detailContext);
+    const createdAt = sfFormatTs(feature.createdAt);
+    const updatedAt = sfFormatTs(feature.updatedAt);
+    const trailHtml = renderOriginTrailRuntime(feature, detailContext.originTrailLimit);
+    const stepsHtml = feature.algorithmSteps.slice(0, 5).map(function mapStep(step, idx) {
+      return "<li>" + sfEscapeHtml(String(idx + 1) + ". " + sfText(step, "")) + "</li>";
+    }).join("");
+    const pseudoCodeText = feature.pseudoCode.join("\n");
+    const version = feature.versionInfo || {};
+    const allTags = feature.tags.slice(0, 3).map(function mapTag(key) {
+      const label = FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key;
+      return '<span class="tag">' + sfEscapeHtml(label) + "</span>";
+    }).join("");
+    return '<div class="feature-detail-view">'
+      + '<div class="feature-detail-hero">'
+      + '<div class="feature-detail-title-wrap">'
+      + '<div class="feature-detail-title">' + sfEscapeHtml(feature.title) + "</div>"
+      + '<div class="feature-detail-sub">主分类：<span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> 功能标签：' + (allTags || '<span class="tag">过滤</span>') + ' 输出：<span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + "</span></div>"
+      + "</div>"
+      + '<div class="feature-detail-summary">'
+      + '<div class="meta">用途：' + sfEscapeHtml(feature.usageSummary) + "</div>"
+      + '<div class="meta">触发逻辑：' + sfEscapeHtml(feature.triggerLogic) + "</div>"
+      + "</div>"
+      + "</div>"
+      + '<div class="feature-detail-grid">'
+      + '<div class="feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">分类可视化（' + sfEscapeHtml(feature.mainCategoryLabel) + ' · display_mode=' + sfEscapeHtml(feature.displayMode) + "）</div>" + preview.html + "</div>"
+      + '<div class="feature-detail-card"><div class="feature-detail-card-title">来源模块</div>'
       + '<div class="meta">来源类型：' + sfEscapeHtml(feature.sourceType || feature.source || "-") + "</div>"
       + '<div class="meta">创建人：' + sfEscapeHtml(feature.createdBy || "ThunderClaw") + "</div>"
       + '<div class="meta">创建时间：' + sfEscapeHtml(createdAt) + "</div>"
-      + (feature.originQuery ? ('<div class="meta">触发问题：' + sfEscapeHtml(sfTrimText(feature.originQuery, 180)) + "</div>") : "")
-      + (feature.originReply ? ('<div class="meta">触发回复：' + sfEscapeHtml(sfTrimText(feature.originReply, 180)) + "</div>") : "")
-      + (trailHtml ? ('<div class="meta" style="margin-top:4px;">最近链路：</div>' + trailHtml) : "")
+      + '<div class="meta">最近更新：' + sfEscapeHtml(updatedAt) + "</div>"
+      + (feature.originQuery ? ('<div class="meta">触发问题：' + sfEscapeHtml(sfTrimText(feature.originQuery, 220)) + "</div>") : "")
+      + (feature.originReply ? ('<div class="meta">触发回复：' + sfEscapeHtml(sfTrimText(feature.originReply, 220)) + "</div>") : "")
+      + (trailHtml ? ('<div class="meta" style="margin-top:6px;">最近链路：</div>' + trailHtml) : "")
       + "</div>"
-      + '<div class="detail-block"><div class="detail-title">算法摘要</div>'
+      + '<div class="feature-detail-card"><div class="feature-detail-card-title">算法摘要与计算步骤</div>'
       + '<div class="meta">' + sfEscapeHtml(feature.algorithmSummary) + "</div>"
-      + (stepsHtml ? ('<ol class="meta" style="margin:4px 0 0 16px;padding:0;">' + stepsHtml + "</ol>") : '<div class="meta">暂无步骤。</div>')
+      + (stepsHtml ? ('<ol class="meta feature-step-list">' + stepsHtml + "</ol>") : '<div class="meta">暂无步骤。</div>')
       + "</div>"
-      + '<div class="detail-block"><div class="detail-title">参数表（默认值）</div>'
+      + '<div class="feature-detail-card"><div class="feature-detail-card-title">参数表（默认值）</div>'
       + renderParamTableRuntime(feature.paramSpecs)
       + "</div>"
-      + '<div class="detail-block"><div class="detail-title">分类可视化（display_mode=' + sfEscapeHtml(feature.displayMode) + "）</div>"
-      + preview.html
-      + "</div>"
-      + '<details><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details>"
-      + '<details><summary>版本信息（折叠）</summary>'
+      + '<div class="feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></div>"
+      + '<div class="feature-detail-card"><details class="feature-detail-fold"><summary>版本信息（折叠）</summary>'
       + '<div class="meta">版本：' + sfEscapeHtml(sfText(version.version, "v1.0.0")) + "</div>"
       + '<div class="meta">修订：' + sfEscapeHtml(String(Math.floor(sfNum(version.revision, 1)))) + "</div>"
       + (sfText(version.notes, "") ? ('<div class="meta">备注：' + sfEscapeHtml(sfText(version.notes, "")) + "</div>") : "")
-      + "</details>"
-      + "</div></details>"
+      + "</details></div>"
+      + "</div>"
       + "</div>";
   }
 
@@ -1091,4 +1128,5 @@
   globalObj.getStrategyFeatureLabelRuntime = getStrategyFeatureLabelRuntime;
   globalObj.normalizeStrategyFeatureRuntime = normalizeStrategyFeatureRuntime;
   globalObj.renderStrategyFeatureCardRuntime = renderStrategyFeatureCardRuntime;
+  globalObj.renderStrategyFeatureDetailModalRuntime = renderStrategyFeatureDetailModalRuntime;
 })(typeof window !== "undefined" ? window : this);

@@ -473,7 +473,8 @@
     .strategy-feature-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-feature-item .meta, .strategy-version-item .meta { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
     .strategy-feature-item .tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-    .strategy-feature-item .tag {
+    .strategy-feature-item .tag,
+    .feature-detail-view .tag {
       border: 1px solid var(--border);
       border-radius: 999px;
       padding: 0 6px;
@@ -482,37 +483,30 @@
       background: rgba(0, 0, 0, 0.15);
       line-height: 1.5;
     }
-    .strategy-feature-item .tag.ok { border-color: rgba(63,185,80,0.45); color: #9be9a8; }
-    .strategy-feature-item .tag.warn { border-color: rgba(210,153,34,0.45); color: #f2cc60; }
-    .strategy-feature-item details {
+    .strategy-feature-item .tag.ok,
+    .feature-detail-view .tag.ok { border-color: rgba(63,185,80,0.45); color: #9be9a8; }
+    .strategy-feature-item .tag.warn,
+    .feature-detail-view .tag.warn { border-color: rgba(210,153,34,0.45); color: #f2cc60; }
+    .strategy-feature-item .strategy-feature-item-actions {
+      display: flex;
+      justify-content: flex-end;
       margin-top: 6px;
-      border-top: 1px dashed rgba(139,148,158,0.32);
-      padding-top: 6px;
     }
-    .strategy-feature-item summary {
-      cursor: pointer;
+    .strategy-feature-item .feature-open-detail-btn {
+      border: 1px solid rgba(88,166,255,0.56);
+      border-radius: 7px;
+      background: rgba(88,166,255,0.14);
       color: #79c0ff;
-      font-size: 0.69rem;
-      user-select: none;
-      outline: none;
-    }
-    .strategy-feature-item .detail-wrap {
-      margin-top: 6px;
-      display: grid;
-      gap: 6px;
-    }
-    .strategy-feature-item .detail-block {
-      border: 1px solid rgba(139,148,158,0.28);
-      border-radius: 8px;
-      padding: 6px;
-      background: rgba(0, 0, 0, 0.12);
-    }
-    .strategy-feature-item .detail-title {
       font-size: 0.67rem;
-      color: #79c0ff;
-      margin-bottom: 3px;
+      padding: 4px 10px;
+      cursor: pointer;
     }
-    .strategy-feature-item pre {
+    .strategy-feature-item .feature-open-detail-btn:hover {
+      border-color: rgba(88,166,255,0.78);
+      color: #cfe8ff;
+    }
+    .strategy-feature-item pre,
+    .feature-detail-card pre {
       margin: 0;
       font-size: 0.66rem;
       line-height: 1.45;
@@ -520,7 +514,8 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .strategy-feature-item .feature-preview-svg {
+    .strategy-feature-item .feature-preview-svg,
+    .feature-detail-card .feature-preview-svg {
       width: 100%;
       height: 72px;
       border: 1px solid rgba(139,148,158,0.22);
@@ -528,29 +523,48 @@
       background: rgba(9,12,16,0.35);
       display: block;
     }
-    .strategy-feature-item .feature-sample-table {
+    .strategy-feature-item .feature-preview-svg.large,
+    .feature-detail-card .feature-preview-svg.large {
+      height: 300px;
+      border-color: rgba(88,166,255,0.35);
+      background:
+        radial-gradient(120% 120% at 10% 0%, rgba(88,166,255,0.12), rgba(9,12,16,0.34) 44%, rgba(7,10,14,0.62) 100%),
+        rgba(9,12,16,0.35);
+    }
+    .strategy-feature-item .feature-sample-table,
+    .feature-detail-card .feature-sample-table {
       width: 100%;
       border-collapse: collapse;
       margin-top: 6px;
       font-size: 0.62rem;
     }
+    .strategy-feature-item .feature-sample-table.detail,
+    .feature-detail-card .feature-sample-table.detail {
+      font-size: 0.68rem;
+    }
     .strategy-feature-item .feature-sample-table th,
-    .strategy-feature-item .feature-sample-table td {
+    .strategy-feature-item .feature-sample-table td,
+    .feature-detail-card .feature-sample-table th,
+    .feature-detail-card .feature-sample-table td {
       border: 1px solid rgba(139,148,158,0.2);
       padding: 2px 4px;
       text-align: left;
       white-space: nowrap;
     }
-    .strategy-feature-item .feature-sample-table th {
+    .strategy-feature-item .feature-sample-table th,
+    .feature-detail-card .feature-sample-table th {
       color: #79c0ff;
       background: rgba(88,166,255,0.08);
       font-weight: 600;
     }
-    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time] { cursor: pointer; }
-    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time]:hover {
+    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time],
+    .feature-detail-card .feature-sample-table tr[data-feature-bar-time] { cursor: pointer; }
+    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time]:hover,
+    .feature-detail-card .feature-sample-table tr[data-feature-bar-time]:hover {
       background: rgba(88,166,255,0.08);
     }
-    .strategy-feature-item .feature-jump-btn {
+    .strategy-feature-item .feature-jump-btn,
+    .feature-detail-card .feature-jump-btn {
       border: 1px solid rgba(88,166,255,0.45);
       border-radius: 6px;
       background: rgba(88,166,255,0.14);
@@ -560,13 +574,110 @@
       cursor: pointer;
       margin-left: 6px;
     }
-    .strategy-feature-item .feature-jump-btn:hover { border-color: rgba(88,166,255,0.7); color: #c9e5ff; }
-    .strategy-feature-item .mini-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .strategy-feature-item .feature-jump-btn:hover,
+    .feature-detail-card .feature-jump-btn:hover { border-color: rgba(88,166,255,0.7); color: #c9e5ff; }
+    .strategy-feature-item .mini-mono,
+    .feature-detail-card .mini-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .feature-detail-modal[hidden] { display: none; }
+    .feature-detail-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 2400;
+      display: grid;
+      place-items: center;
+    }
+    .feature-detail-modal-mask {
+      position: absolute;
+      inset: 0;
+      background: rgba(1,4,9,0.68);
+      backdrop-filter: blur(2px);
+    }
+    .feature-detail-modal-dialog {
+      position: relative;
+      width: min(1200px, 94vw);
+      max-height: min(88vh, 980px);
+      border: 1px solid rgba(88,166,255,0.4);
+      border-radius: 14px;
+      background:
+        radial-gradient(130% 130% at 0% 0%, rgba(88,166,255,0.15), rgba(9,12,16,0.96) 42%, rgba(9,12,16,0.96) 100%);
+      box-shadow: 0 22px 46px rgba(1,4,9,0.62);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .feature-detail-modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(139,148,158,0.28);
+      background: rgba(0,0,0,0.18);
+    }
+    .feature-detail-modal-title { color: var(--text); font-size: 0.86rem; font-weight: 650; }
+    .feature-detail-modal-meta { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
+    .feature-detail-modal-head .ghost {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.16);
+      color: var(--muted);
+      font-size: 0.69rem;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .feature-detail-modal-head .ghost:hover {
+      border-color: rgba(88,166,255,0.56);
+      color: #b9d8ff;
+    }
+    .feature-detail-modal-content {
+      padding: 12px;
+      overflow: auto;
+      min-height: 220px;
+    }
+    .feature-detail-view { display: grid; gap: 10px; }
+    .feature-detail-hero {
+      border: 1px solid rgba(139,148,158,0.32);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.2);
+      display: grid;
+      gap: 6px;
+    }
+    .feature-detail-title-wrap { display: grid; gap: 3px; }
+    .feature-detail-title { color: var(--text); font-size: 0.84rem; font-weight: 630; }
+    .feature-detail-sub { color: #c0c8d2; font-size: 0.7rem; line-height: 1.35; }
+    .feature-detail-view .meta { color: var(--muted); font-size: 0.7rem; line-height: 1.42; }
+    .feature-detail-summary .meta { font-size: 0.7rem; }
+    .feature-detail-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .feature-detail-card {
+      border: 1px solid rgba(139,148,158,0.28);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.15);
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .feature-detail-card.feature-detail-card-wide { grid-column: 1 / -1; }
+    .feature-detail-card-title { color: #79c0ff; font-size: 0.71rem; font-weight: 620; }
+    .feature-step-list { margin: 2px 0 0 16px; padding: 0; line-height: 1.45; }
+    .feature-detail-fold summary {
+      cursor: pointer;
+      color: #79c0ff;
+      font-size: 0.7rem;
+      user-select: none;
+    }
     .strategy-version-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-version-item .score { color: #7ee787; font-size: 0.69rem; font-weight: 600; margin-top: 3px; }
     @media (max-width: 980px) {
       .strategy-feature-preset-row { grid-template-columns: 1fr; }
       .strategy-feature-preset-row .strategy-lab-actions { justify-content: flex-start; }
+      .feature-detail-modal-dialog { width: min(96vw, 1200px); max-height: 92vh; }
+      .feature-detail-grid { grid-template-columns: 1fr; }
     }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
@@ -2594,34 +2705,13 @@
             <div class="strategy-lab-card">
               <h4>交易特征（由 ThunderClaw 对话产出）</h4>
               <div class="strategy-lab-form">
-                <input id="sl-feature-q" type="text" placeholder="搜索特征（如 adx / atr / 回踩）" />
+                <input id="sl-feature-q" type="text" placeholder="搜索特征（如 趋势延续 / 突破 / 风控）" />
                 <div class="strategy-feature-toolbar">
                   <select id="sl-feature-main-category">
                     <option value="">全部主分类</option>
                   </select>
                   <select id="sl-feature-tag">
                     <option value="">全部功能标签</option>
-                  </select>
-                  <select id="sl-feature-group">
-                    <option value="">全部分组</option>
-                    <option value="trend">trend</option>
-                    <option value="momentum">momentum</option>
-                    <option value="volatility">volatility</option>
-                    <option value="risk">risk</option>
-                    <option value="execution">execution</option>
-                    <option value="custom">custom</option>
-                  </select>
-                  <select id="sl-feature-kind">
-                    <option value="">全部类型</option>
-                    <option value="ema">ema</option>
-                    <option value="sma">sma</option>
-                    <option value="rsi">rsi</option>
-                    <option value="adx">adx</option>
-                    <option value="atr">atr</option>
-                    <option value="volume">volume</option>
-                    <option value="price_action">price_action</option>
-                    <option value="risk_rule">risk_rule</option>
-                    <option value="custom">custom</option>
                   </select>
                   <select id="sl-feature-source">
                     <option value="">全部来源</option>
@@ -2637,8 +2727,6 @@
                     <option value="name">按名称</option>
                     <option value="mainCategory">按主分类</option>
                     <option value="outputType">按输出类型</option>
-                    <option value="group">按分组</option>
-                    <option value="kind">按类型</option>
                     <option value="source">按来源</option>
                   </select>
                   <select id="sl-feature-sort-order">
@@ -2684,6 +2772,19 @@
                   <button id="sl-feature-next" class="ghost" type="button">下一页</button>
                 </div>
                 <div id="sl-status" class="strategy-lab-status">就绪</div>
+              </div>
+            </div>
+            <div id="sl-feature-detail-modal" class="feature-detail-modal" hidden>
+              <div class="feature-detail-modal-mask" data-feature-detail-close="mask"></div>
+              <div class="feature-detail-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="sl-feature-detail-title">
+                <div class="feature-detail-modal-head">
+                  <div>
+                    <div id="sl-feature-detail-title" class="feature-detail-modal-title">特征详情</div>
+                    <div id="sl-feature-detail-meta" class="feature-detail-modal-meta"></div>
+                  </div>
+                  <button id="sl-feature-detail-close" class="ghost" type="button">关闭</button>
+                </div>
+                <div id="sl-feature-detail-content" class="feature-detail-modal-content"></div>
               </div>
             </div>
           </div>
@@ -10834,8 +10935,6 @@
         const featureQEl = document.getElementById('sl-feature-q');
         const featureMainCategoryEl = document.getElementById('sl-feature-main-category');
         const featureTagEl = document.getElementById('sl-feature-tag');
-        const featureGroupEl = document.getElementById('sl-feature-group');
-        const featureKindEl = document.getElementById('sl-feature-kind');
         const featureSourceEl = document.getElementById('sl-feature-source');
         const featureEnabledEl = document.getElementById('sl-feature-enabled');
         const featureSortByEl = document.getElementById('sl-feature-sort-by');
@@ -10851,6 +10950,11 @@
         const featurePrevBtn = document.getElementById('sl-feature-prev');
         const featureNextBtn = document.getElementById('sl-feature-next');
         const featurePageInfoEl = document.getElementById('sl-feature-page-info');
+        const featureDetailModalEl = document.getElementById('sl-feature-detail-modal');
+        const featureDetailTitleEl = document.getElementById('sl-feature-detail-title');
+        const featureDetailMetaEl = document.getElementById('sl-feature-detail-meta');
+        const featureDetailContentEl = document.getElementById('sl-feature-detail-content');
+        const featureDetailCloseBtn = document.getElementById('sl-feature-detail-close');
         const promptEl = document.getElementById('sl-prompt');
         const fillBtn = document.getElementById('sl-fill-latest-btn');
         const evalBtn = document.getElementById('sl-eval-btn');
@@ -10865,7 +10969,7 @@
         const strategyPanelEl = document.getElementById('sl-panel-strategy');
         const labPanelEl = document.getElementById('sl-panel-lab');
         const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
-        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureMainCategoryEl || !featureTagEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureMainCategoryEl || !featureTagEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !featureDetailModalEl || !featureDetailTitleEl || !featureDetailMetaEl || !featureDetailContentEl || !featureDetailCloseBtn || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
         const featureViewState = {
           page: 1,
           pageSize: Number(featurePageSizeEl.value || 40) || 40,
@@ -10874,14 +10978,17 @@
           previewTf: String(featurePreviewTfEl.value || 'auto'),
           previewWindow: Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || 120) || 120)),
           presets: [],
+          featureByKey: {},
         };
         const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
         const featureTaxonomyConfig = typeof getStrategyFeatureConfigRuntime === 'function'
           ? getStrategyFeatureConfigRuntime()
           : null;
+        let featureModalPrevOverflow = '';
 
         function switchStrategyLabTab(tabKeyLike) {
           const tabKey = String(tabKeyLike || '').trim() || 'feature';
+          closeFeatureDetailModal();
           tabButtons.forEach(function(btn) {
             btn.classList.toggle('active', String(btn.getAttribute('data-sl-tab') || '') === tabKey);
           });
@@ -10890,10 +10997,94 @@
           if (labPanelEl) labPanelEl.classList.toggle('active', tabKey === 'lab');
           if (backtestCoreEl) backtestCoreEl.style.display = tabKey === 'lab' ? '' : 'none';
         }
+        function featureKeyOf(featureLike) {
+          const feature = featureLike && typeof featureLike === 'object' ? featureLike : {};
+          const id = String(feature.featureId || '').trim();
+          if (id) return id;
+          const name = String(feature.name || '').trim();
+          if (name) return name;
+          return '';
+        }
+        function closeFeatureDetailModal() {
+          if (featureDetailModalEl.hidden) return;
+          featureDetailModalEl.hidden = true;
+          featureDetailTitleEl.textContent = '特征详情';
+          featureDetailMetaEl.textContent = '';
+          featureDetailContentEl.innerHTML = '';
+          if (document.body && document.body.getAttribute('data-feature-modal-locked') === '1') {
+            document.body.style.overflow = featureModalPrevOverflow;
+            document.body.removeAttribute('data-feature-modal-locked');
+          }
+        }
+        function openFeatureDetailModal(rawFeatureLike) {
+          const rawFeature = rawFeatureLike && typeof rawFeatureLike === 'object' ? rawFeatureLike : null;
+          if (!rawFeature) {
+            setStatus(statusEl, '无法打开详情：特征不存在。', 'err');
+            return;
+          }
+          const normalizeFeature = typeof normalizeStrategyFeatureRuntime === 'function'
+            ? normalizeStrategyFeatureRuntime
+            : null;
+          const renderDetail = typeof renderStrategyFeatureDetailModalRuntime === 'function'
+            ? renderStrategyFeatureDetailModalRuntime
+            : null;
+          const feature = normalizeFeature ? normalizeFeature(rawFeature) : rawFeature;
+          const title = String(feature?.title || feature?.name || feature?.featureId || '特征详情');
+          featureDetailTitleEl.textContent = title;
+          featureDetailMetaEl.textContent = '主分类：' + String(feature?.mainCategoryLabel || feature?.mainCategory || '-')
+            + ' · 输出：' + String(feature?.outputTypeLabel || feature?.outputType || '-')
+            + ' · 更新时间：' + String(feature?.updatedAt || '-');
+          if (renderDetail) {
+            featureDetailContentEl.innerHTML = renderDetail(rawFeature, {
+              previewTf: String(featureViewState.previewTf || featurePreviewTfEl.value || 'auto'),
+              previewWindow: Math.max(160, Math.min(360, Number(featureViewState.previewWindow || featurePreviewWindowEl.value || 180) || 180)),
+              ohlcvByTf: OHLCV_BY_TF || {},
+              originTrailLimit: 8,
+              detailMode: true,
+            });
+          } else {
+            featureDetailContentEl.innerHTML = '<div class="feature-detail-card"><div class="meta">详情渲染模块未加载。</div></div>';
+          }
+          featureDetailModalEl.hidden = false;
+          featureDetailContentEl.scrollTop = 0;
+          if (document.body) {
+            featureModalPrevOverflow = String(document.body.style.overflow || '');
+            document.body.style.overflow = 'hidden';
+            document.body.setAttribute('data-feature-modal-locked', '1');
+          }
+        }
+        function openFeatureDetailByKey(keyLike) {
+          const key = String(keyLike || '').trim();
+          if (!key) {
+            setStatus(statusEl, '无法打开详情：特征ID缺失。', 'err');
+            return;
+          }
+          const bucket = featureViewState.featureByKey && typeof featureViewState.featureByKey === 'object'
+            ? featureViewState.featureByKey
+            : {};
+          const feature = bucket[key] || null;
+          if (!feature) {
+            setStatus(statusEl, '无法打开详情：特征缓存不存在，请刷新后重试。', 'err');
+            return;
+          }
+          openFeatureDetailModal(feature);
+        }
         tabButtons.forEach(function(btn) {
           btn.addEventListener('click', function() {
             switchStrategyLabTab(btn.getAttribute('data-sl-tab'));
           });
+        });
+        featureDetailCloseBtn.addEventListener('click', function() {
+          closeFeatureDetailModal();
+        });
+        featureDetailModalEl.addEventListener('click', function(ev) {
+          const closer = ev.target && ev.target.closest ? ev.target.closest('[data-feature-detail-close]') : null;
+          if (closer) closeFeatureDetailModal();
+        });
+        document.addEventListener('keydown', function(ev) {
+          if (String(ev?.key || '') === 'Escape' && !featureDetailModalEl.hidden) {
+            closeFeatureDetailModal();
+          }
         });
         switchStrategyLabTab('feature');
         featureViewState.presets = loadFeaturePresets();
@@ -10951,8 +11142,6 @@
             q: String(featureQEl.value || '').trim(),
             mainCategory: getSelectValueSafe(featureMainCategoryEl, ''),
             tag: getSelectValueSafe(featureTagEl, ''),
-            group: getSelectValueSafe(featureGroupEl, ''),
-            kind: getSelectValueSafe(featureKindEl, ''),
             source: getSelectValueSafe(featureSourceEl, ''),
             enabled: getSelectValueSafe(featureEnabledEl, ''),
             sortBy: getSelectValueSafe(featureSortByEl, 'updatedAt') || 'updatedAt',
@@ -10967,8 +11156,6 @@
           featureQEl.value = String(state.q || '');
           setSelectValueSafe(featureMainCategoryEl, state.mainCategory || '');
           setSelectValueSafe(featureTagEl, state.tag || '');
-          setSelectValueSafe(featureGroupEl, state.group || '');
-          setSelectValueSafe(featureKindEl, state.kind || '');
           setSelectValueSafe(featureSourceEl, state.source || '');
           setSelectValueSafe(featureEnabledEl, state.enabled || '');
           setSelectValueSafe(featureSortByEl, state.sortBy || 'updatedAt');
@@ -11165,8 +11352,6 @@
           const q = String(featureQEl.value || '').trim();
           const mainCategory = String(featureMainCategoryEl.value || '').trim();
           const tag = String(featureTagEl.value || '').trim();
-          const group = String(featureGroupEl.value || '').trim();
-          const kind = String(featureKindEl.value || '').trim();
           const source = String(featureSourceEl.value || '').trim();
           const enabled = String(featureEnabledEl.value || '').trim();
           const sortBy = String(featureSortByEl.value || 'updatedAt').trim() || 'updatedAt';
@@ -11177,8 +11362,6 @@
             + '?q=' + encodeURIComponent(q)
             + '&mainCategory=' + encodeURIComponent(mainCategory)
             + '&tag=' + encodeURIComponent(tag)
-            + '&group=' + encodeURIComponent(group)
-            + '&kind=' + encodeURIComponent(kind)
             + '&source=' + encodeURIComponent(source)
             + '&enabled=' + encodeURIComponent(enabled)
             + '&sortBy=' + encodeURIComponent(sortBy)
@@ -11223,6 +11406,7 @@
           syncSelectOptions(featureTagEl, Array.isArray(facets.tags) ? facets.tags : [], '全部功能标签', featureTagEl.value, tagLabeler);
           renderFeaturePagination(payload);
           if (!rows.length) {
+            featureViewState.featureByKey = {};
             featureListEl.innerHTML = '<div class="strategy-feature-item"><div class="meta">暂无特征</div></div>';
             return;
           }
@@ -11235,9 +11419,17 @@
             ohlcvByTf: OHLCV_BY_TF || {},
             originTrailLimit: 4,
           };
+          const featureMap = {};
+          rows.forEach(function(item) {
+            const key = featureKeyOf(item);
+            if (!key) return;
+            featureMap[key] = item;
+          });
+          featureViewState.featureByKey = featureMap;
           featureListEl.innerHTML = rows.map(function(item) {
+            const itemKey = featureKeyOf(item);
             if (renderCard) {
-              return renderCard(item, renderContext);
+              return renderCard(item, { ...renderContext, itemKey: itemKey });
             }
             const fallbackName = String(item?.name || item?.featureId || '-');
             return '<div class="strategy-feature-item"><div class="name">' + escapeHtml(fallbackName) + '</div><div class="meta">特征渲染模块未加载。</div></div>';
@@ -11276,6 +11468,7 @@
           }).join('');
         }
         async function reloadAll() {
+          closeFeatureDetailModal();
           setStatus(statusEl, '加载实验室数据中...', '');
           try {
             const featuresPayload = await fetchFeatures();
@@ -11307,6 +11500,7 @@
           renderFeatures(payload.features, payload);
         }
         function resetFeaturePageAndReload() {
+          closeFeatureDetailModal();
           featureViewState.page = 1;
           void reloadFeaturesOnly();
         }
@@ -11351,8 +11545,6 @@
         });
         featureMainCategoryEl.addEventListener('change', resetFeaturePageAndReload);
         featureTagEl.addEventListener('change', resetFeaturePageAndReload);
-        featureGroupEl.addEventListener('change', resetFeaturePageAndReload);
-        featureKindEl.addEventListener('change', resetFeaturePageAndReload);
         featureSourceEl.addEventListener('change', resetFeaturePageAndReload);
         featureEnabledEl.addEventListener('change', resetFeaturePageAndReload);
         featureSortByEl.addEventListener('change', resetFeaturePageAndReload);
@@ -11397,23 +11589,25 @@
             featurePresetNameEl.value = '';
           }
         });
-        featureListEl.addEventListener('click', function(ev) {
+        function handleFeatureSampleAndJumpClick(ev) {
           const btn = ev.target && ev.target.closest ? ev.target.closest('[data-feature-jump-event]') : null;
           if (btn) {
             ev.preventDefault();
             const eventId = Number(btn.getAttribute('data-feature-jump-event') || '');
+            closeFeatureDetailModal();
             jumpToChatEvent(eventId);
-            return;
+            return true;
           }
           const sampleNode = ev.target && ev.target.closest
             ? ev.target.closest('[data-feature-bar-time]')
             : null;
-          if (!sampleNode) return;
+          if (!sampleNode) return false;
           ev.preventDefault();
           const sampleTime = Number(sampleNode.getAttribute('data-feature-bar-time') || '');
           const sampleTf = String(sampleNode.getAttribute('data-feature-tf') || featureViewState.previewTf || 'auto');
           const sampleValue = Number(sampleNode.getAttribute('data-feature-value') || '');
           const sampleLabel = String(sampleNode.getAttribute('data-feature-label') || '');
+          closeFeatureDetailModal();
           const focused = focusKlineByFeatureSample({
             timeSec: sampleTime,
             tf: sampleTf,
@@ -11426,6 +11620,21 @@
           } else {
             setStatus(statusEl, '定位失败：当前周期未找到对应K线。', 'err');
           }
+          return true;
+        }
+        featureListEl.addEventListener('click', function(ev) {
+          const detailBtn = ev.target && ev.target.closest
+            ? ev.target.closest('[data-feature-detail-key]')
+            : null;
+          if (detailBtn) {
+            ev.preventDefault();
+            openFeatureDetailByKey(detailBtn.getAttribute('data-feature-detail-key') || '');
+            return;
+          }
+          handleFeatureSampleAndJumpClick(ev);
+        });
+        featureDetailContentEl.addEventListener('click', function(ev) {
+          handleFeatureSampleAndJumpClick(ev);
         });
 
         fillBtn.addEventListener('click', function() {
