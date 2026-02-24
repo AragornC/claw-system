@@ -7568,6 +7568,23 @@
             .join('||');
           return key || '';
         }
+        function compareStoredRowsForRender(aLike, bLike) {
+          const a = aLike && typeof aLike === 'object' ? aLike : {};
+          const b = bLike && typeof bLike === 'object' ? bLike : {};
+          const aTs = parseRowTsMs(a);
+          const bTs = parseRowTsMs(b);
+          if (aTs > 0 && bTs > 0 && aTs !== bTs) return aTs - bTs;
+          if (aTs > 0 && !(bTs > 0)) return -1;
+          if (bTs > 0 && !(aTs > 0)) return 1;
+          const aId = Number(a?.id);
+          const bId = Number(b?.id);
+          const aIdOk = Number.isFinite(aId) && aId > 0;
+          const bIdOk = Number.isFinite(bId) && bId > 0;
+          if (aIdOk && bIdOk && aId !== bId) return aId - bId;
+          if (aIdOk && !bIdOk) return -1;
+          if (!aIdOk && bIdOk) return 1;
+          return String(a?.ts || '').localeCompare(String(b?.ts || ''));
+        }
         function dedupeStoredChatRows(rowsLike) {
           const rows = Array.isArray(rowsLike) ? rowsLike : [];
           if (!rows.length) return [];
@@ -7607,10 +7624,69 @@
             const prevIdOk = Number.isFinite(prevId) && prevId > 0;
             const currIdOk = Number.isFinite(currId) && currId > 0;
             if (!prevIdOk && currIdOk) {
-              out[prevIdx] = row;
+              const merged = { ...row };
+              if (!merged.meta && prev && typeof prev === 'object' && prev.meta && typeof prev.meta === 'object') {
+                merged.meta = prev.meta;
+              }
+              out[prevIdx] = merged;
+              return;
+            }
+            if (prevIdOk && currIdOk && prevId === currId) {
+              const prevMeta = prev && typeof prev === 'object' && prev.meta && typeof prev.meta === 'object' ? prev.meta : null;
+              const currMeta = row && typeof row === 'object' && row.meta && typeof row.meta === 'object' ? row.meta : null;
+              if (!currMeta && prevMeta) {
+                out[prevIdx] = { ...row, meta: prevMeta };
+              }
             }
           });
+          out.sort(compareStoredRowsForRender);
           return out.slice(-CHAT_LOG_MAX);
+        }
+        function updateLocalRowMetaById(eventIdLike, mutatorLike) {
+          const eventId = Number(eventIdLike);
+          const mutator = typeof mutatorLike === 'function' ? mutatorLike : null;
+          if (!Number.isFinite(eventId) || eventId <= 0 || !mutator) return false;
+          const rows = loadLocalChatLog();
+          if (!rows.length) return false;
+          let changed = false;
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
+            if (!row) continue;
+            if (Number(row.id) !== eventId) continue;
+            const currentMeta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+            const nextMeta = mutator({ ...currentMeta }) || currentMeta;
+            if (!nextMeta || typeof nextMeta !== 'object') return false;
+            const prevRaw = JSON.stringify(currentMeta);
+            const nextRaw = JSON.stringify(nextMeta);
+            if (prevRaw !== nextRaw) {
+              row.meta = nextMeta;
+              changed = true;
+            }
+            break;
+          }
+          if (changed) saveLocalChatLog(rows);
+          return changed;
+        }
+        function upsertLocalIntentCardsMeta(eventIdLike, cardsLike, assistantTextLike) {
+          const eventId = Number(eventIdLike);
+          if (!Number.isFinite(eventId) || eventId <= 0) return false;
+          const cards = (Array.isArray(cardsLike) ? cardsLike : [])
+            .map(function(item) {
+              return typeof normalizeIntentCandidateRuntime === 'function'
+                ? normalizeIntentCandidateRuntime(item)
+                : item;
+            })
+            .filter(Boolean)
+            .slice(0, 6);
+          if (!cards.length) return false;
+          const assistantText = String(assistantTextLike || '').trim();
+          return updateLocalRowMetaById(eventId, function(meta) {
+            const next = meta && typeof meta === 'object' ? { ...meta } : {};
+            next.intentEventId = eventId;
+            next.intentCards = cards;
+            if (assistantText) next.intentAssistantText = assistantText;
+            return next;
+          });
         }
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
@@ -7671,6 +7747,9 @@
           const rows = dedupeStoredChatRows(loadLocalChatLog());
           if (rows.length) saveLocalChatLog(rows);
           box.innerHTML = '';
+          if (chatHistoryState.renderedCardEventIds instanceof Set) {
+            chatHistoryState.renderedCardEventIds.clear();
+          }
           if (!rows.length) return;
           rows.slice(-CHAT_LOG_MAX).forEach(function(r) {
             const idNum = Number(r?.id);
@@ -7681,7 +7760,26 @@
             if (String(r?.source || '') === 'strategy_intent') return;
             const role = r.role === 'user' ? 'user' : 'bot';
             const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '', '', String(r.source || 'dashboard'));
+            if (Number.isFinite(idNum) && idNum > 0) {
+              div.setAttribute('data-event-id', String(idNum));
+            }
             box.appendChild(div);
+            const metaCards = Array.isArray(r?.meta?.intentCards) ? r.meta.intentCards : [];
+            if (metaCards.length && Number.isFinite(idNum) && idNum > 0) {
+              void maybeRenderStrategyIntentSuggestions({
+                source: 'stored',
+                eventId: idNum,
+                userText: '',
+                assistantText: String(r?.meta?.intentAssistantText || r?.text || '').trim(),
+                sessionId: 'thunderclaw-main',
+                runtimeModelRef: '',
+                actions: [],
+                intentCandidates: metaCards,
+                skipDetect: true,
+                persist: false,
+                insertAfterEventId: idNum,
+              });
+            }
           });
           box.scrollTop = box.scrollHeight;
         }
@@ -7702,6 +7800,10 @@
             sending ? 'sending' : String(options.statusClass || ''),
             source,
           );
+          const eventIdNum = Number(options.id);
+          if (Number.isFinite(eventIdNum) && eventIdNum > 0) {
+            div.setAttribute('data-event-id', String(eventIdNum));
+          }
           if (options.pendingClass) div.classList.add(String(options.pendingClass));
           box.appendChild(div);
           if (options.typewriter === true && roleClass === 'bot') {
@@ -7726,6 +7828,7 @@
               meta: options.meta && typeof options.meta === 'object' ? options.meta : undefined,
             });
           }
+          return div;
         }
         function ensureTelegramThinking(chatIdLike, tsLike) {
           const chatId = String(chatIdLike || '').trim();
@@ -9101,7 +9204,7 @@
           return out.slice(0, 3);
         }
         async function maybeRenderStrategyIntentSuggestions(paramsLike) {
-          if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return;
+          if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return null;
           const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
           const userText = String(params.userText || '').trim();
           const assistantText = String(params.assistantText || '').trim();
@@ -9116,7 +9219,7 @@
                 assistantText.slice(0, 220),
                 JSON.stringify(actions.slice(0, 3)),
               ].join('||');
-          if (!rememberStrategyIntentFingerprint(fp)) return;
+          if (!rememberStrategyIntentFingerprint(fp)) return null;
           let candidates = (Array.isArray(params.intentCandidates) ? params.intentCandidates : [])
             .map(function(item) {
               return typeof normalizeIntentCandidateRuntime === 'function'
@@ -9141,7 +9244,7 @@
           if (!candidates.length) {
             candidates = buildIntentCandidatesFromActions(actions);
           }
-          if (!candidates.length) return;
+          if (!candidates.length) return null;
           const row = createStrategyIntentSuggestionRowRuntime({
             candidates: candidates,
             confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
@@ -9174,10 +9277,24 @@
               });
             },
           });
-          if (!row) return;
+          if (!row) return null;
           if (hasEventId) row.setAttribute('data-card-event-id', String(eventId));
-          box.appendChild(row);
+          const insertAfterEventId = Number(params.insertAfterEventId);
+          const canAnchor = Number.isFinite(insertAfterEventId) && insertAfterEventId > 0;
+          if (canAnchor) {
+            const anchor = box.querySelector('.ai-msg-row[data-event-id="' + String(insertAfterEventId) + '"]');
+            if (anchor && anchor.parentNode === box) {
+              const next = anchor.nextSibling;
+              if (next) box.insertBefore(row, next);
+              else box.appendChild(row);
+            } else {
+              box.appendChild(row);
+            }
+          } else {
+            box.appendChild(row);
+          }
           box.scrollTop = box.scrollHeight;
+          return row;
         }
         async function askOpenClaw(q) {
           return chatApiClient.askOpenClaw(q);
@@ -9354,12 +9471,13 @@
             chatHistoryState.pendingUserEchoes = chatHistoryState.pendingUserEchoes.slice(-30);
           }
           const pending = chatHistoryState.pendingUserEchoes[chatHistoryState.pendingUserEchoes.length - 1] || null;
-          pushMsg('user', text, {
+          const userRow = pushMsg('user', text, {
             ts: new Date(nowTs).toISOString(),
             source: 'dashboard',
             sending: true,
             pendingKey: pending?.pendingKey || '',
           });
+          if (pending && userRow) pending.rowEl = userRow;
           input.value = '';
           try {
             await runTurn(text);
@@ -9400,6 +9518,12 @@
           if (!cards.length) return;
           const eventIdNum = Number.isFinite(Number(idLike)) ? Number(idLike) : Number(ev.id || 0);
           if (!Number.isFinite(eventIdNum) || eventIdNum <= 0) return;
+          upsertLocalIntentCardsMeta(eventIdNum, cards, String(finalTextLike || ev.text || '').trim());
+          const existing = box.querySelector('.ai-strategy-intent-row[data-card-event-id="' + String(eventIdNum) + '"]');
+          if (existing) {
+            if (chatHistoryState.renderedCardEventIds instanceof Set) chatHistoryState.renderedCardEventIds.add(eventIdNum);
+            return;
+          }
           if (chatHistoryState.renderedCardEventIds && chatHistoryState.renderedCardEventIds.has(eventIdNum)) return;
           void maybeRenderStrategyIntentSuggestions({
             source: 'history',
@@ -9412,6 +9536,7 @@
             intentCandidates: cards,
             skipDetect: true,
             persist: false,
+            insertAfterEventId: eventIdNum,
           });
           if (chatHistoryState.renderedCardEventIds instanceof Set) {
             chatHistoryState.renderedCardEventIds.add(eventIdNum);
@@ -9452,6 +9577,9 @@
               const pending = chatHistoryState.pendingUserEchoes[idx];
               chatHistoryState.pendingUserEchoes.splice(idx, 1);
               markPendingDelivered(pending?.pendingKey || '', ev?.ts || null);
+              if (Number.isFinite(idNum) && idNum > 0 && pending?.rowEl && typeof pending.rowEl.setAttribute === 'function') {
+                pending.rowEl.setAttribute('data-event-id', String(idNum));
+              }
               ackLocalUserEcho(finalText, ev?.ts || null, Number.isFinite(idNum) ? idNum : null);
               return;
             }
@@ -9481,6 +9609,9 @@
               const pending = chatHistoryState.pendingBotEchoes[idx];
               chatHistoryState.pendingBotEchoes.splice(idx, 1);
               markPendingBotDelivered(pending, ev?.ts || null);
+              if (Number.isFinite(idNum) && idNum > 0 && pending?.rowEl && typeof pending.rowEl.setAttribute === 'function') {
+                pending.rowEl.setAttribute('data-event-id', String(idNum));
+              }
               ackLocalBotEcho(
                 String(pending?.storeText || dedupeText || '').trim(),
                 ev?.ts || null,
@@ -9537,14 +9668,37 @@
             chatHistoryState.busy = false;
           }
         }
+        async function hydrateRecentCardsFromHistory() {
+          const baseAfterId = Number(chatHistoryState.afterId);
+          const afterId = Number.isFinite(baseAfterId) && baseAfterId > 0
+            ? Math.max(0, baseAfterId - CHAT_HISTORY_LIMIT)
+            : 0;
+          try {
+            const resp = await fetch(
+              CHAT_ROUTES.chatHistory
+                + '?afterId=' + encodeURIComponent(String(afterId))
+                + '&limit=' + encodeURIComponent(String(CHAT_HISTORY_LIMIT)),
+              { cache: 'no-store' },
+            );
+            if (!resp.ok) return;
+            const payload = await resp.json().catch(function() { return null; });
+            if (!payload || payload.ok !== true) return;
+            const events = Array.isArray(payload.events) ? payload.events : [];
+            events.forEach(function(ev) {
+              const idNum = Number(ev?.id);
+              const cards = Array.isArray(ev?.cards) ? ev.cards : [];
+              if (!Number.isFinite(idNum) || idNum <= 0 || !cards.length) return;
+              upsertLocalIntentCardsMeta(idNum, cards, String(ev?.text || '').trim());
+              renderStrategyIntentCardsFromEvent(ev, String(ev?.text || '').trim(), idNum);
+            });
+          } catch (_) {}
+        }
 
         function startChatHistoryPolling() {
           if (chatHistoryState.started) return;
           chatHistoryState.started = true;
           renderStoredChatLog();
-          if (Number.isFinite(chatHistoryState.afterId) && chatHistoryState.afterId > 0) {
-            chatHistoryState.afterId = Math.max(0, chatHistoryState.afterId - CHAT_HISTORY_LIMIT);
-          }
+          void hydrateRecentCardsFromHistory();
           void pollChatHistory();
           chatHistoryState.timer = window.setInterval(function() {
             void pollChatHistory();
