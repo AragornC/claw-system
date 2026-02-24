@@ -1014,6 +1014,15 @@
     }).join("");
   }
 
+  function sanitizeAnchorPartRuntime(valueLike) {
+    const raw = sfText(valueLike, "feature").toLowerCase();
+    const cleaned = raw
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    return cleaned || "feature";
+  }
+
   function renderStrategyFeatureCardRuntime(featureLike, contextLike) {
     const feature = normalizeStrategyFeatureRuntime(featureLike);
     const context = contextLike && typeof contextLike === "object" ? contextLike : {};
@@ -1057,6 +1066,24 @@
     }).join("");
     const pseudoCodeText = feature.pseudoCode.join("\n");
     const version = feature.versionInfo || {};
+    const anchorBase = sanitizeAnchorPartRuntime(feature.featureId || feature.name || feature.title || "feature");
+    const sectionIds = {
+      visual: "fd-" + anchorBase + "-visual",
+      source: "fd-" + anchorBase + "-source",
+      algorithm: "fd-" + anchorBase + "-algorithm",
+      params: "fd-" + anchorBase + "-params",
+      pseudo: "fd-" + anchorBase + "-pseudo",
+      version: "fd-" + anchorBase + "-version",
+    };
+    const tocHtml = '<aside class="feature-detail-toc">'
+      + '<div class="feature-detail-toc-title">目录导航</div>'
+      + '<button class="feature-detail-toc-btn active" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.visual) + '">分类可视化</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.source) + '">来源模块</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.algorithm) + '">算法摘要</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.params) + '">参数表</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.pseudo) + '">伪代码</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.version) + '">版本信息</button>'
+      + "</aside>";
     const allTags = feature.tags.slice(0, 3).map(function mapTag(key) {
       const label = FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key;
       return '<span class="tag">' + sfEscapeHtml(label) + "</span>";
@@ -1072,9 +1099,12 @@
       + '<div class="meta">触发逻辑：' + sfEscapeHtml(feature.triggerLogic) + "</div>"
       + "</div>"
       + "</div>"
+      + '<div class="feature-detail-layout">'
+      + tocHtml
+      + '<div class="feature-detail-body">'
+      + '<section id="' + sfEscapeHtml(sectionIds.visual) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">分类可视化（' + sfEscapeHtml(feature.mainCategoryLabel) + ' · display_mode=' + sfEscapeHtml(feature.displayMode) + "）</div>" + preview.html + "</section>"
       + '<div class="feature-detail-grid">'
-      + '<div class="feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">分类可视化（' + sfEscapeHtml(feature.mainCategoryLabel) + ' · display_mode=' + sfEscapeHtml(feature.displayMode) + "）</div>" + preview.html + "</div>"
-      + '<div class="feature-detail-card"><div class="feature-detail-card-title">来源模块</div>'
+      + '<section id="' + sfEscapeHtml(sectionIds.source) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">来源模块</div>'
       + '<div class="meta">来源类型：' + sfEscapeHtml(feature.sourceType || feature.source || "-") + "</div>"
       + '<div class="meta">创建人：' + sfEscapeHtml(feature.createdBy || "ThunderClaw") + "</div>"
       + '<div class="meta">创建时间：' + sfEscapeHtml(createdAt) + "</div>"
@@ -1082,20 +1112,22 @@
       + (feature.originQuery ? ('<div class="meta">触发问题：' + sfEscapeHtml(sfTrimText(feature.originQuery, 220)) + "</div>") : "")
       + (feature.originReply ? ('<div class="meta">触发回复：' + sfEscapeHtml(sfTrimText(feature.originReply, 220)) + "</div>") : "")
       + (trailHtml ? ('<div class="meta" style="margin-top:6px;">最近链路：</div>' + trailHtml) : "")
-      + "</div>"
-      + '<div class="feature-detail-card"><div class="feature-detail-card-title">算法摘要与计算步骤</div>'
+      + "</section>"
+      + '<section id="' + sfEscapeHtml(sectionIds.algorithm) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">算法摘要与计算步骤</div>'
       + '<div class="meta">' + sfEscapeHtml(feature.algorithmSummary) + "</div>"
       + (stepsHtml ? ('<ol class="meta feature-step-list">' + stepsHtml + "</ol>") : '<div class="meta">暂无步骤。</div>')
+      + "</section>"
       + "</div>"
-      + '<div class="feature-detail-card"><div class="feature-detail-card-title">参数表（默认值）</div>'
+      + '<section id="' + sfEscapeHtml(sectionIds.params) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">参数表（默认值）</div>'
       + renderParamTableRuntime(feature.paramSpecs)
-      + "</div>"
-      + '<div class="feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></div>"
-      + '<div class="feature-detail-card"><details class="feature-detail-fold"><summary>版本信息（折叠）</summary>'
+      + "</section>"
+      + '<section id="' + sfEscapeHtml(sectionIds.pseudo) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></section>"
+      + '<section id="' + sfEscapeHtml(sectionIds.version) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold"><summary>版本信息（折叠）</summary>'
       + '<div class="meta">版本：' + sfEscapeHtml(sfText(version.version, "v1.0.0")) + "</div>"
       + '<div class="meta">修订：' + sfEscapeHtml(String(Math.floor(sfNum(version.revision, 1)))) + "</div>"
       + (sfText(version.notes, "") ? ('<div class="meta">备注：' + sfEscapeHtml(sfText(version.notes, "")) + "</div>") : "")
-      + "</details></div>"
+      + "</details></section>"
+      + "</div>"
       + "</div>"
       + "</div>";
   }

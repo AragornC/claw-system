@@ -648,12 +648,57 @@
     .feature-detail-sub { color: #c0c8d2; font-size: 0.7rem; line-height: 1.35; }
     .feature-detail-view .meta { color: var(--muted); font-size: 0.7rem; line-height: 1.42; }
     .feature-detail-summary .meta { font-size: 0.7rem; }
+    .feature-detail-layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .feature-detail-toc {
+      position: sticky;
+      top: 2px;
+      border: 1px solid rgba(139,148,158,0.3);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.22);
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .feature-detail-toc-title {
+      color: #79c0ff;
+      font-size: 0.69rem;
+      font-weight: 620;
+      margin-bottom: 2px;
+    }
+    .feature-detail-toc-btn {
+      border: 1px solid rgba(139,148,158,0.36);
+      border-radius: 7px;
+      background: rgba(0,0,0,0.16);
+      color: #c0c8d2;
+      font-size: 0.67rem;
+      text-align: left;
+      padding: 5px 8px;
+      cursor: pointer;
+      transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+    }
+    .feature-detail-toc-btn:hover {
+      border-color: rgba(88,166,255,0.62);
+      color: #d4e8ff;
+      background: rgba(88,166,255,0.12);
+    }
+    .feature-detail-toc-btn.active {
+      border-color: rgba(88,166,255,0.72);
+      color: #cfe8ff;
+      background: rgba(88,166,255,0.18);
+    }
+    .feature-detail-body { display: grid; gap: 10px; }
     .feature-detail-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
       gap: 10px;
       align-items: start;
     }
+    .feature-detail-section { scroll-margin-top: 10px; }
     .feature-detail-card {
       border: 1px solid rgba(139,148,158,0.28);
       border-radius: 10px;
@@ -677,6 +722,8 @@
       .strategy-feature-preset-row { grid-template-columns: 1fr; }
       .strategy-feature-preset-row .strategy-lab-actions { justify-content: flex-start; }
       .feature-detail-modal-dialog { width: min(96vw, 1200px); max-height: 92vh; }
+      .feature-detail-layout { grid-template-columns: 1fr; }
+      .feature-detail-toc { position: static; }
       .feature-detail-grid { grid-template-columns: 1fr; }
     }
     .view-panel { display: none; }
@@ -11045,6 +11092,8 @@
           } else {
             featureDetailContentEl.innerHTML = '<div class="feature-detail-card"><div class="meta">详情渲染模块未加载。</div></div>';
           }
+          const firstTocBtn = featureDetailContentEl.querySelector('.feature-detail-toc-btn');
+          if (firstTocBtn && firstTocBtn.classList) firstTocBtn.classList.add('active');
           featureDetailModalEl.hidden = false;
           featureDetailContentEl.scrollTop = 0;
           if (document.body) {
@@ -11634,6 +11683,24 @@
           handleFeatureSampleAndJumpClick(ev);
         });
         featureDetailContentEl.addEventListener('click', function(ev) {
+          const tocBtn = ev.target && ev.target.closest
+            ? ev.target.closest('[data-feature-toc-target]')
+            : null;
+          if (tocBtn) {
+            ev.preventDefault();
+            const targetId = String(tocBtn.getAttribute('data-feature-toc-target') || '').trim();
+            if (targetId) {
+              const targetEl = featureDetailContentEl.querySelector('#' + targetId);
+              if (targetEl) {
+                featureDetailContentEl.querySelectorAll('.feature-detail-toc-btn.active').forEach(function(btn) {
+                  btn.classList.remove('active');
+                });
+                tocBtn.classList.add('active');
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }
+            return;
+          }
           handleFeatureSampleAndJumpClick(ev);
         });
 
