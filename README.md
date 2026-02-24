@@ -60,12 +60,19 @@ node scripts/thunderclaw-cli.js start --port 3456
 - `scripts/server/http/router.js`（统一路由分发器）
 - `scripts/server/http/route-table.js`（API 路由表）
 - `scripts/server/domain/model-provider.js`（模型/provider 领域能力）
+- `scripts/server/domain/chat-intent.js`（显式命令与模型引用解析）
+- `scripts/server/core/openclaw-xbrain-runtime.js`（OpenClaw/Xbrain 运行时核心）
+- `scripts/server/handlers/chat-config.js`（聊天与配置域 handlers）
+- `scripts/server/handlers/xbrain-core.js`（虾脑主 handlers）
 - `scripts/server/handlers/openclaw-console.js`（OpenClaw 配置台 handlers）
 - `scripts/server/handlers/telegram.js`（Telegram handlers）
 
 前端：
 
-- `memory/report/index.html`（主页面）
+- `memory/report/index.html`（主页面入口）
+- `memory/report/js/modules/xsea-runtime.js`（虾海辅助运行时）
+- `memory/report/js/modules/xbrain-runtime.js`（虾脑辅助运行时）
+- `memory/report/js/modules/chat-runtime.js`（聊天运行时辅助模块）
 
 提供 API：
 
