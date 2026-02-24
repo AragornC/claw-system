@@ -452,6 +452,13 @@
       grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       gap: 6px;
     }
+    .strategy-feature-preset-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .strategy-feature-preset-row .strategy-lab-actions { justify-content: flex-end; }
     .strategy-feature-pagination {
       display: flex;
       align-items: center;
@@ -521,9 +528,42 @@
       background: rgba(9,12,16,0.35);
       display: block;
     }
+    .strategy-feature-item .feature-sample-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 0.62rem;
+    }
+    .strategy-feature-item .feature-sample-table th,
+    .strategy-feature-item .feature-sample-table td {
+      border: 1px solid rgba(139,148,158,0.2);
+      padding: 2px 4px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .strategy-feature-item .feature-sample-table th {
+      color: #79c0ff;
+      background: rgba(88,166,255,0.08);
+      font-weight: 600;
+    }
+    .strategy-feature-item .feature-jump-btn {
+      border: 1px solid rgba(88,166,255,0.45);
+      border-radius: 6px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      font-size: 0.62rem;
+      padding: 1px 6px;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+    .strategy-feature-item .feature-jump-btn:hover { border-color: rgba(88,166,255,0.7); color: #c9e5ff; }
     .strategy-feature-item .mini-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .strategy-version-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-version-item .score { color: #7ee787; font-size: 0.69rem; font-weight: 600; margin-top: 3px; }
+    @media (max-width: 980px) {
+      .strategy-feature-preset-row { grid-template-columns: 1fr; }
+      .strategy-feature-preset-row .strategy-lab-actions { justify-content: flex-start; }
+    }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
     .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -573,6 +613,11 @@
       border-color: rgba(63,185,80,0.52);
       background: rgba(63,185,80,0.12);
       color: #d8f6df;
+    }
+    .ai-msg-row.jump-highlight .ai-msg {
+      box-shadow: 0 0 0 2px rgba(88,166,255,0.58), 0 0 18px rgba(88,166,255,0.35);
+      border-color: rgba(88,166,255,0.78) !important;
+      transition: box-shadow 0.28s ease, border-color 0.28s ease;
     }
     .ai-msg-text { white-space: pre-wrap; word-break: break-word; }
     .ai-msg-text.md { white-space: normal; line-height: 1.5; }
@@ -2579,6 +2624,32 @@
                     <option value="40" selected>每页40</option>
                     <option value="80">每页80</option>
                   </select>
+                  <select id="sl-feature-preview-tf">
+                    <option value="auto" selected>预览周期：auto</option>
+                    <option value="1m">预览周期：1m</option>
+                    <option value="5m">预览周期：5m</option>
+                    <option value="15m">预览周期：15m</option>
+                    <option value="1h">预览周期：1h</option>
+                    <option value="4h">预览周期：4h</option>
+                    <option value="1d">预览周期：1d</option>
+                  </select>
+                  <select id="sl-feature-preview-window">
+                    <option value="80">预览窗口：80</option>
+                    <option value="120" selected>预览窗口：120</option>
+                    <option value="180">预览窗口：180</option>
+                    <option value="240">预览窗口：240</option>
+                  </select>
+                </div>
+                <div class="strategy-feature-preset-row">
+                  <select id="sl-feature-preset-select">
+                    <option value="">筛选预设（未选择）</option>
+                  </select>
+                  <input id="sl-feature-preset-name" type="text" maxlength="28" placeholder="输入预设名称后保存（如：高频趋势）" />
+                  <div class="strategy-lab-actions">
+                    <button id="sl-feature-preset-save" type="button">保存预设</button>
+                    <button id="sl-feature-preset-apply" class="ghost" type="button">应用预设</button>
+                    <button id="sl-feature-preset-delete" class="ghost" type="button">删除预设</button>
+                  </div>
                 </div>
                 <div id="sl-feature-list" class="strategy-feature-list"></div>
                 <div class="strategy-feature-pagination">
@@ -10741,6 +10812,13 @@
         const featureSortByEl = document.getElementById('sl-feature-sort-by');
         const featureSortOrderEl = document.getElementById('sl-feature-sort-order');
         const featurePageSizeEl = document.getElementById('sl-feature-page-size');
+        const featurePreviewTfEl = document.getElementById('sl-feature-preview-tf');
+        const featurePreviewWindowEl = document.getElementById('sl-feature-preview-window');
+        const featurePresetSelectEl = document.getElementById('sl-feature-preset-select');
+        const featurePresetNameEl = document.getElementById('sl-feature-preset-name');
+        const featurePresetSaveBtn = document.getElementById('sl-feature-preset-save');
+        const featurePresetApplyBtn = document.getElementById('sl-feature-preset-apply');
+        const featurePresetDeleteBtn = document.getElementById('sl-feature-preset-delete');
         const featurePrevBtn = document.getElementById('sl-feature-prev');
         const featureNextBtn = document.getElementById('sl-feature-next');
         const featurePageInfoEl = document.getElementById('sl-feature-page-info');
@@ -10758,12 +10836,15 @@
         const strategyPanelEl = document.getElementById('sl-panel-strategy');
         const labPanelEl = document.getElementById('sl-panel-lab');
         const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
-        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
+        if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureGroupEl || !featureKindEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
         const featureViewState = {
           page: 1,
           pageSize: Number(featurePageSizeEl.value || 40) || 40,
           totalPages: 1,
           lastTotal: 0,
+          previewTf: String(featurePreviewTfEl.value || 'auto'),
+          previewWindow: Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || 120) || 120)),
+          presets: [],
         };
 
         function switchStrategyLabTab(tabKeyLike) {
@@ -10782,6 +10863,10 @@
           });
         });
         switchStrategyLabTab('feature');
+        featureViewState.presets = loadFeaturePresets();
+        renderFeaturePresetOptions('');
+        featureViewState.previewTf = String(featurePreviewTfEl.value || featureViewState.previewTf || 'auto');
+        featureViewState.previewWindow = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120));
 
         function setStatus(el, text, kind) {
           if (!el) return;
@@ -10789,6 +10874,198 @@
           el.classList.remove('ok', 'err');
           if (kind === 'ok') el.classList.add('ok');
           if (kind === 'err') el.classList.add('err');
+        }
+        const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
+        function safeLocalReadJson(keyLike, fallbackLike) {
+          const key = String(keyLike || '').trim();
+          if (!key) return fallbackLike;
+          try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return fallbackLike;
+            const parsed = JSON.parse(raw);
+            return parsed == null ? fallbackLike : parsed;
+          } catch {
+            return fallbackLike;
+          }
+        }
+        function safeLocalWriteJson(keyLike, valueLike) {
+          const key = String(keyLike || '').trim();
+          if (!key) return false;
+          try {
+            localStorage.setItem(key, JSON.stringify(valueLike));
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        function normalizePresetName(nameLike) {
+          const n = String(nameLike || '').trim().replace(/\s+/g, ' ');
+          return n.slice(0, 28);
+        }
+        function getSelectValueSafe(selectElLike, fallbackLike) {
+          const el = selectElLike;
+          if (!el) return String(fallbackLike || '');
+          return String(el.value || fallbackLike || '');
+        }
+        function setSelectValueSafe(selectElLike, valueLike) {
+          const el = selectElLike;
+          if (!el) return;
+          const value = String(valueLike || '');
+          const options = Array.from(el.options || []).map(function(op) { return String(op?.value || ''); });
+          el.value = options.includes(value) ? value : '';
+        }
+        function collectFeatureFilterState() {
+          return {
+            q: String(featureQEl.value || '').trim(),
+            group: getSelectValueSafe(featureGroupEl, ''),
+            kind: getSelectValueSafe(featureKindEl, ''),
+            source: getSelectValueSafe(featureSourceEl, ''),
+            enabled: getSelectValueSafe(featureEnabledEl, ''),
+            sortBy: getSelectValueSafe(featureSortByEl, 'updatedAt') || 'updatedAt',
+            sortOrder: getSelectValueSafe(featureSortOrderEl, 'desc') || 'desc',
+            pageSize: Math.max(10, Math.min(120, Number(featurePageSizeEl.value || featureViewState.pageSize || 40) || 40)),
+            previewTf: getSelectValueSafe(featurePreviewTfEl, featureViewState.previewTf || 'auto') || 'auto',
+            previewWindow: Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120)),
+          };
+        }
+        function applyFeatureFilterState(stateLike) {
+          const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+          featureQEl.value = String(state.q || '');
+          setSelectValueSafe(featureGroupEl, state.group || '');
+          setSelectValueSafe(featureKindEl, state.kind || '');
+          setSelectValueSafe(featureSourceEl, state.source || '');
+          setSelectValueSafe(featureEnabledEl, state.enabled || '');
+          setSelectValueSafe(featureSortByEl, state.sortBy || 'updatedAt');
+          setSelectValueSafe(featureSortOrderEl, state.sortOrder || 'desc');
+          setSelectValueSafe(featurePageSizeEl, String(state.pageSize || featureViewState.pageSize || 40));
+          setSelectValueSafe(featurePreviewTfEl, state.previewTf || featureViewState.previewTf || 'auto');
+          setSelectValueSafe(featurePreviewWindowEl, String(state.previewWindow || featureViewState.previewWindow || 120));
+          featureViewState.pageSize = Math.max(10, Math.min(120, Number(featurePageSizeEl.value || featureViewState.pageSize || 40) || 40));
+          featureViewState.previewTf = String(featurePreviewTfEl.value || featureViewState.previewTf || 'auto');
+          featureViewState.previewWindow = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120));
+        }
+        function loadFeaturePresets() {
+          const rows = safeLocalReadJson(FEATURE_FILTER_PRESET_KEY, []);
+          if (!Array.isArray(rows)) return [];
+          return rows
+            .map(function(item) {
+              const row = item && typeof item === 'object' ? item : {};
+              const id = String(row.id || '').trim();
+              const name = normalizePresetName(row.name || '');
+              const filters = row.filters && typeof row.filters === 'object' ? row.filters : {};
+              if (!id || !name) return null;
+              return {
+                id: id,
+                name: name,
+                filters: filters,
+                updatedAt: String(row.updatedAt || ''),
+              };
+            })
+            .filter(Boolean)
+            .slice(-20);
+        }
+        function saveFeaturePresets(rowsLike) {
+          const rows = Array.isArray(rowsLike) ? rowsLike : [];
+          featureViewState.presets = rows.slice(-20);
+          safeLocalWriteJson(FEATURE_FILTER_PRESET_KEY, featureViewState.presets);
+        }
+        function renderFeaturePresetOptions(selectedIdLike) {
+          const selectedId = String(selectedIdLike || featurePresetSelectEl.value || '').trim();
+          const options = ['<option value="">筛选预设（未选择）</option>']
+            .concat((featureViewState.presets || []).map(function(item) {
+              const p = item && typeof item === 'object' ? item : {};
+              const id = String(p.id || '');
+              const label = String(p.name || id || '');
+              return '<option value="' + escapeHtml(id) + '">' + escapeHtml(label) + '</option>';
+            }));
+          featurePresetSelectEl.innerHTML = options.join('');
+          setSelectValueSafe(featurePresetSelectEl, selectedId);
+        }
+        function saveCurrentFeaturePreset() {
+          const name = normalizePresetName(featurePresetNameEl.value || '');
+          if (!name) {
+            setStatus(statusEl, '请先输入预设名称。', 'err');
+            return;
+          }
+          const current = collectFeatureFilterState();
+          const selectedId = String(featurePresetSelectEl.value || '').trim();
+          const rows = Array.isArray(featureViewState.presets) ? featureViewState.presets.slice() : [];
+          const existingIdx = selectedId ? rows.findIndex(function(item) { return String(item?.id || '') === selectedId; }) : -1;
+          if (existingIdx >= 0) {
+            rows[existingIdx] = {
+              ...rows[existingIdx],
+              name: name,
+              filters: current,
+              updatedAt: new Date().toISOString(),
+            };
+            saveFeaturePresets(rows);
+            renderFeaturePresetOptions(rows[existingIdx].id);
+            setStatus(statusEl, '已更新筛选预设：' + name, 'ok');
+            return;
+          }
+          const id = 'fp_' + String(Date.now()) + '_' + String(Math.floor(Math.random() * 9999));
+          rows.push({
+            id: id,
+            name: name,
+            filters: current,
+            updatedAt: new Date().toISOString(),
+          });
+          saveFeaturePresets(rows);
+          renderFeaturePresetOptions(id);
+          setStatus(statusEl, '已保存筛选预设：' + name, 'ok');
+        }
+        function applySelectedFeaturePreset() {
+          const selectedId = String(featurePresetSelectEl.value || '').trim();
+          if (!selectedId) {
+            setStatus(statusEl, '请先选择一个预设。', 'err');
+            return;
+          }
+          const preset = (featureViewState.presets || []).find(function(item) { return String(item?.id || '') === selectedId; }) || null;
+          if (!preset) {
+            setStatus(statusEl, '预设不存在，可能已过期。', 'err');
+            return;
+          }
+          applyFeatureFilterState(preset.filters || {});
+          featureViewState.page = 1;
+          void reloadFeaturesOnly();
+          setStatus(statusEl, '已应用预设：' + String(preset.name || ''), 'ok');
+        }
+        function deleteSelectedFeaturePreset() {
+          const selectedId = String(featurePresetSelectEl.value || '').trim();
+          if (!selectedId) {
+            setStatus(statusEl, '请先选择要删除的预设。', 'err');
+            return;
+          }
+          const rows = (featureViewState.presets || []).filter(function(item) { return String(item?.id || '') !== selectedId; });
+          saveFeaturePresets(rows);
+          renderFeaturePresetOptions('');
+          setStatus(statusEl, '已删除筛选预设。', 'ok');
+        }
+        function jumpToChatEvent(eventIdLike) {
+          const eventId = Number(eventIdLike);
+          if (!Number.isFinite(eventId) || eventId <= 0) {
+            setStatus(statusEl, '无法跳转：消息ID无效。', 'err');
+            return;
+          }
+          try { switchView('dashboard'); } catch (_) {}
+          window.setTimeout(function() {
+            const chatBox = document.getElementById('ai-chat-box');
+            if (!chatBox) {
+              setStatus(statusEl, '找不到对话面板，无法跳转。', 'err');
+              return;
+            }
+            const row = chatBox.querySelector('.ai-msg-row[data-event-id="' + String(eventId) + '"]');
+            if (!row) {
+              setStatus(statusEl, '未在当前对话缓存中找到消息#' + String(eventId) + '，请稍后重试。', 'err');
+              return;
+            }
+            row.classList.add('jump-highlight');
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            window.setTimeout(function() {
+              row.classList.remove('jump-highlight');
+            }, 2200);
+            setStatus(statusEl, '已跳转并高亮消息 #' + String(eventId), 'ok');
+          }, 90);
         }
         async function readJson(resp) {
           const payload = await resp.json().catch(function() { return null; });
@@ -10823,19 +11100,39 @@
           const mm = String(d.getMinutes()).padStart(2, '0');
           return y + '-' + m + '-' + day + ' ' + hh + ':' + mm;
         }
+        function fmtFeatureBarLabel(secLike) {
+          const sec = Number(secLike);
+          if (!Number.isFinite(sec) || sec <= 0) return '-';
+          const d = new Date(sec * 1000);
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          return m + '-' + day + ' ' + hh + ':' + mm;
+        }
         function getStrategyFeatureBars() {
-          const tfPriority = ['1h', '15m', '5m', '1m'];
+          const tfPrefer = String(featureViewState.previewTf || featurePreviewTfEl.value || 'auto').trim() || 'auto';
+          const windowSize = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || featureViewState.previewWindow || 120) || 120));
+          featureViewState.previewTf = tfPrefer;
+          featureViewState.previewWindow = windowSize;
+          if (tfPrefer !== 'auto') {
+            const rows = Array.isArray(OHLCV_BY_TF?.[tfPrefer]) ? OHLCV_BY_TF[tfPrefer] : [];
+            if (rows.length >= 16) {
+              return { bars: rows.slice(-windowSize), tf: tfPrefer, windowSize: windowSize };
+            }
+          }
+          const tfPriority = ['1h', '15m', '5m', '1m', '4h', '1d'];
           for (let i = 0; i < tfPriority.length; i += 1) {
             const tf = tfPriority[i];
             const rows = Array.isArray(OHLCV_BY_TF?.[tf]) ? OHLCV_BY_TF[tf] : [];
-            if (rows.length >= 40) return rows.slice(-220);
+            if (rows.length >= 24) return { bars: rows.slice(-windowSize), tf: tf, windowSize: windowSize };
           }
           const allKeys = Object.keys(OHLCV_BY_TF || {});
           for (let i = 0; i < allKeys.length; i += 1) {
             const rows = Array.isArray(OHLCV_BY_TF?.[allKeys[i]]) ? OHLCV_BY_TF[allKeys[i]] : [];
-            if (rows.length >= 20) return rows.slice(-180);
+            if (rows.length >= 16) return { bars: rows.slice(-windowSize), tf: allKeys[i], windowSize: windowSize };
           }
-          return [];
+          return { bars: [], tf: tfPrefer === 'auto' ? '-' : tfPrefer, windowSize: windowSize };
         }
         function calcSmaSeries(values, periodLike) {
           const period = Math.max(2, Math.floor(Number(periodLike) || 14));
@@ -11020,9 +11317,98 @@
             method: '自定义特征，由对话候选或策略DSL映射。',
           };
         }
+        function downsampleFeaturePreviewRows(barsLike, indicatorLike, maxPointsLike) {
+          const bars = Array.isArray(barsLike) ? barsLike : [];
+          const indicator = Array.isArray(indicatorLike) ? indicatorLike : [];
+          const maxPoints = Math.max(12, Math.min(60, Number(maxPointsLike || 32) || 32));
+          if (bars.length <= maxPoints) {
+            return bars.map(function(b, idx) {
+              return { idx: idx, bar: b, indicator: Number(indicator[idx]) };
+            });
+          }
+          const step = Math.max(1, Math.floor(bars.length / maxPoints));
+          const out = [];
+          for (let i = Math.max(0, bars.length - maxPoints * step); i < bars.length; i += step) {
+            out.push({ idx: i, bar: bars[i], indicator: Number(indicator[i]) });
+          }
+          if (out.length && out[out.length - 1].idx !== bars.length - 1) {
+            out.push({ idx: bars.length - 1, bar: bars[bars.length - 1], indicator: Number(indicator[bars.length - 1]) });
+          }
+          return out.slice(-maxPoints);
+        }
+        function describeFeatureValue(kindLike, barLike, valueLike, paramsLike) {
+          const kind = String(kindLike || 'custom').toLowerCase();
+          const bar = barLike && typeof barLike === 'object' ? barLike : {};
+          const value = Number(valueLike);
+          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+          if (!Number.isFinite(value)) return '-';
+          if (kind === 'ema' || kind === 'sma') {
+            const close = Number(bar.close);
+            if (!Number.isFinite(close)) return '-';
+            return close >= value ? 'Close>=MA（趋势通过）' : 'Close<MA（趋势过滤）';
+          }
+          if (kind === 'rsi') {
+            if (value <= 30) return 'RSI<=30（超卖）';
+            if (value >= 70) return 'RSI>=70（超买）';
+            return '30<RSI<70（中性）';
+          }
+          if (kind === 'adx') {
+            const min = Number(params.min || 20) || 20;
+            return value >= min ? ('ADX>=' + String(min) + '（趋势有效）') : ('ADX<' + String(min) + '（趋势偏弱）');
+          }
+          if (kind === 'atr') {
+            const stopAtr = Number(params.stopAtr || 1.2) || 1.2;
+            return 'ATR=' + value.toFixed(2) + '，止损距离≈' + (value * stopAtr).toFixed(2);
+          }
+          if (kind === 'volume') {
+            const vol = Number(bar.volume);
+            if (!Number.isFinite(vol) || value <= 0) return '-';
+            const ratio = vol / value;
+            if (ratio >= 1.3) return '量能放大（ratio=' + ratio.toFixed(2) + '）';
+            if (ratio <= 0.8) return '量能偏弱（ratio=' + ratio.toFixed(2) + '）';
+            return '量能中性（ratio=' + ratio.toFixed(2) + '）';
+          }
+          return 'value=' + value.toFixed(4);
+        }
+        function buildFeatureSampleTable(featureLike, barsLike, indicatorLike) {
+          const feature = featureLike && typeof featureLike === 'object' ? featureLike : {};
+          const bars = Array.isArray(barsLike) ? barsLike : [];
+          const indicator = Array.isArray(indicatorLike) ? indicatorLike : [];
+          const params = feature.params && typeof feature.params === 'object' ? feature.params : {};
+          const kind = String(feature.kind || 'custom').toLowerCase();
+          const rows = [];
+          for (let i = bars.length - 1; i >= 0 && rows.length < 6; i -= 1) {
+            const bar = bars[i] && typeof bars[i] === 'object' ? bars[i] : null;
+            if (!bar) continue;
+            const value = Number(indicator[i]);
+            if (!Number.isFinite(value)) continue;
+            const close = Number(bar.close);
+            rows.push({
+              idx: i,
+              ts: fmtFeatureBarLabel(bar.time),
+              close: Number.isFinite(close) ? close : null,
+              value: value,
+              explain: describeFeatureValue(kind, bar, value, params),
+            });
+          }
+          if (!rows.length) return '';
+          const body = rows.map(function(row) {
+            return '<tr>'
+              + '<td>' + escapeHtml(String(row.ts)) + '</td>'
+              + '<td>' + escapeHtml('#' + String(row.idx + 1)) + '</td>'
+              + '<td>' + escapeHtml(row.close == null ? '-' : row.close.toFixed(2)) + '</td>'
+              + '<td>' + escapeHtml(row.value.toFixed(4)) + '</td>'
+              + '<td>' + escapeHtml(String(row.explain || '-')) + '</td>'
+              + '</tr>';
+          }).join('');
+          return '<table class="feature-sample-table"><thead><tr>'
+            + '<th>时间</th><th>位置</th><th>Close</th><th>特征值</th><th>解释</th>'
+            + '</tr></thead><tbody>' + body + '</tbody></table>';
+        }
         function buildFeaturePreviewSvg(featureLike) {
-          const bars = getStrategyFeatureBars();
-          if (bars.length < 16) return '';
+          const resolved = getStrategyFeatureBars();
+          const bars = Array.isArray(resolved?.bars) ? resolved.bars : [];
+          if (bars.length < 16) return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
           const f = featureLike && typeof featureLike === 'object' ? featureLike : {};
           const params = f.params && typeof f.params === 'object' ? f.params : {};
           const closes = bars.map(function(b) { return Number(b.close); });
@@ -11041,21 +11427,91 @@
           else indicator = calcSmaSeries(closes, period);
 
           const validIndicator = indicator.filter(function(v) { return Number.isFinite(Number(v)); }).map(function(v) { return Number(v); });
-          if (!validIndicator.length) return '';
-          const validClose = closes.filter(function(v) { return Number.isFinite(Number(v)); }).map(function(v) { return Number(v); });
-          if (!validClose.length) return '';
+          if (!validIndicator.length) {
+            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
+          }
+          const sampled = downsampleFeaturePreviewRows(bars, indicator, 36);
+          if (!sampled.length) {
+            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
+          }
+          const sampledBars = sampled.map(function(item) { return item.bar; });
+          const sampledInd = sampled.map(function(item) { return item.indicator; });
+          const highsValid = sampledBars.map(function(b) { return Number(b.high); }).filter(function(v) { return Number.isFinite(v); });
+          const lowsValid = sampledBars.map(function(b) { return Number(b.low); }).filter(function(v) { return Number.isFinite(v); });
+          const indValid = sampledInd.filter(function(v) { return Number.isFinite(v); });
+          if (!highsValid.length || !lowsValid.length || !indValid.length) {
+            return { svg: '', sampleTable: '', tf: String(resolved?.tf || '-'), windowSize: Number(resolved?.windowSize || 0) || 0 };
+          }
           const width = 460;
-          const height = 72;
+          const height = 88;
           const pad = 6;
-          const indMin = Math.min.apply(null, validIndicator);
-          const indMax = Math.max.apply(null, validIndicator);
-          const indPath = seriesToSvgPath(indicator, width, height, pad, indMin, indMax);
-          const closePath = seriesToSvgPath(closes, width, height, pad, Math.min.apply(null, validClose), Math.max.apply(null, validClose));
-          if (!indPath) return '';
-          return '<svg class="feature-preview-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">'
-            + '<path d="' + closePath + '" fill="none" stroke="rgba(139,148,158,0.45)" stroke-width="1.2"></path>'
-            + '<path d="' + indPath + '" fill="none" stroke="rgba(88,166,255,0.9)" stroke-width="1.6"></path>'
+          const top0 = 6;
+          const top1 = 48;
+          const bottom0 = 54;
+          const bottom1 = 84;
+          const innerW = Math.max(1, width - pad * 2);
+          const priceMin = Math.min.apply(null, lowsValid);
+          const priceMax = Math.max.apply(null, highsValid);
+          const indMin = Math.min.apply(null, indValid);
+          const indMax = Math.max.apply(null, indValid);
+          const priceSpan = Math.max(1e-9, priceMax - priceMin);
+          const indSpan = Math.max(1e-9, indMax - indMin);
+          function scalePrice(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return top1;
+            return top1 - ((n - priceMin) / priceSpan) * (top1 - top0);
+          }
+          function scaleInd(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return bottom1;
+            return bottom1 - ((n - indMin) / indSpan) * (bottom1 - bottom0);
+          }
+          const slot = sampled.length > 1 ? innerW / (sampled.length - 1) : innerW;
+          const wickPath = [];
+          const bodyRects = [];
+          const indPts = [];
+          sampled.forEach(function(item, idx) {
+            const bar = item.bar && typeof item.bar === 'object' ? item.bar : {};
+            const x = pad + idx * slot;
+            const yH = scalePrice(bar.high);
+            const yL = scalePrice(bar.low);
+            wickPath.push('M' + x.toFixed(2) + ' ' + yH.toFixed(2) + 'L' + x.toFixed(2) + ' ' + yL.toFixed(2));
+            const yO = scalePrice(bar.open);
+            const yC = scalePrice(bar.close);
+            const top = Math.min(yO, yC);
+            const h = Math.max(1, Math.abs(yO - yC));
+            const bodyW = Math.max(1.6, Math.min(6, slot * 0.45));
+            const color = Number(bar.close) >= Number(bar.open) ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)';
+            bodyRects.push('<rect x="' + (x - bodyW / 2).toFixed(2) + '" y="' + top.toFixed(2) + '" width="' + bodyW.toFixed(2) + '" height="' + h.toFixed(2) + '" fill="' + color + '"></rect>');
+            if (Number.isFinite(Number(item.indicator))) {
+              indPts.push([x, scaleInd(item.indicator), item.indicator]);
+            }
+          });
+          const indPath = indPts.map(function(p, idx) {
+            return (idx === 0 ? 'M' : 'L') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+          }).join(' ');
+          const markerPts = indPts.slice(-3);
+          const markerHtml = markerPts.map(function(p) {
+            return '<circle cx="' + p[0].toFixed(2) + '" cy="' + p[1].toFixed(2) + '" r="2.2" fill="rgba(121,192,255,0.95)"></circle>';
+          }).join('');
+          const firstLabel = sampled.length ? fmtFeatureBarLabel(sampled[0]?.bar?.time) : '-';
+          const lastLabel = sampled.length ? fmtFeatureBarLabel(sampled[sampled.length - 1]?.bar?.time) : '-';
+          const svg = '<svg class="feature-preview-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">'
+            + '<line x1="' + pad + '" y1="' + top1 + '" x2="' + (width - pad) + '" y2="' + top1 + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
+            + '<line x1="' + pad + '" y1="' + bottom0 + '" x2="' + (width - pad) + '" y2="' + bottom0 + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
+            + '<path d="' + wickPath.join('') + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
+            + bodyRects.join('')
+            + '<path d="' + indPath + '" fill="none" stroke="rgba(88,166,255,0.92)" stroke-width="1.6"></path>'
+            + markerHtml
+            + '<text x="' + pad + '" y="' + (height - 2) + '" fill="rgba(139,148,158,0.85)" font-size="8">' + escapeHtml(firstLabel) + '</text>'
+            + '<text x="' + (width - pad) + '" y="' + (height - 2) + '" fill="rgba(139,148,158,0.85)" font-size="8" text-anchor="end">' + escapeHtml(lastLabel) + '</text>'
             + '</svg>';
+          return {
+            svg: svg,
+            sampleTable: buildFeatureSampleTable(f, bars, indicator),
+            tf: String(resolved?.tf || '-'),
+            windowSize: Number(resolved?.windowSize || bars.length || 0),
+          };
         }
         function syncSelectOptions(selectEl, valuesLike, defaultText, keepValue) {
           const el = selectEl;
@@ -11074,6 +11530,7 @@
           featureViewState.pageSize = Math.max(10, Math.min(120, Number(payload.pageSize || featureViewState.pageSize || 40)));
           featureViewState.totalPages = Math.max(1, Number(payload.totalPages || 1));
           featureViewState.lastTotal = Math.max(0, Number(payload.total || 0));
+          setSelectValueSafe(featurePageSizeEl, String(featureViewState.pageSize));
           featurePageInfoEl.textContent = '第 ' + String(featureViewState.page) + '/' + String(featureViewState.totalPages) + ' 页 · 共 ' + String(featureViewState.lastTotal) + ' 个';
           featurePrevBtn.disabled = featureViewState.page <= 1;
           featureNextBtn.disabled = featureViewState.page >= featureViewState.totalPages;
@@ -11108,6 +11565,7 @@
         function renderFeatures(list, payloadLike) {
           const rows = Array.isArray(list) ? list : [];
           const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          featureViewState.lastFeaturePayload = payload;
           const facets = payload.facets && typeof payload.facets === 'object' ? payload.facets : {};
           syncSelectOptions(featureSourceEl, Array.isArray(facets.sources) ? facets.sources : [], '全部来源', featureSourceEl.value);
           renderFeaturePagination(payload);
@@ -11139,19 +11597,27 @@
             const originReply = trimSlText(String(feature.originReply || ''), 180);
             const paramsJson = escapeHtml(JSON.stringify(feature.params && typeof feature.params === 'object' ? feature.params : {}, null, 2));
             const algo = getFeatureAlgorithmInfo(feature);
-            const previewSvg = buildFeaturePreviewSvg(feature);
+            const previewPayload = buildFeaturePreviewSvg(feature);
+            const previewSvg = String(previewPayload?.svg || '');
+            const previewTable = String(previewPayload?.sampleTable || '');
+            const previewTf = String(previewPayload?.tf || '-');
+            const previewWindow = Number(previewPayload?.windowSize || 0) || 0;
             const trail = Array.isArray(feature.originTrail) ? feature.originTrail : [];
             const trailHtml = trail.slice(-4).reverse().map(function(item) {
               const row = item && typeof item === 'object' ? item : {};
+              const rowEventId = Number(row.eventId);
               const line = [
                 fmtFeatureTs(row.ts),
                 String(row.source || ''),
                 row.conversationId ? ('会话=' + String(row.conversationId)) : '',
-                Number.isFinite(Number(row.eventId)) ? ('消息#' + String(Number(row.eventId))) : '',
+                Number.isFinite(rowEventId) ? ('消息#' + String(rowEventId)) : '',
                 row.cardId ? ('卡片=' + String(row.cardId)) : '',
               ].filter(Boolean).join(' · ');
               const q = trimSlText(String(row.query || ''), 120);
-              return '<div class="meta mini-mono">' + escapeHtml(line) + (q ? ('<br/>Q: ' + escapeHtml(q)) : '') + '</div>';
+              const jumpBtn = Number.isFinite(rowEventId) && rowEventId > 0
+                ? ('<button class="feature-jump-btn" type="button" data-feature-jump-event="' + escapeHtml(String(rowEventId)) + '">跳转对话</button>')
+                : '';
+              return '<div class="meta mini-mono">' + escapeHtml(line) + jumpBtn + (q ? ('<br/>Q: ' + escapeHtml(q)) : '') + '</div>';
             }).join('');
             return '<div class="strategy-feature-item">'
               + '<div class="head"><div class="name">' + name + '</div><div class="tags">'
@@ -11178,7 +11644,7 @@
               + '<div class="detail-block"><div class="detail-title">参数与计算预览</div>'
               + '<pre class="mini-mono">' + paramsJson + '</pre>'
               + (previewSvg
-                ? ('<div class="meta" style="margin-top:4px;">K线/指标预览（灰=价格，蓝=特征值）</div>' + previewSvg)
+                ? ('<div class="meta" style="margin-top:4px;">K线/指标预览（上=K线，下=特征值） · 周期=' + escapeHtml(previewTf) + ' · 窗口=' + escapeHtml(String(previewWindow || '-')) + '</div>' + previewSvg + previewTable)
                 : '<div class="meta" style="margin-top:4px;">暂无可视化预览（当前K线样本不足或特征不支持）。</div>')
               + '</div>'
               + '</div></details>'
@@ -11238,6 +11704,16 @@
             setStatus(statusEl, '特征刷新失败：' + String(err?.message || err), 'err');
           }
         }
+        function rerenderFeatureListFromCache() {
+          const payload = featureViewState.lastFeaturePayload && typeof featureViewState.lastFeaturePayload === 'object'
+            ? featureViewState.lastFeaturePayload
+            : null;
+          if (!payload || !Array.isArray(payload.features)) {
+            void reloadFeaturesOnly();
+            return;
+          }
+          renderFeatures(payload.features, payload);
+        }
         function resetFeaturePageAndReload() {
           featureViewState.page = 1;
           void reloadFeaturesOnly();
@@ -11291,6 +11767,14 @@
           featureViewState.pageSize = Math.max(10, Math.min(120, Number(featurePageSizeEl.value || 40) || 40));
           resetFeaturePageAndReload();
         });
+        featurePreviewTfEl.addEventListener('change', function() {
+          featureViewState.previewTf = String(featurePreviewTfEl.value || 'auto');
+          rerenderFeatureListFromCache();
+        });
+        featurePreviewWindowEl.addEventListener('change', function() {
+          featureViewState.previewWindow = Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || 120) || 120));
+          rerenderFeatureListFromCache();
+        });
         featurePrevBtn.addEventListener('click', function() {
           if (featureViewState.page <= 1) return;
           featureViewState.page -= 1;
@@ -11300,6 +11784,31 @@
           if (featureViewState.page >= featureViewState.totalPages) return;
           featureViewState.page += 1;
           void reloadFeaturesOnly();
+        });
+        featurePresetSaveBtn.addEventListener('click', function() {
+          saveCurrentFeaturePreset();
+        });
+        featurePresetApplyBtn.addEventListener('click', function() {
+          applySelectedFeaturePreset();
+        });
+        featurePresetDeleteBtn.addEventListener('click', function() {
+          deleteSelectedFeaturePreset();
+        });
+        featurePresetSelectEl.addEventListener('change', function() {
+          const selectedId = String(featurePresetSelectEl.value || '').trim();
+          const preset = (featureViewState.presets || []).find(function(item) { return String(item?.id || '') === selectedId; }) || null;
+          if (preset) {
+            featurePresetNameEl.value = String(preset.name || '');
+          } else {
+            featurePresetNameEl.value = '';
+          }
+        });
+        featureListEl.addEventListener('click', function(ev) {
+          const btn = ev.target && ev.target.closest ? ev.target.closest('[data-feature-jump-event]') : null;
+          if (!btn) return;
+          ev.preventDefault();
+          const eventId = Number(btn.getAttribute('data-feature-jump-event') || '');
+          jumpToChatEvent(eventId);
         });
 
         fillBtn.addEventListener('click', function() {
