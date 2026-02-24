@@ -44,6 +44,13 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/openclaw/config/get", handler: expectHandler(handlers, "handleOpenClawConfigGet") },
     { method: "POST", path: "/api/openclaw/config/set", handler: expectHandler(handlers, "handleOpenClawConfigSet") },
     { method: "POST", path: "/api/openclaw/config/unset", handler: expectHandler(handlers, "handleOpenClawConfigUnset") },
+    { method: "GET", path: "/api/strategy/features", handler: expectHandler(handlers, "handleStrategyFeatures") },
+    { method: "GET", path: "/api/strategy/versions", handler: expectHandler(handlers, "handleStrategyVersions") },
+    { method: "POST", path: "/api/strategy/versions/propose", handler: expectHandler(handlers, "handleStrategyVersionsPropose") },
+    { method: "POST", path: "/api/strategy/versions/evaluate", handler: expectHandler(handlers, "handleStrategyVersionsEvaluate") },
+    { method: "POST", path: "/api/strategy/artifacts/report", handler: expectHandler(handlers, "handleStrategyArtifactReport") },
+    { method: "POST", path: "/api/strategy/intent-candidates", handler: expectHandler(handlers, "handleStrategyIntentCandidates") },
+    { method: "POST", path: "/api/strategy/intent-candidates/apply", handler: expectHandler(handlers, "handleStrategyIntentApply") },
     { method: "POST", path: "/api/chat", handler: expectHandler(handlers, "handleChat") },
   ];
 }

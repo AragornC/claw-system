@@ -12,6 +12,7 @@ import { createOpenClawConsoleHandlers } from "./server/handlers/openclaw-consol
 import { createChatConfigHandlers } from "./server/handlers/chat-config.js";
 import { createXbrainCoreHandlers } from "./server/handlers/xbrain-core.js";
 import { createTelegramHandlers } from "./server/handlers/telegram.js";
+import { createStrategyLabHandlers } from "./server/handlers/strategy-lab.js";
 import { createHttpRouter } from "./server/http/router.js";
 import { buildApiRouteTable } from "./server/http/route-table.js";
 import {
@@ -27,6 +28,8 @@ import {
   toModelRef,
 } from "./server/domain/model-provider.js";
 import { createOpenClawXbrainRuntime } from "./server/core/openclaw-xbrain-runtime.js";
+import { createStrategyLabStore } from "./server/core/strategy-lab-store.js";
+import { createTradingIntentSkill } from "./server/core/trading-intent-skill.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -35,6 +38,7 @@ const REPORT_DIR = path.resolve(ROOT_DIR, "memory", "report");
 const MEMORY_DIR = path.resolve(ROOT_DIR, "memory");
 const XBRAIN_STATE_PATH = path.join(MEMORY_DIR, "xbrain-state.json");
 const CHAT_HISTORY_PATH = path.join(MEMORY_DIR, "chat-history.json");
+const STRATEGY_LAB_STATE_PATH = path.join(MEMORY_DIR, "strategy-lab.json");
 const DEFAULT_PORT = Number.parseInt(process.env.THUNDERCLAW_PORT ?? "3456", 10) || 3456;
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_GATEWAY_LOG_LINES = 500;
@@ -1268,6 +1272,19 @@ const {
   providerAuthType,
 });
 
+const strategyLabStore = createStrategyLabStore({
+  statePath: STRATEGY_LAB_STATE_PATH,
+});
+
+const {
+  extractTradingIntentCandidates,
+} = createTradingIntentSkill({
+  runOpenClawCommand,
+  parseJsonSafe,
+  extractAgentReply,
+  normalizeSessionId,
+});
+
 async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
   const sessionIdRaw = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
@@ -1418,6 +1435,22 @@ const {
   xbrainStore,
 });
 
+const {
+  handleStrategyFeatures,
+  handleStrategyVersions,
+  handleStrategyVersionsPropose,
+  handleStrategyVersionsEvaluate,
+  handleStrategyArtifactReport,
+  handleStrategyIntentCandidates,
+  handleStrategyIntentApply,
+} = createStrategyLabHandlers({
+  readJsonBody,
+  sendJson,
+  strategyLabStore,
+  extractTradingIntentCandidates,
+  getCurrentRuntimeModelRefFromStore,
+});
+
 async function handleGatewayStart(_req, res) {
   sendJson(res, 200, { ok: true, ...startGateway() });
 }
@@ -1467,6 +1500,13 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleOpenClawConfigGet,
   handleOpenClawConfigSet,
   handleOpenClawConfigUnset,
+  handleStrategyFeatures,
+  handleStrategyVersions,
+  handleStrategyVersionsPropose,
+  handleStrategyVersionsEvaluate,
+  handleStrategyArtifactReport,
+  handleStrategyIntentCandidates,
+  handleStrategyIntentApply,
   handleChat,
 }));
 
