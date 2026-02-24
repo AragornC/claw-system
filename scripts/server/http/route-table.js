@@ -1,0 +1,57 @@
+function expectHandler(handlers, key) {
+  const fn = handlers?.[key];
+  if (typeof fn !== "function") {
+    throw new Error(`Missing handler: ${key}`);
+  }
+  return fn;
+}
+
+export function buildApiRouteTable(handlers = {}) {
+  return [
+    { method: "GET", path: "/api/status", handler: expectHandler(handlers, "handleStatus") },
+    { method: "POST", path: "/api/setup", handler: expectHandler(handlers, "handleSetup") },
+    { method: "POST", path: "/api/setup/quick", handler: expectHandler(handlers, "handleQuickSetup") },
+    { method: "POST", path: "/api/models/set", handler: expectHandler(handlers, "handleSetModel") },
+    { method: "POST", path: "/api/oauth/start", handler: expectHandler(handlers, "handleOAuthStart") },
+    { method: "GET", path: "/api/oauth/status", handler: expectHandler(handlers, "handleOAuthStatus") },
+    { method: "POST", path: "/api/gateway/start", handler: expectHandler(handlers, "handleGatewayStart") },
+    { method: "POST", path: "/api/gateway/stop", handler: expectHandler(handlers, "handleGatewayStop") },
+    { method: "GET", path: "/api/gateway/logs", handler: expectHandler(handlers, "handleGatewayLogs") },
+    { method: "GET", path: "/api/ai/health", handler: expectHandler(handlers, "handleAiHealth") },
+    { method: "POST", path: "/api/ai/chat", handler: expectHandler(handlers, "handleAiChat") },
+    { method: "POST", path: "/api/config/chat", handler: expectHandler(handlers, "handleConfigChat") },
+    { method: "GET", path: "/api/chat/history", handler: expectHandler(handlers, "handleChatHistory") },
+    { method: "POST", path: "/api/chat/cards/status", handler: expectHandler(handlers, "handleChatCardStatus") },
+    { method: "GET", path: "/api/xbrain/state", handler: expectHandler(handlers, "handleXbrainState") },
+    { method: "POST", path: "/api/xbrain/update", handler: expectHandler(handlers, "handleXbrainUpdate") },
+    { method: "POST", path: "/api/xbrain/model/switch", handler: expectHandler(handlers, "handleXbrainModelSwitch") },
+    { method: "GET", path: "/api/xbrain/models/catalog", handler: expectHandler(handlers, "handleXbrainModelsCatalog") },
+    { method: "POST", path: "/api/xbrain/models/connect", handler: expectHandler(handlers, "handleXbrainModelConnect") },
+    { method: "POST", path: "/api/xbrain/models/disconnect", handler: expectHandler(handlers, "handleXbrainModelDisconnect") },
+    { method: "GET", path: "/api/xbrain/auth/status", handler: expectHandler(handlers, "handleXbrainAuthStatus") },
+    { method: "POST", path: "/api/xbrain/auth/start", handler: expectHandler(handlers, "handleXbrainAuthStart") },
+    { method: "POST", path: "/api/xbrain/auth/input", handler: expectHandler(handlers, "handleXbrainAuthInput") },
+    { method: "POST", path: "/api/xbrain/auth/disconnect", handler: expectHandler(handlers, "handleXbrainAuthDisconnect") },
+    { method: "POST", path: "/api/xbrain/provider/remove", handler: expectHandler(handlers, "handleXbrainProviderRemove") },
+    { method: "POST", path: "/api/xbrain/lock", handler: expectHandler(handlers, "handleXbrainLock") },
+    { method: "GET", path: "/api/telegram/health", handler: expectHandler(handlers, "handleTelegramHealth") },
+    { method: "POST", path: "/api/telegram/test", handler: expectHandler(handlers, "handleTelegramTest") },
+    { method: "POST", path: "/api/telegram/handshake", handler: expectHandler(handlers, "handleTelegramHandshake") },
+    { method: "GET", path: "/api/openclaw/status", handler: expectHandler(handlers, "handleOpenClawConsoleStatus") },
+    { method: "GET", path: "/api/openclaw/cron/list", handler: expectHandler(handlers, "handleOpenClawCronList") },
+    { method: "POST", path: "/api/openclaw/cron/add", handler: expectHandler(handlers, "handleOpenClawCronAdd") },
+    { method: "POST", path: "/api/openclaw/cron/remove", handler: expectHandler(handlers, "handleOpenClawCronRemove") },
+    { method: "POST", path: "/api/openclaw/cron/toggle", handler: expectHandler(handlers, "handleOpenClawCronToggle") },
+    { method: "POST", path: "/api/openclaw/config/get", handler: expectHandler(handlers, "handleOpenClawConfigGet") },
+    { method: "POST", path: "/api/openclaw/config/set", handler: expectHandler(handlers, "handleOpenClawConfigSet") },
+    { method: "POST", path: "/api/openclaw/config/unset", handler: expectHandler(handlers, "handleOpenClawConfigUnset") },
+    { method: "GET", path: "/api/strategy/features", handler: expectHandler(handlers, "handleStrategyFeatures") },
+    { method: "GET", path: "/api/strategy/versions", handler: expectHandler(handlers, "handleStrategyVersions") },
+    { method: "POST", path: "/api/strategy/versions/propose", handler: expectHandler(handlers, "handleStrategyVersionsPropose") },
+    { method: "POST", path: "/api/strategy/versions/evaluate", handler: expectHandler(handlers, "handleStrategyVersionsEvaluate") },
+    { method: "POST", path: "/api/strategy/artifacts/report", handler: expectHandler(handlers, "handleStrategyArtifactReport") },
+    { method: "POST", path: "/api/strategy/intent-candidates", handler: expectHandler(handlers, "handleStrategyIntentCandidates") },
+    { method: "POST", path: "/api/strategy/intent-candidates/apply", handler: expectHandler(handlers, "handleStrategyIntentApply") },
+    { method: "POST", path: "/api/chat", handler: expectHandler(handlers, "handleChat") },
+  ];
+}

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b1457"/>
+      <stop offset="58%" stop-color="#26103f"/>
+      <stop offset="100%" stop-color="#160a2a"/>
+    </linearGradient>
+    <radialGradient id="r1" cx="0.78" cy="0.2" r="0.6">
+      <stop offset="0%" stop-color="#d9b0ff" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#d9b0ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="960" height="320" fill="url(#g1)"/>
+  <rect width="960" height="320" fill="url(#r1)"/>
+  <g stroke="#e7c9ff" stroke-opacity="0.18" fill="none">
+    <path d="M0 58 L960 58"/>
+    <path d="M0 116 L960 116"/>
+    <path d="M0 174 L960 174"/>
+    <path d="M0 232 L960 232"/>
+    <path d="M120 0 L120 320"/>
+    <path d="M300 0 L300 320"/>
+    <path d="M480 0 L480 320"/>
+    <path d="M660 0 L660 320"/>
+    <path d="M840 0 L840 320"/>
+  </g>
+  <g fill="#f0dcff" fill-opacity="0.18">
+    <rect x="146" y="188" width="28" height="56" rx="4"/>
+    <rect x="322" y="140" width="28" height="104" rx="4"/>
+    <rect x="500" y="98" width="28" height="146" rx="4"/>
+    <rect x="676" y="120" width="28" height="124" rx="4"/>
+    <rect x="852" y="74" width="28" height="170" rx="4"/>
+  </g>
+</svg>
