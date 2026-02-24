@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a2a4a"/>
+      <stop offset="60%" stop-color="#0b1f3a"/>
+      <stop offset="100%" stop-color="#081426"/>
+    </linearGradient>
+    <radialGradient id="r1" cx="0.84" cy="0.2" r="0.58">
+      <stop offset="0%" stop-color="#8fd7ff" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#8fd7ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="960" height="320" fill="url(#g1)"/>
+  <rect width="960" height="320" fill="url(#r1)"/>
+  <g stroke="#bde8ff" stroke-opacity="0.2" fill="none">
+    <polyline points="-20,262 90,244 170,208 255,215 332,170 420,180 495,128 575,150 656,96 735,112 815,76 890,88 980,62"/>
+    <polyline points="-20,216 88,200 168,168 248,174 332,136 420,144 496,108 578,122 652,92 733,102 812,66 892,76 980,54"/>
+  </g>
+  <g fill="#a8e2ff" fill-opacity="0.18">
+    <circle cx="256" cy="214" r="4"/>
+    <circle cx="420" cy="180" r="4"/>
+    <circle cx="576" cy="150" r="4"/>
+    <circle cx="735" cy="112" r="4"/>
+    <circle cx="892" cy="88" r="4"/>
+  </g>
+</svg>
