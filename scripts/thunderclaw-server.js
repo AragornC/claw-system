@@ -30,6 +30,8 @@ import {
 import { createOpenClawXbrainRuntime } from "./server/core/openclaw-xbrain-runtime.js";
 import { createStrategyLabStore } from "./server/core/strategy-lab-store.js";
 import { createTradingIntentSkill } from "./server/core/trading-intent-skill.js";
+import { createXbrainStoreManager } from "./server/core/xbrain-store.js";
+import { createChatHistoryStore } from "./server/core/chat-history-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -95,266 +97,36 @@ function maskSecret(valueRaw) {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
-function ensureProviderAuthEntry(providerRaw, patchLike = {}) {
-  const provider = normalizeProviderKey(providerRaw);
-  xbrainStore.base.providerAuth = xbrainStore.base.providerAuth && typeof xbrainStore.base.providerAuth === "object"
-    ? xbrainStore.base.providerAuth
-    : {};
-  const current = xbrainStore.base.providerAuth[provider] && typeof xbrainStore.base.providerAuth[provider] === "object"
-    ? xbrainStore.base.providerAuth[provider]
-    : {
-        configured: false,
-        masked: "(未设置)",
-        plain: "",
-        source: "-",
-        error: "",
-        type: providerAuthType(provider),
-      };
-  const patch = patchLike && typeof patchLike === "object" ? patchLike : {};
-  const next = {
-    ...current,
-    ...patch,
-    type: String(patch.type || current.type || providerAuthType(provider)),
-  };
-  xbrainStore.base.providerAuth[provider] = next;
-  return next;
+function sanitizeProviderCatalogForStore(items) {
+  return uniqStrings((Array.isArray(items) ? items : []).map((v) => normalizeProviderKey(v)));
 }
 
-function isProviderConfigured(providerRaw) {
-  const provider = normalizeProviderKey(providerRaw);
-  const authMeta = xbrainStore.base?.providerAuth?.[provider];
-  return Boolean(authMeta && typeof authMeta === "object" && authMeta.configured);
-}
+const {
+  xbrainStore,
+  saveXbrainStore,
+  ensureProviderAuthEntry,
+  isProviderConfigured,
+  markProviderAuthSyncError,
+} = createXbrainStoreManager({
+  fsModule: fs,
+  memoryDir: MEMORY_DIR,
+  xbrainStatePath: XBRAIN_STATE_PATH,
+  normalizeProviderKey,
+  providerAuthType,
+  providerSupportsOAuth,
+  sanitizeProviderCatalog: sanitizeProviderCatalogForStore,
+});
 
-function markProviderAuthSyncError(errorLike) {
-  const errorText = String(errorLike || "models status sync failed").trim() || "models status sync failed";
-  const providerCatalog = sanitizeProviderCatalog([
-    ...(xbrainStore.base.providerCatalog || []),
-    ...Object.keys(xbrainStore.base.providerAuth || {}),
-  ]);
-  for (const provider of providerCatalog) {
-    if (!providerSupportsOAuth(provider)) continue;
-    ensureProviderAuthEntry(provider, {
-      configured: false,
-      masked: "(未设置)",
-      plain: "",
-      source: "sync_error",
-      error: errorText,
-      type: "oauth",
-    });
-  }
-  saveXbrainStore();
-}
-
-function createInitialXbrainStore() {
-  return {
-    base: {
-      modelProvider: "deepseek",
-      modelId: "deepseek-chat",
-      runtimeModelProvider: "deepseek",
-      runtimeModelId: "deepseek-chat",
-      providerCatalog: ["deepseek", "chatgpt", "anthropic"],
-      modelRegistry: ["deepseek/deepseek-chat"],
-      deepseekApiKey: "",
-      providerAuth: {
-        deepseek: { configured: false, type: "apiKey", source: "-", error: "" },
-        chatgpt: { configured: false, type: "oauth", source: "-", error: "" },
-        anthropic: { configured: false, type: "oauth", source: "-", error: "" },
-      },
-      telegramTokenValue: "",
-      telegramRelayEnabled: false,
-      chatChannel: "dashboard",
-    },
-    exchange: {
-      apiKeyValue: "",
-      apiSecretValue: "",
-      passphraseValue: "",
-    },
-    strategy: {
-      profileName: "default",
-      symbol: "BTC/USDT:USDT",
-      leverage: 10,
-      sizeMode: "risk",
-      orderSize: 8,
-      riskPct: 0.015,
-      minNotional: 5,
-      maxNotional: 80,
-      runtimeMode: "dryrun",
-      activeStrategy: "default",
-    },
-    locks: {
-      base: { locked: false, hasPassword: false, password: "" },
-      channel: { locked: false, hasPassword: false, password: "" },
-      exchange: { locked: false, hasPassword: false, password: "" },
-      strategy: { locked: false, hasPassword: false, password: "" },
-    },
-  };
-}
-
-function loadXbrainStore() {
-  const store = createInitialXbrainStore();
-  try {
-    if (!fs.existsSync(XBRAIN_STATE_PATH)) {
-      return store;
-    }
-    const raw = fs.readFileSync(XBRAIN_STATE_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      store.base = { ...store.base, ...(parsed.base || {}) };
-      store.exchange = { ...store.exchange, ...(parsed.exchange || {}) };
-      store.strategy = { ...store.strategy, ...(parsed.strategy || {}) };
-      for (const section of ["base", "channel", "exchange", "strategy"]) {
-        const lockInfo = parsed?.locks?.[section];
-        if (lockInfo && typeof lockInfo === "object") {
-          store.locks[section] = { ...store.locks[section], ...lockInfo };
-        }
-      }
-    }
-  } catch {}
-  return store;
-}
-
-const xbrainStore = loadXbrainStore();
-
-function saveXbrainStore() {
-  try {
-    fs.mkdirSync(MEMORY_DIR, { recursive: true });
-    fs.writeFileSync(XBRAIN_STATE_PATH, JSON.stringify(xbrainStore, null, 2), "utf8");
-  } catch {}
-}
-
-function createInitialChatHistory() {
-  return { nextId: 1, events: [] };
-}
-
-function normalizeCardStatus(statusLike) {
-  const status = String(statusLike || "").trim().toLowerCase();
-  if (status === "accepted" || status === "ignored" || status === "registered") return status;
-  return "proposed";
-}
-
-function normalizeChatCard(cardLike, eventIdLike, indexLike) {
-  const eventId = Number(eventIdLike) || 0;
-  const index = Number(indexLike) || 0;
-  const raw = cardLike && typeof cardLike === "object" ? cardLike : null;
-  if (!raw) return null;
-  let cloned = null;
-  try {
-    cloned = JSON.parse(JSON.stringify(raw));
-  } catch {
-    return null;
-  }
-  if (!cloned || typeof cloned !== "object") return null;
-  const id = String(cloned.id || cloned.cardId || cloned.candidateId || `m${eventId}-c${index + 1}`).trim();
-  const kind = String(cloned.kind || "").trim().toLowerCase();
-  if (kind !== "feature" && kind !== "strategy") return null;
-  const confidenceRaw = Number(cloned.confidence);
-  const confidence = Number.isFinite(confidenceRaw)
-    ? Math.max(0, Math.min(1, confidenceRaw))
-    : 0.6;
-  cloned.id = id || `m${eventId}-c${index + 1}`;
-  cloned.kind = kind;
-  cloned.confidence = confidence;
-  cloned.status = normalizeCardStatus(cloned.status);
-  return cloned;
-}
-
-function normalizeChatCards(cardsLike, eventIdLike) {
-  const cards = Array.isArray(cardsLike) ? cardsLike : [];
-  return cards
-    .map((card, index) => normalizeChatCard(card, eventIdLike, index))
-    .filter(Boolean)
-    .slice(0, 8);
-}
-
-function loadChatHistory() {
-  try {
-    if (!fs.existsSync(CHAT_HISTORY_PATH)) {
-      return createInitialChatHistory();
-    }
-    const raw = fs.readFileSync(CHAT_HISTORY_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    const events = Array.isArray(parsed?.events)
-      ? parsed.events
-          .filter((ev) => ev && typeof ev === "object")
-          .map((ev) => ({
-            id: Number(ev.id) || 0,
-            ts: String(ev.ts || new Date().toISOString()),
-            role: ev.role === "user" ? "user" : "bot",
-            source: String(ev.source || "dashboard"),
-            text: String(ev.text || ""),
-            from: typeof ev.from === "string" ? ev.from : undefined,
-            chatId: ev.chatId != null ? String(ev.chatId) : undefined,
-            cards: normalizeChatCards(ev.cards, Number(ev.id) || 0),
-          }))
-      : [];
-    const maxId = events.reduce((m, ev) => Math.max(m, Number(ev.id) || 0), 0);
-    return {
-      nextId: Number(parsed?.nextId) > maxId ? Number(parsed.nextId) : maxId + 1,
-      events: events.slice(-MAX_CHAT_EVENTS),
-    };
-  } catch {
-    return createInitialChatHistory();
-  }
-}
-
-const chatHistory = loadChatHistory();
-
-function saveChatHistory() {
-  try {
-    fs.mkdirSync(MEMORY_DIR, { recursive: true });
-    fs.writeFileSync(CHAT_HISTORY_PATH, JSON.stringify(chatHistory, null, 2), "utf8");
-  } catch {}
-}
-
-function appendChatEvent(eventLike) {
-  const item = eventLike && typeof eventLike === "object" ? eventLike : {};
-  const event = {
-    id: chatHistory.nextId,
-    ts: String(item.ts || new Date().toISOString()),
-    role: item.role === "user" ? "user" : "bot",
-    source: String(item.source || "dashboard"),
-    text: String(item.text || "").trim(),
-  };
-  if (!event.text) return null;
-  if (item.from != null) event.from = String(item.from);
-  if (item.chatId != null) event.chatId = String(item.chatId);
-  const cards = normalizeChatCards(item.cards, event.id);
-  if (cards.length) event.cards = cards;
-  chatHistory.nextId += 1;
-  chatHistory.events.push(event);
-  if (chatHistory.events.length > MAX_CHAT_EVENTS) {
-    chatHistory.events.splice(0, chatHistory.events.length - MAX_CHAT_EVENTS);
-  }
-  saveChatHistory();
-  return event;
-}
-
-function updateChatCardStatus(params = {}) {
-  const eventId = Number(params.eventId);
-  const cardId = String(params.cardId || "").trim();
-  const status = normalizeCardStatus(params.status);
-  if (!Number.isFinite(eventId) || eventId <= 0) {
-    return { ok: false, error: "eventId is required" };
-  }
-  if (!cardId) {
-    return { ok: false, error: "cardId is required" };
-  }
-  const event = (chatHistory.events || []).find((ev) => Number(ev?.id) === eventId);
-  if (!event) {
-    return { ok: false, error: "event not found" };
-  }
-  if (!Array.isArray(event.cards) || !event.cards.length) {
-    return { ok: false, error: "event has no cards" };
-  }
-  const card = event.cards.find((item) => String(item?.id || "").trim() === cardId);
-  if (!card) {
-    return { ok: false, error: "card not found" };
-  }
-  card.status = status;
-  saveChatHistory();
-  return { ok: true, event, card };
-}
+const {
+  chatHistory,
+  appendChatEvent,
+  updateChatCardStatus,
+} = createChatHistoryStore({
+  fsModule: fs,
+  memoryDir: MEMORY_DIR,
+  chatHistoryPath: CHAT_HISTORY_PATH,
+  maxChatEvents: MAX_CHAT_EVENTS,
+});
 
 function resolveOpenClawCommand() {
   const localBinName = process.platform === "win32" ? "openclaw.cmd" : "openclaw";
