@@ -546,6 +546,10 @@
       background: rgba(88,166,255,0.08);
       font-weight: 600;
     }
+    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time] { cursor: pointer; }
+    .strategy-feature-item .feature-sample-table tr[data-feature-bar-time]:hover {
+      background: rgba(88,166,255,0.08);
+    }
     .strategy-feature-item .feature-jump-btn {
       border: 1px solid rgba(88,166,255,0.45);
       border-radius: 6px;
@@ -10846,6 +10850,7 @@
           previewWindow: Math.max(60, Math.min(360, Number(featurePreviewWindowEl.value || 120) || 120)),
           presets: [],
         };
+        const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
 
         function switchStrategyLabTab(tabKeyLike) {
           const tabKey = String(tabKeyLike || '').trim() || 'feature';
@@ -10875,7 +10880,6 @@
           if (kind === 'ok') el.classList.add('ok');
           if (kind === 'err') el.classList.add('err');
         }
-        const FEATURE_FILTER_PRESET_KEY = 'thunderclaw.strategy.feature.presets.v1';
         function safeLocalReadJson(keyLike, fallbackLike) {
           const key = String(keyLike || '').trim();
           if (!key) return fallbackLike;
@@ -11370,10 +11374,11 @@
           }
           return 'value=' + value.toFixed(4);
         }
-        function buildFeatureSampleTable(featureLike, barsLike, indicatorLike) {
+        function buildFeatureSampleTable(featureLike, barsLike, indicatorLike, tfLike) {
           const feature = featureLike && typeof featureLike === 'object' ? featureLike : {};
           const bars = Array.isArray(barsLike) ? barsLike : [];
           const indicator = Array.isArray(indicatorLike) ? indicatorLike : [];
+          const tf = String(tfLike || featureViewState.previewTf || '1h').trim() || '1h';
           const params = feature.params && typeof feature.params === 'object' ? feature.params : {};
           const kind = String(feature.kind || 'custom').toLowerCase();
           const rows = [];
@@ -11385,6 +11390,7 @@
             const close = Number(bar.close);
             rows.push({
               idx: i,
+              timeSec: Number(bar.time),
               ts: fmtFeatureBarLabel(bar.time),
               close: Number.isFinite(close) ? close : null,
               value: value,
@@ -11393,16 +11399,33 @@
           }
           if (!rows.length) return '';
           const body = rows.map(function(row) {
-            return '<tr>'
+            const timeSec = Number(row.timeSec);
+            const timeAttr = Number.isFinite(timeSec) && timeSec > 0 ? String(Math.floor(timeSec)) : '';
+            const rowAttrs = timeAttr
+              ? (' data-feature-bar-time="' + escapeHtml(timeAttr) + '"'
+                + ' data-feature-tf="' + escapeHtml(tf) + '"'
+                + ' data-feature-value="' + escapeHtml(row.value.toFixed(6)) + '"'
+                + ' data-feature-label="' + escapeHtml(String(row.explain || '')) + '"'
+                + ' title="点击定位主K线"')
+              : '';
+            const jumpBtn = timeAttr
+              ? ('<button class="feature-jump-btn" type="button"'
+                + ' data-feature-bar-time="' + escapeHtml(timeAttr) + '"'
+                + ' data-feature-tf="' + escapeHtml(tf) + '"'
+                + ' data-feature-value="' + escapeHtml(row.value.toFixed(6)) + '"'
+                + ' data-feature-label="' + escapeHtml(String(row.explain || '')) + '">定位K线</button>')
+              : '-';
+            return '<tr' + rowAttrs + '>'
               + '<td>' + escapeHtml(String(row.ts)) + '</td>'
               + '<td>' + escapeHtml('#' + String(row.idx + 1)) + '</td>'
               + '<td>' + escapeHtml(row.close == null ? '-' : row.close.toFixed(2)) + '</td>'
               + '<td>' + escapeHtml(row.value.toFixed(4)) + '</td>'
               + '<td>' + escapeHtml(String(row.explain || '-')) + '</td>'
+              + '<td>' + jumpBtn + '</td>'
               + '</tr>';
           }).join('');
           return '<table class="feature-sample-table"><thead><tr>'
-            + '<th>时间</th><th>位置</th><th>Close</th><th>特征值</th><th>解释</th>'
+            + '<th>时间</th><th>位置</th><th>Close</th><th>特征值</th><th>解释</th><th>联动</th>'
             + '</tr></thead><tbody>' + body + '</tbody></table>';
         }
         function buildFeaturePreviewSvg(featureLike) {
@@ -11508,7 +11531,7 @@
             + '</svg>';
           return {
             svg: svg,
-            sampleTable: buildFeatureSampleTable(f, bars, indicator),
+            sampleTable: buildFeatureSampleTable(f, bars, indicator, String(resolved?.tf || '')),
             tf: String(resolved?.tf || '-'),
             windowSize: Number(resolved?.windowSize || bars.length || 0),
           };
@@ -11805,10 +11828,33 @@
         });
         featureListEl.addEventListener('click', function(ev) {
           const btn = ev.target && ev.target.closest ? ev.target.closest('[data-feature-jump-event]') : null;
-          if (!btn) return;
+          if (btn) {
+            ev.preventDefault();
+            const eventId = Number(btn.getAttribute('data-feature-jump-event') || '');
+            jumpToChatEvent(eventId);
+            return;
+          }
+          const sampleNode = ev.target && ev.target.closest
+            ? ev.target.closest('[data-feature-bar-time]')
+            : null;
+          if (!sampleNode) return;
           ev.preventDefault();
-          const eventId = Number(btn.getAttribute('data-feature-jump-event') || '');
-          jumpToChatEvent(eventId);
+          const sampleTime = Number(sampleNode.getAttribute('data-feature-bar-time') || '');
+          const sampleTf = String(sampleNode.getAttribute('data-feature-tf') || featureViewState.previewTf || 'auto');
+          const sampleValue = Number(sampleNode.getAttribute('data-feature-value') || '');
+          const sampleLabel = String(sampleNode.getAttribute('data-feature-label') || '');
+          const focused = focusKlineByFeatureSample({
+            timeSec: sampleTime,
+            tf: sampleTf,
+            value: sampleValue,
+            label: sampleLabel,
+          });
+          if (focused?.ok) {
+            const text = '已定位到 K 线：TF=' + String(focused.tf || '-') + '，bar#' + String(Number(focused.barIndex || 0) + 1);
+            setStatus(statusEl, text, 'ok');
+          } else {
+            setStatus(statusEl, '定位失败：当前周期未找到对应K线。', 'err');
+          }
         });
 
         fillBtn.addEventListener('click', function() {
@@ -11989,6 +12035,7 @@
       } catch (_) {}
       let activeOrderTradeId = null;
       let activeOrder = null;
+      let activeFeatureSampleFocus = null;
 
       function orderPnlColor(order, alpha) {
         const a = Number.isFinite(Number(alpha)) ? Number(alpha) : 0.42;
@@ -12068,6 +12115,30 @@
         return markers;
       }
 
+      function buildFeatureSampleMarkers() {
+        const focus = activeFeatureSampleFocus && typeof activeFeatureSampleFocus === 'object' ? activeFeatureSampleFocus : null;
+        if (!focus || !currentOhlcv.length) return [];
+        if (String(focus.tf || '') && String(focus.tf || '') !== String(currentTf || '')) return [];
+        const timeSec = Number(focus.timeSec);
+        if (!Number.isFinite(timeSec) || timeSec <= 0) return [];
+        const tfSec = TF_SECONDS[currentTf] || 60;
+        const snap = Math.floor(timeSec / tfSec) * tfSec;
+        const idx = findBarIndexAtOrAfter(snap);
+        if (idx < 0) return [];
+        const barTime = Number(currentOhlcv[idx]?.time);
+        if (!Number.isFinite(barTime)) return [];
+        const vText = Number.isFinite(Number(focus.value)) ? ('值=' + Number(focus.value).toFixed(4)) : '特征点';
+        const text = String(focus.label || '').trim();
+        return [{
+          time: barTime,
+          shape: 'circle',
+          position: 'aboveBar',
+          color: '#f2cc60',
+          text: text ? ('特征 ' + vText + ' · ' + text) : ('特征 ' + vText),
+          size: isTouchDevice ? 1.2 : 0.95,
+        }];
+      }
+
       function applyOrderFocusBadge() {
         if (!orderFocusBox || !orderFocusText) return;
         if (!activeOrder) {
@@ -12094,7 +12165,8 @@
       function applySeriesMarkers() {
         const base = (MARKERS_BY_TF[currentTf] || []).map(m => ({ ...m, time: m.time, size: isTouchDevice ? 1.2 : 0.75 }));
         const overlay = activeOrder ? buildOrderMarkers(activeOrder) : [];
-        candleSeries.setMarkers(base.concat(overlay));
+        const featureMarkers = buildFeatureSampleMarkers();
+        candleSeries.setMarkers(base.concat(overlay, featureMarkers));
       }
 
       function applyOrderBand() {
@@ -12443,6 +12515,38 @@
         lastDataFingerprint = barsFingerprint(currentOhlcv);
         updateHeaderStatus();
         if (liveEnabled) refreshCurrentTfBars('switch_tf');
+      }
+      function focusKlineByFeatureSample(sampleLike) {
+        const sample = sampleLike && typeof sampleLike === 'object' ? sampleLike : {};
+        const targetTf = String(sample.tf || currentTf || '1m').trim() || '1m';
+        const timeSecRaw = Number(sample.timeSec);
+        const value = Number(sample.value);
+        const label = String(sample.label || '').trim();
+        if (!Number.isFinite(timeSecRaw) || timeSecRaw <= 0) return { ok: false, reason: 'invalid_time' };
+        const available = Array.isArray(OHLCV_BY_TF?.[targetTf]) && OHLCV_BY_TF[targetTf].length;
+        if (available && targetTf !== currentTf) {
+          setTf(targetTf);
+          const tfSelect = document.getElementById('tf-select');
+          if (tfSelect) tfSelect.value = targetTf;
+        }
+        if (!currentOhlcv.length) return { ok: false, reason: 'no_ohlcv' };
+        const tfSec = TF_SECONDS[currentTf] || 60;
+        const snap = Math.floor(timeSecRaw / tfSec) * tfSec;
+        const idx = findBarIndexAtOrAfter(snap);
+        if (idx < 0) return { ok: false, reason: 'bar_not_found' };
+        activeFeatureSampleFocus = {
+          tf: currentTf,
+          timeSec: Number(currentOhlcv[idx]?.time || snap),
+          value: Number.isFinite(value) ? value : null,
+          label: label,
+        };
+        applySeriesMarkers();
+        chart.timeScale().setVisibleLogicalRange({
+          from: Math.max(0, idx - 36),
+          to: Math.min(currentOhlcv.length, idx + 24),
+        });
+        switchView('kline');
+        return { ok: true, tf: currentTf, barIndex: idx, barTime: activeFeatureSampleFocus.timeSec };
       }
       document.getElementById('tf-select').addEventListener('change', e => setTf(e.target.value));
       setTf('1m');
