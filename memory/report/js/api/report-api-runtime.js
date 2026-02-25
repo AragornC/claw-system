@@ -100,6 +100,17 @@
     return readJsonResponse(resp);
   }
 
+  async function postStrategyReplay(payloadLike) {
+    const payload = payloadLike && typeof payloadLike === "object" ? payloadLike : {};
+    const resp = await fetch("/api/strategy/entities/replay", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return readJsonResponse(resp);
+  }
+
   async function postStrategyPublish(payloadLike) {
     const payload = payloadLike && typeof payloadLike === "object" ? payloadLike : {};
     const resp = await fetch("/api/strategy/entities/publish", {
@@ -130,6 +141,7 @@
     fetchStrategyEntityDetail: fetchStrategyEntityDetail,
     fetchStrategyEntityAudits: fetchStrategyEntityAudits,
     postStrategyDraftSave: postStrategyDraftSave,
+    postStrategyReplay: postStrategyReplay,
     postStrategyPublish: postStrategyPublish,
     postStrategyStatus: postStrategyStatus,
   };

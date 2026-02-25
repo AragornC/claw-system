@@ -53,6 +53,9 @@
     const postStrategyDraftSave = typeof apiRuntime.postStrategyDraftSave === 'function'
       ? apiRuntime.postStrategyDraftSave
       : null;
+    const postStrategyReplay = typeof apiRuntime.postStrategyReplay === 'function'
+      ? apiRuntime.postStrategyReplay
+      : null;
     const postStrategyPublish = typeof apiRuntime.postStrategyPublish === 'function'
       ? apiRuntime.postStrategyPublish
       : null;
@@ -436,12 +439,16 @@
               });
             });
           }
-          const editorSaveBtn = strategyDetailBodyEl.querySelector('[data-sl-editor-action="save"]');
-          if (editorSaveBtn) {
-            editorSaveBtn.addEventListener('click', function() {
+          strategyDetailBodyEl.querySelectorAll('[data-sl-editor-action="save"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
               void saveStrategyDraftFromEditor();
             });
-          }
+          });
+          strategyDetailBodyEl.querySelectorAll('[data-sl-editor-action="replay"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              void runStrategyReplayFromEditor();
+            });
+          });
           strategyDetailBodyEl.querySelectorAll('[data-sl-trading-mode]').forEach(function(btn) {
             btn.addEventListener('click', function(ev) {
               ev.preventDefault();
@@ -514,33 +521,201 @@
             pushToken();
             return out.slice(0, 32);
           };
+          const readNumberField = function(fieldLike, fallbackLike, minLike, maxLike, integerLike) {
+            const raw = getField(fieldLike);
+            if (!raw) return Number(fallbackLike || 0);
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return Number(fallbackLike || 0);
+            let out = n;
+            if (Number.isFinite(Number(minLike)) && out < Number(minLike)) out = Number(minLike);
+            if (Number.isFinite(Number(maxLike)) && out > Number(maxLike)) out = Number(maxLike);
+            if (integerLike) out = Math.round(out);
+            return out;
+          };
+          const readTextField = function(fieldLike, fallbackLike) {
+            const raw = getField(fieldLike);
+            return raw || String(fallbackLike || '').trim();
+          };
+          const detailsLayers = detail?.details?.layers && typeof detail.details.layers === 'object'
+            ? detail.details.layers
+            : {};
           const featureRefs = parseFeatureRefs(getField('featureRefs'));
           const signalLogic = getField('signalLogic');
           const riskPauseCondition = getField('riskPauseCondition');
           const version = detail.version && typeof detail.version === 'object' ? detail.version : {};
-          const positionLayer = version.positionLayer && typeof version.positionLayer === 'object' ? version.positionLayer : {};
-          const executionLayer = version.executionLayer && typeof version.executionLayer === 'object' ? version.executionLayer : {};
-          const riskLayer = version.riskLayer && typeof version.riskLayer === 'object' ? version.riskLayer : {};
+          const signalLayerBase = detailsLayers.signalLayer && typeof detailsLayers.signalLayer === 'object'
+            ? detailsLayers.signalLayer
+            : (version.signalLayer && typeof version.signalLayer === 'object' ? version.signalLayer : {});
+          const positionLayerBase = detailsLayers.positionLayer && typeof detailsLayers.positionLayer === 'object'
+            ? detailsLayers.positionLayer
+            : (version.positionLayer && typeof version.positionLayer === 'object' ? version.positionLayer : {});
+          const executionLayerBase = detailsLayers.executionLayer && typeof detailsLayers.executionLayer === 'object'
+            ? detailsLayers.executionLayer
+            : (version.executionLayer && typeof version.executionLayer === 'object' ? version.executionLayer : {});
+          const riskLayerBase = detailsLayers.riskLayer && typeof detailsLayers.riskLayer === 'object'
+            ? detailsLayers.riskLayer
+            : (version.riskLayer && typeof version.riskLayer === 'object' ? version.riskLayer : {});
+          const signalParamsBase = signalLayerBase.params && typeof signalLayerBase.params === 'object'
+            ? signalLayerBase.params
+            : {};
           return {
             strategyId: String(detail.strategy.strategyId || ''),
             name: getField('name') || String(detail.strategy.name || ''),
             description: getField('description') || String(detail.strategy.description || ''),
             signalLayer: {
               featureRefs: featureRefs,
-              signalLogic: signalLogic || String(version?.signalLayer?.signalLogic || ''),
-              params: version?.signalLayer?.params && typeof version.signalLayer.params === 'object'
-                ? version.signalLayer.params
-                : {},
+              signalLogic: signalLogic || String(signalLayerBase.signalLogic || ''),
+              signalType: readTextField('signalType', signalLayerBase.signalType || 'composite'),
+              params: {
+                ...signalParamsBase,
+                longThreshold: readNumberField('longThreshold', signalParamsBase.longThreshold || 0.55, 0.05, 1, false),
+                shortThreshold: readNumberField('shortThreshold', signalParamsBase.shortThreshold || 0.55, 0.05, 1, false),
+                signalMargin: readNumberField('signalMargin', signalParamsBase.signalMargin || 0.08, 0.01, 0.5, false),
+                maxHoldBars: readNumberField('maxHoldBars', signalParamsBase.maxHoldBars || 96, 4, 3000, true),
+              },
             },
-            positionLayer: positionLayer,
-            executionLayer: executionLayer,
+            positionLayer: {
+              ...positionLayerBase,
+              mode: readTextField('positionMode', positionLayerBase.mode || 'risk_budget'),
+              maxPositions: readNumberField('maxPositions', positionLayerBase.maxPositions || 1, 1, 20, true),
+              maxExposurePct: readNumberField('maxExposurePct', positionLayerBase.maxExposurePct || 35, 1, 100, false),
+              minNotional: readNumberField('minNotional', positionLayerBase.minNotional || 10, 1, 1000000, false),
+              maxNotional: readNumberField('maxNotional', positionLayerBase.maxNotional || 80, 1, 2000000, false),
+              leverageLimit: readNumberField('leverageLimit', positionLayerBase.leverageLimit || 10, 1, 125, false),
+            },
+            executionLayer: {
+              ...executionLayerBase,
+              orderMode: readTextField('orderMode', executionLayerBase.orderMode || 'market'),
+              slippageBps: readNumberField('slippageBps', executionLayerBase.slippageBps || 6, 0, 300, false),
+              feeModel: readTextField('feeModel', executionLayerBase.feeModel || 'taker'),
+              retryCount: readNumberField('retryCount', executionLayerBase.retryCount || 2, 0, 20, true),
+              retryBackoffMs: readNumberField('retryBackoffMs', executionLayerBase.retryBackoffMs || 400, 0, 10000, true),
+            },
             riskLayer: {
-              ...riskLayer,
-              riskPauseCondition: riskPauseCondition || String(riskLayer.riskPauseCondition || ''),
+              ...riskLayerBase,
+              stopLossPct: readNumberField('stopLossPct', riskLayerBase.stopLossPct || 2.5, 0.1, 80, false),
+              takeProfitPct: readNumberField('takeProfitPct', riskLayerBase.takeProfitPct || 5.5, 0.1, 400, false),
+              maxDrawdownPct: readNumberField('maxDrawdownPct', riskLayerBase.maxDrawdownPct || 18, 0.1, 95, false),
+              frequencyLimitPerDay: readNumberField('frequencyLimitPerDay', riskLayerBase.frequencyLimitPerDay || 12, 1, 1000, true),
+              maxConsecutiveLoss: readNumberField('maxConsecutiveLoss', riskLayerBase.maxConsecutiveLoss || 3, 1, 100, true),
+              riskPauseCondition: riskPauseCondition || String(riskLayerBase.riskPauseCondition || ''),
             },
             source: 'strategy_console',
             reason: '编辑器保存草稿',
           };
+        }
+        function collectReplayBars(rangeDaysLike) {
+          const tfPriority = ['1h', '15m', '4h', '5m', '1d', '1m'];
+          const tfSecMap = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+          const rangeDays = Math.max(1, Math.min(365, Number(rangeDaysLike || 30) || 30));
+          const normalizeBars = function(rowsLike) {
+            const rows = Array.isArray(rowsLike) ? rowsLike : [];
+            return rows.map(function(itemLike) {
+              const row = itemLike && typeof itemLike === 'object' ? itemLike : {};
+              const timeRaw = Math.floor(Number(row.time || row.ts || row.t || 0));
+              const time = timeRaw > 9999999999 ? Math.floor(timeRaw / 1000) : timeRaw;
+              const open = Number(row.open);
+              const high = Number(row.high);
+              const low = Number(row.low);
+              const close = Number(row.close);
+              const volume = Number(row.volume || 0);
+              if (!Number.isFinite(time) || time <= 0) return null;
+              if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+              return {
+                time: time,
+                open: open,
+                high: high,
+                low: low,
+                close: close,
+                volume: Number.isFinite(volume) ? Math.max(0, volume) : 0,
+              };
+            }).filter(Boolean).sort(function(a, b) { return Number(a.time || 0) - Number(b.time || 0); });
+          };
+          let pickedTf = '';
+          let pickedBars = [];
+          tfPriority.forEach(function(tf) {
+            const rows = normalizeBars(OHLCV_BY_TF && OHLCV_BY_TF[tf]);
+            if (!rows.length) return;
+            if (!pickedBars.length) {
+              pickedBars = rows;
+              pickedTf = tf;
+              return;
+            }
+            if (rows.length > pickedBars.length && tf === '1h') {
+              pickedBars = rows;
+              pickedTf = tf;
+            }
+          });
+          if (!pickedBars.length) {
+            const anyKey = Object.keys(OHLCV_BY_TF || {}).find(function(key) {
+              return Array.isArray(OHLCV_BY_TF[key]) && OHLCV_BY_TF[key].length;
+            });
+            pickedTf = String(anyKey || '1h');
+            pickedBars = normalizeBars(anyKey ? OHLCV_BY_TF[anyKey] : []);
+          }
+          const tfSec = Number(tfSecMap[pickedTf] || 3600);
+          const target = Math.max(120, Math.min(3600, Math.floor(rangeDays * 86400 / tfSec)));
+          return {
+            tf: pickedTf || '1h',
+            bars: pickedBars.slice(-target),
+          };
+        }
+        async function runStrategyReplayFromEditor() {
+          const payload = collectStrategyEditorPayload();
+          if (!payload || !payload.strategyId) {
+            setStrategyDetailStatus('回放失败：策略ID缺失。', 'err');
+            return;
+          }
+          if (!postStrategyDraftSave || !postStrategyReplay) {
+            setStrategyDetailStatus('回放失败：回放接口未加载。', 'err');
+            return;
+          }
+          setStrategyDetailStatus('正在执行策略回放（真实数据）...', '');
+          try {
+            await postStrategyDraftSave({
+              ...payload,
+              reason: '执行回放前保存草稿',
+            });
+            const barsPack = collectReplayBars(strategyOpsState.selectedRangeDays || 30);
+            if (!Array.isArray(barsPack.bars) || !barsPack.bars.length) {
+              setStrategyDetailStatus('回放失败：当前没有可用K线数据。', 'err');
+              return;
+            }
+            const replay = await postStrategyReplay({
+              strategyId: payload.strategyId,
+              rangeDays: strategyOpsState.selectedRangeDays,
+              tradeType: strategyOpsState.selectedTradeType,
+              tf: barsPack.tf,
+              bars: barsPack.bars,
+              draftConfig: {
+                signalLayer: payload.signalLayer,
+                positionLayer: payload.positionLayer,
+                riskLayer: payload.riskLayer,
+                executionLayer: payload.executionLayer,
+              },
+              source: 'strategy_console_replay',
+              label: String(payload.name || '策略') + ' · 调参回放',
+            });
+            strategyOpsState.selectedTradingMode = 'backtest';
+            strategyOpsState.selectedPlaybackId = String(replay?.playbackId || '').trim();
+            await reloadStrategyOpsList();
+            await openStrategyDetail(payload.strategyId, {
+              keepOpen: true,
+              rangeDays: strategyOpsState.selectedRangeDays,
+              tradeType: strategyOpsState.selectedTradeType,
+              tradingMode: 'backtest',
+              playbackId: strategyOpsState.selectedPlaybackId,
+            });
+            const ret = Number(replay?.summary?.latestReturnPct || 0);
+            const dd = Number(replay?.summary?.maxDrawdownPct || 0);
+            const trades = Math.max(0, Math.floor(Number(replay?.summary?.tradeCount || 0) || 0));
+            setStrategyDetailStatus(
+              '回放完成：PnL ' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '% · 回撤 ' + dd.toFixed(2) + '% · 交易 ' + String(trades) + ' 笔',
+              'ok',
+            );
+          } catch (err) {
+            setStrategyDetailStatus('回放失败：' + String(err?.message || err), 'err');
+          }
         }
         async function saveStrategyDraftFromEditor() {
           const payload = collectStrategyEditorPayload();
@@ -570,7 +745,7 @@
         }
         async function openStrategyDetail(strategyIdLike, optionsLike) {
           const strategyId = String(strategyIdLike || '').trim();
-          if (!strategyId || !strategyDetailModalEl || !strategyDetailBodyEl) return;
+          if (!strategyId || !strategyDetailModalEl || !strategyDetailBodyEl) return null;
           const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
           const rangeDays = Math.max(1, Math.min(365, Number(options.rangeDays || strategyOpsState.selectedRangeDays || 30) || 30));
           const tradeType = String(options.tradeType || strategyOpsState.selectedTradeType || 'all');
@@ -667,8 +842,10 @@
               document.body.setAttribute('data-strategy-modal-locked', '1');
             }
             setStrategyDetailStatus('详情已更新。', 'ok');
+            return detail;
           } catch (err) {
             setStrategyDetailStatus('加载失败：' + String(err?.message || err), 'err');
+            return null;
           }
         }
         async function doStrategyStatusAction(strategyIdLike, targetStatusLike, actionLike, reasonLike) {

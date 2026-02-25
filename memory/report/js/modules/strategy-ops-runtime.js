@@ -403,6 +403,57 @@
     }).join("");
   }
 
+  function renderEditableNumberFieldRuntime(labelLike, fieldLike, valueLike, optionsLike) {
+    const label = soText(labelLike || "");
+    const field = soText(fieldLike || "");
+    const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    const minAttr = Number.isFinite(Number(options.min)) ? (' min="' + String(Number(options.min)) + '"') : "";
+    const maxAttr = Number.isFinite(Number(options.max)) ? (' max="' + String(Number(options.max)) + '"') : "";
+    const stepAttr = Number.isFinite(Number(options.step)) ? (' step="' + String(Number(options.step)) + '"') : "";
+    const suffix = soText(options.suffix || "");
+    const value = Number.isFinite(Number(valueLike)) ? Number(valueLike) : Number(options.fallback || 0);
+    return ''
+      + '<label class="strategy-layer-field">'
+      + '<span class="k">' + soEsc(label) + "</span>"
+      + '<div class="input-wrap">'
+      + '<input type="number" data-sl-edit-field="' + soEsc(field) + '" value="' + soEsc(String(value)) + '"' + minAttr + maxAttr + stepAttr + ">"
+      + (suffix ? ('<em>' + soEsc(suffix) + "</em>") : "")
+      + "</div>"
+      + "</label>";
+  }
+
+  function renderEditableTextFieldRuntime(labelLike, fieldLike, valueLike, optionsLike) {
+    const label = soText(labelLike || "");
+    const field = soText(fieldLike || "");
+    const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    const placeholder = soText(options.placeholder || "");
+    const value = soText(valueLike || "");
+    return ''
+      + '<label class="strategy-layer-field">'
+      + '<span class="k">' + soEsc(label) + "</span>"
+      + '<input type="text" data-sl-edit-field="' + soEsc(field) + '" value="' + soEsc(value) + '" placeholder="' + soEsc(placeholder) + '">'
+      + "</label>";
+  }
+
+  function renderEditableSelectFieldRuntime(labelLike, fieldLike, valueLike, optionsLike) {
+    const label = soText(labelLike || "");
+    const field = soText(fieldLike || "");
+    const value = soText(valueLike || "");
+    const options = Array.isArray(optionsLike) ? optionsLike : [];
+    const optionsHtml = options.map(function(itemLike) {
+      const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+      const key = soText(item.value || "");
+      const text = soText(item.label || key);
+      const selected = key === value ? ' selected' : "";
+      return '<option value="' + soEsc(key) + '"' + selected + ">" + soEsc(text) + "</option>";
+    }).join("");
+    return ''
+      + '<label class="strategy-layer-field">'
+      + '<span class="k">' + soEsc(label) + "</span>"
+      + '<select data-sl-edit-field="' + soEsc(field) + '">' + optionsHtml + "</select>"
+      + "</label>";
+  }
+
   function renderBasicInfoSectionRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const strategy = detail.strategy && typeof detail.strategy === "object" ? detail.strategy : {};
@@ -472,61 +523,73 @@
         + "</div>"
         + "</div>";
     }).join("");
-    const signalRows = renderLayerKvRowsRuntime([
-      { k: "信号类型", v: soText(signalLayer.signalType || "composite", "composite") },
-      { k: "多头阈值", v: String(soNum(signalLayer?.params?.longThreshold, 0.55)) },
-      { k: "空头阈值", v: String(soNum(signalLayer?.params?.shortThreshold, 0.55)) },
-      { k: "信号边际", v: String(soNum(signalLayer?.params?.signalMargin, 0.08)) },
-    ]);
-    const positionRows = renderLayerKvRowsRuntime([
-      { k: "仓位模式", v: soText(positionLayer.mode || "risk_budget", "risk_budget") },
-      { k: "最大持仓数", v: String(Math.max(1, Math.floor(soNum(positionLayer.maxPositions, 1)))) },
-      { k: "最大敞口(%)", v: String(soNum(positionLayer.maxExposurePct, 35)) },
-      { k: "最小名义仓位", v: String(soNum(positionLayer.minNotional, 10)) },
-      { k: "最大名义仓位", v: String(soNum(positionLayer.maxNotional, 80)) },
-    ]);
-    const riskRows = renderLayerKvRowsRuntime([
-      { k: "止损(%)", v: String(soNum(riskLayer.stopLossPct, 2.5)) },
-      { k: "止盈(%)", v: String(soNum(riskLayer.takeProfitPct, 5.5)) },
-      { k: "最大回撤(%)", v: String(soNum(riskLayer.maxDrawdownPct, 18)) },
-      { k: "日频上限", v: String(Math.max(1, Math.floor(soNum(riskLayer.frequencyLimitPerDay, 12)))) },
-      { k: "连亏限制", v: String(Math.max(1, Math.floor(soNum(riskLayer.maxConsecutiveLoss, 3)))) },
-    ]);
-    const executionRows = renderLayerKvRowsRuntime([
-      { k: "下单模式", v: soText(executionLayer.orderMode || "market", "market") },
-      { k: "滑点(bps)", v: String(soNum(executionLayer.slippageBps, 6)) },
-      { k: "手续费模型", v: soText(executionLayer.feeModel || "taker", "taker") },
-      { k: "重试次数", v: String(Math.max(0, Math.floor(soNum(executionLayer.retryCount, 0)))) },
-      { k: "重试退避(ms)", v: String(Math.max(0, Math.floor(soNum(executionLayer.retryBackoffMs, 0)))) },
-    ]);
+    const signalParam = signalLayer?.params && typeof signalLayer.params === "object" ? signalLayer.params : {};
+    const signalControls = ""
+      + renderEditableSelectFieldRuntime("信号类型", "signalType", soText(signalLayer.signalType || "composite"), [
+        { value: "composite", label: "composite" },
+        { value: "weighted", label: "weighted" },
+        { value: "rule", label: "rule" },
+      ])
+      + renderEditableNumberFieldRuntime("多头阈值", "longThreshold", soNum(signalParam.longThreshold, 0.55), { min: 0.05, max: 1, step: 0.01 })
+      + renderEditableNumberFieldRuntime("空头阈值", "shortThreshold", soNum(signalParam.shortThreshold, 0.55), { min: 0.05, max: 1, step: 0.01 })
+      + renderEditableNumberFieldRuntime("信号边际", "signalMargin", soNum(signalParam.signalMargin, 0.08), { min: 0.01, max: 0.5, step: 0.01 })
+      + renderEditableNumberFieldRuntime("最大持仓K线", "maxHoldBars", soNum(signalParam.maxHoldBars, 96), { min: 4, max: 3000, step: 1 });
+    const positionControls = ""
+      + renderEditableTextFieldRuntime("仓位模式", "positionMode", soText(positionLayer.mode || "risk_budget"))
+      + renderEditableNumberFieldRuntime("最大持仓数", "maxPositions", Math.max(1, Math.floor(soNum(positionLayer.maxPositions, 1))), { min: 1, max: 20, step: 1 })
+      + renderEditableNumberFieldRuntime("最大敞口", "maxExposurePct", soNum(positionLayer.maxExposurePct, 35), { min: 1, max: 100, step: 0.5, suffix: "%" })
+      + renderEditableNumberFieldRuntime("最小名义仓位", "minNotional", soNum(positionLayer.minNotional, 10), { min: 1, max: 1000000, step: 1 })
+      + renderEditableNumberFieldRuntime("最大名义仓位", "maxNotional", soNum(positionLayer.maxNotional, 80), { min: 1, max: 2000000, step: 1 })
+      + renderEditableNumberFieldRuntime("杠杆上限", "leverageLimit", soNum(positionLayer.leverageLimit, 10), { min: 1, max: 125, step: 0.5 });
+    const riskControls = ""
+      + renderEditableNumberFieldRuntime("止损", "stopLossPct", soNum(riskLayer.stopLossPct, 2.5), { min: 0.1, max: 80, step: 0.1, suffix: "%" })
+      + renderEditableNumberFieldRuntime("止盈", "takeProfitPct", soNum(riskLayer.takeProfitPct, 5.5), { min: 0.1, max: 400, step: 0.1, suffix: "%" })
+      + renderEditableNumberFieldRuntime("最大回撤", "maxDrawdownPct", soNum(riskLayer.maxDrawdownPct, 18), { min: 0.1, max: 95, step: 0.1, suffix: "%" })
+      + renderEditableNumberFieldRuntime("日频上限", "frequencyLimitPerDay", Math.max(1, Math.floor(soNum(riskLayer.frequencyLimitPerDay, 12))), { min: 1, max: 1000, step: 1 })
+      + renderEditableNumberFieldRuntime("连亏限制", "maxConsecutiveLoss", Math.max(1, Math.floor(soNum(riskLayer.maxConsecutiveLoss, 3))), { min: 1, max: 100, step: 1 });
+    const executionControls = ""
+      + renderEditableSelectFieldRuntime("下单模式", "orderMode", soText(executionLayer.orderMode || "market"), [
+        { value: "market", label: "market" },
+        { value: "limit", label: "limit" },
+      ])
+      + renderEditableNumberFieldRuntime("滑点", "slippageBps", soNum(executionLayer.slippageBps, 6), { min: 0, max: 300, step: 0.1, suffix: "bps" })
+      + renderEditableSelectFieldRuntime("手续费模型", "feeModel", soText(executionLayer.feeModel || "taker"), [
+        { value: "taker", label: "taker" },
+        { value: "maker", label: "maker" },
+      ])
+      + renderEditableNumberFieldRuntime("重试次数", "retryCount", Math.max(0, Math.floor(soNum(executionLayer.retryCount, 2))), { min: 0, max: 20, step: 1 })
+      + renderEditableNumberFieldRuntime("重试退避", "retryBackoffMs", Math.max(0, Math.floor(soNum(executionLayer.retryBackoffMs, 400))), { min: 0, max: 10000, step: 50, suffix: "ms" });
     return ""
       + '<section class="strategy-detail-section">'
       + '<div class="strategy-detail-section-title">2-策略详情</div>'
-      + '<div class="strategy-layer-grid">'
-      + '<div class="strategy-layer-card signal">'
-      + '<div class="strategy-layer-head"><span>信号层</span><small>策略表达式 + 特征关系</small></div>'
-      + '<div class="strategy-layer-summary">' + signalRows + "</div>"
-      + '<div class="strategy-chart-title"><span>策略表达式</span><span>用于事件驱动执行</span></div>'
+      + '<div class="strategy-expression-layer">'
+      + '<div class="strategy-chart-title"><span>第一层：整体策略表达式</span><span>这里定义总策略逻辑（可直接编辑）</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="signalLogic" placeholder="请输入策略表达式/信号逻辑">' + soEsc(expression) + "</textarea>"
       + '<div class="strategy-chart-title"><span>特征引用</span><span>输入支持英文逗号/换行分隔</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="featureRefs" placeholder="feature_id_1, feature_id_2 ...">' + soEsc(featureRefsText) + "</textarea>"
+      + "</div>"
+      + '<div class="strategy-chart-title"><span>第二层：四层可调参数与特征分布</span><span>调整参数后可直接执行回放</span></div>'
+      + '<div class="strategy-layer-grid">'
+      + '<div class="strategy-layer-card signal">'
+      + '<div class="strategy-layer-head"><span>信号层</span><small>信号阈值 + 特征类型分布</small></div>'
+      + '<div class="strategy-layer-controls">' + signalControls + "</div>"
       + '<div class="strategy-feature-groups">'
       + (groupedFeatureHtml || '<div class="strategy-relation-empty">暂无特征关系</div>')
       + "</div>"
       + "</div>"
       + '<div class="strategy-layer-card position">'
       + '<div class="strategy-layer-head"><span>仓位层</span><small>资金分配与仓位边界</small></div>'
-      + '<div class="strategy-layer-summary">' + positionRows + "</div>"
+      + '<div class="strategy-layer-controls">' + positionControls + "</div>"
       + "</div>"
       + '<div class="strategy-layer-card risk">'
       + '<div class="strategy-layer-head"><span>风控层</span><small>止损止盈/回撤/风控暂停</small></div>'
-      + '<div class="strategy-layer-summary">' + riskRows + "</div>"
+      + '<div class="strategy-layer-controls">' + riskControls + "</div>"
       + '<div class="strategy-chart-title"><span>风控暂停条件</span><span>用于运行时风险状态切换</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="riskPauseCondition" placeholder="例如：max_drawdown > 18% 或 连续亏损 >= 3">' + soEsc(soText(riskLayer.riskPauseCondition || "")) + "</textarea>"
       + "</div>"
       + '<div class="strategy-layer-card execution">'
       + '<div class="strategy-layer-head"><span>执行层</span><small>成交模型/滑点/手续费/重试</small></div>'
-      + '<div class="strategy-layer-summary">' + executionRows + "</div>"
+      + '<div class="strategy-layer-controls">' + executionControls + "</div>"
       + "</div>"
       + "</div>"
       + "</section>";
@@ -600,6 +663,7 @@
       + '<span>交易数：' + soEsc(String(Math.max(0, Math.floor(soNum(summary.tradeCount, 0))))) + "</span>"
       + '<span>收益：' + soEsc(soFmtPct(summary.latestReturnPct, 2)) + "</span>"
       + '<span>回撤：' + soEsc(soFmtPct(summary.maxDrawdownPct, 2)) + "</span>"
+      + '<button type="button" class="strategy-run-replay-btn" data-sl-editor-action="replay">执行策略回放</button>'
       + "</div>"
       + '<div class="' + chartPanelClass + '">'
       + playbackPanel
@@ -625,7 +689,7 @@
       + renderBasicInfoSectionRuntime(detail)
       + renderStrategyDetailSectionRuntime(detail)
       + tradingOut.html
-      + '<div class="strategy-detail-editor"><div class="actions"><button type="button" class="primary" data-sl-editor-action="save">保存草稿</button></div></div>'
+      + '<div class="strategy-detail-editor"><div class="actions"><button type="button" data-sl-editor-action="replay">执行回放</button><button type="button" class="primary" data-sl-editor-action="save">保存草稿</button></div></div>'
       + "</div>";
     return {
       html: html,
@@ -670,11 +734,43 @@
   function renderTradePopoverRuntime(eventLike) {
     const event = eventLike && typeof eventLike === "object" ? eventLike : null;
     if (!event) return "";
+    const reasonAnalysis = event.reasonAnalysis && typeof event.reasonAnalysis === "object"
+      ? event.reasonAnalysis
+      : null;
+    let analysisHtml = "";
+    if (reasonAnalysis) {
+      const topFeatures = Array.isArray(reasonAnalysis.topFeatures) ? reasonAnalysis.topFeatures.slice(0, 4) : [];
+      const blocked = Array.isArray(reasonAnalysis.blockedReasons) ? reasonAnalysis.blockedReasons.slice(0, 4) : [];
+      const summaryText = soText(reasonAnalysis.trigger || reasonAnalysis.summary || "", "");
+      const scoreText = Number.isFinite(Number(reasonAnalysis.longScore)) || Number.isFinite(Number(reasonAnalysis.shortScore))
+        ? ('L=' + soNum(reasonAnalysis.longScore, 0).toFixed(3) + ' / S=' + soNum(reasonAnalysis.shortScore, 0).toFixed(3))
+        : "";
+      analysisHtml = ""
+        + '<div class="strategy-trade-analysis">'
+        + (summaryText ? ('<div class="row"><span>命中规则</span><b>' + soEsc(summaryText) + "</b></div>") : "")
+        + (scoreText ? ('<div class="row"><span>信号分数</span><b>' + soEsc(scoreText) + "</b></div>") : "");
+      if (blocked.length) {
+        analysisHtml += '<div class="row"><span>阻断因素</span><b>' + soEsc(blocked.join(" / ")) + "</b></div>";
+      }
+      if (topFeatures.length) {
+        analysisHtml += '<div class="hits">'
+          + topFeatures.map(function(item) {
+            const row = item && typeof item === "object" ? item : {};
+            const meta = [soText(row.category || ""), Number(soNum(row.score, 0)).toFixed(3), "值=" + Number(soNum(row.value, 0)).toFixed(4)]
+              .filter(Boolean)
+              .join(" · ");
+            return '<div class="hit"><span>' + soEsc(soText(row.featureName || row.featureRef || "-")) + '</span><em>' + soEsc(meta) + "</em></div>";
+          }).join("")
+          + "</div>";
+      }
+      analysisHtml += "</div>";
+    }
     return ""
       + "<div><strong>" + soEsc(soTradeTypeLabel(event.tradeType || "")) + "</strong> · " + soEsc(soFmtTs(new Date(soNum(event.time, 0) * 1000).toISOString())) + "</div>"
       + "<div>价格：" + soEsc(String(soNum(event.price, 0).toFixed(2))) + " · 数量：" + soEsc(String(soNum(event.quantity, 0).toFixed(5))) + "</div>"
       + "<div>手续费：" + soEsc(String(soNum(event.fee, 0).toFixed(4))) + " · 滑点：" + soEsc(String(soNum(event.slippageBps, 0).toFixed(2))) + " bps</div>"
-      + "<div>触发：" + soEsc(soText(event.reasonRule || "-")) + "</div>";
+      + "<div>触发：" + soEsc(soText(event.reasonRule || "-")) + "</div>"
+      + analysisHtml;
   }
 
   globalObj.strategyOpsRuntime = {
