@@ -617,7 +617,7 @@ export function createStrategyLabStore(deps = {}) {
         ...summary,
       });
     });
-    if (!rows.length && strategy.draftConfig && typeof strategy.draftConfig === "object") {
+    if (strategy.draftConfig && typeof strategy.draftConfig === "object") {
       try {
         const featureLookup = buildFeatureLookup(store.features || []);
         const draftFeatureRefs = normalizeFeatureRefs(strategy?.draftConfig?.signalLayer?.featureRefs || []);
@@ -1184,6 +1184,92 @@ export function createStrategyLabStore(deps = {}) {
     }
     saveStore();
     return { artifact, artifactId: artifact.artifactId, version: 1 };
+  }
+
+  function runStrategyReplay(paramsLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const strategyId = toText(params.strategyId || "");
+    if (!strategyId) throw new Error("strategyId is required");
+    const strategy = resolveStrategyById(store, strategyId);
+    if (!strategy) throw new Error("strategy not found");
+    const rangeDays = normalizeRangeDays(params.rangeDays || 30);
+    const tradeType = normalizeTradeType(params.tradeType || "all");
+    const draftInput = params.draftConfig && typeof params.draftConfig === "object"
+      ? params.draftConfig
+      : (strategy.draftConfig && typeof strategy.draftConfig === "object" ? strategy.draftConfig : {});
+    const draftConfig = buildStrategyDraftPayload(draftInput);
+    const featureLookup = buildFeatureLookup(store.features || []);
+    const lockedFeatureVersions = lockFeatureVersions(draftConfig?.signalLayer?.featureRefs || [], featureLookup);
+    const out = strategyExecutionEngine.runBacktest({
+      strategy: {
+        ...strategy,
+        draftConfig,
+      },
+      version: {
+        strategyVersionId: "",
+        strategyId: toText(strategy.strategyId || ""),
+        versionNo: 0,
+        versionTag: "draft_replay",
+        signalLayer: draftConfig.signalLayer || {},
+        positionLayer: draftConfig.positionLayer || {},
+        riskLayer: draftConfig.riskLayer || {},
+        executionLayer: draftConfig.executionLayer || {},
+        lockedFeatureVersions,
+      },
+      features: store.features || [],
+      bars: Array.isArray(params.bars) ? params.bars : [],
+      rangeDays,
+    });
+    const executionReport = out?.executionReport && typeof out.executionReport === "object"
+      ? out.executionReport
+      : null;
+    if (!executionReport) throw new Error("strategy replay failed");
+    const summary = summarizeExecutionReport(executionReport, {
+      latestReturnPct: Number(out?.summary?.latestReturnPct || 0) || 0,
+      maxDrawdownPct: Number(out?.summary?.maxDrawdownPct || 0) || 0,
+      tradeCount: Number(out?.summary?.tradeCount || 0) || 0,
+    });
+    const artifactResult = reportArtifact({
+      source: toText(meta.source || "strategy_replay"),
+      query: toText(meta.query || ""),
+      label: toText(meta.label || (strategy.name + " · 回放")),
+      config: {
+        strategyId: strategyId,
+        strategy: toText(strategy.name || strategyId),
+        marketMode: "backtest",
+        rangeDays,
+        tradeType,
+        tf: toText(params.tf || ""),
+        bars: Math.max(0, Math.floor(Number(Array.isArray(params.bars) ? params.bars.length : 0))),
+      },
+      result: {
+        strategyId: strategyId,
+        strategy: toText(strategy.name || strategyId),
+        marketMode: "backtest",
+        tradeCount: Number(summary.tradeCount || 0) || 0,
+        winRate: Number(out?.summary?.winRate || 0) || 0,
+        netPnlPct: Number(summary.latestReturnPct || 0) || 0,
+        maxDrawdownPct: Number(summary.maxDrawdownPct || 0) || 0,
+        executionReport,
+      },
+    });
+    const filtered = filterExecutionReport(executionReport, { rangeDays, tradeType });
+    return {
+      strategyId,
+      artifactId: toText(artifactResult?.artifactId || ""),
+      playbackId: "artifact:" + toText(artifactResult?.artifactId || ""),
+      summary,
+      visualization: {
+        rangeDays: filtered.rangeDays,
+        tradeType: filtered.tradeType,
+        events: filtered.report.events || [],
+        equityCurve: filtered.report.equityCurve || [],
+        drawdownCurve: filtered.report.drawdownCurve || [],
+        summary,
+      },
+    };
   }
 
   function listStrategies(options = {}) {
@@ -1893,6 +1979,7 @@ export function createStrategyLabStore(deps = {}) {
     proposeVersionsFromMessage,
     evaluateVersion,
     reportArtifact,
+    runStrategyReplay,
     getStats,
   };
 }

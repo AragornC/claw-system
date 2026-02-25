@@ -445,6 +445,33 @@ export function createStrategyLabHandlers(deps = {}) {
     });
   }
 
+  async function handleStrategyEntityReplay(req, res) {
+    if (typeof strategyLabStore.runStrategyReplay !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy replay is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    const strategyId = toText(payload.strategyId || "");
+    if (!strategyId) {
+      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.runStrategyReplay(payload, {
+        source: toText(payload.source || "strategy_console_replay"),
+        label: toText(payload.label || ""),
+        query: toText(payload.query || ""),
+      });
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "strategy replay failed") });
+    }
+  }
+
   return {
     handleStrategyFeatures,
     handleStrategyVersions,
@@ -459,5 +486,6 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyEntityPublish,
     handleStrategyEntityStatus,
     handleStrategyEntityAudits,
+    handleStrategyEntityReplay,
   };
 }

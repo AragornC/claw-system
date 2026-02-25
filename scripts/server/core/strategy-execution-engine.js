@@ -498,8 +498,42 @@ function createStrategyExecutionEngine() {
         reasonRule: text(payload.reasonRule || ""),
         pnlPct: Number(num(payload.pnlPct, 0).toFixed(6)),
       };
+      const reasonAnalysis = payload.reasonAnalysis && typeof payload.reasonAnalysis === "object"
+        ? payload.reasonAnalysis
+        : null;
+      if (reasonAnalysis) {
+        event.reasonAnalysis = reasonAnalysis;
+      }
       events.push(event);
       return event;
+    }
+    function buildSignalReasonAnalysis(signalLike, sideLike) {
+      const signal = signalLike && typeof signalLike === "object" ? signalLike : {};
+      const side = toLower(sideLike || "long");
+      const rows = Array.isArray(signal.rows) ? signal.rows : [];
+      const topFeatures = rows
+        .filter((item) => item && typeof item === "object" && !item.isGate)
+        .map((item) => {
+          const score = side === "short" ? num(item.shortScore, 0) : num(item.longScore, 0);
+          return {
+            featureRef: text(item.featureRef || ""),
+            featureName: text(item.featureName || item.featureRef || ""),
+            category: text(item.mainCategoryLabel || item.mainCategory || ""),
+            score: Number(score.toFixed(6)),
+            value: Number(num(item.value, 0).toFixed(6)),
+          };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+      const blocked = Array.isArray(signal.blockedReasons) ? signal.blockedReasons.slice(0, 4) : [];
+      return {
+        side,
+        longScore: Number(num(signal.longNorm, 0).toFixed(6)),
+        shortScore: Number(num(signal.shortNorm, 0).toFixed(6)),
+        blockedReasons: blocked,
+        topFeatures,
+      };
     }
     function evaluateFeatureAt(featureLike, indexLike) {
       const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
@@ -663,6 +697,14 @@ function createStrategyExecutionEngine() {
         slippageBps,
         reasonRule: text(reasonLike || "close"),
         pnlPct,
+        reasonAnalysis: {
+          trigger: text(reasonLike || "close"),
+          side: text(position.side || ""),
+          holdBars: Math.max(1, i - position.entryIndex),
+          entrySignal: position.signal && typeof position.signal === "object"
+            ? buildSignalReasonAnalysis(position.signal, position.side)
+            : null,
+        },
       });
       if (pnlPct < 0) {
         consecutiveLoss += 1;
@@ -681,6 +723,11 @@ function createStrategyExecutionEngine() {
           slippageBps: 0,
           reasonRule: "risk.max_consecutive_loss",
           pnlPct: 0,
+          reasonAnalysis: {
+            trigger: "risk.max_consecutive_loss",
+            currentConsecutiveLoss: consecutiveLoss,
+            maxConsecutiveLoss,
+          },
         });
       }
       position = null;
@@ -705,6 +752,12 @@ function createStrategyExecutionEngine() {
             slippageBps: 0,
             reasonRule: "risk.frequency_limit",
             pnlPct: 0,
+            reasonAnalysis: {
+              trigger: "risk.frequency_limit",
+              dayKey,
+              dayTradeCount: dayCount,
+              dayTradeLimit: freqLimitPerDay,
+            },
           });
           riskTriggerSent = true;
         }
@@ -750,6 +803,16 @@ function createStrategyExecutionEngine() {
         slippageBps,
         reasonRule: side === "long" ? "signal.open_long" : "signal.open_short",
         pnlPct: 0,
+        reasonAnalysis: {
+          trigger: side === "long" ? "signal.open_long" : "signal.open_short",
+          signal: buildSignalReasonAnalysis(signalLike, side),
+          position: {
+            mode: text(positionLayer.mode || ""),
+            maxExposurePct: Number(exposurePct * 100),
+            quantity: Number(quantity.toFixed(8)),
+            notional: Number((quantity * fillPrice).toFixed(6)),
+          },
+        },
       });
       return true;
     }
@@ -808,6 +871,11 @@ function createStrategyExecutionEngine() {
           slippageBps: 0,
           reasonRule: "risk.max_drawdown",
           pnlPct: 0,
+          reasonAnalysis: {
+            trigger: "risk.max_drawdown",
+            currentDrawdownPct: Number(currentDrawdownPct.toFixed(6)),
+            maxDrawdownPct: Number(maxDrawdownPct.toFixed(6)),
+          },
         });
         if (position) {
           closePosition(i, bar.close, "risk.pause_close");
