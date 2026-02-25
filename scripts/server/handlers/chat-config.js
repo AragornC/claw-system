@@ -156,6 +156,17 @@ function parseConfigIntent(messageRaw) {
   return null;
 }
 
+function looksLikeSessionModelMismatch(errorTextLike) {
+  const text = String(errorTextLike || "").trim().toLowerCase();
+  if (!text) return false;
+  if (text.includes("unknown model")) return true;
+  if (text.includes("invalid model")) return true;
+  if (text.includes("unsupported model")) return true;
+  if (text.includes("unknown sessionid")) return true;
+  if (text.includes("session status")) return true;
+  return false;
+}
+
 async function handleSetup(req, res) {
   const body = await readJsonBody(req);
   const outcome = await runSetupFromInput(body);
@@ -350,12 +361,30 @@ async function handleAiChat(req, res) {
   });
   await syncXbrainFromOpenClaw().catch(() => null);
   const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
-  const { result, payload, reply, sessionId: sessionIdUsed } = await runAgentTurn({
+  let turnResult = await runAgentTurn({
     message,
     sessionId: "thunderclaw-main",
     modelRef: runtimeModelRefBefore,
     thinking: "medium",
   });
+  if (!turnResult?.result?.ok) {
+    const errText = [turnResult?.result?.stderr, turnResult?.result?.stdout].filter(Boolean).join("\n");
+    if (looksLikeSessionModelMismatch(errText) && runtimeModelRefBefore && runtimeModelRefBefore.includes("/")) {
+      const healed = await switchThunderSessionModel({
+        modelRef: runtimeModelRefBefore,
+        sessionId: "thunderclaw-main",
+      }).catch(() => ({ ok: false }));
+      if (healed?.ok) {
+        turnResult = await runAgentTurn({
+          message,
+          sessionId: "thunderclaw-main",
+          modelRef: runtimeModelRefBefore,
+          thinking: "medium",
+        });
+      }
+    }
+  }
+  const { result, payload, reply, sessionId: sessionIdUsed } = turnResult;
   let modelAutoSync = {
     detected: false,
     detectedBy: "",
