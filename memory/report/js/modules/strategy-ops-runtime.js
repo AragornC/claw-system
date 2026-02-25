@@ -376,7 +376,7 @@
       + '<textarea data-sl-edit-field="featureRefs" placeholder="引用特征（英文逗号分隔，支持 feature_id / name）">' + soEsc(featureRefs) + '</textarea>'
       + '<textarea data-sl-edit-field="signalLogic" placeholder="信号逻辑摘要">' + soEsc(soText(signalLayer.signalLogic || "")) + '</textarea>'
       + '<textarea data-sl-edit-field="riskPauseCondition" placeholder="风控暂停条件">' + soEsc(soText(riskLayer.riskPauseCondition || "")) + '</textarea>'
-      + '<div class="actions"><button type="button" data-sl-editor-action="save">保存草稿</button></div>'
+      + '<div class="actions"><button type="button" class="primary" data-sl-editor-action="save">保存草稿</button></div>'
       + '</div>';
   }
 
