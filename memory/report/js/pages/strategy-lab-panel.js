@@ -158,10 +158,13 @@
           sortOrder: 'desc',
           rows: [],
           selectedStrategyId: '',
+          selectedTradingMode: 'backtest',
+          selectedPlaybackId: '',
           selectedRangeDays: 30,
           selectedTradeType: 'all',
           detail: null,
           markerEvents: [],
+          backtestPlaybacks: [],
           replayTimer: null,
           replayIndex: 0,
           modalPrevOverflow: '',
@@ -376,6 +379,8 @@
           strategyOpsState.detail = null;
           strategyOpsState.markerEvents = [];
           strategyOpsState.selectedStrategyId = '';
+          strategyOpsState.selectedPlaybackId = '';
+          strategyOpsState.backtestPlaybacks = [];
           if (strategyDetailBodyEl) strategyDetailBodyEl.innerHTML = '';
           if (strategyDetailTitleEl) strategyDetailTitleEl.textContent = '策略详情';
           if (strategyDetailMetaEl) strategyDetailMetaEl.textContent = '';
@@ -437,6 +442,45 @@
               void saveStrategyDraftFromEditor();
             });
           }
+          strategyDetailBodyEl.querySelectorAll('[data-sl-trading-mode]').forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+              ev.preventDefault();
+              if (!strategyOpsState.selectedStrategyId) return;
+              const mode = String(btn.getAttribute('data-sl-trading-mode') || '').trim().toLowerCase();
+              if (!mode) return;
+              strategyOpsState.selectedTradingMode = mode;
+              if (mode !== 'backtest') {
+                strategyOpsState.selectedPlaybackId = '';
+              } else if (!strategyOpsState.selectedPlaybackId) {
+                const firstPlayback = Array.isArray(strategyOpsState.backtestPlaybacks) ? strategyOpsState.backtestPlaybacks[0] : null;
+                strategyOpsState.selectedPlaybackId = String(firstPlayback?.playbackId || '');
+              }
+              void openStrategyDetail(strategyOpsState.selectedStrategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
+              });
+            });
+          });
+          strategyDetailBodyEl.querySelectorAll('[data-sl-playback-id]').forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+              ev.preventDefault();
+              if (!strategyOpsState.selectedStrategyId) return;
+              const playbackId = String(btn.getAttribute('data-sl-playback-id') || '').trim();
+              if (!playbackId) return;
+              strategyOpsState.selectedTradingMode = 'backtest';
+              strategyOpsState.selectedPlaybackId = playbackId;
+              void openStrategyDetail(strategyOpsState.selectedStrategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: 'backtest',
+                playbackId: playbackId,
+              });
+            });
+          });
         }
         function collectStrategyEditorPayload() {
           if (!strategyDetailBodyEl) return null;
@@ -448,11 +492,29 @@
             const node = strategyDetailBodyEl.querySelector('[data-sl-edit-field="' + String(fieldLike || '') + '"]');
             return String(node?.value || '').trim();
           };
-          const featureRefs = getField('featureRefs')
-            .split(',')
-            .map(function(item) { return String(item || '').trim(); })
-            .filter(Boolean)
-            .slice(0, 32);
+          const parseFeatureRefs = function(inputLike) {
+            const raw = String(inputLike || '');
+            const out = [];
+            let token = '';
+            const pushToken = function() {
+              const value = String(token || '').trim();
+              token = '';
+              if (!value) return;
+              if (out.includes(value)) return;
+              out.push(value);
+            };
+            for (let i = 0; i < raw.length; i += 1) {
+              const ch = raw[i];
+              if (ch === ',' || ch === ';' || ch === '\n' || ch === '\r' || ch === '|' || ch === '/') {
+                pushToken();
+              } else {
+                token += ch;
+              }
+            }
+            pushToken();
+            return out.slice(0, 32);
+          };
+          const featureRefs = parseFeatureRefs(getField('featureRefs'));
           const signalLogic = getField('signalLogic');
           const riskPauseCondition = getField('riskPauseCondition');
           const version = detail.version && typeof detail.version === 'object' ? detail.version : {};
@@ -495,7 +557,13 @@
             await postStrategyDraftSave(payload);
             setStrategyDetailStatus('草稿保存成功。', 'ok');
             await reloadStrategyOpsList();
-            await openStrategyDetail(payload.strategyId, { keepOpen: true });
+            await openStrategyDetail(payload.strategyId, {
+              keepOpen: true,
+              rangeDays: strategyOpsState.selectedRangeDays,
+              tradeType: strategyOpsState.selectedTradeType,
+              tradingMode: strategyOpsState.selectedTradingMode,
+              playbackId: strategyOpsState.selectedPlaybackId,
+            });
           } catch (err) {
             setStrategyDetailStatus('保存失败：' + String(err?.message || err), 'err');
           }
@@ -506,17 +574,35 @@
           const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
           const rangeDays = Math.max(1, Math.min(365, Number(options.rangeDays || strategyOpsState.selectedRangeDays || 30) || 30));
           const tradeType = String(options.tradeType || strategyOpsState.selectedTradeType || 'all');
+          const isSwitchingStrategy = String(strategyOpsState.selectedStrategyId || '').trim() !== strategyId;
+          const explicitTradingModeRaw = String(options.tradingMode || '').trim().toLowerCase();
+          const fallbackTradingModeRaw = isSwitchingStrategy ? '' : String(strategyOpsState.selectedTradingMode || '').trim().toLowerCase();
+          const tradingModeCandidate = explicitTradingModeRaw || fallbackTradingModeRaw;
+          const tradingMode = tradingModeCandidate === 'live' || tradingModeCandidate === 'paper' || tradingModeCandidate === 'backtest'
+            ? tradingModeCandidate
+            : '';
+          const playbackId = String(options.playbackId || (isSwitchingStrategy ? '' : strategyOpsState.selectedPlaybackId) || '').trim();
           strategyOpsState.selectedRangeDays = rangeDays;
           strategyOpsState.selectedTradeType = tradeType;
+          if (tradingMode) strategyOpsState.selectedTradingMode = tradingMode;
+          if (playbackId || !isSwitchingStrategy) strategyOpsState.selectedPlaybackId = playbackId;
           strategyOpsState.selectedStrategyId = strategyId;
           setStrategyDetailStatus('加载策略详情中...', '');
           try {
             const detailPayload = fetchStrategyEntityDetail
-              ? await fetchStrategyEntityDetail({ strategyId: strategyId, rangeDays: rangeDays, tradeType: tradeType })
+              ? await fetchStrategyEntityDetail({
+                strategyId: strategyId,
+                rangeDays: rangeDays,
+                tradeType: tradeType,
+                tradingMode: tradingMode,
+                playbackId: playbackId,
+              })
               : await (async function() {
                 const resp = await fetch('/api/strategy/entities/detail?strategyId=' + encodeURIComponent(strategyId)
                   + '&rangeDays=' + encodeURIComponent(String(rangeDays))
-                  + '&tradeType=' + encodeURIComponent(tradeType), { cache: 'no-store' });
+                  + '&tradeType=' + encodeURIComponent(tradeType)
+                  + '&tradingMode=' + encodeURIComponent(tradingMode)
+                  + '&playbackId=' + encodeURIComponent(playbackId), { cache: 'no-store' });
                 return readJsonResponse(resp);
               })();
             const auditsPayload = fetchStrategyEntityAudits
@@ -525,6 +611,25 @@
             const detail = detailPayload && typeof detailPayload === 'object' ? detailPayload : {};
             detail.audits = Array.isArray(detail?.audits) ? detail.audits : (Array.isArray(auditsPayload?.audits) ? auditsPayload.audits : []);
             strategyOpsState.detail = detail;
+            const tradingMeta = detail?.trading && typeof detail.trading === 'object' ? detail.trading : {};
+            const detailModeRaw = String(tradingMeta.mode || tradingMode || 'backtest').trim().toLowerCase();
+            strategyOpsState.selectedTradingMode = detailModeRaw === 'live' || detailModeRaw === 'paper' || detailModeRaw === 'backtest'
+              ? detailModeRaw
+              : 'backtest';
+            strategyOpsState.backtestPlaybacks = Array.isArray(tradingMeta.backtestPlaybacks)
+              ? tradingMeta.backtestPlaybacks
+              : [];
+            if (strategyOpsState.selectedTradingMode === 'backtest') {
+              const firstPlayback = strategyOpsState.backtestPlaybacks[0];
+              strategyOpsState.selectedPlaybackId = String(
+                tradingMeta.selectedPlaybackId
+                || playbackId
+                || firstPlayback?.playbackId
+                || '',
+              ).trim();
+            } else {
+              strategyOpsState.selectedPlaybackId = '';
+            }
             if (strategyDetailTitleEl) strategyDetailTitleEl.textContent = String(detail?.strategy?.name || '策略详情');
             if (strategyDetailMetaEl) {
               strategyDetailMetaEl.textContent = '状态：' + String(detail?.strategy?.statusLabel || detail?.strategy?.status || '-')
@@ -543,6 +648,8 @@
               const rendered = renderer(detail, {
                 rangeDays: rangeDays,
                 tradeType: tradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
                 ohlcvByTf: OHLCV_BY_TF || {},
               });
               strategyDetailBodyEl.innerHTML = String(rendered?.html || '');
@@ -578,10 +685,26 @@
               reason: String(reasonLike || '').trim(),
               source: 'strategy_console',
             });
+            const targetStatus = String(targetStatusLike || '').trim().toLowerCase();
+            if (targetStatus === 'paper_live') {
+              strategyOpsState.selectedTradingMode = 'paper';
+              strategyOpsState.selectedPlaybackId = '';
+            } else if (targetStatus === 'live' || targetStatus === 'risk_paused') {
+              strategyOpsState.selectedTradingMode = 'live';
+              strategyOpsState.selectedPlaybackId = '';
+            } else if (targetStatus === 'backtested' || targetStatus === 'draft') {
+              strategyOpsState.selectedTradingMode = 'backtest';
+            }
             setStrategyOpsStatus('状态已更新。', 'ok');
             await reloadStrategyOpsList();
             if (strategyOpsState.selectedStrategyId === strategyId && !strategyDetailModalEl?.hidden) {
-              await openStrategyDetail(strategyId, { keepOpen: true });
+              await openStrategyDetail(strategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
+              });
             }
           } catch (err) {
             setStrategyOpsStatus('状态更新失败：' + String(err?.message || err), 'err');
@@ -612,7 +735,13 @@
             setStrategyOpsStatus('已发布新版本。', 'ok');
             await reloadStrategyOpsList();
             if (strategyOpsState.selectedStrategyId === strategyId && !strategyDetailModalEl?.hidden) {
-              await openStrategyDetail(strategyId, { keepOpen: true });
+              await openStrategyDetail(strategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
+              });
             }
           } catch (err) {
             setStrategyOpsStatus('发布失败：' + String(err?.message || err), 'err');
@@ -642,7 +771,13 @@
             setStrategyOpsStatus('已创建草稿：' + String(out?.strategy?.name || name), 'ok');
             await reloadStrategyOpsList();
             if (out?.strategy?.strategyId) {
-              await openStrategyDetail(out.strategy.strategyId, { keepOpen: true });
+              await openStrategyDetail(out.strategy.strategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
+              });
             }
           } catch (err) {
             setStrategyOpsStatus('新建失败：' + String(err?.message || err), 'err');
@@ -1306,7 +1441,13 @@
             if (!strategyOpsState.selectedStrategyId) return;
             strategyDetailRangeBtns.forEach(function(x) { x.classList.toggle('active', x === btn); });
             strategyOpsState.selectedRangeDays = days;
-            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: days, tradeType: strategyOpsState.selectedTradeType });
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, {
+              keepOpen: true,
+              rangeDays: days,
+              tradeType: strategyOpsState.selectedTradeType,
+              tradingMode: strategyOpsState.selectedTradingMode,
+              playbackId: strategyOpsState.selectedPlaybackId,
+            });
           });
         });
         if (strategyDetailRangeApplyBtn) {
@@ -1314,14 +1455,26 @@
             if (!strategyOpsState.selectedStrategyId) return;
             const days = Math.max(1, Math.min(365, Number(strategyDetailRangeCustomEl?.value || 30) || 30));
             strategyOpsState.selectedRangeDays = days;
-            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: days, tradeType: strategyOpsState.selectedTradeType });
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, {
+              keepOpen: true,
+              rangeDays: days,
+              tradeType: strategyOpsState.selectedTradeType,
+              tradingMode: strategyOpsState.selectedTradingMode,
+              playbackId: strategyOpsState.selectedPlaybackId,
+            });
           });
         }
         if (strategyDetailTradeFilterEl) {
           strategyDetailTradeFilterEl.addEventListener('change', function() {
             if (!strategyOpsState.selectedStrategyId) return;
             strategyOpsState.selectedTradeType = String(strategyDetailTradeFilterEl.value || 'all');
-            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: strategyOpsState.selectedRangeDays, tradeType: strategyOpsState.selectedTradeType });
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, {
+              keepOpen: true,
+              rangeDays: strategyOpsState.selectedRangeDays,
+              tradeType: strategyOpsState.selectedTradeType,
+              tradingMode: strategyOpsState.selectedTradingMode,
+              playbackId: strategyOpsState.selectedPlaybackId,
+            });
           });
         }
         if (strategyDetailPlayToggleBtn) {
@@ -1432,7 +1585,13 @@
             if (openEditor && strategyId) {
               try { switchView('backtest'); } catch (_) {}
               switchStrategyLabTab('strategy');
-              void openStrategyDetail(strategyId, { keepOpen: true, rangeDays: strategyOpsState.selectedRangeDays, tradeType: strategyOpsState.selectedTradeType });
+              void openStrategyDetail(strategyId, {
+                keepOpen: true,
+                rangeDays: strategyOpsState.selectedRangeDays,
+                tradeType: strategyOpsState.selectedTradeType,
+                tradingMode: strategyOpsState.selectedTradingMode,
+                playbackId: strategyOpsState.selectedPlaybackId,
+              });
             }
           });
         });

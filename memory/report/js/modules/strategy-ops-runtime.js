@@ -9,13 +9,6 @@
     return Number.isFinite(n) ? n : Number(fallback || 0);
   }
 
-  function soClamp(valueLike, min, max, fallback = 0) {
-    const n = soNum(valueLike, fallback);
-    if (Number.isFinite(min) && n < min) return min;
-    if (Number.isFinite(max) && n > max) return max;
-    return n;
-  }
-
   function soEsc(valueLike) {
     return String(valueLike == null ? "" : valueLike)
       .split("&").join("&amp;")
@@ -85,6 +78,13 @@
     return "#8b949e";
   }
 
+  function soTradingModeLabel(modeLike) {
+    const mode = soText(modeLike).toLowerCase();
+    if (mode === "live") return "实盘交易";
+    if (mode === "paper") return "模拟交易";
+    return "回测交易";
+  }
+
   function normalizeBarsRuntime(barsLike) {
     const rows = Array.isArray(barsLike) ? barsLike : [];
     return rows
@@ -99,13 +99,7 @@
         if (!Number.isFinite(time) || time <= 0 || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
           return null;
         }
-        return {
-          time: time,
-          open: open,
-          high: high,
-          low: low,
-          close: close,
-        };
+        return { time: time, open: open, high: high, low: low, close: close };
       })
       .filter(Boolean)
       .sort(function(a, b) { return a.time - b.time; });
@@ -114,10 +108,15 @@
   function buildSyntheticBarsFromEventsRuntime(eventsLike, rangeDaysLike) {
     const rows = Array.isArray(eventsLike) ? eventsLike : [];
     const rangeDays = Math.max(1, Math.min(365, Math.floor(soNum(rangeDaysLike, 30))));
-    const nowSec = Math.floor(Date.now() / 1000);
     const pointCount = Math.max(120, Math.min(1800, rangeDays * 24));
+    let baseTime = 0;
+    if (rows.length) {
+      const first = rows[0] && typeof rows[0] === "object" ? rows[0] : {};
+      baseTime = Math.floor(soNum(first.time, 0));
+    }
+    if (!baseTime) baseTime = Math.floor(Date.now() / 1000);
     const stepSec = 3600;
-    const start = nowSec - pointCount * stepSec;
+    const start = baseTime - pointCount * stepSec;
     const bars = [];
     let price = 50000;
     for (let i = 0; i < pointCount; i += 1) {
@@ -132,16 +131,20 @@
     }
     if (rows.length) {
       rows.forEach(function(ev, idx) {
-        const t = Math.floor(soNum(ev.time, 0));
+        const event = ev && typeof ev === "object" ? ev : {};
+        const t = Math.floor(soNum(event.time, 0));
         if (!t) return;
-        const nearest = bars.reduce(function(prev, item) {
-          const gap = Math.abs(item.time - t);
-          if (!prev || gap < prev.gap) return { idx: bars.indexOf(item), gap: gap };
-          return prev;
-        }, null);
-        if (!nearest) return;
-        const bar = bars[nearest.idx];
-        const force = soNum(ev.price, bar.close || price);
+        let nearestIdx = 0;
+        let nearestGap = Math.abs(bars[0].time - t);
+        for (let i = 1; i < bars.length; i += 1) {
+          const gap = Math.abs(bars[i].time - t);
+          if (gap < nearestGap) {
+            nearestGap = gap;
+            nearestIdx = i;
+          }
+        }
+        const bar = bars[nearestIdx];
+        const force = soNum(event.price, bar.close || price);
         bar.high = Math.max(bar.high, force + 12 + idx % 5);
         bar.low = Math.min(bar.low, force - 12 - idx % 5);
         bar.close = force;
@@ -152,8 +155,8 @@
 
   function pickBarsForRangeRuntime(ohlcvByTfLike, rangeDaysLike) {
     const map = ohlcvByTfLike && typeof ohlcvByTfLike === "object" ? ohlcvByTfLike : {};
-    var tf = "1h";
-    var rows = normalizeBarsRuntime(map["1h"]);
+    let tf = "1h";
+    let rows = normalizeBarsRuntime(map["1h"]);
     if (!rows.length) {
       const keys = Object.keys(map);
       for (let i = 0; i < keys.length; i += 1) {
@@ -280,7 +283,7 @@
       axisHtml.push('<line x1="' + x.toFixed(2) + '" y1="' + (height - 20) + '" x2="' + x.toFixed(2) + '" y2="' + (height - 16) + '" stroke="#6e7681" stroke-width="1"></line>');
       axisHtml.push('<text x="' + x.toFixed(2) + '" y="' + (height - 4) + '" fill="#6e7681" font-size="10" text-anchor="middle">' + soEsc(ts) + '</text>');
     }
-    const svg = ''
+    const svg = ""
       + '<svg viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<rect x="0" y="0" width="' + width + '" height="' + height + '" fill="transparent"></rect>'
       + '<line x1="' + padX + '" y1="' + (height - 20) + '" x2="' + (width - padX) + '" y2="' + (height - 20) + '" stroke="#30363d" stroke-width="1"></line>'
@@ -306,121 +309,208 @@
     const lastV = values[values.length - 1];
     const diff = lastV - firstV;
     const diffText = (diff > 0 ? "+" : "") + diff.toFixed(4);
-    return ''
-      + '<div class="strategy-chart-title"><span>' + soEsc(title || "") + '</span><span>' + soEsc(diffText) + '</span></div>'
+    return ""
+      + '<div class="strategy-chart-title"><span>' + soEsc(title || "") + '</span><span>' + soEsc(diffText) + "</span></div>"
       + '<svg viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
       + '<path d="' + path + '" fill="none" stroke="' + soEsc(color || "#79c0ff") + '" stroke-width="2"></path>'
       + "</svg>";
   }
 
-  function renderStructureCardsRuntime(detailLike) {
+  function normalizeFeatureRelationsRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const rows = Array.isArray(detail?.details?.featureRelations)
+      ? detail.details.featureRelations
+      : [];
+    if (rows.length) {
+      return rows.map(function(item) {
+        const row = item && typeof item === "object" ? item : {};
+        return {
+          featureRef: soText(row.featureRef || row.featureId || row.featureName || ""),
+          featureName: soText(row.featureName || row.featureRef || row.featureId || ""),
+          featureVersion: soText(row.featureVersion || "v1.0.0"),
+          relationType: soText(row.relationType || "signal_input"),
+        };
+      });
+    }
     const version = detail.version && typeof detail.version === "object" ? detail.version : {};
     const signalLayer = version.signalLayer && typeof version.signalLayer === "object" ? version.signalLayer : {};
-    const positionLayer = version.positionLayer && typeof version.positionLayer === "object" ? version.positionLayer : {};
-    const riskLayer = version.riskLayer && typeof version.riskLayer === "object" ? version.riskLayer : {};
-    const executionLayer = version.executionLayer && typeof version.executionLayer === "object" ? version.executionLayer : {};
-    const featureLocks = Array.isArray(version.lockedFeatureVersions) ? version.lockedFeatureVersions : [];
-    function jsonOf(objLike) {
-      try { return JSON.stringify(objLike || {}, null, 2); } catch { return "{}"; }
-    }
-    const featureText = featureLocks.length
-      ? featureLocks.map(function(item) {
-        return soText(item.featureName || item.featureId || "-")
-          + "@" + soText(item.featureVersion || "v1.0.0");
-      }).slice(0, 6).join(" / ")
-      : "未锁定特征版本";
-    return ''
-      + '<div class="strategy-detail-structure">'
-      + '<div class="strategy-structure-card">'
-      + '<div class="h"><span>信号层</span><span>' + soEsc(featureLocks.length + " 个特征") + '</span></div>'
-      + '<div class="summary">逻辑：' + soEsc(soText(signalLayer.signalLogic || "未配置")) + '</div>'
-      + '<div class="summary">引用特征：' + soEsc(featureText) + '</div>'
-      + '<details><summary>查看参数与规则细节</summary><pre>' + soEsc(jsonOf(signalLayer)) + '</pre></details>'
-      + '</div>'
-      + '<div class="strategy-structure-card">'
-      + '<div class="h"><span>仓位层</span><span>' + soEsc(soText(positionLayer.mode || "-")) + '</span></div>'
-      + '<div class="summary">最大仓位：' + soEsc(String(positionLayer.maxPositions || "-")) + ' · 最大敞口：' + soEsc(String(positionLayer.maxExposurePct || "-")) + '%</div>'
-      + '<div class="summary">Notional 区间：' + soEsc(String(positionLayer.minNotional || "-")) + ' - ' + soEsc(String(positionLayer.maxNotional || "-")) + '</div>'
-      + '<details><summary>查看仓位规则细节</summary><pre>' + soEsc(jsonOf(positionLayer)) + '</pre></details>'
-      + '</div>'
-      + '<div class="strategy-structure-card">'
-      + '<div class="h"><span>风控层</span><span>回撤阈值 ' + soEsc(String(riskLayer.maxDrawdownPct || "-")) + '%</span></div>'
-      + '<div class="summary">止损/止盈：' + soEsc(String(riskLayer.stopLossPct || "-")) + '% / ' + soEsc(String(riskLayer.takeProfitPct || "-")) + '%</div>'
-      + '<div class="summary">频控：每日 ' + soEsc(String(riskLayer.frequencyLimitPerDay || "-")) + ' 次 · 连亏上限 ' + soEsc(String(riskLayer.maxConsecutiveLoss || "-")) + '</div>'
-      + '<details><summary>查看风控规则细节</summary><pre>' + soEsc(jsonOf(riskLayer)) + '</pre></details>'
-      + '</div>'
-      + '<div class="strategy-structure-card">'
-      + '<div class="h"><span>执行层</span><span>' + soEsc(soText(executionLayer.orderMode || "-")) + '</span></div>'
-      + '<div class="summary">滑点：' + soEsc(String(executionLayer.slippageBps || "-")) + ' bps · 手续费模型：' + soEsc(soText(executionLayer.feeModel || "-")) + '</div>'
-      + '<div class="summary">重试：' + soEsc(String(executionLayer.retryCount || "-")) + ' 次 · 回退：' + soEsc(String(executionLayer.retryBackoffMs || "-")) + 'ms</div>'
-      + '<details><summary>查看执行参数细节</summary><pre>' + soEsc(jsonOf(executionLayer)) + '</pre></details>'
-      + '</div>'
-      + '</div>';
+    const refs = Array.isArray(signalLayer.featureRefs) ? signalLayer.featureRefs : [];
+    return refs.map(function(refLike) {
+      const ref = soText(refLike || "");
+      return {
+        featureRef: ref,
+        featureName: ref || "未命名特征",
+        featureVersion: "v1.0.0",
+        relationType: "signal_input",
+      };
+    });
   }
 
-  function renderEditorRuntime(detailLike) {
+  function renderBasicInfoSectionRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const strategy = detail.strategy && typeof detail.strategy === "object" ? detail.strategy : {};
-    const version = detail.version && typeof detail.version === "object" ? detail.version : {};
-    const signalLayer = version.signalLayer && typeof version.signalLayer === "object" ? version.signalLayer : {};
-    const riskLayer = version.riskLayer && typeof version.riskLayer === "object" ? version.riskLayer : {};
-    const featureRefs = Array.isArray(signalLayer.featureRefs) ? signalLayer.featureRefs.join(", ") : "";
-    return ''
-      + '<div class="strategy-detail-editor">'
-      + '<div class="strategy-chart-title"><span>策略编辑器（草稿）</span><span>支持对话草稿继续完善</span></div>'
-      + '<div class="row">'
-      + '<input data-sl-edit-field="name" type="text" value="' + soEsc(soText(strategy.name || "")) + '" placeholder="策略名称">'
-      + '<input data-sl-edit-field="description" type="text" value="' + soEsc(soText(strategy.description || "")) + '" placeholder="策略描述">'
-      + '</div>'
-      + '<textarea data-sl-edit-field="featureRefs" placeholder="引用特征（英文逗号分隔，支持 feature_id / name）">' + soEsc(featureRefs) + '</textarea>'
-      + '<textarea data-sl-edit-field="signalLogic" placeholder="信号逻辑摘要">' + soEsc(soText(signalLayer.signalLogic || "")) + '</textarea>'
-      + '<textarea data-sl-edit-field="riskPauseCondition" placeholder="风控暂停条件">' + soEsc(soText(riskLayer.riskPauseCondition || "")) + '</textarea>'
-      + '<div class="actions"><button type="button" class="primary" data-sl-editor-action="save">保存草稿</button></div>'
-      + '</div>';
+    const sourceLabel = soText(strategy.sourceLabel || strategy.source || "未知来源");
+    return ""
+      + '<section class="strategy-detail-section">'
+      + '<div class="strategy-detail-section-title">1-基本信息</div>'
+      + '<div class="strategy-basic-grid">'
+      + '<label class="strategy-basic-item">'
+      + '<span class="k">策略名称</span>'
+      + '<input data-sl-edit-field="name" type="text" value="' + soEsc(soText(strategy.name || "")) + '" placeholder="请输入策略名称">'
+      + "</label>"
+      + '<div class="strategy-basic-item">'
+      + '<span class="k">创建时间</span>'
+      + '<span class="v">' + soEsc(soFmtTs(strategy.createdAt || "")) + "</span>"
+      + "</div>"
+      + '<div class="strategy-basic-item">'
+      + '<span class="k">策略来源</span>'
+      + '<span class="v">' + soEsc(sourceLabel) + "</span>"
+      + "</div>"
+      + "</div>"
+      + "</section>";
   }
 
-  function renderAuditsRuntime(auditsLike) {
-    const rows = Array.isArray(auditsLike) ? auditsLike : [];
-    if (!rows.length) {
-      return '<div class="strategy-detail-audits"><div class="audit-item">暂无审计记录</div></div>';
+  function renderStrategyDetailSectionRuntime(detailLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const version = detail.version && typeof detail.version === "object" ? detail.version : {};
+    const expression = soText(
+      detail?.details?.expression
+      || version?.signalLayer?.signalLogic
+      || "",
+      "未配置策略表达式",
+    );
+    const relations = normalizeFeatureRelationsRuntime(detail);
+    const featureRefsText = relations.map(function(item) {
+      return soText(item.featureRef || item.featureName || "");
+    }).filter(Boolean).join(", ");
+    const relationHtml = relations.length
+      ? relations.map(function(item) {
+        return ""
+          + '<div class="strategy-relation-item">'
+          + '<div class="name">' + soEsc(soText(item.featureName || item.featureRef || "-")) + "</div>"
+          + '<div class="meta">' + soEsc(soText(item.featureVersion || "v1.0.0")) + " · " + soEsc(soText(item.relationType || "signal_input")) + "</div>"
+          + "</div>";
+      }).join("")
+      : '<div class="strategy-relation-empty">暂无特征关系</div>';
+    return ""
+      + '<section class="strategy-detail-section">'
+      + '<div class="strategy-detail-section-title">2-策略详情</div>'
+      + '<div class="strategy-detail-split">'
+      + '<div class="strategy-detail-card">'
+      + '<div class="strategy-chart-title"><span>策略表达式</span><span>可在此直接调整信号逻辑</span></div>'
+      + '<textarea class="strategy-detail-expression" data-sl-edit-field="signalLogic" placeholder="请输入策略表达式/信号逻辑">' + soEsc(expression) + "</textarea>"
+      + "</div>"
+      + '<div class="strategy-detail-card">'
+      + '<div class="strategy-chart-title"><span>特征关系</span><span>输入支持英文逗号分隔</span></div>'
+      + '<textarea class="strategy-detail-expression" data-sl-edit-field="featureRefs" placeholder="feature_id_1, feature_id_2 ...">' + soEsc(featureRefsText) + "</textarea>"
+      + '<div class="strategy-relation-flow">'
+      + '<div class="node core">策略信号层</div>'
+      + '<div class="links">' + relationHtml + "</div>"
+      + "</div>"
+      + "</div>"
+      + "</div>"
+      + "</section>";
+  }
+
+  function renderPlaybackListRuntime(tradingLike) {
+    const trading = tradingLike && typeof tradingLike === "object" ? tradingLike : {};
+    const list = Array.isArray(trading.backtestPlaybacks) ? trading.backtestPlaybacks : [];
+    if (!list.length) {
+      return '<div class="strategy-playback-empty">暂无回测回放记录</div>';
     }
-    const body = rows.slice(0, 80).map(function(item) {
-      const audit = item && typeof item === "object" ? item : {};
-      return '<div class="audit-item">'
-        + '<div><strong>' + soEsc(soText(audit.action || "-")) + '</strong> · ' + soEsc(soFmtTs(audit.ts || "")) + '</div>'
-        + '<div>状态：' + soEsc(soStatusLabel(audit.fromStatus || "")) + ' -> ' + soEsc(soStatusLabel(audit.toStatus || "")) + '</div>'
-        + '<div>说明：' + soEsc(soText(audit.reason || "-")) + '</div>'
-        + '</div>';
+    return list.slice(0, 80).map(function(item) {
+      const row = item && typeof item === "object" ? item : {};
+      const playbackId = soText(row.playbackId || "");
+      const selected = Boolean(row.selected) || (soText(trading.selectedPlaybackId || "") && soText(trading.selectedPlaybackId || "") === playbackId);
+      return ""
+        + '<button type="button" class="strategy-playback-item' + (selected ? " active" : "") + '" data-sl-playback-id="' + soEsc(playbackId) + '">'
+        + '<span class="title">' + soEsc(soText(row.label || playbackId || "回测记录")) + "</span>"
+        + '<span class="meta">' + soEsc(soFmtTs(row.createdAt || row.updatedAt || "")) + " · " + soEsc(soFmtPct(row.latestReturnPct, 2)) + " / " + soEsc(soFmtPct(row.maxDrawdownPct, 2)) + "</span>"
+        + "</button>";
     }).join("");
-    return '<div class="strategy-detail-audits">' + body + "</div>";
+  }
+
+  function renderTradingEffectsSectionRuntime(detailLike, optionsLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    const trading = detail.trading && typeof detail.trading === "object" ? detail.trading : {};
+    const mode = soText(options.tradingMode || trading.mode || "backtest", "backtest");
+    const rangeDays = Math.max(1, Math.min(365, Math.floor(soNum(options.rangeDays || detail?.visualization?.rangeDays || 30))));
+    const visualization = detail.visualization && typeof detail.visualization === "object" ? detail.visualization : {};
+    const events = Array.isArray(visualization.events) ? visualization.events : [];
+    const summary = visualization.summary && typeof visualization.summary === "object"
+      ? visualization.summary
+      : (trading.summary && typeof trading.summary === "object" ? trading.summary : {});
+    const barsData = pickBarsForRangeRuntime(options.ohlcvByTf || {}, rangeDays);
+    let bars = barsData.bars;
+    if (!bars.length) {
+      bars = buildSyntheticBarsFromEventsRuntime(events, rangeDays);
+    }
+    const kline = renderKlineChartRuntime({ bars: bars, events: events });
+    const equityChart = renderLineChartRuntime(visualization.equityCurve || [], "equity", "#7ee787", "权益曲线");
+    const drawdownChart = renderLineChartRuntime(visualization.drawdownCurve || [], "drawdownPct", "#ff7b72", "回撤曲线(%)");
+    const tabs = [
+      { key: "live", label: "a-实盘交易" },
+      { key: "paper", label: "c-模拟交易" },
+      { key: "backtest", label: "b-回测交易" },
+    ];
+    const tabHtml = tabs.map(function(item) {
+      const active = item.key === mode;
+      return '<button type="button" class="strategy-mode-tab' + (active ? " active" : "") + '" data-sl-trading-mode="' + soEsc(item.key) + '">' + soEsc(item.label) + "</button>";
+    }).join("");
+    const playbackPanel = mode === "backtest"
+      ? '<aside class="strategy-playback-list">' + renderPlaybackListRuntime(trading) + "</aside>"
+      : "";
+    const chartPanelClass = mode === "backtest"
+      ? "strategy-trading-main with-playbacks"
+      : "strategy-trading-main";
+    const tradingSource = soText(trading.source || "-", "-");
+    const positionSummary = trading.positionSummary && typeof trading.positionSummary === "object"
+      ? trading.positionSummary
+      : {};
+    const positionText = soText(positionSummary.note || positionSummary.state || "-", "-");
+    const html = ""
+      + '<section class="strategy-detail-section">'
+      + '<div class="strategy-detail-section-title">3-交易效果</div>'
+      + '<div class="strategy-trading-tabs">' + tabHtml + "</div>"
+      + '<div class="strategy-trading-meta">'
+      + '<span>当前视图：' + soEsc(soTradingModeLabel(mode)) + "</span>"
+      + '<span>数据来源：' + soEsc(tradingSource) + "</span>"
+      + '<span>仓位状态：' + soEsc(positionText) + "</span>"
+      + '<span>交易数：' + soEsc(String(Math.max(0, Math.floor(soNum(summary.tradeCount, 0))))) + "</span>"
+      + '<span>收益：' + soEsc(soFmtPct(summary.latestReturnPct, 2)) + "</span>"
+      + '<span>回撤：' + soEsc(soFmtPct(summary.maxDrawdownPct, 2)) + "</span>"
+      + "</div>"
+      + '<div class="' + chartPanelClass + '">'
+      + playbackPanel
+      + '<div class="strategy-detail-charts">'
+      + '<div class="strategy-chart-box" data-sl-chart="kline"><div class="strategy-chart-title"><span>K线主图（' + soEsc(soText(barsData.tf || "1h")) + "）+ 交易标记</span><span>点击标记查看交易详情</span></div>" + kline.svg + '<div class="strategy-trade-popover" id="sl-strategy-trade-popover"></div></div>'
+      + '<div class="strategy-chart-box" data-sl-chart="equity">' + equityChart + "</div>"
+      + '<div class="strategy-chart-box" data-sl-chart="drawdown">' + drawdownChart + "</div>"
+      + "</div>"
+      + "</div>"
+      + "</section>";
+    return {
+      html: html,
+      markerEvents: kline.markerEvents || [],
+    };
   }
 
   function renderStrategyDetailRuntime(detailLike, optionsLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
-    const rangeDays = Math.max(1, Math.min(365, Math.floor(soNum(options.rangeDays || detail?.visualization?.rangeDays || 30))));
-    const visualization = detail.visualization && typeof detail.visualization === "object" ? detail.visualization : {};
-    const events = Array.isArray(visualization.events) ? visualization.events : [];
-    var barsData = pickBarsForRangeRuntime(options.ohlcvByTf || {}, rangeDays);
-    var bars = barsData.bars;
-    if (!bars.length) bars = buildSyntheticBarsFromEventsRuntime(events, rangeDays);
-    const kline = renderKlineChartRuntime({ bars: bars, events: events });
-    const equityChart = renderLineChartRuntime(visualization.equityCurve || [], "equity", "#7ee787", "权益曲线");
-    const drawdownChart = renderLineChartRuntime(visualization.drawdownCurve || [], "drawdownPct", "#ff7b72", "回撤曲线(%)");
-    const html = ''
-      + renderStructureCardsRuntime(detail)
-      + '<div class="strategy-detail-charts">'
-      + '<div class="strategy-chart-box" data-sl-chart="kline"><div class="strategy-chart-title"><span>K线主图（' + soEsc(soText(barsData.tf || "1h")) + '）+ 交易标记</span><span>点击标记查看交易详情</span></div>' + kline.svg + '<div class="strategy-trade-popover" id="sl-strategy-trade-popover"></div></div>'
-      + '<div class="strategy-chart-box" data-sl-chart="equity">' + equityChart + '</div>'
-      + '<div class="strategy-chart-box" data-sl-chart="drawdown">' + drawdownChart + '</div>'
-      + '</div>'
-      + renderEditorRuntime(detail)
-      + renderAuditsRuntime(detail.audits || []);
+    const tradingOut = renderTradingEffectsSectionRuntime(detail, options);
+    const html = ""
+      + '<div class="strategy-detail-sections">'
+      + renderBasicInfoSectionRuntime(detail)
+      + renderStrategyDetailSectionRuntime(detail)
+      + tradingOut.html
+      + '<div class="strategy-detail-editor"><div class="actions"><button type="button" class="primary" data-sl-editor-action="save">保存草稿</button></div></div>'
+      + "</div>";
     return {
       html: html,
-      markerEvents: kline.markerEvents || [],
-      replayEvents: kline.markerEvents || [],
+      markerEvents: tradingOut.markerEvents || [],
+      replayEvents: tradingOut.markerEvents || [],
     };
   }
 
@@ -431,18 +521,18 @@
     }
     return rows.map(function(item) {
       const row = item && typeof item === "object" ? item : {};
-      return ''
+      return ""
         + '<div class="strategy-ops-item" data-sl-strategy-id="' + soEsc(soText(row.strategyId || "")) + '">'
         + '<div class="top">'
-        + '<div class="name">' + soEsc(soText(row.name || row.strategyId || "-")) + '</div>'
+        + '<div class="name">' + soEsc(soText(row.name || row.strategyId || "-")) + "</div>"
         + '<div class="badges">'
-        + '<span class="badge status">' + soEsc(soStatusLabel(row.status || "")) + '</span>'
-        + '<span class="badge env">' + soEsc(soEnvLabel(row.runtimeEnv || "")) + '</span>'
-        + '</div>'
-        + '</div>'
+        + '<span class="badge status">' + soEsc(soStatusLabel(row.status || "")) + "</span>"
+        + '<span class="badge env">' + soEsc(soEnvLabel(row.runtimeEnv || "")) + "</span>"
+        + "</div>"
+        + "</div>"
         + '<div class="metrics">'
-        + '<div>最近收益<span class="v">' + soEsc(soFmtPct(row.latestReturnPct, 2)) + '</span></div>'
-        + '<div>最大回撤<span class="v">' + soEsc(soFmtPct(row.maxDrawdownPct, 2)) + '</span></div>'
+        + '<div>最近收益<span class="v">' + soEsc(soFmtPct(row.latestReturnPct, 2)) + "</span></div>"
+        + '<div>最大回撤<span class="v">' + soEsc(soFmtPct(row.maxDrawdownPct, 2)) + "</span></div>"
         + '<div>特征数量<span class="v">' + soEsc(String(Math.max(0, Math.floor(soNum(row.featureCount, 0))))) + "</span></div>"
         + '<div>更新时间<span class="v">' + soEsc(soFmtTs(row.updatedAt || "")) + "</span></div>"
         + "</div>"
@@ -460,11 +550,11 @@
   function renderTradePopoverRuntime(eventLike) {
     const event = eventLike && typeof eventLike === "object" ? eventLike : null;
     if (!event) return "";
-    return ''
-      + '<div><strong>' + soEsc(soTradeTypeLabel(event.tradeType || "")) + '</strong> · ' + soEsc(soFmtTs(new Date(soNum(event.time, 0) * 1000).toISOString())) + '</div>'
-      + '<div>价格：' + soEsc(String(soNum(event.price, 0).toFixed(2))) + ' · 数量：' + soEsc(String(soNum(event.quantity, 0).toFixed(5))) + '</div>'
-      + '<div>手续费：' + soEsc(String(soNum(event.fee, 0).toFixed(4))) + ' · 滑点：' + soEsc(String(soNum(event.slippageBps, 0).toFixed(2))) + ' bps</div>'
-      + '<div>触发：' + soEsc(soText(event.reasonRule || "-")) + '</div>';
+    return ""
+      + "<div><strong>" + soEsc(soTradeTypeLabel(event.tradeType || "")) + "</strong> · " + soEsc(soFmtTs(new Date(soNum(event.time, 0) * 1000).toISOString())) + "</div>"
+      + "<div>价格：" + soEsc(String(soNum(event.price, 0).toFixed(2))) + " · 数量：" + soEsc(String(soNum(event.quantity, 0).toFixed(5))) + "</div>"
+      + "<div>手续费：" + soEsc(String(soNum(event.fee, 0).toFixed(4))) + " · 滑点：" + soEsc(String(soNum(event.slippageBps, 0).toFixed(2))) + " bps</div>"
+      + "<div>触发：" + soEsc(soText(event.reasonRule || "-")) + "</div>";
   }
 
   globalObj.strategyOpsRuntime = {

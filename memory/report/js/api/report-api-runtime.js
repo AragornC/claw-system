@@ -63,12 +63,16 @@
     const strategyVersionId = String(params.strategyVersionId || "").trim();
     const rangeDays = Math.max(1, Math.min(365, Number(params.rangeDays || 30) || 30));
     const tradeType = String(params.tradeType || "all").trim() || "all";
+    const tradingMode = String(params.tradingMode || params.marketMode || "").trim();
+    const playbackId = String(params.playbackId || "").trim();
     if (!strategyId) throw new Error("strategyId is required");
     const url = "/api/strategy/entities/detail"
       + "?strategyId=" + encodeURIComponent(strategyId)
       + "&strategyVersionId=" + encodeURIComponent(strategyVersionId)
       + "&rangeDays=" + encodeURIComponent(String(rangeDays))
-      + "&tradeType=" + encodeURIComponent(tradeType);
+      + "&tradeType=" + encodeURIComponent(tradeType)
+      + "&tradingMode=" + encodeURIComponent(tradingMode)
+      + "&playbackId=" + encodeURIComponent(playbackId);
     const resp = await fetch(url, { cache: "no-store" });
     return readJsonResponse(resp);
   }

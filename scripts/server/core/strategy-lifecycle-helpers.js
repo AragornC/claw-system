@@ -259,11 +259,13 @@ function lockFeatureVersions(featureRefsLike, featureLookupLike) {
 
 function buildSampleExecutionReport(optionsLike = {}) {
   const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
-  const nowSec = Math.floor(Date.now() / 1000);
+  const inputBaseTime = Math.floor(number(options.baseTimeSec, 0));
+  const nowSec = inputBaseTime > 0 ? inputBaseTime : Math.floor(Date.now() / 1000);
   const days = normalizeRangeDays(options.days || 30);
   const points = Math.max(60, Math.min(1800, days * 24));
   const stepSec = Math.max(900, Math.floor(number(options.stepSec, 3600)));
   const startSec = nowSec - points * stepSec;
+  const seedShift = Math.max(0, Math.floor(number(options.seedShift, 0)));
   const equityCurve = [];
   const drawdownCurve = [];
   const events = [];
@@ -272,17 +274,18 @@ function buildSampleExecutionReport(optionsLike = {}) {
   const eventStep = Math.max(12, Math.floor(points / 22));
   const typeOrder = ["buy", "add", "sell", "reduce", "close", "risk_trigger"];
   for (let i = 0; i < points; i += 1) {
+    const idx = i + seedShift;
     const t = startSec + i * stepSec;
-    const drift = Math.sin(i / 11) * 0.0023 + Math.cos(i / 17) * 0.0014 + (i % 43 === 0 ? 0.006 : -0.0002);
+    const drift = Math.sin(idx / 11) * 0.0023 + Math.cos(idx / 17) * 0.0014 + (idx % 43 === 0 ? 0.006 : -0.0002);
     equity = Math.max(0.3, equity * (1 + drift));
     peak = Math.max(peak, equity);
     const dd = peak <= 0 ? 0 : Math.max(0, (peak - equity) / peak);
     equityCurve.push({ time: t, equity: Number(equity.toFixed(6)) });
     drawdownCurve.push({ time: t, drawdownPct: Number((dd * 100).toFixed(4)) });
     if (i > 0 && i % eventStep === 0) {
-      const eventType = typeOrder[Math.floor(i / eventStep) % typeOrder.length];
-      const price = 52000 + Math.sin(i / 7) * 1200 + Math.cos(i / 16) * 700;
-      const qty = 0.01 + (Math.abs(Math.sin(i / 9)) * 0.04);
+      const eventType = typeOrder[Math.floor(idx / eventStep) % typeOrder.length];
+      const price = 52000 + Math.sin(idx / 7) * 1200 + Math.cos(idx / 16) * 700;
+      const qty = 0.01 + (Math.abs(Math.sin(idx / 9)) * 0.04);
       const fee = Number((price * qty * 0.0006).toFixed(4));
       events.push({
         tradeId: "tr_" + String(i),
@@ -291,11 +294,11 @@ function buildSampleExecutionReport(optionsLike = {}) {
         price: Number(price.toFixed(2)),
         quantity: Number(qty.toFixed(5)),
         fee: fee,
-        slippageBps: Number((3 + Math.abs(Math.cos(i / 13)) * 6).toFixed(2)),
+        slippageBps: Number((3 + Math.abs(Math.cos(idx / 13)) * 6).toFixed(2)),
         reasonRule: eventType === "risk_trigger"
           ? "risk.max_drawdown"
           : (eventType === "buy" || eventType === "add" ? "signal.trend_gate" : "signal.exit_rule"),
-        pnlPct: Number((Math.sin(i / 10) * 1.8).toFixed(3)),
+        pnlPct: Number((Math.sin(idx / 10) * 1.8).toFixed(3)),
       });
     }
   }

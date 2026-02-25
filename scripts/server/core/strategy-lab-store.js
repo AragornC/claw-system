@@ -242,6 +242,16 @@ export function createStrategyLabStore(deps = {}) {
       store.seq.audit = Math.max(Number(store.seq.audit || 1), store.strategyAudits.length + 1);
       changed = true;
     }
+    if (Array.isArray(store.strategies)) {
+      store.strategies.forEach((strategyLike) => {
+        const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : null;
+        if (!strategy) return;
+        if (!strategy.runtimeReports || typeof strategy.runtimeReports !== "object") {
+          strategy.runtimeReports = {};
+          changed = true;
+        }
+      });
+    }
     return changed;
   }
 
@@ -287,6 +297,238 @@ export function createStrategyLabStore(deps = {}) {
     const strategyVersionId = toText(strategyVersionIdLike || "");
     if (!strategyVersionId) return null;
     return (store.strategyVersions || []).find((item) => toText(item?.strategyVersionId || "") === strategyVersionId) || null;
+  }
+
+  function toUnixSeconds(valueLike, fallbackSec = 0) {
+    const raw = toText(valueLike || "");
+    if (!raw) return Math.max(0, Math.floor(Number(fallbackSec || 0)));
+    const dt = new Date(raw);
+    const ts = Math.floor(Number(dt.getTime()) / 1000);
+    if (Number.isFinite(ts) && ts > 0) return ts;
+    return Math.max(0, Math.floor(Number(fallbackSec || 0)));
+  }
+
+  function inferTradingModeFromStatus(statusLike) {
+    const status = normalizeStatus(statusLike || "draft");
+    if (status === "live" || status === "risk_paused") return "live";
+    if (status === "paper_live") return "paper";
+    return "backtest";
+  }
+
+  function normalizeTradingMode(modeLike, statusLike) {
+    const raw = toText(modeLike || "").toLowerCase();
+    if (raw === "live" || raw === "paper" || raw === "backtest") return raw;
+    return inferTradingModeFromStatus(statusLike || "draft");
+  }
+
+  function resolveStrategyVersions(storeLike, strategyIdLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const strategyId = toText(strategyIdLike || "");
+    if (!strategyId) return [];
+    return (store.strategyVersions || [])
+      .filter((item) => toText(item?.strategyId || "") === strategyId)
+      .slice()
+      .sort((a, b) => {
+        const noA = Number(a?.versionNo || 0);
+        const noB = Number(b?.versionNo || 0);
+        if (noA !== noB) return noB - noA;
+        return String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""));
+      });
+  }
+
+  function buildStableSampleReport(strategyLike, modeLike, daysLike, seedShiftLike = 0) {
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const mode = normalizeTradingMode(modeLike, strategy?.status || "draft");
+    const rangeDays = normalizeRangeDays(daysLike || 30);
+    const strategyId = toText(strategy?.strategyId || strategy?.name || "stg", "stg");
+    let hash = 0;
+    for (let i = 0; i < strategyId.length; i += 1) {
+      const code = strategyId.charCodeAt(i);
+      hash = (hash * 31 + code) % 9973;
+    }
+    const modeShift = mode === "live" ? 100 : (mode === "paper" ? 60 : 10);
+    const createdSec = toUnixSeconds(strategy?.createdAt || "", Math.floor(Date.now() / 1000));
+    return buildSampleExecutionReport({
+      days: rangeDays,
+      stepSec: 3600,
+      baseTimeSec: createdSec + rangeDays * 86400 + modeShift * 120,
+      seedShift: hash + modeShift + Math.max(0, Math.floor(Number(seedShiftLike || 0))),
+    });
+  }
+
+  function summarizeExecutionReport(reportLike, performanceLike = {}) {
+    const report = reportLike && typeof reportLike === "object" ? reportLike : {};
+    const perf = performanceLike && typeof performanceLike === "object" ? performanceLike : {};
+    const events = Array.isArray(report.events) ? report.events : [];
+    const tradeCount = events.length || Math.max(0, Math.floor(Number(perf.tradeCount || 0)));
+    const equityCurve = Array.isArray(report.equityCurve) ? report.equityCurve : [];
+    const drawdownCurve = Array.isArray(report.drawdownCurve) ? report.drawdownCurve : [];
+    const firstEquity = Number(equityCurve[0]?.equity || 1);
+    const lastEquity = Number(equityCurve[equityCurve.length - 1]?.equity || firstEquity || 1);
+    const latestReturnPctFromCurve = firstEquity > 0
+      ? Number((((lastEquity - firstEquity) / firstEquity) * 100).toFixed(4))
+      : 0;
+    let maxDrawdownPctFromCurve = 0;
+    drawdownCurve.forEach((item) => {
+      const dd = Number(item?.drawdownPct || 0);
+      if (Number.isFinite(dd) && dd > maxDrawdownPctFromCurve) {
+        maxDrawdownPctFromCurve = dd;
+      }
+    });
+    const latestReturnPct = Number.isFinite(Number(perf.latestReturnPct))
+      ? Number(perf.latestReturnPct)
+      : latestReturnPctFromCurve;
+    const maxDrawdownPct = Number.isFinite(Number(perf.maxDrawdownPct))
+      ? Number(perf.maxDrawdownPct)
+      : Number(maxDrawdownPctFromCurve.toFixed(4));
+    return {
+      tradeCount: Math.max(0, Math.floor(tradeCount)),
+      latestReturnPct: Number(latestReturnPct.toFixed(4)),
+      maxDrawdownPct: Number(maxDrawdownPct.toFixed(4)),
+    };
+  }
+
+  function inferArtifactTradingMode(artifactLike) {
+    const artifact = artifactLike && typeof artifactLike === "object" ? artifactLike : {};
+    const config = artifact.config && typeof artifact.config === "object" ? artifact.config : {};
+    const result = artifact.result && typeof artifact.result === "object" ? artifact.result : {};
+    const modeRaw = toText(config.marketMode || result.marketMode || "").toLowerCase();
+    if (modeRaw === "live" || modeRaw === "paper" || modeRaw === "backtest") return modeRaw;
+    const sourceRaw = toText(artifact.source || "").toLowerCase();
+    if (sourceRaw.includes("live")) return "live";
+    if (sourceRaw.includes("paper")) return "paper";
+    if (sourceRaw.includes("backtest")) return "backtest";
+    return "backtest";
+  }
+
+  function buildArtifactExecutionReport(artifactLike, strategyLike) {
+    const artifact = artifactLike && typeof artifactLike === "object" ? artifactLike : {};
+    const config = artifact.config && typeof artifact.config === "object" ? artifact.config : {};
+    const result = artifact.result && typeof artifact.result === "object" ? artifact.result : {};
+    if (result.executionReport && typeof result.executionReport === "object") {
+      return result.executionReport;
+    }
+    const bars = Math.max(120, Math.min(3600, Math.floor(Number(config.bars || result.bars || 720) || 720)));
+    const rangeDays = Math.max(7, Math.min(365, Math.floor(bars / 24)));
+    const mode = inferArtifactTradingMode(artifact);
+    const tradeCount = Math.max(0, Math.floor(Number(result.tradeCount || result.trades || 0) || 0));
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const report = buildStableSampleReport(strategy, mode, rangeDays, tradeCount + bars);
+    return report;
+  }
+
+  function buildRuntimeModeReport(strategyLike, versionsLike, modeLike, rangeDaysLike) {
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const versions = Array.isArray(versionsLike) ? versionsLike : [];
+    const mode = normalizeTradingMode(modeLike, strategy.status || "draft");
+    const runtimeReports = strategy.runtimeReports && typeof strategy.runtimeReports === "object"
+      ? strategy.runtimeReports
+      : {};
+    const fromRuntime = runtimeReports[mode] && typeof runtimeReports[mode] === "object"
+      ? runtimeReports[mode]
+      : null;
+    if (fromRuntime && fromRuntime.executionReport && typeof fromRuntime.executionReport === "object") {
+      return {
+        mode,
+        source: toText(fromRuntime.source || "runtime"),
+        updatedAt: toText(fromRuntime.updatedAt || strategy.updatedAt || ""),
+        executionReport: fromRuntime.executionReport,
+        positionSummary: fromRuntime.positionSummary && typeof fromRuntime.positionSummary === "object"
+          ? fromRuntime.positionSummary
+          : {},
+      };
+    }
+    const currentVersionId = toText(strategy.currentVersionId || strategy.latestVersionId || "");
+    const preferredVersion = versions.find((item) => toText(item?.strategyVersionId || "") === currentVersionId) || versions[0] || null;
+    if (preferredVersion && preferredVersion.executionReport && typeof preferredVersion.executionReport === "object") {
+      return {
+        mode,
+        source: "strategy_version",
+        updatedAt: toText(preferredVersion.publishedAt || preferredVersion.createdAt || strategy.updatedAt || ""),
+        executionReport: preferredVersion.executionReport,
+        positionSummary: {
+          mode,
+          state: mode === "live" ? "running" : "paper_running",
+          note: mode === "live" ? "来自当前策略版本实盘数据映射" : "来自当前策略版本模拟数据映射",
+        },
+      };
+    }
+    return {
+      mode,
+      source: "fallback_sample",
+      updatedAt: toText(strategy.updatedAt || strategy.createdAt || ""),
+      executionReport: buildStableSampleReport(strategy, mode, rangeDaysLike || 30),
+      positionSummary: {
+        mode,
+        state: "unknown",
+        note: mode === "live" ? "尚未接入实盘成交，当前显示稳定占位样本。" : "尚未接入模拟成交，当前显示稳定占位样本。",
+      },
+    };
+  }
+
+  function buildBacktestPlaybackRows(storeLike, strategyLike, versionsLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const versions = Array.isArray(versionsLike) ? versionsLike : [];
+    const rows = [];
+    versions.forEach((version) => {
+      const report = version?.executionReport && typeof version.executionReport === "object"
+        ? version.executionReport
+        : buildStableSampleReport(strategy, "backtest", 30, Number(version?.versionNo || 1));
+      const perf = version?.performance && typeof version.performance === "object" ? version.performance : {};
+      const summary = summarizeExecutionReport(report, perf);
+      rows.push({
+        playbackId: "ver:" + toText(version?.strategyVersionId || ""),
+        marketMode: "backtest",
+        source: "strategy_version",
+        strategyVersionId: toText(version?.strategyVersionId || ""),
+        label: toText(version?.versionTag || ("v" + String(Number(version?.versionNo || 1) || 1))) + " 回测",
+        createdAt: toText(version?.publishedAt || version?.createdAt || strategy.updatedAt || ""),
+        updatedAt: toText(version?.publishedAt || version?.createdAt || strategy.updatedAt || ""),
+        executionReport: report,
+        ...summary,
+      });
+    });
+    const strategySlug = slugify(strategy.name || "");
+    const strategyId = toText(strategy.strategyId || "");
+    (store.artifacts || []).forEach((artifactLike) => {
+      const artifact = artifactLike && typeof artifactLike === "object" ? artifactLike : {};
+      const config = artifact.config && typeof artifact.config === "object" ? artifact.config : {};
+      const result = artifact.result && typeof artifact.result === "object" ? artifact.result : {};
+      const directStrategyId = toText(config.strategyId || result.strategyId || "");
+      const nameSlug = slugify(config.strategy || result.strategy || artifact.label || "");
+      const mode = inferArtifactTradingMode(artifact);
+      const matchById = directStrategyId && directStrategyId === strategyId;
+      const matchByName = !directStrategyId && strategySlug && nameSlug && strategySlug === nameSlug;
+      if (!matchById && !matchByName) return;
+      if (mode !== "backtest") return;
+      const report = buildArtifactExecutionReport(artifact, strategy);
+      const summary = summarizeExecutionReport(report, {
+        latestReturnPct: Number(result.netPnlPct || result.totalPnlPct || 0) || 0,
+        maxDrawdownPct: Number(result.maxDrawdownPct || 0) || 0,
+        tradeCount: Number(result.tradeCount || result.trades || 0) || 0,
+      });
+      const playbackId = "artifact:" + toText(artifact.artifactId || artifact.reportKey || "");
+      if (!playbackId || playbackId === "artifact:") return;
+      rows.push({
+        playbackId,
+        marketMode: "backtest",
+        source: "artifact",
+        strategyVersionId: "",
+        label: toText(artifact.label || "回测工件"),
+        createdAt: toText(artifact.ts || artifact.updatedAt || strategy.updatedAt || ""),
+        updatedAt: toText(artifact.updatedAt || artifact.ts || strategy.updatedAt || ""),
+        executionReport: report,
+        ...summary,
+      });
+    });
+    const dedup = new Map();
+    rows.forEach((item) => {
+      const key = toText(item?.playbackId || "");
+      if (!key) return;
+      dedup.set(key, item);
+    });
+    return Array.from(dedup.values()).sort((a, b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
   }
 
   function listFeatures(options = {}) {
@@ -881,6 +1123,7 @@ export function createStrategyLabStore(deps = {}) {
         maxDrawdownPct: 0,
         draftConfig,
         cardBinding: null,
+        runtimeReports: {},
         createdAt: now,
         updatedAt: now,
       };
@@ -917,6 +1160,9 @@ export function createStrategyLabStore(deps = {}) {
     strategy.runtimeEnv = normalizeRuntimeEnv(strategy.status, payload.runtimeEnv || strategy.runtimeEnv);
     strategy.featureCount = featureCount;
     strategy.draftConfig = draftConfig;
+    if (!strategy.runtimeReports || typeof strategy.runtimeReports !== "object") {
+      strategy.runtimeReports = {};
+    }
     strategy.updatedAt = now;
     if (Number.isFinite(Number(meta.eventId)) && Number(meta.eventId) > 0 && toText(meta.cardId || "")) {
       strategy.cardBinding = {
@@ -997,6 +1243,21 @@ export function createStrategyLabStore(deps = {}) {
     strategy.featureCount = lockedFeatureVersions.length;
     strategy.latestReturnPct = latestReturnPct;
     strategy.maxDrawdownPct = maxDrawdownPct;
+    if (!strategy.runtimeReports || typeof strategy.runtimeReports !== "object") {
+      strategy.runtimeReports = {};
+    }
+    strategy.runtimeReports.backtest = {
+      mode: "backtest",
+      source: "publish_version",
+      updatedAt: now,
+      strategyVersionId,
+      executionReport,
+      positionSummary: {
+        mode: "backtest",
+        state: "completed",
+        note: "来自最新发布版本回测结果",
+      },
+    };
     if (strategy.status === "draft" || strategy.status === "backtested") {
       strategy.status = "backtested";
       strategy.runtimeEnv = STRATEGY_RUNTIME_ENV_BY_STATUS.backtested;
@@ -1035,6 +1296,86 @@ export function createStrategyLabStore(deps = {}) {
     strategy.status = toStatus;
     strategy.runtimeEnv = normalizeRuntimeEnv(toStatus, params.runtimeEnv || strategy.runtimeEnv);
     strategy.updatedAt = now;
+    if (!strategy.runtimeReports || typeof strategy.runtimeReports !== "object") {
+      strategy.runtimeReports = {};
+    }
+    const versions = resolveStrategyVersions(store, strategy.strategyId);
+    const currentVersionId = toText(strategy.currentVersionId || strategy.latestVersionId || "");
+    const preferredVersion = versions.find((item) => toText(item?.strategyVersionId || "") === currentVersionId) || versions[0] || null;
+    const baseReport = preferredVersion && preferredVersion.executionReport && typeof preferredVersion.executionReport === "object"
+      ? preferredVersion.executionReport
+      : buildStableSampleReport(strategy, toStatus, 30, Number(versions.length || 1));
+    if (toStatus === "paper_live") {
+      strategy.runtimeReports.paper = {
+        mode: "paper",
+        source: "status_transition",
+        updatedAt: now,
+        startedAt: toText(strategy.runtimeReports.paper?.startedAt || now),
+        strategyVersionId: toText(preferredVersion?.strategyVersionId || ""),
+        executionReport: baseReport,
+        positionSummary: {
+          mode: "paper",
+          state: "running",
+          note: "模拟盘运行中（策略状态驱动）",
+        },
+      };
+    } else if (toStatus === "live" || toStatus === "risk_paused") {
+      strategy.runtimeReports.live = {
+        mode: "live",
+        source: "status_transition",
+        updatedAt: now,
+        startedAt: toText(strategy.runtimeReports.live?.startedAt || now),
+        strategyVersionId: toText(preferredVersion?.strategyVersionId || ""),
+        executionReport: baseReport,
+        positionSummary: {
+          mode: "live",
+          state: toStatus === "risk_paused" ? "risk_paused" : "running",
+          note: toStatus === "risk_paused" ? "触发风控暂停" : "实盘运行中（策略状态驱动）",
+        },
+      };
+    } else if (toStatus === "paused") {
+      if (strategy.runtimeReports.paper && typeof strategy.runtimeReports.paper === "object") {
+        strategy.runtimeReports.paper = {
+          ...strategy.runtimeReports.paper,
+          updatedAt: now,
+          positionSummary: {
+            ...(strategy.runtimeReports.paper.positionSummary && typeof strategy.runtimeReports.paper.positionSummary === "object"
+              ? strategy.runtimeReports.paper.positionSummary
+              : {}),
+            mode: "paper",
+            state: "paused",
+            note: "策略已暂停",
+          },
+        };
+      }
+      if (strategy.runtimeReports.live && typeof strategy.runtimeReports.live === "object") {
+        strategy.runtimeReports.live = {
+          ...strategy.runtimeReports.live,
+          updatedAt: now,
+          positionSummary: {
+            ...(strategy.runtimeReports.live.positionSummary && typeof strategy.runtimeReports.live.positionSummary === "object"
+              ? strategy.runtimeReports.live.positionSummary
+              : {}),
+            mode: "live",
+            state: "paused",
+            note: "策略已暂停",
+          },
+        };
+      }
+    } else if (toStatus === "backtested" || toStatus === "draft") {
+      strategy.runtimeReports.backtest = {
+        mode: "backtest",
+        source: "status_transition",
+        updatedAt: now,
+        strategyVersionId: toText(preferredVersion?.strategyVersionId || ""),
+        executionReport: baseReport,
+        positionSummary: {
+          mode: "backtest",
+          state: "ready",
+          note: "回测视图已更新",
+        },
+      };
+    }
     appendStrategyAudit(store, {
       strategyId: strategy.strategyId,
       strategyVersionId: toText(strategy.currentVersionId || ""),
@@ -1075,7 +1416,10 @@ export function createStrategyLabStore(deps = {}) {
     if (!strategy) throw new Error("strategy not found");
     const rangeDays = normalizeRangeDays(options.rangeDays || 30);
     const tradeType = normalizeTradeType(options.tradeType || "all");
+    const tradingMode = normalizeTradingMode(options.tradingMode || options.marketMode || "", strategy.status || "draft");
     const specifiedVersionId = toText(options.strategyVersionId || "");
+    const specifiedPlaybackId = toText(options.playbackId || "");
+    const versions = resolveStrategyVersions(store, strategyId);
     let version = specifiedVersionId
       ? resolveStrategyVersionById(store, specifiedVersionId)
       : null;
@@ -1085,20 +1429,134 @@ export function createStrategyLabStore(deps = {}) {
         ? resolveStrategyVersionById(store, preferredVersionId)
         : null;
     }
-    if (!version) {
-      const candidates = (store.strategyVersions || [])
-        .filter((item) => toText(item?.strategyId || "") === strategyId)
-        .sort((a, b) => Number(b?.versionNo || 0) - Number(a?.versionNo || 0));
-      version = candidates[0] || null;
+    if (!version && versions.length) {
+      version = versions[0];
     }
-    const reportRaw = version && version.executionReport && typeof version.executionReport === "object"
-      ? version.executionReport
-      : buildSampleExecutionReport({ days: rangeDays, stepSec: 3600 });
+    const backtestPlaybacksRaw = buildBacktestPlaybackRows(store, strategy, versions);
+    let selectedPlayback = specifiedPlaybackId
+      ? backtestPlaybacksRaw.find((item) => toText(item?.playbackId || "") === specifiedPlaybackId) || null
+      : null;
+    if (!selectedPlayback && specifiedVersionId) {
+      selectedPlayback = backtestPlaybacksRaw.find((item) => toText(item?.strategyVersionId || "") === specifiedVersionId) || null;
+    }
+    if (!selectedPlayback && backtestPlaybacksRaw.length) {
+      selectedPlayback = backtestPlaybacksRaw[0];
+    }
+    let runtimeMeta = {
+      source: "",
+      updatedAt: "",
+      positionSummary: {},
+      selectedPlaybackId: "",
+    };
+    let reportRaw = null;
+    if (tradingMode === "backtest") {
+      if (selectedPlayback) {
+        reportRaw = selectedPlayback.executionReport;
+        runtimeMeta = {
+          source: toText(selectedPlayback.source || "backtest_playback"),
+          updatedAt: toText(selectedPlayback.updatedAt || selectedPlayback.createdAt || strategy.updatedAt || ""),
+          positionSummary: {
+            mode: "backtest",
+            state: "completed",
+            note: "当前展示所选回测回放结果",
+          },
+          selectedPlaybackId: toText(selectedPlayback.playbackId || ""),
+        };
+        const playbackVersionId = toText(selectedPlayback.strategyVersionId || "");
+        if (playbackVersionId) {
+          const playbackVersion = resolveStrategyVersionById(store, playbackVersionId);
+          if (playbackVersion && toText(playbackVersion?.strategyId || "") === strategyId) {
+            version = playbackVersion;
+          }
+        }
+      } else if (version && version.executionReport && typeof version.executionReport === "object") {
+        reportRaw = version.executionReport;
+        runtimeMeta = {
+          source: "strategy_version",
+          updatedAt: toText(version.publishedAt || version.createdAt || strategy.updatedAt || ""),
+          positionSummary: {
+            mode: "backtest",
+            state: "completed",
+            note: "当前展示策略版本回测结果",
+          },
+          selectedPlaybackId: "",
+        };
+      } else {
+        reportRaw = buildStableSampleReport(strategy, "backtest", rangeDays);
+        runtimeMeta = {
+          source: "fallback_sample",
+          updatedAt: toText(strategy.updatedAt || strategy.createdAt || ""),
+          positionSummary: {
+            mode: "backtest",
+            state: "seeded",
+            note: "暂无回测记录，显示稳定样本。",
+          },
+          selectedPlaybackId: "",
+        };
+      }
+    } else {
+      const modeReport = buildRuntimeModeReport(strategy, versions, tradingMode, rangeDays);
+      reportRaw = modeReport.executionReport;
+      runtimeMeta = {
+        source: toText(modeReport.source || ""),
+        updatedAt: toText(modeReport.updatedAt || strategy.updatedAt || ""),
+        positionSummary: modeReport.positionSummary && typeof modeReport.positionSummary === "object"
+          ? modeReport.positionSummary
+          : {},
+        selectedPlaybackId: "",
+      };
+    }
+    if (!reportRaw || typeof reportRaw !== "object") {
+      reportRaw = buildStableSampleReport(strategy, tradingMode, rangeDays);
+    }
     const filtered = filterExecutionReport(reportRaw, { rangeDays, tradeType });
     const report = filtered.report;
     const events = (Array.isArray(report.events) ? report.events : []).map((item) => ({
       ...item,
       tradeTypeLabel: TRADE_TYPE_LABELS[toText(item?.tradeType || "").toLowerCase()] || toText(item?.tradeType || ""),
+    }));
+    const summary = summarizeExecutionReport(report, version?.performance || {});
+    const sourceKey = toText(strategy.source || "", "unknown");
+    const sourceLabel = sourceKey === "chat_intent"
+      ? "ThunderClaw 对话"
+      : (sourceKey === "strategy_console"
+        ? "策略运营控制台"
+        : (sourceKey === "manual_propose" ? "手动提案" : sourceKey));
+    const lockRows = Array.isArray(version?.lockedFeatureVersions) ? version.lockedFeatureVersions : [];
+    const lockLookup = new Map();
+    lockRows.forEach((item) => {
+      const key = toText(item?.featureId || item?.featureName || "");
+      if (!key) return;
+      lockLookup.set(key, item);
+      lockLookup.set(toText(item?.featureName || ""), item);
+    });
+    const featureRefs = normalizeFeatureRefs(
+      version?.signalLayer?.featureRefs
+      || strategy?.draftConfig?.signalLayer?.featureRefs
+      || [],
+    );
+    const featureRelations = featureRefs.map((ref) => {
+      const lock = lockLookup.get(ref) || null;
+      return {
+        featureRef: ref,
+        featureId: toText(lock?.featureId || ref),
+        featureName: toText(lock?.featureName || ref),
+        featureVersion: toText(lock?.featureVersion || "v1.0.0"),
+        relationType: "signal_input",
+      };
+    });
+    const backtestPlaybacks = backtestPlaybacksRaw.map((item) => ({
+      playbackId: toText(item?.playbackId || ""),
+      marketMode: "backtest",
+      source: toText(item?.source || ""),
+      strategyVersionId: toText(item?.strategyVersionId || ""),
+      label: toText(item?.label || ""),
+      createdAt: toText(item?.createdAt || ""),
+      updatedAt: toText(item?.updatedAt || ""),
+      tradeCount: Math.max(0, Math.floor(Number(item?.tradeCount || 0))),
+      latestReturnPct: Number(Number(item?.latestReturnPct || 0).toFixed(4)),
+      maxDrawdownPct: Number(Number(item?.maxDrawdownPct || 0).toFixed(4)),
+      selected: toText(item?.playbackId || "") === toText(runtimeMeta.selectedPlaybackId || ""),
     }));
     return {
       strategy: {
@@ -1107,14 +1565,33 @@ export function createStrategyLabStore(deps = {}) {
         statusLabel: STRATEGY_STATUS_LABELS[normalizeStatus(strategy.status || "draft")] || normalizeStatus(strategy.status || "draft"),
         runtimeEnv: normalizeRuntimeEnv(strategy.status || "draft", strategy.runtimeEnv),
         runtimeEnvLabel: STRATEGY_RUNTIME_ENV_LABELS[normalizeRuntimeEnv(strategy.status || "draft", strategy.runtimeEnv)] || strategy.runtimeEnv,
+        source: sourceKey,
+        sourceLabel,
       },
       version: version || null,
+      details: {
+        expression: toText(version?.signalLayer?.signalLogic || strategy?.draftConfig?.signalLayer?.signalLogic || "未配置策略表达式"),
+        featureRelations,
+      },
+      trading: {
+        mode: tradingMode,
+        modeLabel: tradingMode === "live" ? "实盘交易" : (tradingMode === "paper" ? "模拟交易" : "回测交易"),
+        source: runtimeMeta.source,
+        updatedAt: runtimeMeta.updatedAt,
+        positionSummary: runtimeMeta.positionSummary,
+        selectedPlaybackId: toText(runtimeMeta.selectedPlaybackId || ""),
+        backtestPlaybacks,
+        playbackTotal: backtestPlaybacks.length,
+        summary,
+      },
       visualization: {
         rangeDays: filtered.rangeDays,
         tradeType: filtered.tradeType,
+        mode: tradingMode,
         events,
         equityCurve: report.equityCurve || [],
         drawdownCurve: report.drawdownCurve || [],
+        summary,
         playback: {
           minSpeedMs: 180,
           defaultSpeedMs: 520,

@@ -306,6 +306,8 @@ export function createStrategyLabHandlers(deps = {}) {
     const strategyVersionId = toText(url.searchParams.get("strategyVersionId") || "");
     const rangeDays = parsePositiveInt(url.searchParams.get("rangeDays"), 30, 1, 365);
     const tradeType = toText(url.searchParams.get("tradeType") || "all", "all");
+    const tradingMode = toText(url.searchParams.get("tradingMode") || url.searchParams.get("marketMode") || "", "");
+    const playbackId = toText(url.searchParams.get("playbackId") || "");
     if (!strategyId) {
       sendJson(res, 400, { ok: false, error: "strategyId is required" });
       return;
@@ -320,6 +322,8 @@ export function createStrategyLabHandlers(deps = {}) {
         strategyVersionId,
         rangeDays,
         tradeType,
+        tradingMode,
+        playbackId,
       });
       const audits = typeof strategyLabStore.listStrategyAudits === "function"
         ? strategyLabStore.listStrategyAudits({ strategyId, limit: 80 })
