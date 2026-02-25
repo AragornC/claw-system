@@ -29,6 +29,58 @@ export function createOpenClawXbrainRuntime(deps = {}) {
   if (!xbrainStore || typeof xbrainStore !== "object") throw new Error("xbrainStore is required");
   if (!modelCatalogCache || typeof modelCatalogCache !== "object") throw new Error("modelCatalogCache is required");
   if (!sessionModelProbeCache || typeof sessionModelProbeCache !== "object") throw new Error("sessionModelProbeCache is required");
+  const oauthState = deps.oauthState && typeof deps.oauthState === "object" ? deps.oauthState : {};
+  const oauthIsRunning = typeof deps.oauthIsRunning === "function"
+    ? deps.oauthIsRunning
+    : () => Boolean(oauthState?.active);
+
+function isSupportedProviderKey(providerLike) {
+  const provider = normalizeProviderKey(providerLike || "");
+  if (!provider) return false;
+  if (Object.prototype.hasOwnProperty.call(PROVIDER_DEFAULT_MODEL_REFS, provider)) return true;
+  if (Object.prototype.hasOwnProperty.call(PROVIDER_TO_SETUP_PROVIDER, provider)) return true;
+  if (typeof providerSupportsOAuth === "function" && providerSupportsOAuth(provider)) return true;
+  return false;
+}
+
+function isAllowedModelRefShape(modelRefLike) {
+  const modelRef = String(modelRefLike || "").trim();
+  if (!modelRef || !modelRef.includes("/")) return false;
+  const inferred = inferProviderFromModelRef(modelRef);
+  if (!isSupportedProviderKey(inferred.provider)) return false;
+  const modelId = String(inferred.modelId || "").trim();
+  if (!modelId) return false;
+  if (modelId.length > 180) return false;
+  return true;
+}
+
+function getKnownCatalogRefSetFromCache() {
+  const refs = [];
+  const allRows = Array.isArray(modelCatalogCache?.all) ? modelCatalogCache.all : [];
+  const configuredRows = Array.isArray(modelCatalogCache?.configured) ? modelCatalogCache.configured : [];
+  allRows.forEach((item) => {
+    const key = String(item?.key || "").trim();
+    if (key) refs.push(key);
+  });
+  configuredRows.forEach((item) => {
+    const key = String(item?.key || "").trim();
+    if (key) refs.push(key);
+  });
+  return new Set(uniqStrings(refs).map((item) => String(item || "").trim().toLowerCase()));
+}
+
+function sanitizeRegistryModelRefs(registryLike) {
+  const rows = uniqStrings(Array.isArray(registryLike) ? registryLike : []);
+  const knownSet = getKnownCatalogRefSetFromCache();
+  const hasKnownSet = knownSet.size > 0;
+  const out = rows.filter((itemLike) => {
+    const item = String(itemLike || "").trim();
+    if (!isAllowedModelRefShape(item)) return false;
+    if (!hasKnownSet) return true;
+    return knownSet.has(item.toLowerCase());
+  });
+  return uniqStrings(out);
+}
 
 function providerToAuthConfig(provider) {
   const map = {
@@ -301,19 +353,31 @@ async function syncXbrainFromOpenClaw() {
     xbrainStore.base.runtimeModelId = String(xbrainStore.base.modelId || "deepseek-chat");
   }
 
-  if (!Array.isArray(xbrainStore.base.modelRegistry) || !xbrainStore.base.modelRegistry.length) {
-    if (defaultModelRef) {
-      xbrainStore.base.modelRegistry = [defaultModelRef];
-    } else {
-      xbrainStore.base.modelRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+  const registrySeed = Array.isArray(xbrainStore.base.modelRegistry)
+    ? xbrainStore.base.modelRegistry
+    : [];
+  let sanitizedRegistry = sanitizeRegistryModelRefs(registrySeed);
+  if (!sanitizedRegistry.length && defaultModelRef && isAllowedModelRefShape(defaultModelRef)) {
+    sanitizedRegistry = [defaultModelRef];
+  }
+  if (!sanitizedRegistry.length) {
+    sanitizedRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+  }
+  xbrainStore.base.modelRegistry = sanitizedRegistry;
+
+  const providerCatalog = new Set(
+    sanitizeProviderCatalog(xbrainStore.base.providerCatalog).filter((provider) => isSupportedProviderKey(provider)),
+  );
+  for (const modelRef of xbrainStore.base.modelRegistry || []) {
+    const provider = inferProviderFromModelRef(modelRef).provider;
+    if (isSupportedProviderKey(provider)) {
+      providerCatalog.add(provider);
     }
   }
-
-  const providerCatalog = new Set(sanitizeProviderCatalog(xbrainStore.base.providerCatalog));
-  for (const modelRef of xbrainStore.base.modelRegistry || []) {
-    providerCatalog.add(inferProviderFromModelRef(modelRef).provider);
+  const currentProvider = normalizeProviderKey(xbrainStore.base.modelProvider);
+  if (isSupportedProviderKey(currentProvider)) {
+    providerCatalog.add(currentProvider);
   }
-  providerCatalog.add(normalizeProviderKey(xbrainStore.base.modelProvider));
   xbrainStore.base.providerCatalog = sanitizeProviderCatalog(Array.from(providerCatalog));
 
   const baseAuth = xbrainStore.base.providerAuth && typeof xbrainStore.base.providerAuth === "object"
@@ -555,9 +619,11 @@ function getRegisteredModelRefs(registryLike = null) {
   const source = Array.isArray(registryLike)
     ? registryLike
     : (xbrainStore?.base?.modelRegistry || []);
+  const sanitized = sanitizeRegistryModelRefs(source);
+  if (sanitized.length) return sanitized;
   return uniqStrings(source)
     .map((item) => String(item || "").trim())
-    .filter((item) => Boolean(item && item.includes("/")));
+    .filter((item) => Boolean(item && item.includes("/") && isAllowedModelRefShape(item)));
 }
 
 function isModelRefRegistered(modelRefRaw, registryLike = null) {

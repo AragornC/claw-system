@@ -1165,6 +1165,8 @@ const {
   extractAgentReply,
   maskSecret,
   providerAuthType,
+  oauthState,
+  oauthIsRunning,
 });
 
 const strategyLabStore = createStrategyLabStore({

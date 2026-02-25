@@ -35,6 +35,86 @@ export function createXbrainCoreHandlers(deps = {}) {
 
   if (!xbrainStore || typeof xbrainStore !== 'object') throw new Error('xbrainStore is required');
 
+function isSupportedProviderKey(providerLike) {
+  const provider = normalizeProviderKey(providerLike || "");
+  if (!provider) return false;
+  if (typeof providerSupportsApiKey === "function" && providerSupportsApiKey(provider)) return true;
+  if (typeof providerSupportsOAuth === "function" && providerSupportsOAuth(provider)) return true;
+  if (Object.prototype.hasOwnProperty.call(PROVIDER_DEFAULT_MODEL_REFS, provider)) return true;
+  return false;
+}
+
+function isAllowedModelRefShape(modelRefLike) {
+  const modelRef = String(modelRefLike || "").trim();
+  if (!modelRef || !modelRef.includes("/")) return false;
+  const inferred = inferProviderFromModelRef(modelRef);
+  if (!isSupportedProviderKey(inferred.provider)) return false;
+  const modelId = String(inferred.modelId || "").trim();
+  if (!modelId || modelId.length > 180) return false;
+  return true;
+}
+
+async function getKnownModelRefSetForValidation() {
+  const catalog = await listOpenClawModelsCatalog(false).catch(() => null);
+  if (!catalog?.ok) return new Set();
+  const refs = [];
+  const allRows = Array.isArray(catalog.all) ? catalog.all : [];
+  const configuredRows = Array.isArray(catalog.configured) ? catalog.configured : [];
+  allRows.forEach((item) => {
+    const key = String(item?.key || "").trim();
+    if (key) refs.push(key);
+  });
+  configuredRows.forEach((item) => {
+    const key = String(item?.key || "").trim();
+    if (key) refs.push(key);
+  });
+  return new Set(uniqStrings(refs).map((item) => String(item || "").trim().toLowerCase()));
+}
+
+async function sanitizeModelRefsForRegistry(modelRefsLike, providerLike) {
+  const provider = normalizeProviderKey(providerLike || xbrainStore.base.modelProvider || "deepseek");
+  const inputRows = uniqStrings(Array.isArray(modelRefsLike) ? modelRefsLike : []);
+  const normalizedRows = inputRows.map((itemLike) => {
+    const text = String(itemLike || "").trim();
+    if (!text) return "";
+    return text.includes("/") ? text : toModelRef(provider, text);
+  }).filter(Boolean);
+  const shapeValidRows = normalizedRows.filter((ref) => isAllowedModelRefShape(ref));
+  const knownSet = await getKnownModelRefSetForValidation();
+  const hasKnownSet = knownSet.size > 0;
+  const finalRows = shapeValidRows.filter((ref) => {
+    if (!hasKnownSet) return true;
+    return knownSet.has(String(ref || "").trim().toLowerCase());
+  });
+  const sanitized = uniqStrings(finalRows);
+  const dropped = uniqStrings(inputRows.filter((raw) => {
+    const text = String(raw || "").trim();
+    if (!text) return false;
+    const normalized = text.includes("/") ? text : toModelRef(provider, text);
+    return !sanitized.includes(normalized);
+  }));
+  return {
+    modelRefs: sanitized,
+    dropped,
+    knownSetSize: knownSet.size,
+  };
+}
+
+async function sanitizeRegistryInStore() {
+  const current = uniqStrings(xbrainStore.base.modelRegistry || []);
+  const sanitizedInfo = await sanitizeModelRefsForRegistry(current, xbrainStore.base.modelProvider);
+  let nextRegistry = sanitizedInfo.modelRefs;
+  if (!nextRegistry.length) {
+    nextRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+  }
+  const changed = nextRegistry.length !== current.length
+    || nextRegistry.some((ref, idx) => ref !== current[idx]);
+  if (changed) {
+    xbrainStore.base.modelRegistry = nextRegistry;
+  }
+  return { changed, current, nextRegistry, dropped: sanitizedInfo.dropped };
+}
+
 async function handleXbrainState(req, res) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const refresh = String(url.searchParams.get("refresh") || "0") === "1";
@@ -46,13 +126,19 @@ async function handleXbrainUpdate(req, res) {
   const body = await readJsonBody(req);
   const section = String(body.section || "").trim();
   const values = body.values && typeof body.values === "object" ? body.values : {};
+  let droppedRegistryRefs = [];
 
   if (section === "base") {
     if (Array.isArray(values.providerCatalog)) {
       xbrainStore.base.providerCatalog = sanitizeProviderCatalog(values.providerCatalog);
     }
     if (Array.isArray(values.modelRegistry)) {
-      xbrainStore.base.modelRegistry = uniqStrings(values.modelRegistry);
+      const providerHint = normalizeProviderKey(values.modelProvider || xbrainStore.base.modelProvider || "deepseek");
+      const sanitizedInfo = await sanitizeModelRefsForRegistry(values.modelRegistry, providerHint);
+      droppedRegistryRefs = sanitizedInfo.dropped;
+      xbrainStore.base.modelRegistry = sanitizedInfo.modelRefs.length
+        ? sanitizedInfo.modelRefs
+        : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
     }
     if (typeof values.deepseekApiKey === "string" && values.deepseekApiKey.trim()) {
       const key = String(values.deepseekApiKey).trim();
@@ -141,11 +227,17 @@ async function handleXbrainUpdate(req, res) {
     };
   }
 
+  const sanitizedRegistryResult = await sanitizeRegistryInStore();
+  if (sanitizedRegistryResult.changed) {
+    droppedRegistryRefs = uniqStrings([...(droppedRegistryRefs || []), ...(sanitizedRegistryResult.dropped || [])]);
+  }
   saveXbrainStore();
   await syncXbrainFromOpenClaw();
   sendJson(res, 200, {
     ok: true,
     state: getXbrainStateSnapshot(),
+    registrySanitized: droppedRegistryRefs.length > 0,
+    droppedModelRefs: droppedRegistryRefs,
   });
 }
 
@@ -160,40 +252,55 @@ async function handleXbrainModelSwitch(req, res) {
   const modelRef = modelRefInput.includes("/")
     ? modelRefInput
     : toModelRef(provider || xbrainStore.base.modelProvider, modelRefInput);
+  const targetSanitized = await sanitizeModelRefsForRegistry([modelRef], provider || xbrainStore.base.modelProvider || "deepseek");
+  if (!targetSanitized.modelRefs.length) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "modelRef is invalid or not in OpenClaw catalog",
+      modelRef,
+      dropped: targetSanitized.dropped,
+    });
+    return;
+  }
+  const normalizedTargetModelRef = targetSanitized.modelRefs[0];
+  const registrySanitizedBeforeSwitch = await sanitizeRegistryInStore();
+  if (registrySanitizedBeforeSwitch.changed) {
+    saveXbrainStore();
+  }
   const registry = uniqStrings(xbrainStore.base.modelRegistry || []);
-  if (!registry.includes(modelRef)) {
+  if (!registry.includes(normalizedTargetModelRef)) {
     sendJson(res, 400, {
       ok: false,
       error: "model is not registered in ThunderClaw model registry",
-      modelRef,
+      modelRef: normalizedTargetModelRef,
       registered: registry,
     });
     return;
   }
   await syncXbrainFromOpenClaw().catch(() => null);
   const stateBeforeSwitch = getXbrainStateSnapshot();
-  const targetProvider = inferProviderFromModelRef(modelRef).provider;
+  const targetProvider = inferProviderFromModelRef(normalizedTargetModelRef).provider;
   const providerConnected = Boolean(stateBeforeSwitch?.base?.providerAuth?.[targetProvider]?.configured);
   if (!providerConnected) {
     sendJson(res, 400, {
       ok: false,
       error: `provider ${targetProvider} is not connected`,
       hint: "请先在虾脑-模型注册中心完成该 Provider 连接，然后再切换模型。",
-      modelRef,
+      modelRef: normalizedTargetModelRef,
       provider: targetProvider,
       state: stateBeforeSwitch,
     });
     return;
   }
   const switched = await switchThunderSessionModel({
-    modelRef,
+    modelRef: normalizedTargetModelRef,
     sessionId: "thunderclaw-main",
   });
   if (!switched.ok) {
     sendJson(res, 400, {
       ok: false,
       error: String(switched?.sessionSync?.error || "session /model failed"),
-      modelRef,
+      modelRef: normalizedTargetModelRef,
       openclawModelSync: {
         ok: false,
         error: String(switched?.sessionSync?.error || "session /model failed"),
@@ -284,6 +391,7 @@ async function handleXbrainModelsCatalog(req, res) {
 
 async function handleXbrainModelConnect(req, res) {
   const body = await readJsonBody(req);
+  await sanitizeRegistryInStore();
   const providerInputRaw = String(body.provider || body.modelProvider || "").trim();
   const registerModel = body.registerModel !== false;
   const setAsCurrent = body.setAsCurrent !== false;
@@ -307,8 +415,19 @@ async function handleXbrainModelConnect(req, res) {
     });
   }
   modelRefs = uniqStrings(modelRefs);
+  const sanitizedInputModelRefs = await sanitizeModelRefsForRegistry(modelRefs, provider);
+  const droppedModelRefs = sanitizedInputModelRefs.dropped;
+  modelRefs = sanitizedInputModelRefs.modelRefs;
+  if (modelRefs.length) {
+    provider = inferProviderFromModelRef(modelRefs[0]).provider;
+  }
   if (registerModel && !modelRefs.length) {
-    sendJson(res, 400, { ok: false, error: "model is required when registerModel=true" });
+    sendJson(res, 400, {
+      ok: false,
+      error: "model is required when registerModel=true",
+      droppedModelRefs,
+      hint: "所选模型不在 OpenClaw 模型目录中，请先刷新目录后重新选择。",
+    });
     return;
   }
   const mixedProvider = modelRefs.some((ref) => inferProviderFromModelRef(ref).provider !== provider);
@@ -439,14 +558,22 @@ async function handleXbrainModelConnect(req, res) {
 
   const registerApplied = registerModel && !(authMethod === "oauth" && !providerConfiguredAfterAuth);
   xbrainStore.base.providerCatalog = sanitizeProviderCatalog([...(xbrainStore.base.providerCatalog || []), provider]);
+  let droppedRegistryRefs = droppedModelRefs.slice();
   if (registerApplied && modelRefs.length) {
-    xbrainStore.base.modelRegistry = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...modelRefs]);
+    const nextRegistryInput = uniqStrings([...(xbrainStore.base.modelRegistry || []), ...modelRefs]);
+    const sanitizedRegistryInfo = await sanitizeModelRefsForRegistry(nextRegistryInput, provider);
+    droppedRegistryRefs = uniqStrings([...(droppedRegistryRefs || []), ...(sanitizedRegistryInfo.dropped || [])]);
+    xbrainStore.base.modelRegistry = sanitizedRegistryInfo.modelRefs.length
+      ? sanitizedRegistryInfo.modelRefs
+      : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
   }
 
   let modelSet = { attempted: false, ok: null, error: null, modelRef: null, deferred: false };
   const deferModelSetForOAuth = authMethod === "oauth" && (!providerConfiguredAfterAuth || !registerApplied);
   if (registerApplied && setAsCurrent && modelRefs.length && !deferModelSetForOAuth) {
-    const targetModelRef = String(body.defaultModelRef || modelRefs[0] || "").trim();
+    const defaultModelRefInput = String(body.defaultModelRef || modelRefs[0] || "").trim();
+    const targetModelRefInfo = await sanitizeModelRefsForRegistry([defaultModelRefInput], provider);
+    const targetModelRef = targetModelRefInfo.modelRefs[0] || modelRefs[0];
     const switched = await switchThunderSessionModel({
       modelRef: targetModelRef,
       sessionId: "thunderclaw-main",
@@ -562,6 +689,7 @@ async function handleXbrainModelConnect(req, res) {
     commandHint: String(oauthStatusFinal?.commandHint || oauthInfo?.commandHint || ""),
     modelSet,
     state: finalState,
+    droppedModelRefs: droppedRegistryRefs,
     message: (authMethod === "oauth" && oauthPending && registerModel && !registerApplied)
         ? "OAuth 已发起，等待浏览器授权。授权完成后请点击“仅注册（已有连接）”。"
       : (authMethod === "oauth" && oauthPending)
@@ -584,6 +712,7 @@ async function handleXbrainModelConnect(req, res) {
 
 async function handleXbrainModelDisconnect(req, res) {
   const body = await readJsonBody(req);
+  await sanitizeRegistryInStore();
   const providerInput = String(body.provider || body.modelProvider || "").trim();
   const modelInputs = uniqStrings([
     ...(Array.isArray(body.modelRefs) ? body.modelRefs : []),
@@ -604,6 +733,19 @@ async function handleXbrainModelDisconnect(req, res) {
     modelRefs = currentRegistry.filter((ref) => inferProviderFromModelRef(ref).provider === provider);
   }
   modelRefs = uniqStrings(modelRefs);
+  const sanitizedRemoveRefsInfo = await sanitizeModelRefsForRegistry(
+    modelRefs,
+    normalizeProviderKey(providerInput || xbrainStore.base.modelProvider || "deepseek"),
+  );
+  if (modelRefs.length && !sanitizedRemoveRefsInfo.modelRefs.length) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "modelRefs are invalid or not in OpenClaw catalog",
+      droppedModelRefs: sanitizedRemoveRefsInfo.dropped,
+    });
+    return;
+  }
+  modelRefs = sanitizedRemoveRefsInfo.modelRefs;
   if (!modelRefs.length) {
     sendJson(res, 400, { ok: false, error: "modelRefs or provider is required" });
     return;
@@ -621,7 +763,10 @@ async function handleXbrainModelDisconnect(req, res) {
     nextRegistry.push(PROVIDER_DEFAULT_MODEL_REFS.deepseek);
     fallbackInserted = true;
   }
-  xbrainStore.base.modelRegistry = uniqStrings(nextRegistry);
+  const sanitizedNextRegistryInfo = await sanitizeModelRefsForRegistry(nextRegistry, xbrainStore.base.modelProvider);
+  xbrainStore.base.modelRegistry = sanitizedNextRegistryInfo.modelRefs.length
+    ? sanitizedNextRegistryInfo.modelRefs
+    : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
 
   const currentModelRef = toModelRef(xbrainStore.base.modelProvider, xbrainStore.base.modelId);
   let switched = null;
@@ -797,9 +942,13 @@ async function handleXbrainProviderRemove(req, res) {
     return;
   }
   xbrainStore.base.providerCatalog = nextCatalog;
-  xbrainStore.base.modelRegistry = uniqStrings((xbrainStore.base.modelRegistry || []).filter((ref) => {
+  const providerPrunedRegistry = uniqStrings((xbrainStore.base.modelRegistry || []).filter((ref) => {
     return inferProviderFromModelRef(ref).provider !== provider;
   }));
+  const sanitizedProviderPruned = await sanitizeModelRefsForRegistry(providerPrunedRegistry, xbrainStore.base.modelProvider);
+  xbrainStore.base.modelRegistry = sanitizedProviderPruned.modelRefs.length
+    ? sanitizedProviderPruned.modelRefs
+    : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
   xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
   delete xbrainStore.base.providerAuth[provider];
   if (provider === "deepseek") {
