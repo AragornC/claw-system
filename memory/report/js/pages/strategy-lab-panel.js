@@ -41,6 +41,24 @@
     const fetchStrategyVersions = typeof apiRuntime.fetchStrategyVersions === 'function'
       ? apiRuntime.fetchStrategyVersions
       : null;
+    const fetchStrategyEntities = typeof apiRuntime.fetchStrategyEntities === 'function'
+      ? apiRuntime.fetchStrategyEntities
+      : null;
+    const fetchStrategyEntityDetail = typeof apiRuntime.fetchStrategyEntityDetail === 'function'
+      ? apiRuntime.fetchStrategyEntityDetail
+      : null;
+    const fetchStrategyEntityAudits = typeof apiRuntime.fetchStrategyEntityAudits === 'function'
+      ? apiRuntime.fetchStrategyEntityAudits
+      : null;
+    const postStrategyDraftSave = typeof apiRuntime.postStrategyDraftSave === 'function'
+      ? apiRuntime.postStrategyDraftSave
+      : null;
+    const postStrategyPublish = typeof apiRuntime.postStrategyPublish === 'function'
+      ? apiRuntime.postStrategyPublish
+      : null;
+    const postStrategyStatus = typeof apiRuntime.postStrategyStatus === 'function'
+      ? apiRuntime.postStrategyStatus
+      : null;
 
         const statusEl = document.getElementById('sl-status');
         const evalStatusEl = document.getElementById('sl-eval-status');
@@ -86,6 +104,37 @@
         const featurePanelEl = document.getElementById('sl-panel-feature');
         const strategyPanelEl = document.getElementById('sl-panel-strategy');
         const labPanelEl = document.getElementById('sl-panel-lab');
+        const strategyOpsQEl = document.getElementById('sl-ops-q');
+        const strategyOpsStatusEl = document.getElementById('sl-ops-status');
+        const strategyOpsSortByEl = document.getElementById('sl-ops-sort-by');
+        const strategyOpsSortOrderEl = document.getElementById('sl-ops-sort-order');
+        const strategyOpsPageSizeEl = document.getElementById('sl-ops-page-size');
+        const strategyOpsListEl = document.getElementById('sl-ops-list');
+        const strategyOpsPageInfoEl = document.getElementById('sl-ops-page-info');
+        const strategyOpsPrevBtn = document.getElementById('sl-ops-prev');
+        const strategyOpsNextBtn = document.getElementById('sl-ops-next');
+        const strategyOpsRefreshBtn = document.getElementById('sl-ops-refresh');
+        const strategyOpsNewDraftBtn = document.getElementById('sl-ops-new-draft');
+        const strategyOpsStatusTextEl = document.getElementById('sl-ops-status-text');
+        const strategyDetailModalEl = document.getElementById('sl-strategy-detail-modal');
+        const strategyDetailTitleEl = document.getElementById('sl-strategy-detail-title');
+        const strategyDetailMetaEl = document.getElementById('sl-strategy-detail-meta');
+        const strategyDetailBodyEl = document.getElementById('sl-strategy-detail-body');
+        const strategyDetailCloseBtn = document.getElementById('sl-strategy-detail-close');
+        const strategyDetailStatusEl = document.getElementById('sl-strategy-detail-status');
+        const strategyDetailSaveBtn = document.getElementById('sl-strategy-detail-save');
+        const strategyDetailPublishBtn = document.getElementById('sl-strategy-detail-publish');
+        const strategyDetailStartPaperBtn = document.getElementById('sl-strategy-detail-start-paper');
+        const strategyDetailStartLiveBtn = document.getElementById('sl-strategy-detail-start-live');
+        const strategyDetailPauseBtn = document.getElementById('sl-strategy-detail-pause');
+        const strategyDetailRiskPauseBtn = document.getElementById('sl-strategy-detail-risk-pause');
+        const strategyDetailTradeFilterEl = document.getElementById('sl-strategy-trade-filter');
+        const strategyDetailPlayToggleBtn = document.getElementById('sl-strategy-play-toggle');
+        const strategyDetailPlayResetBtn = document.getElementById('sl-strategy-play-reset');
+        const strategyDetailPlaySpeedEl = document.getElementById('sl-strategy-play-speed');
+        const strategyDetailRangeCustomEl = document.getElementById('sl-strategy-range-custom');
+        const strategyDetailRangeApplyBtn = document.getElementById('sl-strategy-range-apply');
+        const strategyDetailRangeBtns = Array.from(document.querySelectorAll('[data-sl-range]'));
         const tabButtons = Array.from(document.querySelectorAll('[data-sl-tab]'));
         if (!statusEl || !evalStatusEl || !featureListEl || !versionListEl || !baseVersionEl || !evalVersionEl || !proposeBtn || !refreshBtn || !featureQEl || !featureMainCategoryEl || !featureTagEl || !featureSourceEl || !featureEnabledEl || !featureSortByEl || !featureSortOrderEl || !featurePageSizeEl || !featurePreviewTfEl || !featurePreviewWindowEl || !featurePresetSelectEl || !featurePresetNameEl || !featurePresetSaveBtn || !featurePresetApplyBtn || !featurePresetDeleteBtn || !featurePrevBtn || !featureNextBtn || !featurePageInfoEl || !featureDetailModalEl || !featureDetailTitleEl || !featureDetailMetaEl || !featureDetailContentEl || !featureDetailCloseBtn || !promptEl || !fillBtn || !evalBtn || !tradesEl || !winRateEl || !pnlEl || !ddEl || !sharpeEl || !pfEl) return;
         const featureViewState = {
@@ -98,6 +147,25 @@
           presets: [],
           featureByKey: {},
         };
+        const strategyOpsState = {
+          page: 1,
+          pageSize: Math.max(5, Math.min(100, Number(strategyOpsPageSizeEl?.value || 20) || 20)),
+          totalPages: 1,
+          total: 0,
+          q: '',
+          status: '',
+          sortBy: 'updatedAt',
+          sortOrder: 'desc',
+          rows: [],
+          selectedStrategyId: '',
+          selectedRangeDays: 30,
+          selectedTradeType: 'all',
+          detail: null,
+          markerEvents: [],
+          replayTimer: null,
+          replayIndex: 0,
+          modalPrevOverflow: '',
+        };
         const FEATURE_FILTER_PRESET_KEY = String(constants.FEATURE_FILTER_PRESET_KEY || 'thunderclaw.strategy.feature.presets.v1');
         const featureTaxonomyConfig = typeof getStrategyFeatureConfigRuntime === 'function'
           ? getStrategyFeatureConfigRuntime()
@@ -107,6 +175,7 @@
         function switchStrategyLabTab(tabKeyLike) {
           const tabKey = String(tabKeyLike || '').trim() || 'feature';
           closeFeatureDetailModal();
+          closeStrategyDetailModal();
           tabButtons.forEach(function(btn) {
             btn.classList.toggle('active', String(btn.getAttribute('data-sl-tab') || '') === tabKey);
           });
@@ -200,6 +269,10 @@
         document.addEventListener('keydown', function(ev) {
           if (String(ev?.key || '') === 'Escape' && !featureDetailModalEl.hidden) {
             closeFeatureDetailModal();
+            return;
+          }
+          if (String(ev?.key || '') === 'Escape' && strategyDetailModalEl && !strategyDetailModalEl.hidden) {
+            closeStrategyDetailModal();
           }
         });
         switchStrategyLabTab('feature');
@@ -214,6 +287,401 @@
           el.classList.remove('ok', 'err');
           if (kind === 'ok') el.classList.add('ok');
           if (kind === 'err') el.classList.add('err');
+        }
+        function setStrategyOpsStatus(textLike, kindLike) {
+          setStatus(strategyOpsStatusTextEl, textLike, kindLike);
+        }
+        function setStrategyDetailStatus(textLike, kindLike) {
+          setStatus(strategyDetailStatusEl, textLike, kindLike);
+        }
+        function clearStrategyReplayTimer() {
+          if (strategyOpsState.replayTimer) {
+            clearInterval(strategyOpsState.replayTimer);
+            strategyOpsState.replayTimer = null;
+          }
+          if (strategyDetailPlayToggleBtn) strategyDetailPlayToggleBtn.textContent = '播放回放';
+        }
+        function collectStrategyOpsQuery() {
+          return {
+            q: String(strategyOpsQEl?.value || '').trim(),
+            status: String(strategyOpsStatusEl?.value || '').trim(),
+            sortBy: String(strategyOpsSortByEl?.value || 'updatedAt').trim() || 'updatedAt',
+            sortOrder: String(strategyOpsSortOrderEl?.value || 'desc').trim() || 'desc',
+            page: Math.max(1, Number(strategyOpsState.page || 1) || 1),
+            pageSize: Math.max(5, Math.min(100, Number(strategyOpsPageSizeEl?.value || strategyOpsState.pageSize || 20) || 20)),
+          };
+        }
+        function renderStrategyOpsPagination(payloadLike) {
+          const payload = payloadLike && typeof payloadLike === 'object' ? payloadLike : {};
+          strategyOpsState.page = Math.max(1, Number(payload.page || strategyOpsState.page || 1) || 1);
+          strategyOpsState.pageSize = Math.max(5, Math.min(100, Number(payload.pageSize || strategyOpsState.pageSize || 20) || 20));
+          strategyOpsState.totalPages = Math.max(1, Number(payload.totalPages || 1) || 1);
+          strategyOpsState.total = Math.max(0, Number(payload.total || 0) || 0);
+          if (strategyOpsPageInfoEl) {
+            strategyOpsPageInfoEl.textContent = '第 ' + String(strategyOpsState.page) + '/' + String(strategyOpsState.totalPages) + ' 页 · 共 ' + String(strategyOpsState.total) + ' 条';
+          }
+          if (strategyOpsPrevBtn) strategyOpsPrevBtn.disabled = strategyOpsState.page <= 1;
+          if (strategyOpsNextBtn) strategyOpsNextBtn.disabled = strategyOpsState.page >= strategyOpsState.totalPages;
+        }
+        async function fetchStrategiesOps() {
+          const q = collectStrategyOpsQuery();
+          strategyOpsState.pageSize = q.pageSize;
+          if (fetchStrategyEntities) {
+            return fetchStrategyEntities(q);
+          }
+          const url = '/api/strategy/entities'
+            + '?q=' + encodeURIComponent(q.q)
+            + '&status=' + encodeURIComponent(q.status)
+            + '&sortBy=' + encodeURIComponent(q.sortBy)
+            + '&sortOrder=' + encodeURIComponent(q.sortOrder)
+            + '&page=' + encodeURIComponent(String(q.page))
+            + '&pageSize=' + encodeURIComponent(String(q.pageSize));
+          const resp = await fetch(url, { cache: 'no-store' });
+          return readJsonResponse(resp);
+        }
+        function renderStrategyOpsList(rowsLike) {
+          const rows = Array.isArray(rowsLike) ? rowsLike : [];
+          strategyOpsState.rows = rows;
+          if (!strategyOpsListEl) return;
+          const renderer = globalObj.strategyOpsRuntime && typeof globalObj.strategyOpsRuntime.renderStrategyListRuntime === 'function'
+            ? globalObj.strategyOpsRuntime.renderStrategyListRuntime
+            : null;
+          if (renderer) {
+            strategyOpsListEl.innerHTML = renderer(rows);
+            return;
+          }
+          strategyOpsListEl.innerHTML = rows.length
+            ? rows.map(function(item) {
+              const name = escapeHtml(String(item?.name || item?.strategyId || '-'));
+              return '<div class="strategy-ops-item" data-sl-strategy-id="' + escapeHtml(String(item?.strategyId || '')) + '"><div class="name">' + name + '</div></div>';
+            }).join('')
+            : '<div class="strategy-ops-item"><div class="name">暂无策略</div></div>';
+        }
+        async function reloadStrategyOpsList() {
+          if (!strategyOpsListEl) return;
+          setStrategyOpsStatus('加载策略控制台...', '');
+          try {
+            const payload = await fetchStrategiesOps();
+            renderStrategyOpsList(Array.isArray(payload?.strategies) ? payload.strategies : []);
+            renderStrategyOpsPagination(payload || {});
+            setStrategyOpsStatus('控制台已更新：' + String(Number(payload?.total || 0)) + ' 条策略。', 'ok');
+          } catch (err) {
+            setStrategyOpsStatus('控制台加载失败：' + String(err?.message || err), 'err');
+          }
+        }
+        function closeStrategyDetailModal() {
+          clearStrategyReplayTimer();
+          if (!strategyDetailModalEl || strategyDetailModalEl.hidden) return;
+          strategyDetailModalEl.hidden = true;
+          strategyOpsState.detail = null;
+          strategyOpsState.markerEvents = [];
+          strategyOpsState.selectedStrategyId = '';
+          if (strategyDetailBodyEl) strategyDetailBodyEl.innerHTML = '';
+          if (strategyDetailTitleEl) strategyDetailTitleEl.textContent = '策略详情';
+          if (strategyDetailMetaEl) strategyDetailMetaEl.textContent = '';
+          if (document.body && document.body.getAttribute('data-strategy-modal-locked') === '1') {
+            document.body.style.overflow = strategyOpsState.modalPrevOverflow || '';
+            document.body.removeAttribute('data-strategy-modal-locked');
+          }
+        }
+        function showStrategyTradePopover(indexLike, focusOnlyLike) {
+          const index = Number(indexLike);
+          if (!Number.isFinite(index) || index < 0) return;
+          const list = Array.isArray(strategyOpsState.markerEvents) ? strategyOpsState.markerEvents : [];
+          const trade = list[index];
+          if (!trade || !strategyDetailBodyEl) return;
+          const chart = strategyDetailBodyEl.querySelector('[data-sl-chart="kline"]');
+          if (!chart) return;
+          const marker = chart.querySelector('.strategy-trade-marker[data-trade-index="' + String(index) + '"]');
+          const popover = chart.querySelector('#sl-strategy-trade-popover');
+          if (!marker || !popover) return;
+          if (globalObj.strategyOpsRuntime && typeof globalObj.strategyOpsRuntime.renderTradePopoverRuntime === 'function') {
+            popover.innerHTML = globalObj.strategyOpsRuntime.renderTradePopoverRuntime(trade);
+          } else {
+            popover.textContent = String(trade?.tradeType || '-') + ' @ ' + String(trade?.price || '-');
+          }
+          const x = Number(marker.getAttribute('cx') || 0);
+          const y = Number(marker.getAttribute('cy') || 0);
+          const left = Math.max(8, Math.min(chart.clientWidth - 230, x + 12));
+          const top = Math.max(8, Math.min(chart.clientHeight - 120, y - 14));
+          popover.style.left = String(left) + 'px';
+          popover.style.top = String(top) + 'px';
+          popover.classList.add('show');
+          chart.querySelectorAll('.strategy-trade-marker[data-active="1"]').forEach(function(node) {
+            node.removeAttribute('data-active');
+            node.setAttribute('r', '4.2');
+            node.setAttribute('stroke-width', '1.2');
+          });
+          marker.setAttribute('data-active', '1');
+          marker.setAttribute('r', '6.2');
+          marker.setAttribute('stroke-width', '1.8');
+          if (!focusOnlyLike && marker.scrollIntoView) {
+            marker.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+          }
+        }
+        function bindStrategyDetailInteractions() {
+          if (!strategyDetailBodyEl) return;
+          const chart = strategyDetailBodyEl.querySelector('[data-sl-chart="kline"]');
+          if (chart) {
+            chart.querySelectorAll('.strategy-trade-marker').forEach(function(node) {
+              node.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                const idx = Number(node.getAttribute('data-trade-index') || '');
+                showStrategyTradePopover(idx);
+              });
+            });
+          }
+          const editorSaveBtn = strategyDetailBodyEl.querySelector('[data-sl-editor-action="save"]');
+          if (editorSaveBtn) {
+            editorSaveBtn.addEventListener('click', function() {
+              void saveStrategyDraftFromEditor();
+            });
+          }
+        }
+        function collectStrategyEditorPayload() {
+          if (!strategyDetailBodyEl) return null;
+          const detail = strategyOpsState.detail && typeof strategyOpsState.detail === 'object'
+            ? strategyOpsState.detail
+            : null;
+          if (!detail || !detail.strategy) return null;
+          const getField = function(fieldLike) {
+            const node = strategyDetailBodyEl.querySelector('[data-sl-edit-field="' + String(fieldLike || '') + '"]');
+            return String(node?.value || '').trim();
+          };
+          const featureRefs = getField('featureRefs')
+            .split(',')
+            .map(function(item) { return String(item || '').trim(); })
+            .filter(Boolean)
+            .slice(0, 32);
+          const signalLogic = getField('signalLogic');
+          const riskPauseCondition = getField('riskPauseCondition');
+          const version = detail.version && typeof detail.version === 'object' ? detail.version : {};
+          const positionLayer = version.positionLayer && typeof version.positionLayer === 'object' ? version.positionLayer : {};
+          const executionLayer = version.executionLayer && typeof version.executionLayer === 'object' ? version.executionLayer : {};
+          const riskLayer = version.riskLayer && typeof version.riskLayer === 'object' ? version.riskLayer : {};
+          return {
+            strategyId: String(detail.strategy.strategyId || ''),
+            name: getField('name') || String(detail.strategy.name || ''),
+            description: getField('description') || String(detail.strategy.description || ''),
+            signalLayer: {
+              featureRefs: featureRefs,
+              signalLogic: signalLogic || String(version?.signalLayer?.signalLogic || ''),
+              params: version?.signalLayer?.params && typeof version.signalLayer.params === 'object'
+                ? version.signalLayer.params
+                : {},
+            },
+            positionLayer: positionLayer,
+            executionLayer: executionLayer,
+            riskLayer: {
+              ...riskLayer,
+              riskPauseCondition: riskPauseCondition || String(riskLayer.riskPauseCondition || ''),
+            },
+            source: 'strategy_console',
+            reason: '编辑器保存草稿',
+          };
+        }
+        async function saveStrategyDraftFromEditor() {
+          const payload = collectStrategyEditorPayload();
+          if (!payload || !payload.strategyId) {
+            setStrategyDetailStatus('保存失败：策略ID缺失。', 'err');
+            return;
+          }
+          if (!postStrategyDraftSave) {
+            setStrategyDetailStatus('保存失败：草稿保存接口未加载。', 'err');
+            return;
+          }
+          setStrategyDetailStatus('正在保存草稿...', '');
+          try {
+            await postStrategyDraftSave(payload);
+            setStrategyDetailStatus('草稿保存成功。', 'ok');
+            await reloadStrategyOpsList();
+            await openStrategyDetail(payload.strategyId, { keepOpen: true });
+          } catch (err) {
+            setStrategyDetailStatus('保存失败：' + String(err?.message || err), 'err');
+          }
+        }
+        async function openStrategyDetail(strategyIdLike, optionsLike) {
+          const strategyId = String(strategyIdLike || '').trim();
+          if (!strategyId || !strategyDetailModalEl || !strategyDetailBodyEl) return;
+          const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+          const rangeDays = Math.max(1, Math.min(365, Number(options.rangeDays || strategyOpsState.selectedRangeDays || 30) || 30));
+          const tradeType = String(options.tradeType || strategyOpsState.selectedTradeType || 'all');
+          strategyOpsState.selectedRangeDays = rangeDays;
+          strategyOpsState.selectedTradeType = tradeType;
+          strategyOpsState.selectedStrategyId = strategyId;
+          setStrategyDetailStatus('加载策略详情中...', '');
+          try {
+            const detailPayload = fetchStrategyEntityDetail
+              ? await fetchStrategyEntityDetail({ strategyId: strategyId, rangeDays: rangeDays, tradeType: tradeType })
+              : await (async function() {
+                const resp = await fetch('/api/strategy/entities/detail?strategyId=' + encodeURIComponent(strategyId)
+                  + '&rangeDays=' + encodeURIComponent(String(rangeDays))
+                  + '&tradeType=' + encodeURIComponent(tradeType), { cache: 'no-store' });
+                return readJsonResponse(resp);
+              })();
+            const auditsPayload = fetchStrategyEntityAudits
+              ? await fetchStrategyEntityAudits({ strategyId: strategyId, limit: 80 }).catch(function() { return { audits: [] }; })
+              : { audits: [] };
+            const detail = detailPayload && typeof detailPayload === 'object' ? detailPayload : {};
+            detail.audits = Array.isArray(detail?.audits) ? detail.audits : (Array.isArray(auditsPayload?.audits) ? auditsPayload.audits : []);
+            strategyOpsState.detail = detail;
+            if (strategyDetailTitleEl) strategyDetailTitleEl.textContent = String(detail?.strategy?.name || '策略详情');
+            if (strategyDetailMetaEl) {
+              strategyDetailMetaEl.textContent = '状态：' + String(detail?.strategy?.statusLabel || detail?.strategy?.status || '-')
+                + ' · 环境：' + String(detail?.strategy?.runtimeEnvLabel || detail?.strategy?.runtimeEnv || '-')
+                + ' · 当前版本：' + String(detail?.strategy?.currentVersionId || detail?.strategy?.latestVersionId || '-');
+            }
+            if (strategyDetailTradeFilterEl) strategyDetailTradeFilterEl.value = tradeType;
+            strategyDetailRangeBtns.forEach(function(btn) {
+              btn.classList.toggle('active', Number(btn.getAttribute('data-sl-range') || '') === rangeDays);
+            });
+            if (strategyDetailRangeCustomEl) strategyDetailRangeCustomEl.value = String(rangeDays);
+            const renderer = globalObj.strategyOpsRuntime && typeof globalObj.strategyOpsRuntime.renderStrategyDetailRuntime === 'function'
+              ? globalObj.strategyOpsRuntime.renderStrategyDetailRuntime
+              : null;
+            if (renderer) {
+              const rendered = renderer(detail, {
+                rangeDays: rangeDays,
+                tradeType: tradeType,
+                ohlcvByTf: OHLCV_BY_TF || {},
+              });
+              strategyDetailBodyEl.innerHTML = String(rendered?.html || '');
+              strategyOpsState.markerEvents = Array.isArray(rendered?.markerEvents) ? rendered.markerEvents : [];
+            } else {
+              strategyDetailBodyEl.innerHTML = '<div class="strategy-detail-editor">策略详情渲染模块未加载。</div>';
+              strategyOpsState.markerEvents = [];
+            }
+            bindStrategyDetailInteractions();
+            strategyDetailModalEl.hidden = false;
+            strategyDetailBodyEl.scrollTop = 0;
+            if (document.body && document.body.getAttribute('data-strategy-modal-locked') !== '1') {
+              strategyOpsState.modalPrevOverflow = String(document.body.style.overflow || '');
+              document.body.style.overflow = 'hidden';
+              document.body.setAttribute('data-strategy-modal-locked', '1');
+            }
+            setStrategyDetailStatus('详情已更新。', 'ok');
+          } catch (err) {
+            setStrategyDetailStatus('加载失败：' + String(err?.message || err), 'err');
+          }
+        }
+        async function doStrategyStatusAction(strategyIdLike, targetStatusLike, actionLike, reasonLike) {
+          const strategyId = String(strategyIdLike || '').trim();
+          if (!strategyId || !postStrategyStatus) {
+            setStrategyOpsStatus('状态操作失败：接口未就绪。', 'err');
+            return;
+          }
+          try {
+            await postStrategyStatus({
+              strategyId: strategyId,
+              targetStatus: String(targetStatusLike || '').trim(),
+              action: String(actionLike || '').trim(),
+              reason: String(reasonLike || '').trim(),
+              source: 'strategy_console',
+            });
+            setStrategyOpsStatus('状态已更新。', 'ok');
+            await reloadStrategyOpsList();
+            if (strategyOpsState.selectedStrategyId === strategyId && !strategyDetailModalEl?.hidden) {
+              await openStrategyDetail(strategyId, { keepOpen: true });
+            }
+          } catch (err) {
+            setStrategyOpsStatus('状态更新失败：' + String(err?.message || err), 'err');
+          }
+        }
+        async function doStrategyPublishAction(strategyIdLike) {
+          const strategyId = String(strategyIdLike || '').trim();
+          if (!strategyId || !postStrategyPublish) {
+            setStrategyOpsStatus('发布失败：接口未就绪。', 'err');
+            return;
+          }
+          const latestBacktest = typeof getLatestBacktestResult === 'function' ? getLatestBacktestResult() : null;
+          const performance = latestBacktest && typeof latestBacktest === 'object'
+            ? {
+              latestReturnPct: Number(latestBacktest.netPnlPct || latestBacktest.totalPnlPct || 0) || 0,
+              maxDrawdownPct: Number(latestBacktest.maxDrawdownPct || 0) || 0,
+              winRate: Number(latestBacktest.winRate || 0) || 0,
+              tradeCount: Number(latestBacktest.tradeCount || latestBacktest.trades || 0) || 0,
+            }
+            : {};
+          try {
+            await postStrategyPublish({
+              strategyId: strategyId,
+              note: '控制台发布新版本',
+              performance: performance,
+              source: 'strategy_console',
+            });
+            setStrategyOpsStatus('已发布新版本。', 'ok');
+            await reloadStrategyOpsList();
+            if (strategyOpsState.selectedStrategyId === strategyId && !strategyDetailModalEl?.hidden) {
+              await openStrategyDetail(strategyId, { keepOpen: true });
+            }
+          } catch (err) {
+            setStrategyOpsStatus('发布失败：' + String(err?.message || err), 'err');
+          }
+        }
+        async function createNewStrategyDraft() {
+          if (!postStrategyDraftSave) {
+            setStrategyOpsStatus('新建失败：草稿接口未加载。', 'err');
+            return;
+          }
+          const now = new Date();
+          const name = '对话策略草稿-' + String(now.getMonth() + 1).padStart(2, '0')
+            + String(now.getDate()).padStart(2, '0')
+            + '-' + String(now.getHours()).padStart(2, '0')
+            + String(now.getMinutes()).padStart(2, '0');
+          try {
+            const out = await postStrategyDraftSave({
+              name: name,
+              description: '新建策略草稿，可在详情编辑器继续完善。',
+              signalLayer: { featureRefs: [], signalLogic: '待补充', params: {} },
+              positionLayer: {},
+              riskLayer: {},
+              executionLayer: {},
+              source: 'strategy_console',
+              reason: '新建策略草稿',
+            });
+            setStrategyOpsStatus('已创建草稿：' + String(out?.strategy?.name || name), 'ok');
+            await reloadStrategyOpsList();
+            if (out?.strategy?.strategyId) {
+              await openStrategyDetail(out.strategy.strategyId, { keepOpen: true });
+            }
+          } catch (err) {
+            setStrategyOpsStatus('新建失败：' + String(err?.message || err), 'err');
+          }
+        }
+        function toggleStrategyReplay() {
+          if (!strategyDetailBodyEl) return;
+          const events = Array.isArray(strategyOpsState.markerEvents) ? strategyOpsState.markerEvents : [];
+          if (!events.length) {
+            setStrategyDetailStatus('暂无可回放交易点。', 'err');
+            return;
+          }
+          if (strategyOpsState.replayTimer) {
+            clearStrategyReplayTimer();
+            setStrategyDetailStatus('已暂停回放。', 'ok');
+            return;
+          }
+          const speedMs = Math.max(120, Math.min(3000, Number(strategyDetailPlaySpeedEl?.value || 520) || 520));
+          strategyDetailPlayToggleBtn.textContent = '暂停回放';
+          strategyOpsState.replayTimer = setInterval(function() {
+            if (!Array.isArray(strategyOpsState.markerEvents) || !strategyOpsState.markerEvents.length) {
+              clearStrategyReplayTimer();
+              return;
+            }
+            if (strategyOpsState.replayIndex >= strategyOpsState.markerEvents.length) {
+              strategyOpsState.replayIndex = 0;
+            }
+            showStrategyTradePopover(strategyOpsState.replayIndex, true);
+            strategyOpsState.replayIndex += 1;
+          }, speedMs);
+          setStrategyDetailStatus('回放中...', 'ok');
+        }
+        function resetStrategyReplay() {
+          clearStrategyReplayTimer();
+          strategyOpsState.replayIndex = 0;
+          const chart = strategyDetailBodyEl?.querySelector('[data-sl-chart="kline"]');
+          const popover = chart?.querySelector('#sl-strategy-trade-popover');
+          if (popover) popover.classList.remove('show');
+          setStrategyDetailStatus('已重置回放指针。', 'ok');
         }
         function collectFeatureFilterState() {
           return {
@@ -549,6 +1017,9 @@
             renderVersions(versionsPayload.versions);
             renderVersionSelectors(versionsPayload.versions);
             setStatus(statusEl, '实验室已更新：特征 ' + String(featuresPayload.total || 0) + ' 个，版本 ' + String(versionsPayload.total || 0) + ' 个。', 'ok');
+            if (strategyOpsListEl) {
+              await reloadStrategyOpsList();
+            }
           } catch (err) {
             setStatus(statusEl, '加载失败：' + String(err?.message || err), 'err');
           }
@@ -727,6 +1198,178 @@
           handleFeatureSampleAndJumpClick(ev);
         });
 
+        if (strategyOpsListEl) {
+          strategyOpsListEl.addEventListener('click', function(ev) {
+            const actionBtn = ev.target && ev.target.closest
+              ? ev.target.closest('[data-sl-action]')
+              : null;
+            if (!actionBtn) return;
+            ev.preventDefault();
+            const card = actionBtn.closest('[data-sl-strategy-id]');
+            const strategyId = String(card?.getAttribute('data-sl-strategy-id') || '').trim();
+            const action = String(actionBtn.getAttribute('data-sl-action') || '').trim();
+            if (!strategyId || !action) return;
+            if (action === 'detail') {
+              void openStrategyDetail(strategyId, { keepOpen: true });
+              return;
+            }
+            if (action === 'publish') {
+              void doStrategyPublishAction(strategyId);
+              return;
+            }
+            if (action === 'start-paper') {
+              void doStrategyStatusAction(strategyId, 'paper_live', 'start_paper', '控制台启动模拟');
+              return;
+            }
+            if (action === 'start-live') {
+              void doStrategyStatusAction(strategyId, 'live', 'start_live', '控制台启动实盘');
+              return;
+            }
+            if (action === 'pause') {
+              void doStrategyStatusAction(strategyId, 'paused', 'pause', '控制台手动暂停');
+            }
+          });
+        }
+        if (strategyOpsRefreshBtn) {
+          strategyOpsRefreshBtn.addEventListener('click', function() {
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsNewDraftBtn) {
+          strategyOpsNewDraftBtn.addEventListener('click', function() {
+            void createNewStrategyDraft();
+          });
+        }
+        if (strategyOpsPrevBtn) {
+          strategyOpsPrevBtn.addEventListener('click', function() {
+            if (strategyOpsState.page <= 1) return;
+            strategyOpsState.page -= 1;
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsNextBtn) {
+          strategyOpsNextBtn.addEventListener('click', function() {
+            if (strategyOpsState.page >= strategyOpsState.totalPages) return;
+            strategyOpsState.page += 1;
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsPageSizeEl) {
+          strategyOpsPageSizeEl.addEventListener('change', function() {
+            strategyOpsState.page = 1;
+            strategyOpsState.pageSize = Math.max(5, Math.min(100, Number(strategyOpsPageSizeEl.value || 20) || 20));
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsStatusEl) {
+          strategyOpsStatusEl.addEventListener('change', function() {
+            strategyOpsState.page = 1;
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsSortByEl) {
+          strategyOpsSortByEl.addEventListener('change', function() {
+            strategyOpsState.page = 1;
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsSortOrderEl) {
+          strategyOpsSortOrderEl.addEventListener('change', function() {
+            strategyOpsState.page = 1;
+            void reloadStrategyOpsList();
+          });
+        }
+        if (strategyOpsQEl) {
+          let strategySearchTimer = null;
+          strategyOpsQEl.addEventListener('input', function() {
+            if (strategySearchTimer) clearTimeout(strategySearchTimer);
+            strategySearchTimer = window.setTimeout(function() {
+              strategyOpsState.page = 1;
+              void reloadStrategyOpsList();
+            }, 260);
+          });
+        }
+        if (strategyDetailCloseBtn) {
+          strategyDetailCloseBtn.addEventListener('click', function() {
+            closeStrategyDetailModal();
+          });
+        }
+        if (strategyDetailModalEl) {
+          strategyDetailModalEl.addEventListener('click', function(ev) {
+            const dialog = ev.target && ev.target.closest ? ev.target.closest('.strategy-detail-dialog') : null;
+            if (!dialog) closeStrategyDetailModal();
+          });
+        }
+        strategyDetailRangeBtns.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            const days = Math.max(1, Math.min(365, Number(btn.getAttribute('data-sl-range') || 30) || 30));
+            if (!strategyOpsState.selectedStrategyId) return;
+            strategyDetailRangeBtns.forEach(function(x) { x.classList.toggle('active', x === btn); });
+            strategyOpsState.selectedRangeDays = days;
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: days, tradeType: strategyOpsState.selectedTradeType });
+          });
+        });
+        if (strategyDetailRangeApplyBtn) {
+          strategyDetailRangeApplyBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            const days = Math.max(1, Math.min(365, Number(strategyDetailRangeCustomEl?.value || 30) || 30));
+            strategyOpsState.selectedRangeDays = days;
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: days, tradeType: strategyOpsState.selectedTradeType });
+          });
+        }
+        if (strategyDetailTradeFilterEl) {
+          strategyDetailTradeFilterEl.addEventListener('change', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            strategyOpsState.selectedTradeType = String(strategyDetailTradeFilterEl.value || 'all');
+            void openStrategyDetail(strategyOpsState.selectedStrategyId, { keepOpen: true, rangeDays: strategyOpsState.selectedRangeDays, tradeType: strategyOpsState.selectedTradeType });
+          });
+        }
+        if (strategyDetailPlayToggleBtn) {
+          strategyDetailPlayToggleBtn.addEventListener('click', function() {
+            toggleStrategyReplay();
+          });
+        }
+        if (strategyDetailPlayResetBtn) {
+          strategyDetailPlayResetBtn.addEventListener('click', function() {
+            resetStrategyReplay();
+          });
+        }
+        if (strategyDetailSaveBtn) {
+          strategyDetailSaveBtn.addEventListener('click', function() {
+            void saveStrategyDraftFromEditor();
+          });
+        }
+        if (strategyDetailPublishBtn) {
+          strategyDetailPublishBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            void doStrategyPublishAction(strategyOpsState.selectedStrategyId);
+          });
+        }
+        if (strategyDetailStartPaperBtn) {
+          strategyDetailStartPaperBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            void doStrategyStatusAction(strategyOpsState.selectedStrategyId, 'paper_live', 'start_paper', '详情面板启动模拟');
+          });
+        }
+        if (strategyDetailStartLiveBtn) {
+          strategyDetailStartLiveBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            void doStrategyStatusAction(strategyOpsState.selectedStrategyId, 'live', 'start_live', '详情面板启动实盘');
+          });
+        }
+        if (strategyDetailPauseBtn) {
+          strategyDetailPauseBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            void doStrategyStatusAction(strategyOpsState.selectedStrategyId, 'paused', 'pause', '详情面板手动暂停');
+          });
+        }
+        if (strategyDetailRiskPauseBtn) {
+          strategyDetailRiskPauseBtn.addEventListener('click', function() {
+            if (!strategyOpsState.selectedStrategyId) return;
+            void doStrategyStatusAction(strategyOpsState.selectedStrategyId, 'risk_paused', 'risk_pause', '详情面板风控暂停');
+          });
+        }
+
         fillBtn.addEventListener('click', function() {
           const latest = typeof getLatestBacktestResult === 'function' ? getLatestBacktestResult() : null;
           if (!latest || typeof latest !== 'object') {
@@ -782,7 +1425,16 @@
           const detail = ev && ev.detail && typeof ev.detail === 'object' ? ev.detail : {};
           const hint = String(detail.reply || detail.message || '已从对话同步新的特征/策略候选。').trim();
           setStatus(statusEl, hint, 'ok');
-          void reloadAll();
+          setStrategyOpsStatus(hint, 'ok');
+          void reloadAll().then(function() {
+            const openEditor = Boolean(detail?.openEditor);
+            const strategyId = String(detail?.strategyId || detail?.applied?.strategy?.strategyId || '').trim();
+            if (openEditor && strategyId) {
+              try { switchView('backtest'); } catch (_) {}
+              switchStrategyLabTab('strategy');
+              void openStrategyDetail(strategyId, { keepOpen: true, rangeDays: strategyOpsState.selectedRangeDays, tradeType: strategyOpsState.selectedTradeType });
+            }
+          });
         });
 
         void reloadAll();

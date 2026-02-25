@@ -718,6 +718,308 @@
     }
     .strategy-version-item .name { color: var(--text); font-size: 0.73rem; font-weight: 600; }
     .strategy-version-item .score { color: #7ee787; font-size: 0.69rem; font-weight: 600; margin-top: 3px; }
+    .strategy-ops-toolbar {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(4, minmax(120px, 1fr)) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .strategy-ops-list {
+      display: grid;
+      gap: 8px;
+      max-height: 360px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .strategy-ops-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.18);
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .strategy-ops-item .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .strategy-ops-item .name {
+      color: var(--text);
+      font-size: 0.77rem;
+      font-weight: 600;
+      max-width: 60%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .strategy-ops-item .badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .strategy-ops-item .badge {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      font-size: 0.66rem;
+      color: var(--muted);
+      background: rgba(255,255,255,0.04);
+    }
+    .strategy-ops-item .badge.status { color: #79c0ff; border-color: rgba(121,192,255,0.55); background: rgba(121,192,255,0.12); }
+    .strategy-ops-item .badge.env { color: #f2cc60; border-color: rgba(242,204,96,0.45); background: rgba(242,204,96,0.12); }
+    .strategy-ops-item .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      font-size: 0.69rem;
+      color: var(--muted);
+    }
+    .strategy-ops-item .metrics .v { color: var(--text); font-weight: 600; margin-left: 4px; }
+    .strategy-ops-item .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .strategy-ops-item .actions button {
+      border: 1px solid rgba(88,166,255,0.5);
+      border-radius: 7px;
+      background: rgba(88,166,255,0.14);
+      color: #79c0ff;
+      padding: 5px 9px;
+      font-size: 0.68rem;
+      cursor: pointer;
+    }
+    .strategy-ops-item .actions button.warn {
+      border-color: rgba(242,204,96,0.55);
+      color: #f2cc60;
+      background: rgba(242,204,96,0.13);
+    }
+    .strategy-ops-item .actions button.danger {
+      border-color: rgba(255,123,114,0.55);
+      color: #ffb3ad;
+      background: rgba(255,123,114,0.12);
+    }
+    .strategy-ops-pagination {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+      color: var(--muted);
+      font-size: 0.68rem;
+    }
+    .strategy-detail-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1260;
+      background: rgba(0,0,0,0.52);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 18px;
+    }
+    .strategy-detail-modal[hidden] { display: none !important; }
+    .strategy-detail-dialog {
+      width: min(1280px, calc(100vw - 32px));
+      max-height: calc(100vh - 46px);
+      overflow: hidden;
+      border-radius: 14px;
+      border: 1px solid rgba(88,166,255,0.3);
+      background: rgba(8,13,18,0.98);
+      box-shadow: 0 18px 48px rgba(0,0,0,0.45);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+    }
+    .strategy-detail-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: linear-gradient(90deg, rgba(88,166,255,0.1), rgba(35,134,54,0.07));
+    }
+    .strategy-detail-title { color: var(--text); font-size: 0.9rem; font-weight: 700; }
+    .strategy-detail-meta { color: var(--muted); font-size: 0.69rem; margin-top: 3px; }
+    .strategy-detail-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.2);
+    }
+    .strategy-detail-toolbar .left,
+    .strategy-detail-toolbar .right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .strategy-detail-toolbar button,
+    .strategy-detail-toolbar select,
+    .strategy-detail-toolbar input {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.28);
+      color: var(--text);
+      font-size: 0.68rem;
+      padding: 5px 8px;
+    }
+    .strategy-detail-toolbar button.active {
+      border-color: rgba(88,166,255,0.6);
+      color: #79c0ff;
+      background: rgba(88,166,255,0.18);
+    }
+    .strategy-detail-body {
+      overflow: auto;
+      padding: 12px 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .strategy-detail-structure {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .strategy-structure-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px;
+      background: rgba(255,255,255,0.03);
+      display: grid;
+      gap: 5px;
+    }
+    .strategy-structure-card .h {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      color: var(--text);
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+    .strategy-structure-card .summary { color: var(--muted); font-size: 0.69rem; line-height: 1.45; }
+    .strategy-structure-card details {
+      border-top: 1px dashed rgba(255,255,255,0.12);
+      padding-top: 5px;
+      margin-top: 2px;
+      font-size: 0.67rem;
+      color: var(--muted);
+    }
+    .strategy-structure-card details pre {
+      margin: 5px 0 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px;
+      background: rgba(0,0,0,0.2);
+      overflow: auto;
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+    .strategy-detail-charts {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px;
+      background: rgba(0,0,0,0.2);
+      display: grid;
+      gap: 8px;
+    }
+    .strategy-chart-box {
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 9px;
+      background: rgba(0,0,0,0.24);
+      padding: 7px;
+      position: relative;
+    }
+    .strategy-chart-title {
+      color: var(--muted);
+      font-size: 0.67rem;
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .strategy-chart-box svg {
+      width: 100%;
+      display: block;
+      border-radius: 7px;
+      background: linear-gradient(180deg, rgba(17,24,34,0.95), rgba(7,12,18,0.94));
+    }
+    .strategy-trade-popover {
+      position: absolute;
+      min-width: 220px;
+      max-width: 320px;
+      z-index: 4;
+      border: 1px solid rgba(88,166,255,0.38);
+      border-radius: 9px;
+      background: rgba(5,10,14,0.97);
+      box-shadow: 0 12px 24px rgba(0,0,0,0.35);
+      padding: 7px 8px;
+      color: var(--text);
+      font-size: 0.66rem;
+      line-height: 1.48;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .strategy-trade-popover.show { opacity: 1; transform: translateY(0); }
+    .strategy-detail-editor {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px;
+      background: rgba(255,255,255,0.02);
+      display: grid;
+      gap: 7px;
+    }
+    .strategy-detail-editor .row {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .strategy-detail-editor input,
+    .strategy-detail-editor textarea {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.28);
+      color: var(--text);
+      font-size: 0.69rem;
+      padding: 7px 8px;
+      width: 100%;
+    }
+    .strategy-detail-editor textarea { min-height: 58px; resize: vertical; }
+    .strategy-detail-editor .actions { display: flex; justify-content: flex-end; gap: 7px; }
+    .strategy-detail-audits {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(255,255,255,0.02);
+      max-height: 170px;
+      overflow: auto;
+      display: grid;
+      gap: 6px;
+    }
+    .strategy-detail-audits .audit-item {
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 6px 7px;
+      font-size: 0.66rem;
+      color: var(--muted);
+      background: rgba(0,0,0,0.2);
+    }
+    .strategy-detail-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px 12px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.22);
+    }
+    .strategy-detail-foot .left, .strategy-detail-foot .right { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .strategy-detail-foot button {
+      border: 1px solid rgba(88,166,255,0.52);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.15);
+      color: #79c0ff;
+      padding: 6px 10px;
+      font-size: 0.69rem;
+      cursor: pointer;
+    }
+    .strategy-detail-foot button.warn { border-color: rgba(242,204,96,0.55); color: #f2cc60; background: rgba(242,204,96,0.12); }
+    .strategy-detail-foot button.danger { border-color: rgba(255,123,114,0.6); color: #ffb3ad; background: rgba(255,123,114,0.11); }
+    .strategy-detail-foot .status { color: var(--muted); font-size: 0.67rem; min-height: 18px; }
     @media (max-width: 980px) {
       .strategy-feature-preset-row { grid-template-columns: 1fr; }
       .strategy-feature-preset-row .strategy-lab-actions { justify-content: flex-start; }
@@ -725,6 +1027,9 @@
       .feature-detail-layout { grid-template-columns: 1fr; }
       .feature-detail-toc { position: static; }
       .feature-detail-grid { grid-template-columns: 1fr; }
+      .strategy-ops-toolbar { grid-template-columns: 1fr 1fr; }
+      .strategy-detail-structure { grid-template-columns: 1fr; }
+      .strategy-ops-item .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .view-panel { display: none; }
     .view-panel.active { display: block; }
@@ -2837,7 +3142,7 @@
           </div>
           <div id="sl-panel-strategy" class="strategy-lab-panel">
             <div class="strategy-lab-card">
-              <h4>交易策略（由 ThunderClaw 对话产出）</h4>
+              <h4>交易策略（候选版本兼容入口）</h4>
               <div class="strategy-lab-form">
                 <textarea id="sl-prompt" placeholder="示例：降低回撤并提高胜率，减少假突破，允许交易频率下降。"></textarea>
                 <label>基准版本
@@ -2848,6 +3153,97 @@
                   <button id="sl-refresh-btn" class="ghost" type="button">刷新版本</button>
                 </div>
                 <div id="sl-version-list" class="strategy-version-list"></div>
+              </div>
+            </div>
+            <div class="strategy-lab-card">
+              <h4>策略运营控制台（完整生命周期）</h4>
+              <div class="strategy-lab-form">
+                <div class="strategy-ops-toolbar">
+                  <input id="sl-ops-q" type="text" placeholder="搜索策略名称（支持模糊）" />
+                  <select id="sl-ops-status">
+                    <option value="">全部状态</option>
+                    <option value="draft">草稿</option>
+                    <option value="backtested">已回测</option>
+                    <option value="paper_live">模拟中</option>
+                    <option value="live">实盘中</option>
+                    <option value="paused">已暂停</option>
+                    <option value="risk_paused">风控暂停</option>
+                  </select>
+                  <select id="sl-ops-sort-by">
+                    <option value="updatedAt">排序：更新时间</option>
+                    <option value="latestReturnPct">排序：最近收益</option>
+                    <option value="maxDrawdownPct">排序：最大回撤</option>
+                  </select>
+                  <select id="sl-ops-sort-order">
+                    <option value="desc">降序</option>
+                    <option value="asc">升序</option>
+                  </select>
+                  <select id="sl-ops-page-size">
+                    <option value="10">每页10条</option>
+                    <option value="20" selected>每页20条</option>
+                    <option value="40">每页40条</option>
+                  </select>
+                  <div class="strategy-lab-actions">
+                    <button id="sl-ops-new-draft" type="button">新建草稿</button>
+                    <button id="sl-ops-refresh" class="ghost" type="button">刷新</button>
+                  </div>
+                </div>
+                <div id="sl-ops-list" class="strategy-ops-list"></div>
+                <div class="strategy-ops-pagination">
+                  <button id="sl-ops-prev" class="ghost" type="button">上一页</button>
+                  <span id="sl-ops-page-info">第 1 页</span>
+                  <button id="sl-ops-next" class="ghost" type="button">下一页</button>
+                </div>
+                <div id="sl-ops-status-text" class="strategy-lab-status">控制台就绪</div>
+              </div>
+            </div>
+            <div id="sl-strategy-detail-modal" class="strategy-detail-modal" hidden>
+              <div class="strategy-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="sl-strategy-detail-title">
+                <div class="strategy-detail-head">
+                  <div>
+                    <div id="sl-strategy-detail-title" class="strategy-detail-title">策略详情</div>
+                    <div id="sl-strategy-detail-meta" class="strategy-detail-meta"></div>
+                  </div>
+                  <button id="sl-strategy-detail-close" class="ghost" type="button">关闭</button>
+                </div>
+                <div class="strategy-detail-toolbar">
+                  <div class="left">
+                    <button type="button" data-sl-range="7">7天</button>
+                    <button type="button" data-sl-range="30" class="active">30天</button>
+                    <button type="button" data-sl-range="90">90天</button>
+                    <input id="sl-strategy-range-custom" type="number" min="1" max="365" step="1" placeholder="自定义天数" />
+                    <button id="sl-strategy-range-apply" type="button">应用范围</button>
+                  </div>
+                  <div class="right">
+                    <select id="sl-strategy-trade-filter">
+                      <option value="all">交易筛选：全部</option>
+                      <option value="buy_sell">仅买卖</option>
+                      <option value="position_change">仅加减仓</option>
+                      <option value="risk_trigger">仅风控触发</option>
+                    </select>
+                    <button id="sl-strategy-play-toggle" type="button">播放回放</button>
+                    <button id="sl-strategy-play-reset" type="button">重置</button>
+                    <select id="sl-strategy-play-speed">
+                      <option value="900">慢速</option>
+                      <option value="520" selected>标准</option>
+                      <option value="260">快速</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="sl-strategy-detail-body" class="strategy-detail-body"></div>
+                <div class="strategy-detail-foot">
+                  <div class="left">
+                    <button id="sl-strategy-detail-save" type="button">保存草稿</button>
+                    <button id="sl-strategy-detail-publish" class="warn" type="button">发布新版本</button>
+                    <button id="sl-strategy-detail-start-paper" type="button">启动模拟</button>
+                    <button id="sl-strategy-detail-start-live" type="button">启动实盘</button>
+                    <button id="sl-strategy-detail-pause" class="danger" type="button">暂停</button>
+                    <button id="sl-strategy-detail-risk-pause" class="danger" type="button">风控暂停</button>
+                  </div>
+                  <div class="right">
+                    <span id="sl-strategy-detail-status" class="status"></span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3271,6 +3667,7 @@
   <script src="./js/ui/render/strategy-feature-visuals-runtime.js"></script>
   <script src="./js/modules/strategy-feature-runtime.js"></script>
   <script src="./js/modules/strategy-intent-runtime.js"></script>
+  <script src="./js/modules/strategy-ops-runtime.js"></script>
   <script src="./js/constants/strategy-lab-constants.js"></script>
   <script src="./js/utils/report-runtime-utils.js"></script>
   <script src="./js/state/local-json-state.js"></script>
@@ -9607,32 +10004,48 @@
             candidates = buildIntentCandidatesFromActions(actions);
           }
           if (!candidates.length) return null;
+          function applyIntentCandidateViaApi(candidate, openEditor) {
+            if (!strategyIntentApiClient) {
+              return Promise.resolve({ ok: false, message: '策略候选写入器未就绪' });
+            }
+            return strategyIntentApiClient.apply(candidate, {
+              source: 'chat_intent',
+              query: userText,
+              reply: assistantText,
+              conversationId: 'thunderclaw-main',
+              eventId: hasEventId ? eventId : null,
+              cardId: String(candidate?.id || candidate?.candidateId || ''),
+            }).then(function(payload) {
+              if (payload && payload.ok) {
+                if (hasEventId && candidate && candidate.id) {
+                  void strategyIntentApiClient.updateStatus(eventId, candidate.id, 'accepted').catch(function() {});
+                }
+                if (openEditor) {
+                  const strategyId = String(payload?.applied?.strategy?.strategyId || '');
+                  emitStrategyLabUpdated({
+                    ...payload,
+                    openEditor: true,
+                    strategyId: strategyId,
+                    source: 'chat_intent',
+                  });
+                  return { ok: true, message: String(payload.reply || '已保存并打开策略编辑器。') };
+                }
+                emitStrategyLabUpdated(payload);
+                return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
+              }
+              return { ok: false, message: String(payload?.error || '写入失败') };
+            }).catch(function(err) {
+              return { ok: false, message: String(err?.message || err || '写入失败') };
+            });
+          }
           const row = createStrategyIntentSuggestionRowRuntime({
             candidates: candidates,
             confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
             onApply: function(candidate) {
-              if (!strategyIntentApiClient) {
-                return Promise.resolve({ ok: false, message: '策略候选写入器未就绪' });
-              }
-              return strategyIntentApiClient.apply(candidate, {
-                source: 'chat_intent',
-                query: userText,
-                reply: assistantText,
-                conversationId: 'thunderclaw-main',
-                eventId: hasEventId ? eventId : null,
-                cardId: String(candidate?.id || candidate?.candidateId || ''),
-              }).then(function(payload) {
-                if (payload && payload.ok) {
-                  if (hasEventId && candidate && candidate.id) {
-                    void strategyIntentApiClient.updateStatus(eventId, candidate.id, 'accepted').catch(function() {});
-                  }
-                  emitStrategyLabUpdated(payload);
-                  return { ok: true, message: String(payload.reply || '已加入虾策列表。') };
-                }
-                return { ok: false, message: String(payload?.error || '写入失败') };
-              }).catch(function(err) {
-                return { ok: false, message: String(err?.message || err || '写入失败') };
-              });
+              return applyIntentCandidateViaApi(candidate, false);
+            },
+            onEdit: function(candidate) {
+              return applyIntentCandidateViaApi(candidate, true);
             },
             onIgnore: function() {},
             onStatusChange: function(candidate, status) {

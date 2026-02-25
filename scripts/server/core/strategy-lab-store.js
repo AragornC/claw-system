@@ -10,6 +10,7 @@ import {
 } from "../domain/feature-taxonomy.js";
 
 import {
+  clampNumber,
   FEATURE_GROUPS,
   FEATURE_KINDS,
   toText,
@@ -31,6 +32,25 @@ import {
   applyFeatureProductMeta,
   migrateStoreShape,
 } from "./strategy-lab-store-helpers.js";
+import {
+  STRATEGY_STATUS_LABELS,
+  STRATEGY_RUNTIME_ENV_BY_STATUS,
+  STRATEGY_RUNTIME_ENV_LABELS,
+  TRADE_TYPE_LABELS,
+  normalizeStatus,
+  normalizeRuntimeEnv,
+  canTransitionStatus,
+  normalizeSortField as normalizeStrategySortField,
+  normalizeSortOrder as normalizeStrategySortOrder,
+  normalizeRangeDays,
+  normalizeTradeType,
+  normalizeFeatureRefs,
+  buildStrategyDraftPayload,
+  buildFeatureLookup,
+  lockFeatureVersions,
+  buildSampleExecutionReport,
+  filterExecutionReport,
+} from "./strategy-lifecycle-helpers.js";
 
 export function createStrategyLabStore(deps = {}) {
   const statePath = String(deps.statePath || "").trim();
@@ -50,6 +70,7 @@ export function createStrategyLabStore(deps = {}) {
     try {
       if (!fs.existsSync(statePath)) {
         storeCache = buildSeedStore();
+        ensureStrategyLifecycleShape(storeCache);
         persistSafe(storeCache);
         return storeCache;
       }
@@ -57,6 +78,7 @@ export function createStrategyLabStore(deps = {}) {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") {
         storeCache = buildSeedStore();
+        ensureStrategyLifecycleShape(storeCache);
         persistSafe(storeCache);
         return storeCache;
       }
@@ -68,13 +90,17 @@ export function createStrategyLabStore(deps = {}) {
         features: Array.isArray(parsed.features) ? parsed.features : seed.features,
         versions: Array.isArray(parsed.versions) ? parsed.versions : seed.versions,
         artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
+        strategies: Array.isArray(parsed.strategies) ? parsed.strategies : seed.strategies,
+        strategyVersions: Array.isArray(parsed.strategyVersions) ? parsed.strategyVersions : seed.strategyVersions,
+        strategyAudits: Array.isArray(parsed.strategyAudits) ? parsed.strategyAudits : seed.strategyAudits,
       };
-      if (migrateStoreShape(storeCache)) {
+      if (migrateStoreShape(storeCache) || ensureStrategyLifecycleShape(storeCache)) {
         persistSafe(storeCache);
       }
       return storeCache;
     } catch {
       storeCache = buildSeedStore();
+      ensureStrategyLifecycleShape(storeCache);
       persistSafe(storeCache);
       return storeCache;
     }
@@ -90,6 +116,177 @@ export function createStrategyLabStore(deps = {}) {
     const n = Number(store?.seq?.[seqKey] || 1);
     store.seq[seqKey] = n + 1;
     return `${prefix}_${n}`;
+  }
+
+  function ensureStrategyLifecycleShape(storeLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : buildSeedStore();
+    let changed = false;
+    if (!Number.isFinite(Number(store.version)) || Number(store.version) < 3) {
+      store.version = 3;
+      changed = true;
+    }
+    if (!store.seq || typeof store.seq !== "object") {
+      store.seq = {};
+      changed = true;
+    }
+    if (!Number.isFinite(Number(store.seq.strategy)) || Number(store.seq.strategy) <= 0) {
+      store.seq.strategy = 1;
+      changed = true;
+    }
+    if (!Number.isFinite(Number(store.seq.strategyVersion)) || Number(store.seq.strategyVersion) <= 0) {
+      store.seq.strategyVersion = 1;
+      changed = true;
+    }
+    if (!Number.isFinite(Number(store.seq.audit)) || Number(store.seq.audit) <= 0) {
+      store.seq.audit = 1;
+      changed = true;
+    }
+    if (!Array.isArray(store.strategies)) {
+      store.strategies = [];
+      changed = true;
+    }
+    if (!Array.isArray(store.strategyVersions)) {
+      store.strategyVersions = [];
+      changed = true;
+    }
+    if (!Array.isArray(store.strategyAudits)) {
+      store.strategyAudits = [];
+      changed = true;
+    }
+    const now = nowIso();
+    if (!store.strategies.length && Array.isArray(store.versions) && store.versions.length) {
+      const featureLookup = buildFeatureLookup(store.features || []);
+      const seedRows = store.versions.slice(0, 3);
+      seedRows.forEach((versionRow, idx) => {
+        const item = versionRow && typeof versionRow === "object" ? versionRow : {};
+        const strategyId = `stg_${idx + 1}`;
+        const strategyVersionId = `stgver_${idx + 1}`;
+        const featureRefs = normalizeFeatureRefs(item?.strategy?.featureRefs || []);
+        const status = normalizeStatus(item.status === "active" ? "backtested" : "draft", "draft");
+        const draftConfig = buildStrategyDraftPayload({
+          signalLayer: {
+            featureRefs,
+            signalLogic: toText(item?.strategy?.entry || "多信号确认后触发"),
+            params: {},
+          },
+          riskLayer: {
+            riskPauseCondition: toText(item?.strategy?.riskControl || ""),
+          },
+          executionLayer: {},
+          positionLayer: {},
+        });
+        const perfScore = Number(item.score);
+        const latestReturnPct = Number.isFinite(perfScore) ? Number((perfScore * 65 - 8).toFixed(3)) : 0;
+        const maxDrawdownPct = Number.isFinite(perfScore) ? Number((28 - perfScore * 16).toFixed(3)) : 18;
+        const executionReport = buildSampleExecutionReport({ days: 30 + idx * 8, stepSec: 3600 });
+        const strategyVersion = {
+          strategyVersionId,
+          strategyId,
+          versionNo: 1,
+          immutable: true,
+          publishState: "published",
+          versionTag: "v1.0.0",
+          createdAt: toText(item.createdAt || now),
+          publishedAt: toText(item.updatedAt || item.createdAt || now),
+          createdBy: "ThunderClaw",
+          lockedFeatureVersions: lockFeatureVersions(featureRefs, featureLookup),
+          signalLayer: draftConfig.signalLayer,
+          positionLayer: draftConfig.positionLayer,
+          riskLayer: draftConfig.riskLayer,
+          executionLayer: draftConfig.executionLayer,
+          performance: {
+            latestReturnPct,
+            maxDrawdownPct,
+            score: Number.isFinite(perfScore) ? Number(perfScore.toFixed(4)) : null,
+            tradeCount: Number(item?.lastReport?.metrics?.tradeCount || 0),
+            winRate: Number(item?.lastReport?.metrics?.winRate || 0),
+          },
+          executionReport,
+        };
+        const strategy = {
+          strategyId,
+          name: toText(item.title || `策略 ${idx + 1}`),
+          description: toText(item?.strategy?.thesis || item.evalSummary || "策略草稿"),
+          status,
+          runtimeEnv: normalizeRuntimeEnv(status),
+          currentVersionId: strategyVersionId,
+          latestVersionId: strategyVersionId,
+          featureCount: featureRefs.length,
+          latestReturnPct,
+          maxDrawdownPct,
+          draftConfig,
+          cardBinding: null,
+          createdAt: toText(item.createdAt || now),
+          updatedAt: toText(item.updatedAt || now),
+        };
+        store.strategies.push(strategy);
+        store.strategyVersions.push(strategyVersion);
+        store.strategyAudits.push({
+          auditId: `audit_${idx + 1}`,
+          strategyId,
+          strategyVersionId,
+          action: "bootstrap_migrate",
+          fromStatus: "",
+          toStatus: status,
+          operator: "system",
+          reason: "从旧策略版本迁移初始化",
+          ts: now,
+          detail: {
+            sourceVersionId: toText(item.versionId || ""),
+            sourceTitle: toText(item.title || ""),
+          },
+        });
+      });
+      store.seq.strategy = Math.max(Number(store.seq.strategy || 1), store.strategies.length + 1);
+      store.seq.strategyVersion = Math.max(Number(store.seq.strategyVersion || 1), store.strategyVersions.length + 1);
+      store.seq.audit = Math.max(Number(store.seq.audit || 1), store.strategyAudits.length + 1);
+      changed = true;
+    }
+    return changed;
+  }
+
+  function appendStrategyAudit(storeLike, payloadLike = {}) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const payload = payloadLike && typeof payloadLike === "object" ? payloadLike : {};
+    const audit = {
+      auditId: `audit_${Number(store.seq.audit || 1)}`,
+      strategyId: toText(payload.strategyId || ""),
+      strategyVersionId: toText(payload.strategyVersionId || ""),
+      action: toText(payload.action || "unknown"),
+      fromStatus: toText(payload.fromStatus || ""),
+      toStatus: toText(payload.toStatus || ""),
+      operator: toText(payload.operator || "ThunderClaw"),
+      reason: toText(payload.reason || ""),
+      ts: toText(payload.ts || nowIso(), nowIso()),
+      detail: payload.detail && typeof payload.detail === "object" ? payload.detail : {},
+    };
+    store.seq.audit = Number(store.seq.audit || 1) + 1;
+    store.strategyAudits.push(audit);
+    if (store.strategyAudits.length > 5000) {
+      store.strategyAudits = store.strategyAudits.slice(-4200);
+    }
+    return audit;
+  }
+
+  function resolveStrategyById(storeLike, strategyIdLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const strategyId = toText(strategyIdLike || "");
+    if (!strategyId) return null;
+    return (store.strategies || []).find((item) => toText(item?.strategyId || "") === strategyId) || null;
+  }
+
+  function resolveStrategyByName(storeLike, nameLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const key = slugify(nameLike);
+    if (!key) return null;
+    return (store.strategies || []).find((item) => slugify(item?.name || "") === key) || null;
+  }
+
+  function resolveStrategyVersionById(storeLike, strategyVersionIdLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const strategyVersionId = toText(strategyVersionIdLike || "");
+    if (!strategyVersionId) return null;
+    return (store.strategyVersions || []).find((item) => toText(item?.strategyVersionId || "") === strategyVersionId) || null;
   }
 
   function listFeatures(options = {}) {
@@ -407,12 +604,42 @@ export function createStrategyLabStore(deps = {}) {
         ...strategyRaw,
         title: toText(strategyRaw.title || candidate.title || "对话策略候选"),
       };
+      const extraFeatureRefs = Array.isArray(prepared.features)
+        ? prepared.features.map((item) => {
+          if (typeof item === "string") return item;
+          const row = item && typeof item === "object" ? item : {};
+          return toText(row.featureId || row.name || "");
+        }).filter(Boolean)
+        : [];
+      const draftFeatureRefs = uniqStrings([
+        ...(Array.isArray(prepared.featureRefs) ? prepared.featureRefs : []),
+        ...extraFeatureRefs,
+      ]);
       const result = upsertStrategy(prepared, metaLike);
+      const lifecycleResult = saveStrategyDraft({
+        name: prepared.title,
+        description: toText(prepared.thesis || candidate.summary || ""),
+        signalLayer: {
+          featureRefs: draftFeatureRefs,
+          signalLogic: toText(prepared.entry || "多信号确认"),
+          params: {},
+        },
+        riskLayer: {
+          riskPauseCondition: toText(prepared.riskControl || ""),
+        },
+        executionLayer: {},
+        positionLayer: {},
+      }, {
+        ...metaLike,
+        source: toText(metaLike?.source || "chat_intent"),
+        reason: "来自 ThunderClaw 对话候选",
+      });
       return {
         kind: "strategy",
         created: result.created,
         feature: null,
         version: result.version,
+        strategy: lifecycleResult?.strategy || null,
       };
     }
     throw new Error("candidate.kind must be feature or strategy");
@@ -547,12 +774,369 @@ export function createStrategyLabStore(deps = {}) {
     return { artifact, artifactId: artifact.artifactId, version: 1 };
   }
 
+  function listStrategies(options = {}) {
+    const store = loadStore();
+    const q = toText(options.q || "").toLowerCase();
+    const statusRaw = toText(options.status || "").toLowerCase();
+    const status = STRATEGY_STATUS_LABELS[statusRaw] ? statusRaw : "";
+    const sortBy = normalizeStrategySortField(options.sortBy);
+    const sortOrder = normalizeStrategySortOrder(options.sortOrder);
+    const page = parsePositiveInt(options.page, 1, 1, 9999);
+    const pageSize = parsePositiveInt(options.pageSize || options.limit, 20, 5, 100);
+    let rows = Array.isArray(store.strategies) ? store.strategies.slice() : [];
+    if (status) {
+      rows = rows.filter((item) => normalizeStatus(item?.status || "draft") === status);
+    }
+    if (q) {
+      rows = rows.filter((item) => {
+        const textPack = [
+          item?.strategyId,
+          item?.name,
+          item?.description,
+          item?.status,
+          item?.runtimeEnv,
+          item?.currentVersionId,
+        ].map((v) => String(v || "").toLowerCase()).join(" ");
+        return textPack.includes(q);
+      });
+    }
+    rows.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "latestReturnPct" || sortBy === "maxDrawdownPct") {
+        cmp = Number(a?.[sortBy] || 0) - Number(b?.[sortBy] || 0);
+      } else if (sortBy === "name" || sortBy === "status") {
+        cmp = String(a?.[sortBy] || "").localeCompare(String(b?.[sortBy] || ""));
+      } else {
+        cmp = String(a?.updatedAt || "").localeCompare(String(b?.updatedAt || ""));
+      }
+      if (cmp === 0) {
+        cmp = String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const normalizedPage = Math.min(page, totalPages);
+    const start = (normalizedPage - 1) * pageSize;
+    const list = rows.slice(start, start + pageSize).map((item) => {
+      const strategy = item && typeof item === "object" ? item : {};
+      const statusKey = normalizeStatus(strategy.status || "draft");
+      const runtimeEnv = normalizeRuntimeEnv(statusKey, strategy.runtimeEnv);
+      return {
+        strategyId: toText(strategy.strategyId || ""),
+        name: toText(strategy.name || ""),
+        description: toText(strategy.description || ""),
+        status: statusKey,
+        statusLabel: STRATEGY_STATUS_LABELS[statusKey] || statusKey,
+        runtimeEnv: runtimeEnv,
+        runtimeEnvLabel: STRATEGY_RUNTIME_ENV_LABELS[runtimeEnv] || runtimeEnv,
+        latestReturnPct: Number(strategy.latestReturnPct || 0),
+        maxDrawdownPct: Number(strategy.maxDrawdownPct || 0),
+        featureCount: Math.max(0, Math.floor(Number(strategy.featureCount || 0))),
+        currentVersionId: toText(strategy.currentVersionId || ""),
+        latestVersionId: toText(strategy.latestVersionId || ""),
+        createdAt: toText(strategy.createdAt || ""),
+        updatedAt: toText(strategy.updatedAt || ""),
+      };
+    });
+    return {
+      total,
+      page: normalizedPage,
+      pageSize,
+      totalPages,
+      sortBy,
+      sortOrder,
+      strategies: list,
+    };
+  }
+
+  function saveStrategyDraft(payloadLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const payload = payloadLike && typeof payloadLike === "object" ? payloadLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const now = nowIso();
+    const name = toText(payload.name || payload.title || "");
+    if (!name) throw new Error("strategy name is required");
+    let strategy = resolveStrategyById(store, payload.strategyId || "")
+      || resolveStrategyByName(store, name)
+      || null;
+    const requestedStatusRaw = toText(payload.status || "");
+    const requestedStatus = requestedStatusRaw
+      ? normalizeStatus(requestedStatusRaw, "draft")
+      : normalizeStatus(strategy?.status || "draft", "draft");
+    const draftConfig = buildStrategyDraftPayload(payload);
+    const featureCount = normalizeFeatureRefs(draftConfig?.signalLayer?.featureRefs || []).length;
+    const operator = toText(meta.operator || meta.createdBy || "ThunderClaw");
+    if (!strategy) {
+      strategy = {
+        strategyId: nextId("stg", "strategy"),
+        name,
+        description: toText(payload.description || payload.summary || "策略草稿"),
+        status: requestedStatus,
+        runtimeEnv: normalizeRuntimeEnv(requestedStatus, payload.runtimeEnv),
+        currentVersionId: "",
+        latestVersionId: "",
+        featureCount,
+        latestReturnPct: 0,
+        maxDrawdownPct: 0,
+        draftConfig,
+        cardBinding: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (Number.isFinite(Number(meta.eventId)) && Number(meta.eventId) > 0 && toText(meta.cardId || "")) {
+        strategy.cardBinding = {
+          conversationId: toText(meta.conversationId || "thunderclaw-main"),
+          eventId: Number(meta.eventId),
+          cardId: toText(meta.cardId || ""),
+          linkedAt: now,
+        };
+      }
+      applyProvenanceMeta(strategy, meta, now, toText(meta.source || "chat_intent", "chat_intent"));
+      store.strategies.push(strategy);
+      appendStrategyAudit(store, {
+        strategyId: strategy.strategyId,
+        action: "create_draft",
+        fromStatus: "",
+        toStatus: strategy.status,
+        operator,
+        reason: toText(meta.reason || "创建策略草稿"),
+        ts: now,
+        detail: {
+          name: strategy.name,
+          featureCount,
+        },
+      });
+      saveStore();
+      return { created: true, strategy };
+    }
+    const fromStatus = normalizeStatus(strategy.status || "draft");
+    strategy.name = name;
+    strategy.description = toText(payload.description || strategy.description || "");
+    strategy.status = requestedStatus || fromStatus;
+    strategy.runtimeEnv = normalizeRuntimeEnv(strategy.status, payload.runtimeEnv || strategy.runtimeEnv);
+    strategy.featureCount = featureCount;
+    strategy.draftConfig = draftConfig;
+    strategy.updatedAt = now;
+    if (Number.isFinite(Number(meta.eventId)) && Number(meta.eventId) > 0 && toText(meta.cardId || "")) {
+      strategy.cardBinding = {
+        conversationId: toText(meta.conversationId || strategy?.cardBinding?.conversationId || "thunderclaw-main"),
+        eventId: Number(meta.eventId),
+        cardId: toText(meta.cardId || ""),
+        linkedAt: now,
+      };
+    }
+    applyProvenanceMeta(strategy, meta, now, toText(meta.source || "chat_intent", "chat_intent"));
+    appendStrategyAudit(store, {
+      strategyId: strategy.strategyId,
+      action: "save_draft",
+      fromStatus,
+      toStatus: strategy.status,
+      operator,
+      reason: toText(meta.reason || "更新策略草稿"),
+      ts: now,
+      detail: {
+        featureCount,
+      },
+    });
+    saveStore();
+    return { created: false, strategy };
+  }
+
+  function publishStrategyVersion(paramsLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const strategy = resolveStrategyById(store, params.strategyId || "");
+    if (!strategy) throw new Error("strategy not found");
+    const now = nowIso();
+    const statusBeforePublish = normalizeStatus(strategy.status || "draft");
+    const operator = toText(meta.operator || meta.createdBy || "ThunderClaw");
+    const draftConfig = strategy.draftConfig && typeof strategy.draftConfig === "object"
+      ? strategy.draftConfig
+      : buildStrategyDraftPayload({});
+    const featureLookup = buildFeatureLookup(store.features || []);
+    const lockedFeatureVersions = lockFeatureVersions(draftConfig?.signalLayer?.featureRefs || [], featureLookup);
+    const versionNo = (store.strategyVersions || []).filter((item) => toText(item?.strategyId || "") === strategy.strategyId).length + 1;
+    const strategyVersionId = nextId("stgver", "strategyVersion");
+    const perfLike = params.performance && typeof params.performance === "object" ? params.performance : {};
+    const latestReturnPct = Number(clampNumber(perfLike.latestReturnPct, -1000, 2000, strategy.latestReturnPct || 0).toFixed(4));
+    const maxDrawdownPct = Number(clampNumber(perfLike.maxDrawdownPct, 0, 100, strategy.maxDrawdownPct || 0).toFixed(4));
+    const executionReport = params.executionReport && typeof params.executionReport === "object"
+      ? params.executionReport
+      : buildSampleExecutionReport({ days: normalizeRangeDays(params.rangeDays || 30), stepSec: 3600 });
+    const version = {
+      strategyVersionId,
+      strategyId: strategy.strategyId,
+      versionNo,
+      immutable: true,
+      publishState: "published",
+      versionTag: `v${versionNo}.0.0`,
+      createdAt: now,
+      publishedAt: now,
+      createdBy: operator,
+      publishNote: toText(params.note || meta.reason || ""),
+      lockedFeatureVersions,
+      signalLayer: draftConfig.signalLayer,
+      positionLayer: draftConfig.positionLayer,
+      riskLayer: draftConfig.riskLayer,
+      executionLayer: draftConfig.executionLayer,
+      performance: {
+        latestReturnPct,
+        maxDrawdownPct,
+        winRate: Number(clampNumber(perfLike.winRate, 0, 100, 0).toFixed(4)),
+        tradeCount: Math.max(0, Math.floor(Number(perfLike.tradeCount || 0))),
+        score: Number.isFinite(Number(perfLike.score)) ? Number(Number(perfLike.score).toFixed(4)) : null,
+      },
+      executionReport,
+    };
+    store.strategyVersions.push(version);
+    strategy.latestVersionId = strategyVersionId;
+    strategy.currentVersionId = strategyVersionId;
+    strategy.updatedAt = now;
+    strategy.featureCount = lockedFeatureVersions.length;
+    strategy.latestReturnPct = latestReturnPct;
+    strategy.maxDrawdownPct = maxDrawdownPct;
+    if (strategy.status === "draft" || strategy.status === "backtested") {
+      strategy.status = "backtested";
+      strategy.runtimeEnv = STRATEGY_RUNTIME_ENV_BY_STATUS.backtested;
+    }
+    appendStrategyAudit(store, {
+      strategyId: strategy.strategyId,
+      strategyVersionId,
+      action: "publish_version",
+      fromStatus: statusBeforePublish,
+      toStatus: toText(strategy.status || ""),
+      operator,
+      reason: toText(params.note || meta.reason || "发布新版本"),
+      ts: now,
+      detail: {
+        versionNo,
+        versionTag: version.versionTag,
+        featureLocks: lockedFeatureVersions,
+      },
+    });
+    saveStore();
+    return { strategy, version };
+  }
+
+  function updateStrategyStatus(paramsLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const strategy = resolveStrategyById(store, params.strategyId || "");
+    if (!strategy) throw new Error("strategy not found");
+    const now = nowIso();
+    const fromStatus = normalizeStatus(strategy.status || "draft");
+    const toStatus = normalizeStatus(params.targetStatus || params.status || fromStatus, fromStatus);
+    if (!canTransitionStatus(fromStatus, toStatus)) {
+      throw new Error(`invalid status transition: ${fromStatus} -> ${toStatus}`);
+    }
+    strategy.status = toStatus;
+    strategy.runtimeEnv = normalizeRuntimeEnv(toStatus, params.runtimeEnv || strategy.runtimeEnv);
+    strategy.updatedAt = now;
+    appendStrategyAudit(store, {
+      strategyId: strategy.strategyId,
+      strategyVersionId: toText(strategy.currentVersionId || ""),
+      action: toText(params.action || "change_status"),
+      fromStatus,
+      toStatus,
+      operator: toText(meta.operator || meta.createdBy || "ThunderClaw"),
+      reason: toText(params.reason || meta.reason || ""),
+      ts: now,
+      detail: {
+        runtimeEnv: strategy.runtimeEnv,
+      },
+    });
+    saveStore();
+    return { strategy };
+  }
+
+  function listStrategyAudits(options = {}) {
+    const store = loadStore();
+    const strategyId = toText(options.strategyId || "");
+    if (!strategyId) return { total: 0, audits: [] };
+    const limit = Math.max(1, Math.min(300, Number(options.limit) || 120));
+    const rows = (store.strategyAudits || [])
+      .filter((item) => toText(item?.strategyId || "") === strategyId)
+      .slice()
+      .sort((a, b) => String(b?.ts || "").localeCompare(String(a?.ts || "")));
+    return {
+      total: rows.length,
+      audits: rows.slice(0, limit),
+    };
+  }
+
+  function getStrategyDetail(options = {}) {
+    const store = loadStore();
+    const strategyId = toText(options.strategyId || "");
+    if (!strategyId) throw new Error("strategyId is required");
+    const strategy = resolveStrategyById(store, strategyId);
+    if (!strategy) throw new Error("strategy not found");
+    const rangeDays = normalizeRangeDays(options.rangeDays || 30);
+    const tradeType = normalizeTradeType(options.tradeType || "all");
+    const specifiedVersionId = toText(options.strategyVersionId || "");
+    let version = specifiedVersionId
+      ? resolveStrategyVersionById(store, specifiedVersionId)
+      : null;
+    if (!version || toText(version?.strategyId || "") !== strategyId) {
+      const preferredVersionId = toText(strategy.currentVersionId || strategy.latestVersionId || "");
+      version = preferredVersionId
+        ? resolveStrategyVersionById(store, preferredVersionId)
+        : null;
+    }
+    if (!version) {
+      const candidates = (store.strategyVersions || [])
+        .filter((item) => toText(item?.strategyId || "") === strategyId)
+        .sort((a, b) => Number(b?.versionNo || 0) - Number(a?.versionNo || 0));
+      version = candidates[0] || null;
+    }
+    const reportRaw = version && version.executionReport && typeof version.executionReport === "object"
+      ? version.executionReport
+      : buildSampleExecutionReport({ days: rangeDays, stepSec: 3600 });
+    const filtered = filterExecutionReport(reportRaw, { rangeDays, tradeType });
+    const report = filtered.report;
+    const events = (Array.isArray(report.events) ? report.events : []).map((item) => ({
+      ...item,
+      tradeTypeLabel: TRADE_TYPE_LABELS[toText(item?.tradeType || "").toLowerCase()] || toText(item?.tradeType || ""),
+    }));
+    return {
+      strategy: {
+        ...strategy,
+        status: normalizeStatus(strategy.status || "draft"),
+        statusLabel: STRATEGY_STATUS_LABELS[normalizeStatus(strategy.status || "draft")] || normalizeStatus(strategy.status || "draft"),
+        runtimeEnv: normalizeRuntimeEnv(strategy.status || "draft", strategy.runtimeEnv),
+        runtimeEnvLabel: STRATEGY_RUNTIME_ENV_LABELS[normalizeRuntimeEnv(strategy.status || "draft", strategy.runtimeEnv)] || strategy.runtimeEnv,
+      },
+      version: version || null,
+      visualization: {
+        rangeDays: filtered.rangeDays,
+        tradeType: filtered.tradeType,
+        events,
+        equityCurve: report.equityCurve || [],
+        drawdownCurve: report.drawdownCurve || [],
+        playback: {
+          minSpeedMs: 180,
+          defaultSpeedMs: 520,
+        },
+      },
+      labels: {
+        status: STRATEGY_STATUS_LABELS,
+        runtimeEnv: STRATEGY_RUNTIME_ENV_LABELS,
+        tradeType: TRADE_TYPE_LABELS,
+      },
+    };
+  }
+
   function getStats() {
     const store = loadStore();
     return {
       featureCount: Array.isArray(store.features) ? store.features.length : 0,
       versionCount: Array.isArray(store.versions) ? store.versions.length : 0,
       artifactCount: Array.isArray(store.artifacts) ? store.artifacts.length : 0,
+      strategyCount: Array.isArray(store.strategies) ? store.strategies.length : 0,
+      strategyVersionCount: Array.isArray(store.strategyVersions) ? store.strategyVersions.length : 0,
+      strategyAuditCount: Array.isArray(store.strategyAudits) ? store.strategyAudits.length : 0,
       updatedAt: String(store.updatedAt || ""),
     };
   }
@@ -561,6 +1145,12 @@ export function createStrategyLabStore(deps = {}) {
     listFeatures,
     getFeatureFacets,
     listVersions,
+    listStrategies,
+    getStrategyDetail,
+    listStrategyAudits,
+    saveStrategyDraft,
+    publishStrategyVersion,
+    updateStrategyStatus,
     applyIntentCandidate,
     proposeVersionsFromMessage,
     evaluateVersion,

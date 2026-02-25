@@ -137,6 +137,16 @@ export function createChatHistoryStore(optionsLike = {}) {
       return { ok: false, error: "card not found" };
     }
     card.status = status;
+    if (params.extra && typeof params.extra === "object") {
+      card.extra = { ...(card.extra && typeof card.extra === "object" ? card.extra : {}), ...params.extra };
+    }
+    if (params.strategy && typeof params.strategy === "object") {
+      card.strategy = { ...(card.strategy && typeof card.strategy === "object" ? card.strategy : {}), ...params.strategy };
+    }
+    if (params.message != null) {
+      card.message = String(params.message || "");
+    }
+    card.updatedAt = new Date().toISOString();
     saveChatHistory();
     return { ok: true, event, card };
   }

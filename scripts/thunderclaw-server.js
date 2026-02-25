@@ -1340,12 +1340,19 @@ const {
   handleStrategyArtifactReport,
   handleStrategyIntentCandidates,
   handleStrategyIntentApply,
+  handleStrategyEntities,
+  handleStrategyEntityDetail,
+  handleStrategyEntityDraftSave,
+  handleStrategyEntityPublish,
+  handleStrategyEntityStatus,
+  handleStrategyEntityAudits,
 } = createStrategyLabHandlers({
   readJsonBody,
   sendJson,
   strategyLabStore,
   extractTradingIntentCandidates,
   getCurrentRuntimeModelRefFromStore,
+  updateChatCardStatus,
 });
 
 async function handleGatewayStart(_req, res) {
@@ -1405,6 +1412,12 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyArtifactReport,
   handleStrategyIntentCandidates,
   handleStrategyIntentApply,
+  handleStrategyEntities,
+  handleStrategyEntityDetail,
+  handleStrategyEntityDraftSave,
+  handleStrategyEntityPublish,
+  handleStrategyEntityStatus,
+  handleStrategyEntityAudits,
   handleChat,
 }));
 

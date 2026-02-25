@@ -131,12 +131,15 @@ function normalizeTagFilter(valueLike) {
 function buildSeedStore() {
   const ts = nowIso();
   return {
-    version: 2,
+    version: 3,
     updatedAt: ts,
     seq: {
       feature: 4,
       version: 5,
       artifact: 1,
+      strategy: 1,
+      strategyVersion: 1,
+      audit: 1,
     },
     features: [
       {
@@ -259,6 +262,9 @@ function buildSeedStore() {
       },
     ],
     artifacts: [],
+    strategies: [],
+    strategyVersions: [],
+    strategyAudits: [],
   };
 }
 
@@ -477,8 +483,8 @@ function applyFeatureProductMeta(targetLike, metaLike = {}) {
 function migrateStoreShape(storeLike) {
   const store = storeLike && typeof storeLike === "object" ? storeLike : buildSeedStore();
   let changed = false;
-  if (!Number.isFinite(Number(store.version)) || Number(store.version) < 2) {
-    store.version = 2;
+  if (!Number.isFinite(Number(store.version)) || Number(store.version) < 3) {
+    store.version = 3;
     changed = true;
   }
   if (!Array.isArray(store.features)) {
