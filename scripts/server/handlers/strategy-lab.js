@@ -17,12 +17,41 @@ export function createStrategyLabHandlers(deps = {}) {
   const strategyLabStore = deps.strategyLabStore;
   const extractTradingIntentCandidates = deps.extractTradingIntentCandidates;
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
+  const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
 
   if (typeof readJsonBody !== "function") throw new Error("readJsonBody is required");
   if (typeof sendJson !== "function") throw new Error("sendJson is required");
   if (!strategyLabStore || typeof strategyLabStore !== "object") throw new Error("strategyLabStore is required");
   if (typeof extractTradingIntentCandidates !== "function") throw new Error("extractTradingIntentCandidates is required");
   if (typeof getCurrentRuntimeModelRefFromStore !== "function") throw new Error("getCurrentRuntimeModelRefFromStore is required");
+
+  function syncStrategyCardStatus(strategyLike, statusLike, reasonLike) {
+    if (!updateChatCardStatus) return;
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const cardBinding = strategy.cardBinding && typeof strategy.cardBinding === "object" ? strategy.cardBinding : null;
+    if (!cardBinding) return;
+    const eventId = Number(cardBinding.eventId);
+    const cardId = toText(cardBinding.cardId || "");
+    if (!Number.isFinite(eventId) || eventId <= 0 || !cardId) return;
+    const status = toText(statusLike || strategy.status || "draft", "draft");
+    updateChatCardStatus({
+      eventId,
+      cardId,
+      status: "registered",
+      message: "策略状态：" + status,
+      extra: {
+        strategyId: toText(strategy.strategyId || ""),
+        strategyStatus: status,
+        strategyStatusReason: toText(reasonLike || ""),
+        strategyUpdatedAt: toText(strategy.updatedAt || ""),
+      },
+      strategy: {
+        strategyId: toText(strategy.strategyId || ""),
+        name: toText(strategy.name || ""),
+        status,
+      },
+    });
+  }
 
   async function handleStrategyFeatures(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -218,10 +247,16 @@ export function createStrategyLabHandlers(deps = {}) {
       const kindText = applied?.kind === "feature" ? "交易特征" : "交易策略";
       const nameText = applied?.kind === "feature"
         ? toText(applied?.feature?.name || "")
-        : toText(applied?.version?.title || "");
+        : toText(applied?.strategy?.name || applied?.version?.title || "");
+      if (applied?.kind === "strategy" && applied?.strategy) {
+        syncStrategyCardStatus(applied.strategy, toText(applied.strategy.status || "draft"), "候选策略已写入");
+      }
       const state = {
         features: strategyLabStore.listFeatures({ limit: 120 }).features,
         versions: strategyLabStore.listVersions({ limit: 120 }).versions,
+        strategies: typeof strategyLabStore.listStrategies === "function"
+          ? strategyLabStore.listStrategies({ page: 1, pageSize: 120 }).strategies
+          : [],
       };
       sendJson(res, 200, {
         ok: true,
@@ -238,6 +273,174 @@ export function createStrategyLabHandlers(deps = {}) {
     }
   }
 
+  async function handleStrategyEntities(req, res) {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const q = toText(url.searchParams.get("q") || "");
+    const status = toText(url.searchParams.get("status") || "");
+    const sortBy = toText(url.searchParams.get("sortBy") || "updatedAt");
+    const sortOrder = toText(url.searchParams.get("sortOrder") || "desc");
+    const page = parsePositiveInt(url.searchParams.get("page"), 1, 1, 9999);
+    const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 20, 5, 100);
+    if (typeof strategyLabStore.listStrategies !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    const result = strategyLabStore.listStrategies({
+      q,
+      status,
+      sortBy,
+      sortOrder,
+      page,
+      pageSize,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      ...result,
+      stats: strategyLabStore.getStats(),
+    });
+  }
+
+  async function handleStrategyEntityDetail(req, res) {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const strategyId = toText(url.searchParams.get("strategyId") || "");
+    const strategyVersionId = toText(url.searchParams.get("strategyVersionId") || "");
+    const rangeDays = parsePositiveInt(url.searchParams.get("rangeDays"), 30, 1, 365);
+    const tradeType = toText(url.searchParams.get("tradeType") || "all", "all");
+    if (!strategyId) {
+      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      return;
+    }
+    if (typeof strategyLabStore.getStrategyDetail !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    try {
+      const detail = strategyLabStore.getStrategyDetail({
+        strategyId,
+        strategyVersionId,
+        rangeDays,
+        tradeType,
+      });
+      const audits = typeof strategyLabStore.listStrategyAudits === "function"
+        ? strategyLabStore.listStrategyAudits({ strategyId, limit: 80 })
+        : { total: 0, audits: [] };
+      sendJson(res, 200, {
+        ok: true,
+        ...detail,
+        audits: audits.audits,
+        auditTotal: audits.total,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "strategy detail failed") });
+    }
+  }
+
+  async function handleStrategyEntityDraftSave(req, res) {
+    if (typeof strategyLabStore.saveStrategyDraft !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    try {
+      const result = strategyLabStore.saveStrategyDraft(payload, {
+        source: toText(payload.source || "strategy_console"),
+        reason: toText(payload.reason || "保存策略草稿"),
+        createdBy: toText(payload.operator || payload.createdBy || "ThunderClaw"),
+        conversationId: toText(payload.conversationId || ""),
+        eventId: Number(payload.eventId),
+        cardId: toText(payload.cardId || ""),
+      });
+      syncStrategyCardStatus(result.strategy, toText(result?.strategy?.status || "draft"), "草稿已保存");
+      sendJson(res, 200, {
+        ok: true,
+        created: Boolean(result?.created),
+        strategy: result?.strategy || null,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "save draft failed") });
+    }
+  }
+
+  async function handleStrategyEntityPublish(req, res) {
+    if (typeof strategyLabStore.publishStrategyVersion !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    const strategyId = toText(payload.strategyId || "");
+    if (!strategyId) {
+      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.publishStrategyVersion(payload, {
+        source: toText(payload.source || "strategy_console"),
+        reason: toText(payload.note || payload.reason || "发布新版本"),
+        createdBy: toText(payload.operator || payload.createdBy || "ThunderClaw"),
+      });
+      syncStrategyCardStatus(result.strategy, toText(result?.strategy?.status || ""), "发布新版本");
+      sendJson(res, 200, {
+        ok: true,
+        strategy: result?.strategy || null,
+        version: result?.version || null,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "publish failed") });
+    }
+  }
+
+  async function handleStrategyEntityStatus(req, res) {
+    if (typeof strategyLabStore.updateStrategyStatus !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    const strategyId = toText(payload.strategyId || "");
+    const targetStatus = toText(payload.targetStatus || payload.status || "");
+    if (!strategyId || !targetStatus) {
+      sendJson(res, 400, { ok: false, error: "strategyId and targetStatus are required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.updateStrategyStatus(payload, {
+        source: toText(payload.source || "strategy_console"),
+        reason: toText(payload.reason || ""),
+        createdBy: toText(payload.operator || payload.createdBy || "ThunderClaw"),
+      });
+      syncStrategyCardStatus(result.strategy, toText(result?.strategy?.status || ""), toText(payload.reason || ""));
+      sendJson(res, 200, {
+        ok: true,
+        strategy: result?.strategy || null,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "status update failed") });
+    }
+  }
+
+  async function handleStrategyEntityAudits(req, res) {
+    if (typeof strategyLabStore.listStrategyAudits !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy lifecycle is not available" });
+      return;
+    }
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const strategyId = toText(url.searchParams.get("strategyId") || "");
+    const limit = parsePositiveInt(url.searchParams.get("limit"), 120, 1, 300);
+    if (!strategyId) {
+      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      return;
+    }
+    const result = strategyLabStore.listStrategyAudits({ strategyId, limit });
+    sendJson(res, 200, {
+      ok: true,
+      strategyId,
+      total: Number(result?.total || 0),
+      audits: Array.isArray(result?.audits) ? result.audits : [],
+    });
+  }
+
   return {
     handleStrategyFeatures,
     handleStrategyVersions,
@@ -246,5 +449,11 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyArtifactReport,
     handleStrategyIntentCandidates,
     handleStrategyIntentApply,
+    handleStrategyEntities,
+    handleStrategyEntityDetail,
+    handleStrategyEntityDraftSave,
+    handleStrategyEntityPublish,
+    handleStrategyEntityStatus,
+    handleStrategyEntityAudits,
   };
 }

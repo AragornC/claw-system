@@ -17,6 +17,17 @@ function normalizeCardStatusRuntime(statusLike) {
   return "proposed";
 }
 
+function strategyStatusLabelRuntime(statusLike) {
+  const status = String(statusLike || "").trim().toLowerCase();
+  if (status === "draft") return "草稿";
+  if (status === "backtested") return "已回测";
+  if (status === "paper_live") return "模拟中";
+  if (status === "live") return "实盘中";
+  if (status === "paused") return "已暂停";
+  if (status === "risk_paused") return "风控暂停";
+  return "";
+}
+
 function normalizeIntentCandidateRuntime(rawLike) {
   const raw = rawLike && typeof rawLike === "object" ? rawLike : {};
   const kind = String(raw.kind || "").trim().toLowerCase();
@@ -71,6 +82,11 @@ function normalizeIntentCandidateRuntime(rawLike) {
     summary: tcSafeText(raw.summary || strategy.thesis || "来自对话提案"),
     confidence: confidence,
     status: status,
+    syncStatus: tcSafeText(
+      raw.extra && typeof raw.extra === "object"
+        ? (raw.extra.strategyStatus || "")
+        : (raw.strategyStatus || strategy.status || ""),
+    ),
     strategy: {
       title: title,
       thesis: tcSafeText(strategy.thesis || raw.summary || ""),
@@ -82,6 +98,12 @@ function normalizeIntentCandidateRuntime(rawLike) {
       featureRefs: Array.isArray(strategy.featureRefs) ? strategy.featureRefs.map(function(x) { return tcSafeText(x); }).filter(Boolean) : [],
       features: Array.isArray(strategy.features) ? strategy.features : [],
       dsl: strategy.dsl && typeof strategy.dsl === "object" ? strategy.dsl : null,
+      strategyId: tcSafeText(
+        strategy.strategyId
+        || (raw.extra && typeof raw.extra === "object" ? raw.extra.strategyId : "")
+        || raw.strategyId
+        || "",
+      ),
     },
   };
 }
@@ -178,7 +200,12 @@ function renderCandidateMetaRuntime(candidateLike) {
     return parts.join(" · ");
   }
   const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
-  return "Horizon: " + tcSafeText(strategy.horizon || "intraday") + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced");
+  const state = tcSafeText(candidate.syncStatus || strategy.status || "");
+  const stateLabel = strategyStatusLabelRuntime(state);
+  const stateText = stateLabel ? (" · 状态: " + stateLabel) : "";
+  return "Horizon: " + tcSafeText(strategy.horizon || "intraday")
+    + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced")
+    + stateText;
 }
 
 function renderCandidateDetailRuntime(candidateLike) {
@@ -213,6 +240,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
   if (!candidates.length) return null;
 
   const onApply = typeof options.onApply === "function" ? options.onApply : null;
+  const onEdit = typeof options.onEdit === "function" ? options.onEdit : null;
   const onIgnore = typeof options.onIgnore === "function" ? options.onIgnore : null;
   const onStatusChange = typeof options.onStatusChange === "function" ? options.onStatusChange : null;
   const confidence = tcClamp(options.confidence, 0, 1, 0.7);
@@ -303,7 +331,16 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     const applyBtn = document.createElement("button");
     applyBtn.type = "button";
     applyBtn.className = "apply";
-    applyBtn.textContent = "加入虾策";
+    applyBtn.textContent = candidate.kind === "strategy" ? "保存草稿" : "加入虾策";
+
+    let editBtn = null;
+    if (candidate.kind === "strategy" && onEdit) {
+      editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "ghost";
+      editBtn.textContent = "保存并编辑";
+      actions.appendChild(editBtn);
+    }
 
     const ignoreBtn = document.createElement("button");
     ignoreBtn.type = "button";
@@ -315,6 +352,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     status.textContent = "";
 
     actions.appendChild(applyBtn);
+    if (editBtn) actions.appendChild(editBtn);
     actions.appendChild(ignoreBtn);
     actions.appendChild(status);
     card.appendChild(actions);
@@ -324,6 +362,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       applyBtn.textContent = "已加入";
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
+      if (editBtn) editBtn.disabled = true;
       ignoreBtn.style.display = "none";
       status.textContent = tcSafeText(textLike || "已加入");
     }
@@ -331,12 +370,18 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       card.classList.add("ignored");
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
+      if (editBtn) editBtn.disabled = true;
       status.textContent = tcSafeText(textLike || "已忽略");
     }
 
     const initialStatus = normalizeCardStatusRuntime(candidate.status);
+    const strategyStateLabel = strategyStatusLabelRuntime(candidate.syncStatus || "");
     if (initialStatus === "accepted" || initialStatus === "registered") {
-      setAccepted(initialStatus === "registered" ? "已注册" : "已加入");
+      if (strategyStateLabel) {
+        setAccepted("已绑定 · " + strategyStateLabel);
+      } else {
+        setAccepted(initialStatus === "registered" ? "已注册" : "已加入");
+      }
     } else if (initialStatus === "ignored") {
       setIgnored("已忽略");
     }
@@ -345,6 +390,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       if (!onApply) return;
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
+      if (editBtn) editBtn.disabled = true;
       status.textContent = "写入中...";
       Promise.resolve(onApply(candidate))
         .then(function(outcome) {
@@ -364,14 +410,53 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
             status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
+            if (editBtn) editBtn.disabled = false;
           }
         })
         .catch(function(err) {
           status.textContent = "写入失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
           applyBtn.disabled = false;
           ignoreBtn.disabled = false;
+          if (editBtn) editBtn.disabled = false;
         });
     });
+
+    if (editBtn) {
+      editBtn.addEventListener("click", function() {
+        if (!onEdit) return;
+        applyBtn.disabled = true;
+        ignoreBtn.disabled = true;
+        editBtn.disabled = true;
+        status.textContent = "保存并打开编辑器...";
+        Promise.resolve(onEdit(candidate))
+          .then(function(outcome) {
+            const ok = Boolean(outcome && outcome.ok);
+            if (ok) {
+              const done = function() {
+                setAccepted(outcome.message || "已保存，已打开编辑器");
+              };
+              if (onStatusChange) {
+                Promise.resolve(onStatusChange(candidate, "accepted"))
+                  .then(done)
+                  .catch(function() { done(); });
+              } else {
+                done();
+              }
+            } else {
+              status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "保存失败");
+              applyBtn.disabled = false;
+              ignoreBtn.disabled = false;
+              editBtn.disabled = false;
+            }
+          })
+          .catch(function(err) {
+            status.textContent = "保存失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
+            applyBtn.disabled = false;
+            ignoreBtn.disabled = false;
+            editBtn.disabled = false;
+          });
+      });
+    }
 
     ignoreBtn.addEventListener("click", function() {
       const doIgnore = function() {
