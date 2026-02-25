@@ -391,10 +391,11 @@ async function syncXbrainFromOpenClaw() {
     };
   }
   xbrainStore.base.providerAuth = providerAuth;
+  const runtimeSanitize = sanitizeRuntimeModelRefInStore({ save: false, syncConfiguredModel: false });
   xbrainStore.base.telegramRelayEnabled = Boolean(xbrainStore.base.telegramRelayEnabled);
   xbrainStore.base.chatChannel = String(xbrainStore.base.chatChannel || "dashboard");
   saveXbrainStore();
-  return { ok: true, modelsJson };
+  return { ok: true, modelsJson, runtimeSanitize };
 }
 
 function getLocksSnapshot() {
@@ -433,7 +434,18 @@ function getXbrainStateSnapshot() {
   const modelId = String(base.modelId || "deepseek-chat");
   const runtimeProvider = normalizeProviderKey(base.runtimeModelProvider || modelProvider);
   const runtimeModelId = String(base.runtimeModelId || modelId);
-  const modelRegistry = uniqStrings(base.modelRegistry || [toModelRef(modelProvider, modelId)]);
+  const modelRegistrySeed = Array.isArray(base.modelRegistry) && base.modelRegistry.length
+    ? base.modelRegistry
+    : [toModelRef(modelProvider, modelId)];
+  const modelRegistry = getRegisteredModelRefs(modelRegistrySeed);
+  if (!modelRegistry.length) {
+    modelRegistry.push(toModelRef(modelProvider, modelId));
+  }
+  const rawRuntimeModelRef = toModelRef(runtimeProvider, runtimeModelId);
+  const runtimeModelRef = isModelRefRegistered(rawRuntimeModelRef, modelRegistry)
+    ? rawRuntimeModelRef
+    : (pickConfiguredRegistryModelRef(modelRegistry) || rawRuntimeModelRef);
+  const runtimeResolved = inferProviderFromModelRef(runtimeModelRef);
   const telegramToken = String(base.telegramTokenValue || "").trim();
   const telegramConfigured = Boolean(telegramToken);
   if (!providerAuth.deepseek) {
@@ -475,9 +487,9 @@ function getXbrainStateSnapshot() {
       modelId,
       modelRef: toModelRef(modelProvider, modelId),
       configuredModelRef: toModelRef(modelProvider, modelId),
-      runtimeModelProvider: runtimeProvider,
-      runtimeModelId,
-      runtimeModelRef: toModelRef(runtimeProvider, runtimeModelId),
+      runtimeModelProvider: runtimeResolved.provider,
+      runtimeModelId: runtimeResolved.modelId,
+      runtimeModelRef,
       providerCatalog,
       modelRegistry,
       providerAuth,
@@ -539,6 +551,70 @@ async function buildXbrainState(forceRefresh = false) {
   return getXbrainStateSnapshot();
 }
 
+function getRegisteredModelRefs(registryLike = null) {
+  const source = Array.isArray(registryLike)
+    ? registryLike
+    : (xbrainStore?.base?.modelRegistry || []);
+  return uniqStrings(source)
+    .map((item) => String(item || "").trim())
+    .filter((item) => Boolean(item && item.includes("/")));
+}
+
+function isModelRefRegistered(modelRefRaw, registryLike = null) {
+  const modelRef = String(modelRefRaw || "").trim();
+  if (!modelRef || !modelRef.includes("/")) return false;
+  const registry = getRegisteredModelRefs(registryLike);
+  const key = modelRef.toLowerCase();
+  return registry.some((item) => String(item || "").trim().toLowerCase() === key);
+}
+
+function pickConfiguredRegistryModelRef(registryLike = null) {
+  const registry = getRegisteredModelRefs(registryLike);
+  if (!registry.length) return "";
+  const providerAuth = xbrainStore?.base?.providerAuth && typeof xbrainStore.base.providerAuth === "object"
+    ? xbrainStore.base.providerAuth
+    : {};
+  const configuredHit = registry.find((ref) => {
+    const provider = inferProviderFromModelRef(ref).provider;
+    const auth = providerAuth?.[provider];
+    return !auth || auth.configured !== false;
+  });
+  return String(configuredHit || registry[0] || "");
+}
+
+function sanitizeRuntimeModelRefInStore(options = {}) {
+  const runtimeProvider = normalizeProviderKey(
+    xbrainStore?.base?.runtimeModelProvider
+      || xbrainStore?.base?.modelProvider
+      || "deepseek",
+  );
+  const runtimeModelId = String(
+    xbrainStore?.base?.runtimeModelId
+      || xbrainStore?.base?.modelId
+      || "",
+  ).trim();
+  const currentRuntimeRef = toModelRef(runtimeProvider, runtimeModelId);
+  const registry = getRegisteredModelRefs();
+  if (!registry.length || isModelRefRegistered(currentRuntimeRef, registry)) {
+    return { changed: false, modelRef: currentRuntimeRef, fallbackApplied: false };
+  }
+  const fallbackRef = pickConfiguredRegistryModelRef(registry);
+  if (!fallbackRef) {
+    return { changed: false, modelRef: currentRuntimeRef, fallbackApplied: false };
+  }
+  const inferred = inferProviderFromModelRef(fallbackRef);
+  xbrainStore.base.runtimeModelProvider = inferred.provider;
+  xbrainStore.base.runtimeModelId = inferred.modelId;
+  if (options.syncConfiguredModel === true) {
+    xbrainStore.base.modelProvider = inferred.provider;
+    xbrainStore.base.modelId = inferred.modelId;
+  }
+  if (options.save === true) {
+    saveXbrainStore();
+  }
+  return { changed: true, modelRef: fallbackRef, fallbackApplied: true };
+}
+
 function getCurrentRuntimeModelRefFromStore() {
   const runtimeProvider = normalizeProviderKey(
     xbrainStore?.base?.runtimeModelProvider
@@ -550,7 +626,12 @@ function getCurrentRuntimeModelRefFromStore() {
       || xbrainStore?.base?.modelId
       || "",
   ).trim();
-  return toModelRef(runtimeProvider, runtimeModelId);
+  const runtimeRef = toModelRef(runtimeProvider, runtimeModelId);
+  const registry = getRegisteredModelRefs();
+  if (!registry.length || isModelRefRegistered(runtimeRef, registry)) {
+    return runtimeRef;
+  }
+  return pickConfiguredRegistryModelRef(registry) || runtimeRef;
 }
 
 function normalizeSessionId(sessionIdLike) {
@@ -602,6 +683,9 @@ async function setOpenClawDefaultModel(modelRefRaw, timeoutMs = 40_000) {
 function applyRuntimeModelRefToStore(modelRefRaw, options = {}) {
   const modelRef = String(modelRefRaw || "").trim();
   if (!modelRef || !modelRef.includes("/")) return false;
+  if (options.requireRegistry === true && !isModelRefRegistered(modelRef)) {
+    return false;
+  }
   const inferred = inferProviderFromModelRef(modelRef);
   xbrainStore.base.modelProvider = inferred.provider;
   xbrainStore.base.modelId = inferred.modelId;
@@ -677,8 +761,13 @@ function detectModelRefChangeFromAgentOutput(params = {}) {
   const payload = params?.payload && typeof params.payload === "object" ? params.payload : null;
   const currentModelRef = String(params?.currentModelRef || "").trim();
   const registry = uniqStrings(params?.registry || xbrainStore?.base?.modelRegistry || []);
+  const registrySet = new Set(registry.map((ref) => String(ref || "").trim().toLowerCase()).filter(Boolean));
   const slashModelRef = parseSlashModelSwitchRef(message);
-  if (slashModelRef && slashModelRef !== currentModelRef) {
+  if (
+    slashModelRef
+    && slashModelRef !== currentModelRef
+    && registrySet.has(String(slashModelRef).toLowerCase())
+  ) {
     return slashModelRef;
   }
   const textParts = [reply, stdout, stderr];
@@ -690,7 +779,13 @@ function detectModelRefChangeFromAgentOutput(params = {}) {
   const text = textParts.filter(Boolean).join("\n");
   if (!text) return "";
   const strongCandidate = pickCurrentModelRefFromText(text, currentModelRef);
-  if (strongCandidate && strongCandidate !== currentModelRef) return strongCandidate;
+  if (
+    strongCandidate
+    && strongCandidate !== currentModelRef
+    && registrySet.has(String(strongCandidate).toLowerCase())
+  ) {
+    return strongCandidate;
+  }
 
   const hasChangeHint = /(?:当前(?:运行)?模型|current(?:\s+running)?\s+model|session status|\/model|模型已切换|切换模型|switched\s+to|switch\s+model|set\s+model)/i.test(text);
   if (!hasChangeHint) return "";
@@ -701,7 +796,6 @@ function detectModelRefChangeFromAgentOutput(params = {}) {
   if (!candidates.length) return "";
 
   const currentLower = currentModelRef.toLowerCase();
-  const registrySet = new Set(registry.map((ref) => String(ref).toLowerCase()));
   const registryHits = uniqStrings(
     candidates.filter((ref) => registrySet.has(String(ref).toLowerCase())),
   ).filter((ref) => String(ref).toLowerCase() !== currentLower);
@@ -749,7 +843,9 @@ async function refreshRuntimeModelFromSession(params = {}) {
   const syncDefault = params?.syncDefault !== false;
   const fallbackRef = String(params?.fallbackRef || getCurrentRuntimeModelRefFromStore()).trim();
   const probe = await probeThunderSessionModelRef({ sessionId, fallbackRef });
-  const modelRef = String(probe?.modelRef || "").trim();
+  const rawModelRef = String(probe?.modelRef || "").trim();
+  const registry = getRegisteredModelRefs();
+  const modelRef = isModelRefRegistered(rawModelRef, registry) ? rawModelRef : "";
   const changed = Boolean(modelRef && modelRef !== fallbackRef);
   const defaultSync = {
     attempted: false,
@@ -758,7 +854,11 @@ async function refreshRuntimeModelFromSession(params = {}) {
   };
   let applied = false;
   if (changed) {
-    applied = applyRuntimeModelRefToStore(modelRef, { save: false, ensureRegistry: true });
+    applied = applyRuntimeModelRefToStore(modelRef, {
+      save: false,
+      ensureRegistry: false,
+      requireRegistry: true,
+    });
     if (syncDefault) {
       const setRes = await setOpenClawDefaultModel(modelRef, 40_000);
       defaultSync.attempted = true;
@@ -775,6 +875,7 @@ async function refreshRuntimeModelFromSession(params = {}) {
     changed,
     applied,
     modelRef,
+    ignoredModelRef: rawModelRef && !modelRef ? rawModelRef : "",
     fallbackRef,
     defaultSync,
     probe,

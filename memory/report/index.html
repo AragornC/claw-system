@@ -4163,8 +4163,15 @@
         const mustKeepRefs = [];
         const runtimeRef = String(base.runtimeModelRef || getCurrentRuntimeModelRef(state) || '').trim();
         const configuredRef = String(base.configuredModelRef || buildModelRefFromProvider(base.modelProvider, base.modelId) || '').trim();
-        if (runtimeRef && runtimeRef.includes('/')) mustKeepRefs.push(runtimeRef);
-        if (configuredRef && configuredRef.includes('/')) mustKeepRefs.push(configuredRef);
+        const canKeepRef = function(refLike) {
+          const ref = String(refLike || '').trim();
+          if (!ref || !ref.includes('/')) return false;
+          if (xbrainKnownCatalogKeys.size > 0 && !xbrainKnownCatalogKeys.has(ref)) return false;
+          const provider = inferProviderFromModelRef(ref);
+          return connectedProviders.has(provider);
+        };
+        if (canKeepRef(runtimeRef)) mustKeepRefs.push(runtimeRef);
+        if (canKeepRef(configuredRef)) mustKeepRefs.push(configuredRef);
         mustKeepRefs.forEach(function(ref) {
           if (!options.includes(ref)) options.unshift(ref);
         });
@@ -10176,7 +10183,11 @@
             const modelAutoSync = result?.modelAutoSync && typeof result.modelAutoSync === 'object' ? result.modelAutoSync : null;
             const syncDetected = Boolean(modelAutoSync?.detected);
             const syncModelRef = String(modelAutoSync?.modelRef || result?.runtimeModelRef || '').trim();
-            const syncNote = syncDetected && syncModelRef
+            const syncState = result?.state && typeof result.state === 'object' ? result.state : (xbrainClientState.data || {});
+            const syncModelSelectable = syncModelRef
+              ? buildThunderModelOptionsFromState(syncState).includes(syncModelRef)
+              : false;
+            const syncNote = syncDetected && syncModelRef && syncModelSelectable
               ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
               : '';
             const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;

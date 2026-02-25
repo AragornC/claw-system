@@ -30,6 +30,7 @@ import {
 import { createOpenClawXbrainRuntime } from "./server/core/openclaw-xbrain-runtime.js";
 import { createStrategyLabStore } from "./server/core/strategy-lab-store.js";
 import { createTradingIntentSkill } from "./server/core/trading-intent-skill.js";
+import { createModelSwitchIntentSkill } from "./server/core/model-switch-intent-skill.js";
 import { createXbrainStoreManager } from "./server/core/xbrain-store.js";
 import { createChatHistoryStore } from "./server/core/chat-history-store.js";
 
@@ -1179,6 +1180,15 @@ const {
   normalizeSessionId,
 });
 
+const {
+  extractModelSwitchIntent,
+} = createModelSwitchIntentSkill({
+  runOpenClawCommand,
+  parseJsonSafe,
+  extractAgentReply,
+  normalizeSessionId,
+});
+
 async function runAgentTurn(params) {
   const message = String(params?.message ?? "").trim();
   const sessionIdRaw = String(params?.sessionId ?? "thunderclaw-main").trim() || "thunderclaw-main";
@@ -1272,10 +1282,7 @@ const {
   syncXbrainFromOpenClaw,
   getCurrentRuntimeModelRefFromStore,
   refreshRuntimeModelFromSession,
-  detectModelRefChangeFromAgentOutput,
-  applyRuntimeModelRefToStore,
-  setOpenClawDefaultModel,
-  saveXbrainStore,
+  extractModelSwitchIntent,
   toModelRef,
   maskSecret,
   parseJsonSafe,

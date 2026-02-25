@@ -19,9 +19,7 @@ export function createChatConfigHandlers(deps = {}) {
     syncXbrainFromOpenClaw,
     getCurrentRuntimeModelRefFromStore,
     refreshRuntimeModelFromSession,
-    detectModelRefChangeFromAgentOutput,
-    applyRuntimeModelRefToStore,
-    setOpenClawDefaultModel,
+    extractModelSwitchIntent,
     saveXbrainStore,
     toModelRef,
     maskSecret,
@@ -365,50 +363,53 @@ async function handleAiChat(req, res) {
     defaultSync: { attempted: false, ok: null, error: null },
     probe: null,
   };
+  let modelSyncIntent = {
+    ok: false,
+    shouldProbeSessionModel: false,
+    confidence: 0,
+    reasoning: "",
+    error: "",
+  };
   if (result.ok) {
-    const refreshed = await refreshRuntimeModelFromSession({
-      sessionId: sessionIdUsed || "thunderclaw-main",
-      fallbackRef: runtimeModelRefBefore,
-      syncDefault: true,
-    }).catch((error) => ({
-      ok: false,
-      changed: false,
-      modelRef: "",
-      defaultSync: { attempted: false, ok: null, error: null },
-      probe: { error: String(error?.message || error || "session model probe failed") },
-    }));
-    modelAutoSync.probe = refreshed?.probe || null;
-    if (refreshed?.changed) {
-      modelAutoSync = {
-        detected: true,
-        detectedBy: "session_probe",
-        modelRef: String(refreshed?.modelRef || "").trim(),
-        defaultSync: refreshed?.defaultSync || { attempted: false, ok: null, error: null },
-        probe: refreshed?.probe || null,
-      };
-    } else {
-      const detectedModelRef = detectModelRefChangeFromAgentOutput({
-        message,
-        reply,
-        payload,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        currentModelRef: runtimeModelRefBefore,
+    if (typeof extractModelSwitchIntent === "function") {
+      modelSyncIntent = await extractModelSwitchIntent({
+        userMessage: message,
+        assistantReply: String(reply || ""),
+        sessionId: sessionIdUsed || "thunderclaw-main",
+        runtimeModelRef: runtimeModelRefBefore,
         registry: uniqStrings(xbrainStore?.base?.modelRegistry || []),
-      });
-      if (detectedModelRef && detectedModelRef !== runtimeModelRefBefore) {
-        const applied = applyRuntimeModelRefToStore(detectedModelRef, { save: false, ensureRegistry: true });
-        const defaultSync = await setOpenClawDefaultModel(detectedModelRef, 40_000);
-        if (applied) saveXbrainStore();
+      }).catch((error) => ({
+        ok: false,
+        shouldProbeSessionModel: false,
+        confidence: 0,
+        reasoning: "",
+        error: String(error?.message || error || "model sync intent skill failed"),
+      }));
+    }
+    if (modelSyncIntent?.ok && modelSyncIntent?.shouldProbeSessionModel) {
+      const refreshed = await refreshRuntimeModelFromSession({
+        sessionId: sessionIdUsed || "thunderclaw-main",
+        fallbackRef: runtimeModelRefBefore,
+        syncDefault: true,
+      }).catch((error) => ({
+        ok: false,
+        changed: false,
+        modelRef: "",
+        defaultSync: { attempted: false, ok: null, error: null },
+        probe: { error: String(error?.message || error || "session model probe failed") },
+      }));
+      modelAutoSync.probe = refreshed?.probe || null;
+      if (refreshed?.changed) {
         modelAutoSync = {
           detected: true,
-          detectedBy: "agent_output",
-          modelRef: detectedModelRef,
-          defaultSync: {
-            attempted: true,
-            ok: defaultSync.ok,
-            error: defaultSync.error,
-          },
+          detectedBy: "session_probe",
+          modelRef: String(refreshed?.modelRef || "").trim(),
+          defaultSync: refreshed?.defaultSync || { attempted: false, ok: null, error: null },
+          probe: refreshed?.probe || null,
+        };
+      } else {
+        modelAutoSync = {
+          ...modelAutoSync,
           probe: refreshed?.probe || null,
         };
       }
@@ -469,6 +470,13 @@ async function handleAiChat(req, res) {
       runtimeModelRef: runtimeModelRefAfter,
       sessionIdUsed,
       modelAutoSync,
+      modelSyncIntent: {
+        ok: Boolean(modelSyncIntent?.ok),
+        shouldProbeSessionModel: Boolean(modelSyncIntent?.shouldProbeSessionModel),
+        confidence: Number(modelSyncIntent?.confidence || 0),
+        reasoning: String(modelSyncIntent?.reasoning || ""),
+        error: String(modelSyncIntent?.error || ""),
+      },
       intentCandidates: [],
       intentSkill: {
         ok: Boolean(intentSkill?.ok),
@@ -491,6 +499,13 @@ async function handleAiChat(req, res) {
     runtimeModelRef: runtimeModelRefAfter,
     sessionIdUsed,
     modelAutoSync,
+    modelSyncIntent: {
+      ok: Boolean(modelSyncIntent?.ok),
+      shouldProbeSessionModel: Boolean(modelSyncIntent?.shouldProbeSessionModel),
+      confidence: Number(modelSyncIntent?.confidence || 0),
+      reasoning: String(modelSyncIntent?.reasoning || ""),
+      error: String(modelSyncIntent?.error || ""),
+    },
       intentCandidates: Array.isArray(replyEvent?.cards) ? replyEvent.cards : intentCandidates,
     intentSkill: {
       ok: Boolean(intentSkill?.ok),
