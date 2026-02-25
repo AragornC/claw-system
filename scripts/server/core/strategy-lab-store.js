@@ -51,12 +51,15 @@ import {
   buildSampleExecutionReport,
   filterExecutionReport,
 } from "./strategy-lifecycle-helpers.js";
+import { createStrategyExecutionEngine } from "./strategy-execution-engine.js";
 
 export function createStrategyLabStore(deps = {}) {
   const statePath = String(deps.statePath || "").trim();
   if (!statePath) throw new Error("statePath is required");
 
   let storeCache = null;
+  const strategyExecutionEngine = createStrategyExecutionEngine();
+  const executionReportCache = new Map();
 
   function persistSafe(storeLike) {
     const store = storeLike && typeof storeLike === "object" ? storeLike : buildSeedStore();
@@ -360,7 +363,10 @@ export function createStrategyLabStore(deps = {}) {
     const report = reportLike && typeof reportLike === "object" ? reportLike : {};
     const perf = performanceLike && typeof performanceLike === "object" ? performanceLike : {};
     const events = Array.isArray(report.events) ? report.events : [];
-    const tradeCount = events.length || Math.max(0, Math.floor(Number(perf.tradeCount || 0)));
+    const closeEvents = events.filter((item) => toText(item?.tradeType || "").toLowerCase() === "close");
+    const tradeCount = closeEvents.length
+      || events.length
+      || Math.max(0, Math.floor(Number(perf.tradeCount || 0)));
     const equityCurve = Array.isArray(report.equityCurve) ? report.equityCurve : [];
     const drawdownCurve = Array.isArray(report.drawdownCurve) ? report.drawdownCurve : [];
     const firstEquity = Number(equityCurve[0]?.equity || 1);
@@ -417,7 +423,8 @@ export function createStrategyLabStore(deps = {}) {
     return report;
   }
 
-  function buildRuntimeModeReport(strategyLike, versionsLike, modeLike, rangeDaysLike) {
+  function buildRuntimeModeReport(storeLike, strategyLike, versionsLike, modeLike, rangeDaysLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
     const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
     const versions = Array.isArray(versionsLike) ? versionsLike : [];
     const mode = normalizeTradingMode(modeLike, strategy.status || "draft");
@@ -440,18 +447,56 @@ export function createStrategyLabStore(deps = {}) {
     }
     const currentVersionId = toText(strategy.currentVersionId || strategy.latestVersionId || "");
     const preferredVersion = versions.find((item) => toText(item?.strategyVersionId || "") === currentVersionId) || versions[0] || null;
-    if (preferredVersion && preferredVersion.executionReport && typeof preferredVersion.executionReport === "object") {
+    if (preferredVersion) {
+      const report = resolveVersionBacktestExecutionReport(store, strategy, preferredVersion, normalizeRangeDays(rangeDaysLike || 30));
       return {
         mode,
         source: "strategy_version",
         updatedAt: toText(preferredVersion.publishedAt || preferredVersion.createdAt || strategy.updatedAt || ""),
-        executionReport: preferredVersion.executionReport,
+        executionReport: report,
         positionSummary: {
           mode,
           state: mode === "live" ? "running" : "paper_running",
           note: mode === "live" ? "来自当前策略版本实盘数据映射" : "来自当前策略版本模拟数据映射",
         },
       };
+    }
+    if (mode === "backtest" && strategy.draftConfig && typeof strategy.draftConfig === "object") {
+      try {
+        const featureLookup = buildFeatureLookup(store.features || []);
+        const draftFeatureRefs = normalizeFeatureRefs(strategy?.draftConfig?.signalLayer?.featureRefs || []);
+        const lockedFeatureVersions = lockFeatureVersions(draftFeatureRefs, featureLookup);
+        const out = strategyExecutionEngine.runBacktest({
+          strategy,
+          version: {
+            strategyVersionId: "",
+            strategyId: toText(strategy.strategyId || ""),
+            versionNo: 0,
+            versionTag: "draft",
+            signalLayer: strategy.draftConfig.signalLayer || {},
+            positionLayer: strategy.draftConfig.positionLayer || {},
+            riskLayer: strategy.draftConfig.riskLayer || {},
+            executionLayer: strategy.draftConfig.executionLayer || {},
+            lockedFeatureVersions,
+          },
+          features: store.features || [],
+          rangeDays: normalizeRangeDays(rangeDaysLike || 30),
+        });
+        const report = out?.executionReport && typeof out.executionReport === "object" ? out.executionReport : null;
+        if (report) {
+          return {
+            mode,
+            source: "draft_engine",
+            updatedAt: toText(strategy.updatedAt || strategy.createdAt || ""),
+            executionReport: report,
+            positionSummary: {
+              mode,
+              state: "draft_backtest",
+              note: "草稿事件驱动回测结果",
+            },
+          };
+        }
+      } catch (_) {}
     }
     return {
       mode,
@@ -466,15 +511,98 @@ export function createStrategyLabStore(deps = {}) {
     };
   }
 
-  function buildBacktestPlaybackRows(storeLike, strategyLike, versionsLike) {
+  function buildEngineCacheKey(paramsLike = {}) {
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    return [
+      toText(params.strategyId || ""),
+      toText(params.strategyVersionId || ""),
+      String(Math.max(1, Math.floor(Number(params.rangeDays || 30) || 30))),
+      toText(params.strategyUpdatedAt || ""),
+      toText(params.versionUpdatedAt || ""),
+      String(Math.max(0, Math.floor(Number(params.featureCount || 0) || 0))),
+    ].join("|");
+  }
+
+  function readEngineReportCache(cacheKeyLike) {
+    const cacheKey = toText(cacheKeyLike || "");
+    if (!cacheKey) return null;
+    const hit = executionReportCache.get(cacheKey) || null;
+    if (!hit || typeof hit !== "object") return null;
+    const ts = Number(hit.ts || 0);
+    const ageMs = Date.now() - ts;
+    if (!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) {
+      executionReportCache.delete(cacheKey);
+      return null;
+    }
+    return hit.report && typeof hit.report === "object" ? hit.report : null;
+  }
+
+  function writeEngineReportCache(cacheKeyLike, reportLike) {
+    const cacheKey = toText(cacheKeyLike || "");
+    const report = reportLike && typeof reportLike === "object" ? reportLike : null;
+    if (!cacheKey || !report) return;
+    executionReportCache.set(cacheKey, {
+      ts: Date.now(),
+      report,
+    });
+    if (executionReportCache.size <= 240) return;
+    const entries = Array.from(executionReportCache.entries())
+      .sort((a, b) => Number(a?.[1]?.ts || 0) - Number(b?.[1]?.ts || 0));
+    const drop = Math.max(1, executionReportCache.size - 200);
+    for (let i = 0; i < drop && i < entries.length; i += 1) {
+      executionReportCache.delete(entries[i][0]);
+    }
+  }
+
+  function resolveVersionBacktestExecutionReport(storeLike, strategyLike, versionLike, rangeDaysLike) {
+    const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
+    const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
+    const version = versionLike && typeof versionLike === "object" ? versionLike : {};
+    const report = version.executionReport && typeof version.executionReport === "object"
+      ? version.executionReport
+      : null;
+    const engineName = toText(report?.engine?.name || "");
+    if (report && engineName === "thunderclaw_strategy_engine_v1") {
+      return report;
+    }
+    const rangeDays = normalizeRangeDays(rangeDaysLike || 30);
+    const cacheKey = buildEngineCacheKey({
+      strategyId: strategy.strategyId,
+      strategyVersionId: version.strategyVersionId,
+      rangeDays,
+      strategyUpdatedAt: strategy.updatedAt,
+      versionUpdatedAt: version.updatedAt || version.publishedAt || version.createdAt,
+      featureCount: Array.isArray(store.features) ? store.features.length : 0,
+    });
+    const cacheHit = readEngineReportCache(cacheKey);
+    if (cacheHit) return cacheHit;
+    try {
+      const out = strategyExecutionEngine.runBacktest({
+        strategy,
+        version,
+        features: store.features || [],
+        rangeDays,
+      });
+      const engineReport = out?.executionReport && typeof out.executionReport === "object"
+        ? out.executionReport
+        : null;
+      if (engineReport) {
+        writeEngineReportCache(cacheKey, engineReport);
+        return engineReport;
+      }
+    } catch (_) {}
+    if (report) return report;
+    return buildStableSampleReport(strategy, "backtest", rangeDays, Number(version?.versionNo || 1));
+  }
+
+  function buildBacktestPlaybackRows(storeLike, strategyLike, versionsLike, rangeDaysLike = 30) {
     const store = storeLike && typeof storeLike === "object" ? storeLike : loadStore();
     const strategy = strategyLike && typeof strategyLike === "object" ? strategyLike : {};
     const versions = Array.isArray(versionsLike) ? versionsLike : [];
+    const rangeDays = normalizeRangeDays(rangeDaysLike || 30);
     const rows = [];
     versions.forEach((version) => {
-      const report = version?.executionReport && typeof version.executionReport === "object"
-        ? version.executionReport
-        : buildStableSampleReport(strategy, "backtest", 30, Number(version?.versionNo || 1));
+      const report = resolveVersionBacktestExecutionReport(store, strategy, version, rangeDays);
       const perf = version?.performance && typeof version.performance === "object" ? version.performance : {};
       const summary = summarizeExecutionReport(report, perf);
       rows.push({
@@ -489,6 +617,48 @@ export function createStrategyLabStore(deps = {}) {
         ...summary,
       });
     });
+    if (!rows.length && strategy.draftConfig && typeof strategy.draftConfig === "object") {
+      try {
+        const featureLookup = buildFeatureLookup(store.features || []);
+        const draftFeatureRefs = normalizeFeatureRefs(strategy?.draftConfig?.signalLayer?.featureRefs || []);
+        const lockedFeatureVersions = lockFeatureVersions(draftFeatureRefs, featureLookup);
+        const out = strategyExecutionEngine.runBacktest({
+          strategy,
+          version: {
+            strategyVersionId: "",
+            strategyId: toText(strategy.strategyId || ""),
+            versionNo: 0,
+            versionTag: "draft",
+            signalLayer: strategy.draftConfig.signalLayer || {},
+            positionLayer: strategy.draftConfig.positionLayer || {},
+            riskLayer: strategy.draftConfig.riskLayer || {},
+            executionLayer: strategy.draftConfig.executionLayer || {},
+            lockedFeatureVersions,
+          },
+          features: store.features || [],
+          rangeDays,
+        });
+        const report = out?.executionReport && typeof out.executionReport === "object" ? out.executionReport : null;
+        if (report) {
+          const summary = summarizeExecutionReport(report, {
+            latestReturnPct: Number(out?.summary?.latestReturnPct || 0) || 0,
+            maxDrawdownPct: Number(out?.summary?.maxDrawdownPct || 0) || 0,
+            tradeCount: Number(out?.summary?.tradeCount || 0) || 0,
+          });
+          rows.push({
+            playbackId: "draft:runtime",
+            marketMode: "backtest",
+            source: "draft_engine",
+            strategyVersionId: "",
+            label: "草稿运行回放",
+            createdAt: toText(strategy.updatedAt || strategy.createdAt || ""),
+            updatedAt: toText(strategy.updatedAt || strategy.createdAt || ""),
+            executionReport: report,
+            ...summary,
+          });
+        }
+      } catch (_) {}
+    }
     const strategySlug = slugify(strategy.name || "");
     const strategyId = toText(strategy.strategyId || "");
     (store.artifacts || []).forEach((artifactLike) => {
@@ -1206,11 +1376,50 @@ export function createStrategyLabStore(deps = {}) {
     const versionNo = (store.strategyVersions || []).filter((item) => toText(item?.strategyId || "") === strategy.strategyId).length + 1;
     const strategyVersionId = nextId("stgver", "strategyVersion");
     const perfLike = params.performance && typeof params.performance === "object" ? params.performance : {};
-    const latestReturnPct = Number(clampNumber(perfLike.latestReturnPct, -1000, 2000, strategy.latestReturnPct || 0).toFixed(4));
-    const maxDrawdownPct = Number(clampNumber(perfLike.maxDrawdownPct, 0, 100, strategy.maxDrawdownPct || 0).toFixed(4));
+    const engineRangeDays = normalizeRangeDays(params.rangeDays || 30);
+    const engineOut = (() => {
+      try {
+        return strategyExecutionEngine.runBacktest({
+          strategy,
+          version: {
+            strategyVersionId,
+            strategyId: strategy.strategyId,
+            versionNo,
+            versionTag: `v${versionNo}.0.0`,
+            signalLayer: draftConfig.signalLayer,
+            positionLayer: draftConfig.positionLayer,
+            riskLayer: draftConfig.riskLayer,
+            executionLayer: draftConfig.executionLayer,
+            lockedFeatureVersions,
+          },
+          features: store.features || [],
+          rangeDays: engineRangeDays,
+        });
+      } catch {
+        return null;
+      }
+    })();
+    const engineSummary = engineOut?.summary && typeof engineOut.summary === "object" ? engineOut.summary : {};
+    const engineReport = engineOut?.executionReport && typeof engineOut.executionReport === "object"
+      ? engineOut.executionReport
+      : null;
     const executionReport = params.executionReport && typeof params.executionReport === "object"
       ? params.executionReport
-      : buildSampleExecutionReport({ days: normalizeRangeDays(params.rangeDays || 30), stepSec: 3600 });
+      : (engineReport || buildSampleExecutionReport({ days: engineRangeDays, stepSec: 3600 }));
+    const latestReturnFallback = Number(clampNumber(engineSummary.latestReturnPct, -1000, 2000, strategy.latestReturnPct || 0).toFixed(4));
+    const maxDrawdownFallback = Number(clampNumber(engineSummary.maxDrawdownPct, 0, 100, strategy.maxDrawdownPct || 0).toFixed(4));
+    const winRateFallback = Number(clampNumber(engineSummary.winRate, 0, 100, 0).toFixed(4));
+    const tradeCountFallback = Math.max(0, Math.floor(Number(engineSummary.tradeCount || 0)));
+    const hasLatestReturn = Number.isFinite(Number(perfLike.latestReturnPct));
+    const hasMaxDrawdown = Number.isFinite(Number(perfLike.maxDrawdownPct));
+    const hasWinRate = Number.isFinite(Number(perfLike.winRate));
+    const hasTradeCount = Number.isFinite(Number(perfLike.tradeCount));
+    const latestReturnPct = hasLatestReturn
+      ? Number(clampNumber(perfLike.latestReturnPct, -1000, 2000, latestReturnFallback).toFixed(4))
+      : latestReturnFallback;
+    const maxDrawdownPct = hasMaxDrawdown
+      ? Number(clampNumber(perfLike.maxDrawdownPct, 0, 100, maxDrawdownFallback).toFixed(4))
+      : maxDrawdownFallback;
     const version = {
       strategyVersionId,
       strategyId: strategy.strategyId,
@@ -1230,9 +1439,18 @@ export function createStrategyLabStore(deps = {}) {
       performance: {
         latestReturnPct,
         maxDrawdownPct,
-        winRate: Number(clampNumber(perfLike.winRate, 0, 100, 0).toFixed(4)),
-        tradeCount: Math.max(0, Math.floor(Number(perfLike.tradeCount || 0))),
+        winRate: hasWinRate
+          ? Number(clampNumber(perfLike.winRate, 0, 100, winRateFallback).toFixed(4))
+          : winRateFallback,
+        tradeCount: hasTradeCount
+          ? Math.max(0, Math.floor(Number(perfLike.tradeCount || tradeCountFallback)))
+          : tradeCountFallback,
         score: Number.isFinite(Number(perfLike.score)) ? Number(Number(perfLike.score).toFixed(4)) : null,
+      },
+      executionMeta: {
+        engineName: toText(executionReport?.engine?.name || ""),
+        engineMode: toText(executionReport?.engine?.mode || ""),
+        rangeDays: engineRangeDays,
       },
       executionReport,
     };
@@ -1302,8 +1520,8 @@ export function createStrategyLabStore(deps = {}) {
     const versions = resolveStrategyVersions(store, strategy.strategyId);
     const currentVersionId = toText(strategy.currentVersionId || strategy.latestVersionId || "");
     const preferredVersion = versions.find((item) => toText(item?.strategyVersionId || "") === currentVersionId) || versions[0] || null;
-    const baseReport = preferredVersion && preferredVersion.executionReport && typeof preferredVersion.executionReport === "object"
-      ? preferredVersion.executionReport
+    const baseReport = preferredVersion
+      ? resolveVersionBacktestExecutionReport(store, strategy, preferredVersion, 30)
       : buildStableSampleReport(strategy, toStatus, 30, Number(versions.length || 1));
     if (toStatus === "paper_live") {
       strategy.runtimeReports.paper = {
@@ -1432,7 +1650,7 @@ export function createStrategyLabStore(deps = {}) {
     if (!version && versions.length) {
       version = versions[0];
     }
-    const backtestPlaybacksRaw = buildBacktestPlaybackRows(store, strategy, versions);
+    const backtestPlaybacksRaw = buildBacktestPlaybackRows(store, strategy, versions, rangeDays);
     let selectedPlayback = specifiedPlaybackId
       ? backtestPlaybacksRaw.find((item) => toText(item?.playbackId || "") === specifiedPlaybackId) || null
       : null;
@@ -1469,8 +1687,8 @@ export function createStrategyLabStore(deps = {}) {
             version = playbackVersion;
           }
         }
-      } else if (version && version.executionReport && typeof version.executionReport === "object") {
-        reportRaw = version.executionReport;
+      } else if (version) {
+        reportRaw = resolveVersionBacktestExecutionReport(store, strategy, version, rangeDays);
         runtimeMeta = {
           source: "strategy_version",
           updatedAt: toText(version.publishedAt || version.createdAt || strategy.updatedAt || ""),
@@ -1495,7 +1713,7 @@ export function createStrategyLabStore(deps = {}) {
         };
       }
     } else {
-      const modeReport = buildRuntimeModeReport(strategy, versions, tradingMode, rangeDays);
+      const modeReport = buildRuntimeModeReport(store, strategy, versions, tradingMode, rangeDays);
       reportRaw = modeReport.executionReport;
       runtimeMeta = {
         source: toText(modeReport.source || ""),
@@ -1530,6 +1748,20 @@ export function createStrategyLabStore(deps = {}) {
       lockLookup.set(key, item);
       lockLookup.set(toText(item?.featureName || ""), item);
     });
+    const featuresByKey = new Map();
+    (store.features || []).forEach((itemLike) => {
+      const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+      const idKey = toText(item.featureId || "");
+      const nameKey = toText(item.name || item.featureName || "");
+      if (idKey) {
+        featuresByKey.set(idKey, item);
+        featuresByKey.set(slugify(idKey), item);
+      }
+      if (nameKey) {
+        featuresByKey.set(nameKey, item);
+        featuresByKey.set(slugify(nameKey), item);
+      }
+    });
     const featureRefs = normalizeFeatureRefs(
       version?.signalLayer?.featureRefs
       || strategy?.draftConfig?.signalLayer?.featureRefs
@@ -1537,14 +1769,42 @@ export function createStrategyLabStore(deps = {}) {
     );
     const featureRelations = featureRefs.map((ref) => {
       const lock = lockLookup.get(ref) || null;
+      const featureMeta = featuresByKey.get(ref) || featuresByKey.get(slugify(ref)) || null;
+      const mainCategory = toText(featureMeta?.mainCategory || "", "");
+      const mainCategoryConfig = MAIN_CATEGORY_CONFIG[mainCategory] || null;
+      const outputType = toText(featureMeta?.outputType || "", "");
+      const outputTypeLabel = OUTPUT_TYPE_CONFIG[outputType]?.label || outputType || "";
+      const tags = Array.isArray(featureMeta?.tags) ? featureMeta.tags.slice(0, 3) : [];
+      const tagLabels = tags.map((tag) => TAG_CONFIG[tag]?.label || tag).filter(Boolean);
       return {
         featureRef: ref,
         featureId: toText(lock?.featureId || ref),
-        featureName: toText(lock?.featureName || ref),
+        featureName: toText(lock?.featureName || featureMeta?.name || ref),
         featureVersion: toText(lock?.featureVersion || "v1.0.0"),
         relationType: "signal_input",
+        mainCategory: mainCategory,
+        mainCategoryLabel: toText(mainCategoryConfig?.label || "未分类"),
+        kind: toText(featureMeta?.kind || ""),
+        outputType: outputType,
+        outputTypeLabel: outputTypeLabel,
+        tags,
+        tagLabels,
       };
     });
+    const detailsLayers = {
+      signalLayer: version?.signalLayer && typeof version.signalLayer === "object"
+        ? version.signalLayer
+        : (strategy?.draftConfig?.signalLayer || {}),
+      positionLayer: version?.positionLayer && typeof version.positionLayer === "object"
+        ? version.positionLayer
+        : (strategy?.draftConfig?.positionLayer || {}),
+      riskLayer: version?.riskLayer && typeof version.riskLayer === "object"
+        ? version.riskLayer
+        : (strategy?.draftConfig?.riskLayer || {}),
+      executionLayer: version?.executionLayer && typeof version.executionLayer === "object"
+        ? version.executionLayer
+        : (strategy?.draftConfig?.executionLayer || {}),
+    };
     const backtestPlaybacks = backtestPlaybacksRaw.map((item) => ({
       playbackId: toText(item?.playbackId || ""),
       marketMode: "backtest",
@@ -1570,8 +1830,9 @@ export function createStrategyLabStore(deps = {}) {
       },
       version: version || null,
       details: {
-        expression: toText(version?.signalLayer?.signalLogic || strategy?.draftConfig?.signalLayer?.signalLogic || "未配置策略表达式"),
+        expression: toText(detailsLayers.signalLayer?.signalLogic || "未配置策略表达式"),
         featureRelations,
+        layers: detailsLayers,
       },
       trading: {
         mode: tradingMode,
