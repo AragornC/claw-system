@@ -321,14 +321,29 @@
     const rows = Array.isArray(detail?.details?.featureRelations)
       ? detail.details.featureRelations
       : [];
+    const categoryLabels = {
+      trend: "趋势类",
+      momentum: "动量类",
+      volatility: "波动类",
+      volume: "成交量类",
+      structure: "结构类",
+      risk: "风控类",
+    };
     if (rows.length) {
       return rows.map(function(item) {
         const row = item && typeof item === "object" ? item : {};
+        const mainCategory = soText(row.mainCategory || "", "other");
         return {
           featureRef: soText(row.featureRef || row.featureId || row.featureName || ""),
           featureName: soText(row.featureName || row.featureRef || row.featureId || ""),
           featureVersion: soText(row.featureVersion || "v1.0.0"),
           relationType: soText(row.relationType || "signal_input"),
+          mainCategory: mainCategory,
+          mainCategoryLabel: soText(row.mainCategoryLabel || categoryLabels[mainCategory] || "其他"),
+          outputType: soText(row.outputType || ""),
+          outputTypeLabel: soText(row.outputTypeLabel || row.outputType || ""),
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          tagLabels: Array.isArray(row.tagLabels) ? row.tagLabels : [],
         };
       });
     }
@@ -342,8 +357,50 @@
         featureName: ref || "未命名特征",
         featureVersion: "v1.0.0",
         relationType: "signal_input",
+        mainCategory: "other",
+        mainCategoryLabel: "其他",
+        outputType: "",
+        outputTypeLabel: "",
+        tags: [],
+        tagLabels: [],
       };
     });
+  }
+
+  function normalizeStrategyLayersRuntime(detailLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const version = detail.version && typeof detail.version === "object" ? detail.version : {};
+    const fromDetails = detail.details && typeof detail.details === "object" ? detail.details : {};
+    const layerPack = fromDetails.layers && typeof fromDetails.layers === "object" ? fromDetails.layers : {};
+    return {
+      signalLayer: layerPack.signalLayer && typeof layerPack.signalLayer === "object"
+        ? layerPack.signalLayer
+        : (version.signalLayer && typeof version.signalLayer === "object" ? version.signalLayer : {}),
+      positionLayer: layerPack.positionLayer && typeof layerPack.positionLayer === "object"
+        ? layerPack.positionLayer
+        : (version.positionLayer && typeof version.positionLayer === "object" ? version.positionLayer : {}),
+      riskLayer: layerPack.riskLayer && typeof layerPack.riskLayer === "object"
+        ? layerPack.riskLayer
+        : (version.riskLayer && typeof version.riskLayer === "object" ? version.riskLayer : {}),
+      executionLayer: layerPack.executionLayer && typeof layerPack.executionLayer === "object"
+        ? layerPack.executionLayer
+        : (version.executionLayer && typeof version.executionLayer === "object" ? version.executionLayer : {}),
+    };
+  }
+
+  function renderLayerKvRowsRuntime(rowsLike) {
+    const rows = Array.isArray(rowsLike) ? rowsLike : [];
+    const valid = rows.filter(function(item) {
+      const row = item && typeof item === "object" ? item : {};
+      return soText(row.k || "") && soText(row.v || "");
+    });
+    if (!valid.length) {
+      return '<div class="strategy-layer-empty">暂无配置</div>';
+    }
+    return valid.map(function(item) {
+      const row = item && typeof item === "object" ? item : {};
+      return '<div class="strategy-layer-kv"><span>' + soEsc(soText(row.k || "")) + '</span><b>' + soEsc(soText(row.v || "")) + "</b></div>";
+    }).join("");
   }
 
   function renderBasicInfoSectionRuntime(detailLike) {
@@ -372,10 +429,14 @@
 
   function renderStrategyDetailSectionRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
-    const version = detail.version && typeof detail.version === "object" ? detail.version : {};
+    const layers = normalizeStrategyLayersRuntime(detail);
+    const signalLayer = layers.signalLayer;
+    const positionLayer = layers.positionLayer;
+    const riskLayer = layers.riskLayer;
+    const executionLayer = layers.executionLayer;
     const expression = soText(
       detail?.details?.expression
-      || version?.signalLayer?.signalLogic
+      || signalLayer?.signalLogic
       || "",
       "未配置策略表达式",
     );
@@ -383,30 +444,89 @@
     const featureRefsText = relations.map(function(item) {
       return soText(item.featureRef || item.featureName || "");
     }).filter(Boolean).join(", ");
-    const relationHtml = relations.length
-      ? relations.map(function(item) {
-        return ""
-          + '<div class="strategy-relation-item">'
-          + '<div class="name">' + soEsc(soText(item.featureName || item.featureRef || "-")) + "</div>"
-          + '<div class="meta">' + soEsc(soText(item.featureVersion || "v1.0.0")) + " · " + soEsc(soText(item.relationType || "signal_input")) + "</div>"
-          + "</div>";
-      }).join("")
-      : '<div class="strategy-relation-empty">暂无特征关系</div>';
+    const categoryOrder = ["trend", "momentum", "volatility", "volume", "structure", "risk", "other"];
+    const categoryMap = new Map();
+    relations.forEach(function(item) {
+      const key = soText(item.mainCategory || "other", "other");
+      if (!categoryMap.has(key)) categoryMap.set(key, []);
+      categoryMap.get(key).push(item);
+    });
+    const groupedFeatureHtml = categoryOrder.map(function(categoryKey) {
+      const rows = categoryMap.get(categoryKey) || [];
+      if (!rows.length) return "";
+      const label = soText(rows[0]?.mainCategoryLabel || (categoryKey === "other" ? "其他" : categoryKey));
+      return ""
+        + '<div class="strategy-feature-group">'
+        + '<div class="group-title">' + soEsc(label) + "</div>"
+        + '<div class="chips">'
+        + rows.map(function(item) {
+          const tagsText = Array.isArray(item.tagLabels) && item.tagLabels.length ? (" · " + item.tagLabels.join("/")) : "";
+          const outputText = soText(item.outputTypeLabel || "", "");
+          const meta = [soText(item.featureVersion || "v1.0.0"), outputText].filter(Boolean).join(" · ");
+          return ''
+            + '<div class="strategy-feature-chip">'
+            + '<div class="name">' + soEsc(soText(item.featureName || item.featureRef || "-")) + "</div>"
+            + '<div class="meta">' + soEsc(meta + tagsText) + "</div>"
+            + "</div>";
+        }).join("")
+        + "</div>"
+        + "</div>";
+    }).join("");
+    const signalRows = renderLayerKvRowsRuntime([
+      { k: "信号类型", v: soText(signalLayer.signalType || "composite", "composite") },
+      { k: "多头阈值", v: String(soNum(signalLayer?.params?.longThreshold, 0.55)) },
+      { k: "空头阈值", v: String(soNum(signalLayer?.params?.shortThreshold, 0.55)) },
+      { k: "信号边际", v: String(soNum(signalLayer?.params?.signalMargin, 0.08)) },
+    ]);
+    const positionRows = renderLayerKvRowsRuntime([
+      { k: "仓位模式", v: soText(positionLayer.mode || "risk_budget", "risk_budget") },
+      { k: "最大持仓数", v: String(Math.max(1, Math.floor(soNum(positionLayer.maxPositions, 1)))) },
+      { k: "最大敞口(%)", v: String(soNum(positionLayer.maxExposurePct, 35)) },
+      { k: "最小名义仓位", v: String(soNum(positionLayer.minNotional, 10)) },
+      { k: "最大名义仓位", v: String(soNum(positionLayer.maxNotional, 80)) },
+    ]);
+    const riskRows = renderLayerKvRowsRuntime([
+      { k: "止损(%)", v: String(soNum(riskLayer.stopLossPct, 2.5)) },
+      { k: "止盈(%)", v: String(soNum(riskLayer.takeProfitPct, 5.5)) },
+      { k: "最大回撤(%)", v: String(soNum(riskLayer.maxDrawdownPct, 18)) },
+      { k: "日频上限", v: String(Math.max(1, Math.floor(soNum(riskLayer.frequencyLimitPerDay, 12)))) },
+      { k: "连亏限制", v: String(Math.max(1, Math.floor(soNum(riskLayer.maxConsecutiveLoss, 3)))) },
+    ]);
+    const executionRows = renderLayerKvRowsRuntime([
+      { k: "下单模式", v: soText(executionLayer.orderMode || "market", "market") },
+      { k: "滑点(bps)", v: String(soNum(executionLayer.slippageBps, 6)) },
+      { k: "手续费模型", v: soText(executionLayer.feeModel || "taker", "taker") },
+      { k: "重试次数", v: String(Math.max(0, Math.floor(soNum(executionLayer.retryCount, 0)))) },
+      { k: "重试退避(ms)", v: String(Math.max(0, Math.floor(soNum(executionLayer.retryBackoffMs, 0)))) },
+    ]);
     return ""
       + '<section class="strategy-detail-section">'
       + '<div class="strategy-detail-section-title">2-策略详情</div>'
-      + '<div class="strategy-detail-split">'
-      + '<div class="strategy-detail-card">'
-      + '<div class="strategy-chart-title"><span>策略表达式</span><span>可在此直接调整信号逻辑</span></div>'
+      + '<div class="strategy-layer-grid">'
+      + '<div class="strategy-layer-card signal">'
+      + '<div class="strategy-layer-head"><span>信号层</span><small>策略表达式 + 特征关系</small></div>'
+      + '<div class="strategy-layer-summary">' + signalRows + "</div>"
+      + '<div class="strategy-chart-title"><span>策略表达式</span><span>用于事件驱动执行</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="signalLogic" placeholder="请输入策略表达式/信号逻辑">' + soEsc(expression) + "</textarea>"
-      + "</div>"
-      + '<div class="strategy-detail-card">'
-      + '<div class="strategy-chart-title"><span>特征关系</span><span>输入支持英文逗号分隔</span></div>'
+      + '<div class="strategy-chart-title"><span>特征引用</span><span>输入支持英文逗号/换行分隔</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="featureRefs" placeholder="feature_id_1, feature_id_2 ...">' + soEsc(featureRefsText) + "</textarea>"
-      + '<div class="strategy-relation-flow">'
-      + '<div class="node core">策略信号层</div>'
-      + '<div class="links">' + relationHtml + "</div>"
+      + '<div class="strategy-feature-groups">'
+      + (groupedFeatureHtml || '<div class="strategy-relation-empty">暂无特征关系</div>')
       + "</div>"
+      + "</div>"
+      + '<div class="strategy-layer-card position">'
+      + '<div class="strategy-layer-head"><span>仓位层</span><small>资金分配与仓位边界</small></div>'
+      + '<div class="strategy-layer-summary">' + positionRows + "</div>"
+      + "</div>"
+      + '<div class="strategy-layer-card risk">'
+      + '<div class="strategy-layer-head"><span>风控层</span><small>止损止盈/回撤/风控暂停</small></div>'
+      + '<div class="strategy-layer-summary">' + riskRows + "</div>"
+      + '<div class="strategy-chart-title"><span>风控暂停条件</span><span>用于运行时风险状态切换</span></div>'
+      + '<textarea class="strategy-detail-expression" data-sl-edit-field="riskPauseCondition" placeholder="例如：max_drawdown > 18% 或 连续亏损 >= 3">' + soEsc(soText(riskLayer.riskPauseCondition || "")) + "</textarea>"
+      + "</div>"
+      + '<div class="strategy-layer-card execution">'
+      + '<div class="strategy-layer-head"><span>执行层</span><small>成交模型/滑点/手续费/重试</small></div>'
+      + '<div class="strategy-layer-summary">' + executionRows + "</div>"
       + "</div>"
       + "</div>"
       + "</section>";

@@ -924,18 +924,68 @@
       width: 100%;
       min-width: 0;
     }
-    .strategy-detail-split {
+    .strategy-layer-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+      align-items: start;
     }
-    .strategy-detail-card {
+    .strategy-layer-card {
       border: 1px solid rgba(255,255,255,0.09);
-      border-radius: 9px;
+      border-radius: 10px;
       background: rgba(0,0,0,0.2);
       padding: 8px;
       display: grid;
-      gap: 6px;
+      gap: 7px;
+      min-width: 0;
+    }
+    .strategy-layer-card.signal { grid-column: span 2; }
+    .strategy-layer-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .strategy-layer-head span {
+      color: var(--text);
+      font-size: 0.73rem;
+      font-weight: 650;
+    }
+    .strategy-layer-head small {
+      color: var(--muted);
+      font-size: 0.62rem;
+      font-weight: 500;
+    }
+    .strategy-layer-summary {
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.18);
+      padding: 6px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 5px 7px;
+    }
+    .strategy-layer-kv {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .strategy-layer-kv span {
+      color: var(--muted);
+      font-size: 0.62rem;
+    }
+    .strategy-layer-kv b {
+      color: var(--text);
+      font-size: 0.68rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .strategy-layer-empty {
+      color: var(--muted);
+      font-size: 0.66rem;
+      padding: 2px 1px;
     }
     .strategy-detail-expression {
       border: 1px solid var(--border);
@@ -949,39 +999,46 @@
       resize: vertical;
       line-height: 1.46;
     }
-    .strategy-relation-flow { display: grid; gap: 6px; }
-    .strategy-relation-flow .node.core {
-      border: 1px solid rgba(121,192,255,0.45);
-      border-radius: 8px;
-      padding: 6px 8px;
-      background: rgba(88,166,255,0.14);
-      color: #bfe4ff;
-      font-size: 0.69rem;
-      width: fit-content;
-      min-width: 120px;
+    .strategy-feature-groups {
+      display: grid;
+      gap: 6px;
     }
-    .strategy-relation-flow .links {
+    .strategy-feature-group {
+      border: 1px dashed rgba(139,148,158,0.35);
+      border-radius: 8px;
+      padding: 6px;
+      background: rgba(0,0,0,0.18);
+      display: grid;
+      gap: 5px;
+    }
+    .strategy-feature-group .group-title {
+      color: #a8d7ff;
+      font-size: 0.66rem;
+      font-weight: 630;
+    }
+    .strategy-feature-group .chips {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 6px;
     }
-    .strategy-relation-item {
-      border: 1px dashed rgba(139,148,158,0.42);
+    .strategy-feature-chip {
+      border: 1px solid rgba(255,255,255,0.08);
       border-radius: 8px;
+      background: rgba(0,0,0,0.2);
       padding: 6px 7px;
-      background: rgba(0,0,0,0.18);
       display: grid;
       gap: 3px;
+      min-width: 0;
     }
-    .strategy-relation-item .name {
+    .strategy-feature-chip .name {
       color: var(--text);
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .strategy-relation-item .meta { color: var(--muted); font-size: 0.65rem; }
+    .strategy-feature-chip .meta { color: var(--muted); font-size: 0.63rem; }
     .strategy-relation-empty { color: var(--muted); font-size: 0.67rem; }
     .strategy-trading-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
     .strategy-mode-tab {
@@ -1227,7 +1284,8 @@
       .feature-detail-grid { grid-template-columns: 1fr; }
       .strategy-ops-toolbar { grid-template-columns: 1fr 1fr; }
       .strategy-basic-grid { grid-template-columns: 1fr; }
-      .strategy-detail-split { grid-template-columns: 1fr; }
+      .strategy-layer-grid { grid-template-columns: 1fr; }
+      .strategy-layer-card.signal { grid-column: span 1; }
       .strategy-trading-main.with-playbacks { grid-template-columns: 1fr; }
       .strategy-playback-list { max-height: 220px; }
       .strategy-detail-structure { grid-template-columns: 1fr; }
@@ -9745,6 +9803,65 @@
           const cfg = cfgLike && typeof cfgLike === 'object' ? cfgLike : {};
           const extra = extraLike && typeof extraLike === 'object' ? extraLike : {};
           if (!result || result.ok !== true) return null;
+          const curveRows = Array.isArray(result.curve) ? result.curve : [];
+          const tradeRows = Array.isArray(result.trades) ? result.trades : [];
+          function buildDrawdownCurve(rowsLike) {
+            const rows = Array.isArray(rowsLike) ? rowsLike : [];
+            let peak = 0;
+            return rows
+              .map(function(item) {
+                const time = Number(item?.time || 0);
+                const equity = Number(item?.equity || 0);
+                if (!Number.isFinite(time) || !Number.isFinite(equity) || equity <= 0) return null;
+                peak = Math.max(peak, equity);
+                const dd = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+                return { time: Math.floor(time), drawdownPct: Number(dd.toFixed(6)) };
+              })
+              .filter(Boolean);
+          }
+          function buildEventsFromTrades(tradesLike) {
+            const rows = Array.isArray(tradesLike) ? tradesLike : [];
+            const events = [];
+            rows.forEach(function(row, idx) {
+              const side = String(row?.side || 'long').toLowerCase() === 'short' ? 'short' : 'long';
+              const tradeId = 'artifact_trade_' + String(idx + 1);
+              const entryTime = Number(row?.entryTime || 0);
+              const exitTime = Number(row?.exitTime || 0);
+              const entryPrice = Number(row?.entryPrice || 0);
+              const exitPrice = Number(row?.exitPrice || 0);
+              const quantity = 1;
+              const pnlPct = Number(row?.pnlPct || 0);
+              if (Number.isFinite(entryTime) && entryTime > 0 && Number.isFinite(entryPrice) && entryPrice > 0) {
+                events.push({
+                  tradeId: tradeId,
+                  time: Math.floor(entryTime),
+                  tradeType: side === 'short' ? 'sell' : 'buy',
+                  price: Number(entryPrice.toFixed(6)),
+                  quantity: quantity,
+                  fee: 0,
+                  slippageBps: Number(cfg?.feeBps || 0),
+                  reasonRule: String(row?.signalTag || 'artifact.entry'),
+                  pnlPct: 0,
+                });
+              }
+              if (Number.isFinite(exitTime) && exitTime > 0 && Number.isFinite(exitPrice) && exitPrice > 0) {
+                events.push({
+                  tradeId: tradeId,
+                  time: Math.floor(exitTime),
+                  tradeType: 'close',
+                  price: Number(exitPrice.toFixed(6)),
+                  quantity: quantity,
+                  fee: 0,
+                  slippageBps: Number(cfg?.feeBps || 0),
+                  reasonRule: String(row?.reason || 'artifact.exit'),
+                  pnlPct: Number(pnlPct.toFixed(6)),
+                });
+              }
+            });
+            return events.sort(function(a, b) {
+              return Number(a?.time || 0) - Number(b?.time || 0);
+            });
+          }
           const config = {
             strategy: String(cfg.strategy || result.strategy || ''),
             tf: String(cfg.tf || result.tf || ''),
@@ -9774,6 +9891,24 @@
               '_' +
               String(config.strategy || result.strategy || 's')
             );
+          const executionReport = {
+            generatedAt: new Date().toISOString(),
+            timeframeDays: 30,
+            engine: {
+              name: 'thunderclaw_dashboard_backtest',
+              mode: 'event_driven',
+            },
+            events: buildEventsFromTrades(tradeRows),
+            equityCurve: curveRows
+              .map(function(item) {
+                const time = Number(item?.time || 0);
+                const equity = Number(item?.equity || 0);
+                if (!Number.isFinite(time) || !Number.isFinite(equity) || equity <= 0) return null;
+                return { time: Math.floor(time), equity: Number(equity.toFixed(8)) };
+              })
+              .filter(Boolean),
+            drawdownCurve: buildDrawdownCurve(curveRows),
+          };
           return {
             ts: new Date().toISOString(),
             source: String(extra.source || 'dashboard'),
@@ -9790,6 +9925,7 @@
               netPnlPct: Number(result.netPnlPct || result.totalPnlPct || 0),
               maxDrawdownPct: Number(result.maxDrawdownPct || 0),
               avgPnlPct: Number(result.avgPnlPct || 0),
+              executionReport: executionReport,
             },
           };
         }
