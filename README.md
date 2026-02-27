@@ -17,9 +17,26 @@ npm install
 npm run thunderclaw:start
 ```
 
+> `thunderclaw:start` 现在会自动执行 `thunderclaw:setup:freqtrade`，确保首次启动不会因缺少 Freqtrade 而直接失败。
+
 默认访问：
 
 - `http://127.0.0.1:3456`
+
+如需让其他机器访问（局域网/端口转发），用：
+
+- `node scripts/thunderclaw-cli.js start --host 0.0.0.0 --port 3456`
+
+
+回测引擎默认使用 **Freqtrade**（无需手动设置环境变量）。
+
+- 首次部署请先执行：`npm run thunderclaw:setup:freqtrade`（或 `bash scripts/setup-install-freqtrade.sh`，会自动补齐 TA-Lib 系统依赖，并在项目内创建专用 venv 安装 freqtrade）。
+- 启动时只做可用性检查，不会在运行态自动安装依赖（避免把构建逻辑耦合到服务启动）。
+- 若需自定义二进制路径，可设置 `THUNDERCLAW_FREQTRADE_CMD=/path/to/freqtrade`。
+- Freqtrade 依赖版本由 `scripts/freqtrade-requirements.txt` 管理（更利于审计与升级）；默认会把 TA-Lib 安装到项目目录 `.thunderclaw/ta-lib`（避免 `/usr/local` 权限问题），如需自定义可设置 `THUNDERCLAW_TA_LIB_VERSION` / `THUNDERCLAW_TA_LIB_PREFIX` / `THUNDERCLAW_TA_LIB_URL`。
+- 安装脚本会在开始前检查 Python 版本（要求 >= 3.10），并优先选择 `python3.12/3.11/3.10`；若发现已有 venv 的 Python 版本偏旧，会自动重建 venv 以升级到更高版本。
+- 仅在临时排障时，可设置 `THUNDERCLAW_ALLOW_LOCAL_BACKTEST_FALLBACK=true` 启用本地回测兜底。
+- 使用 Freqtrade 真回测时，运行环境必须可访问交易所公网 API（例如 `api.binance.com` / `api.bitget.com`）；若出网受限（如代理 403）会导致回测失败。
 
 默认首页已恢复为 ThunderClaw 原功能页（虾脑 / 虾线 / 虾海 / 虾策）。  
 虾脑现已拆分为 3 个 Tab：
@@ -44,10 +61,13 @@ npm run thunderclaw:status
 npm run thunderclaw:start
 ```
 
+> `thunderclaw:start` 现在会自动执行 `thunderclaw:setup:freqtrade`，确保首次启动不会因缺少 Freqtrade 而直接失败。
+
 等价地，也可以直接：
 
 ```bash
 node scripts/thunderclaw-cli.js start --port 3456
+node scripts/thunderclaw-cli.js start --host 0.0.0.0 --port 3456
 ```
 
 ---

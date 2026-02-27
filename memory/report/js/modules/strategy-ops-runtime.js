@@ -367,6 +367,42 @@
     });
   }
 
+  function resolveLayerFeatureBucketsRuntime(detailLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const rows = normalizeFeatureRelationsRuntime(detail);
+    const empty = { signal: [], position: [], risk: [], execution: [] };
+    rows.forEach(function(item) {
+      const row = item && typeof item === "object" ? item : {};
+      const relation = soText(row.relationType || "").toLowerCase();
+      const category = soText(row.mainCategory || "other").toLowerCase();
+      let bucket = "signal";
+      if (relation.includes("position") || relation.includes("sizing") || relation.includes("exposure")) bucket = "position";
+      else if (relation.includes("risk") || category === "risk") bucket = "risk";
+      else if (relation.includes("execution") || relation.includes("order") || relation.includes("fee") || relation.includes("slippage")) bucket = "execution";
+      empty[bucket].push(row);
+    });
+    return empty;
+  }
+
+  function renderLayerFeatureChipsRuntime(rowsLike, emptyTextLike) {
+    const rows = Array.isArray(rowsLike) ? rowsLike : [];
+    const emptyText = soText(emptyTextLike || "未绑定特征", "未绑定特征");
+    if (!rows.length) {
+      return '<div class="strategy-relation-empty">' + soEsc(emptyText) + "</div>";
+    }
+    return rows.map(function(item) {
+      const row = item && typeof item === "object" ? item : {};
+      const outputText = soText(row.outputTypeLabel || row.outputType || "");
+      const tags = Array.isArray(row.tagLabels) && row.tagLabels.length ? row.tagLabels.join("/") : "";
+      const meta = [soText(row.featureVersion || "v1.0.0"), outputText, tags].filter(Boolean).join(" · ");
+      return ''
+        + '<div class="strategy-feature-chip">'
+        + '<div class="name">' + soEsc(soText(row.featureName || row.featureRef || "-")) + "</div>"
+        + '<div class="meta">' + soEsc(meta) + "</div>"
+        + "</div>";
+    }).join("");
+  }
+
   function normalizeStrategyLayersRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const version = detail.version && typeof detail.version === "object" ? detail.version : {};
@@ -478,6 +514,48 @@
       + "</section>";
   }
 
+
+  function buildStrategyCodeRuntime(detailLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const layers = normalizeStrategyLayersRuntime(detail);
+    const signal = layers.signalLayer || {};
+    const position = layers.positionLayer || {};
+    const risk = layers.riskLayer || {};
+    const exec = layers.executionLayer || {};
+    const refs = normalizeFeatureRelationsRuntime(detail).map(function(item) {
+      return soText(item.featureRef || item.featureName || "");
+    }).filter(Boolean);
+    const logic = soText(detail?.details?.expression || signal.signalLogic || "true", "true");
+    const lines = [
+      "// ThunderClaw Strategy Runtime Preview",
+      "const strategy = {",
+      "  signalType: '" + soText(signal.signalType || "composite") + "',",
+      "  expression: " + JSON.stringify(logic) + ",",
+      "  featureRefs: " + JSON.stringify(refs) + ",",
+      "  position: {",
+      "    mode: '" + soText(position.mode || "risk_budget") + "',",
+      "    maxPositions: " + String(Math.max(1, Math.floor(soNum(position.maxPositions, 1)))) + ",",
+      "    maxExposurePct: " + String(soNum(position.maxExposurePct, 35)) + ",",
+      "    leverageLimit: " + String(soNum(position.leverageLimit, 10)) + ",",
+      "  },",
+      "  risk: {",
+      "    stopLossPct: " + String(soNum(risk.stopLossPct, 2.5)) + ",",
+      "    takeProfitPct: " + String(soNum(risk.takeProfitPct, 5.5)) + ",",
+      "    maxDrawdownPct: " + String(soNum(risk.maxDrawdownPct, 18)) + ",",
+      "    maxConsecutiveLoss: " + String(Math.max(1, Math.floor(soNum(risk.maxConsecutiveLoss, 3)))) + ",",
+      "  },",
+      "  execution: {",
+      "    orderMode: '" + soText(exec.orderMode || "market") + "',",
+      "    slippageBps: " + String(soNum(exec.slippageBps, 6)) + ",",
+      "    feeModel: '" + soText(exec.feeModel || "taker") + "',",
+      "  },",
+      "};",
+      "",
+      "module.exports = strategy;",
+    ];
+    return lines.join("\n");
+  }
+
   function renderStrategyDetailSectionRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const layers = normalizeStrategyLayersRuntime(detail);
@@ -495,34 +573,7 @@
     const featureRefsText = relations.map(function(item) {
       return soText(item.featureRef || item.featureName || "");
     }).filter(Boolean).join(", ");
-    const categoryOrder = ["trend", "momentum", "volatility", "volume", "structure", "risk", "other"];
-    const categoryMap = new Map();
-    relations.forEach(function(item) {
-      const key = soText(item.mainCategory || "other", "other");
-      if (!categoryMap.has(key)) categoryMap.set(key, []);
-      categoryMap.get(key).push(item);
-    });
-    const groupedFeatureHtml = categoryOrder.map(function(categoryKey) {
-      const rows = categoryMap.get(categoryKey) || [];
-      if (!rows.length) return "";
-      const label = soText(rows[0]?.mainCategoryLabel || (categoryKey === "other" ? "其他" : categoryKey));
-      return ""
-        + '<div class="strategy-feature-group">'
-        + '<div class="group-title">' + soEsc(label) + "</div>"
-        + '<div class="chips">'
-        + rows.map(function(item) {
-          const tagsText = Array.isArray(item.tagLabels) && item.tagLabels.length ? (" · " + item.tagLabels.join("/")) : "";
-          const outputText = soText(item.outputTypeLabel || "", "");
-          const meta = [soText(item.featureVersion || "v1.0.0"), outputText].filter(Boolean).join(" · ");
-          return ''
-            + '<div class="strategy-feature-chip">'
-            + '<div class="name">' + soEsc(soText(item.featureName || item.featureRef || "-")) + "</div>"
-            + '<div class="meta">' + soEsc(meta + tagsText) + "</div>"
-            + "</div>";
-        }).join("")
-        + "</div>"
-        + "</div>";
-    }).join("");
+    const layerFeatureBuckets = resolveLayerFeatureBucketsRuntime(detail);
     const signalParam = signalLayer?.params && typeof signalLayer.params === "object" ? signalLayer.params : {};
     const signalControls = ""
       + renderEditableSelectFieldRuntime("信号类型", "signalType", soText(signalLayer.signalType || "composite"), [
@@ -568,28 +619,37 @@
       + '<div class="strategy-chart-title"><span>特征引用</span><span>输入支持英文逗号/换行分隔</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="featureRefs" placeholder="feature_id_1, feature_id_2 ...">' + soEsc(featureRefsText) + "</textarea>"
       + "</div>"
-      + '<div class="strategy-chart-title"><span>第二层：四层可调参数与特征分布</span><span>调整参数后可直接执行回放</span></div>'
+      + '<div class="strategy-chart-title"><span>第二层：四层可调参数与特征分布</span><span>调整参数后可直接执行回放</span></div>'+ '<div class="strategy-chart-title"><span>策略执行代码预览</span><span>用于快速核对当前策略执行逻辑</span></div>'+ '<pre class="strategy-detail-expression"><code>' + soEsc(buildStrategyCodeRuntime(detail)) + '</code></pre>'
       + '<div class="strategy-layer-grid">'
       + '<div class="strategy-layer-card signal">'
       + '<div class="strategy-layer-head"><span>信号层</span><small>信号阈值 + 特征类型分布</small></div>'
       + '<div class="strategy-layer-controls">' + signalControls + "</div>"
-      + '<div class="strategy-feature-groups">'
-      + (groupedFeatureHtml || '<div class="strategy-relation-empty">暂无特征关系</div>')
+      + '<div class="strategy-feature-groups compact">'
+      + renderLayerFeatureChipsRuntime(layerFeatureBuckets.signal, "当前仅使用表达式信号")
       + "</div>"
       + "</div>"
       + '<div class="strategy-layer-card position">'
       + '<div class="strategy-layer-head"><span>仓位层</span><small>资金分配与仓位边界</small></div>'
       + '<div class="strategy-layer-controls">' + positionControls + "</div>"
+      + '<div class="strategy-feature-groups compact">'
+      + renderLayerFeatureChipsRuntime(layerFeatureBuckets.position, "当前仓位层暂无绑定特征")
+      + "</div>"
       + "</div>"
       + '<div class="strategy-layer-card risk">'
       + '<div class="strategy-layer-head"><span>风控层</span><small>止损止盈/回撤/风控暂停</small></div>'
       + '<div class="strategy-layer-controls">' + riskControls + "</div>"
       + '<div class="strategy-chart-title"><span>风控暂停条件</span><span>用于运行时风险状态切换</span></div>'
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="riskPauseCondition" placeholder="例如：max_drawdown > 18% 或 连续亏损 >= 3">' + soEsc(soText(riskLayer.riskPauseCondition || "")) + "</textarea>"
+      + '<div class="strategy-feature-groups compact">'
+      + renderLayerFeatureChipsRuntime(layerFeatureBuckets.risk, "当前风控层暂无绑定特征")
+      + "</div>"
       + "</div>"
       + '<div class="strategy-layer-card execution">'
       + '<div class="strategy-layer-head"><span>执行层</span><small>成交模型/滑点/手续费/重试</small></div>'
       + '<div class="strategy-layer-controls">' + executionControls + "</div>"
+      + '<div class="strategy-feature-groups compact">'
+      + renderLayerFeatureChipsRuntime(layerFeatureBuckets.execution, "当前执行层暂无绑定特征")
+      + "</div>"
       + "</div>"
       + "</div>"
       + "</section>";
@@ -663,7 +723,7 @@
       + '<span>交易数：' + soEsc(String(Math.max(0, Math.floor(soNum(summary.tradeCount, 0))))) + "</span>"
       + '<span>收益：' + soEsc(soFmtPct(summary.latestReturnPct, 2)) + "</span>"
       + '<span>回撤：' + soEsc(soFmtPct(summary.maxDrawdownPct, 2)) + "</span>"
-      + '<button type="button" class="strategy-run-replay-btn" data-sl-editor-action="replay">执行策略回放</button>'
+      + '<button type="button" class="strategy-run-replay-btn" data-sl-editor-action="replay">执行当前策略回测</button>'+ '<span class="strategy-replay-progress" data-sl-replay-progress>等待开始</span>'
       + "</div>"
       + '<div class="' + chartPanelClass + '">'
       + playbackPanel
@@ -765,12 +825,40 @@
       }
       analysisHtml += "</div>";
     }
+    const decisionSnapshot = event.decisionSnapshot && typeof event.decisionSnapshot === "object"
+      ? event.decisionSnapshot
+      : null;
+    let layerHtml = "";
+    if (decisionSnapshot) {
+      const signal = decisionSnapshot.signal && typeof decisionSnapshot.signal === "object" ? decisionSnapshot.signal : {};
+      const position = decisionSnapshot.position && typeof decisionSnapshot.position === "object" ? decisionSnapshot.position : {};
+      const risk = decisionSnapshot.risk && typeof decisionSnapshot.risk === "object" ? decisionSnapshot.risk : {};
+      const execution = decisionSnapshot.execution && typeof decisionSnapshot.execution === "object" ? decisionSnapshot.execution : {};
+      const externalSignals = Array.isArray(signal.externalSignals) ? signal.externalSignals.slice(0, 4) : [];
+      const extSummary = externalSignals.map(function(item) {
+        const row = item && typeof item === "object" ? item : {};
+        const ref = soText(row.featureRef || "-");
+        const bias = soText(row.bias || "neutral");
+        const score = soNum(row.score, 0).toFixed(3);
+        const conf = soNum(row.confidence, 0).toFixed(3);
+        return ref + "(" + bias + ", s=" + score + ", c=" + conf + ")";
+      }).join(" | ");
+      layerHtml = ''
+        + '<div class="strategy-trade-analysis">'
+        + '<div class="row"><span>信号层</span><b>' + soEsc(soText(signal.signalType || "-") + " / Δ=" + soNum(signal.observedDeltaPct, 0).toFixed(3) + "%") + '</b></div>'
+        + '<div class="row"><span>外部信号</span><b>' + soEsc("score=" + soNum(signal.externalSignalScore, 0).toFixed(3) + (extSummary ? " / " + extSummary : "")) + '</b></div>'
+        + '<div class="row"><span>仓位层</span><b>' + soEsc("maxPos=" + String(Math.max(1, Math.floor(soNum(position.maxPositions, 1)))) + " / lev=" + soNum(position.leverageLimit, 0).toFixed(2)) + '</b></div>'
+        + '<div class="row"><span>风控层</span><b>' + soEsc("SL=" + soNum(risk.stopLossPct, 0).toFixed(2) + "% TP=" + soNum(risk.takeProfitPct, 0).toFixed(2) + "% DD=" + soNum(risk.maxDrawdownPct, 0).toFixed(2) + "%") + '</b></div>'
+        + '<div class="row"><span>执行层</span><b>' + soEsc(soText(execution.orderMode || "-") + " / " + soText(execution.feeModel || "-") + " / " + soNum(execution.slippageBps, 0).toFixed(2) + "bps") + '</b></div>'
+        + '</div>';
+    }
     return ""
       + "<div><strong>" + soEsc(soTradeTypeLabel(event.tradeType || "")) + "</strong> · " + soEsc(soFmtTs(new Date(soNum(event.time, 0) * 1000).toISOString())) + "</div>"
       + "<div>价格：" + soEsc(String(soNum(event.price, 0).toFixed(2))) + " · 数量：" + soEsc(String(soNum(event.quantity, 0).toFixed(5))) + "</div>"
       + "<div>手续费：" + soEsc(String(soNum(event.fee, 0).toFixed(4))) + " · 滑点：" + soEsc(String(soNum(event.slippageBps, 0).toFixed(2))) + " bps</div>"
       + "<div>触发：" + soEsc(soText(event.reasonRule || "-")) + "</div>"
-      + analysisHtml;
+      + analysisHtml
+      + layerHtml;
   }
 
   globalObj.strategyOpsRuntime = {

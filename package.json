@@ -7,7 +7,8 @@
   },
   "scripts": {
     "thunderclaw:help": "node scripts/thunderclaw-cli.js help",
-    "thunderclaw:start": "node scripts/thunderclaw-cli.js start",
+    "thunderclaw:start": "npm run thunderclaw:setup:freqtrade && node scripts/thunderclaw-cli.js start",
+    "thunderclaw:setup:freqtrade": "bash scripts/setup-install-freqtrade.sh",
     "thunderclaw:status": "node scripts/thunderclaw-cli.js status",
     "thunderclaw:assets": "node scripts/thunderclaw-cli.js assets",
     "thunderclaw:idea": "node scripts/thunderclaw-cli.js idea"

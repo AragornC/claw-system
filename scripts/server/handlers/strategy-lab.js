@@ -309,7 +309,7 @@ export function createStrategyLabHandlers(deps = {}) {
     const tradingMode = toText(url.searchParams.get("tradingMode") || url.searchParams.get("marketMode") || "", "");
     const playbackId = toText(url.searchParams.get("playbackId") || "");
     if (!strategyId) {
-      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      sendJson(res, 200, { ok: false, error: "strategyId is required" });
       return;
     }
     if (typeof strategyLabStore.getStrategyDetail !== "function") {
@@ -375,7 +375,7 @@ export function createStrategyLabHandlers(deps = {}) {
     const payload = body && typeof body === "object" ? body : {};
     const strategyId = toText(payload.strategyId || "");
     if (!strategyId) {
-      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      sendJson(res, 200, { ok: false, error: "strategyId is required" });
       return;
     }
     try {
@@ -433,7 +433,7 @@ export function createStrategyLabHandlers(deps = {}) {
     const strategyId = toText(url.searchParams.get("strategyId") || "");
     const limit = parsePositiveInt(url.searchParams.get("limit"), 120, 1, 300);
     if (!strategyId) {
-      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      sendJson(res, 200, { ok: false, error: "strategyId is required" });
       return;
     }
     const result = strategyLabStore.listStrategyAudits({ strategyId, limit });
@@ -454,7 +454,7 @@ export function createStrategyLabHandlers(deps = {}) {
     const payload = body && typeof body === "object" ? body : {};
     const strategyId = toText(payload.strategyId || "");
     if (!strategyId) {
-      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      sendJson(res, 200, { ok: false, error: "strategyId is required" });
       return;
     }
     try {
@@ -468,7 +468,7 @@ export function createStrategyLabHandlers(deps = {}) {
         ...result,
       });
     } catch (error) {
-      sendJson(res, 400, { ok: false, error: String(error?.message || error || "strategy replay failed") });
+      sendJson(res, 200, { ok: false, error: String(error?.message || error || "strategy replay failed") });
     }
   }
 

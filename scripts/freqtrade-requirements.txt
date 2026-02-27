@@ -1,0 +1,3 @@
+# Keep the Freqtrade runtime dependency explicit and reviewable.
+# Pin minor line for repeatable installs while still allowing patch updates.
+freqtrade~=2025.1

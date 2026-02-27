@@ -1,0 +1,12 @@
+{
+  "keywords": [
+    "btc", "eth", "sol", "bnb", "usdt", "doge", "xrp",
+    "策略", "做多", "做空", "开多", "开空", "止损", "止盈",
+    "polymarket", "polymarkt", "预测市场", "预测盘", "概率盘",
+    "新闻", "快讯", "推特", "推上", "社媒", "热度"
+  ],
+  "confidenceWhenDetected": 0.62,
+  "confidenceWhenMissing": 0.2,
+  "reasoningDetected": "识别到交易市场或策略口语关键词",
+  "reasoningMissing": "对话中缺少交易市场或策略上下文"
+}

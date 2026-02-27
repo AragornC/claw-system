@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -29,6 +30,7 @@ import {
 } from "./server/domain/model-provider.js";
 import { createOpenClawXbrainRuntime } from "./server/core/openclaw-xbrain-runtime.js";
 import { createStrategyLabStore } from "./server/core/strategy-lab-store.js";
+import { createFreqtradeBacktestAdapter } from "./server/core/freqtrade-backtest-adapter.js";
 import { createTradingIntentSkill } from "./server/core/trading-intent-skill.js";
 import { createModelSwitchIntentSkill } from "./server/core/model-switch-intent-skill.js";
 import { createXbrainStoreManager } from "./server/core/xbrain-store.js";
@@ -80,6 +82,45 @@ const sessionModelProbeCache = {
   modelRef: "",
   error: "",
 };
+
+function commandExists(commandLike) {
+  const command = String(commandLike || "").trim();
+  if (!command) return false;
+  const probe = spawnSync(command, ["--version"], {
+    encoding: "utf8",
+    stdio: "pipe",
+    timeout: 8_000,
+  });
+  return !probe.error && probe.status === 0;
+}
+
+function ensureFreqtradeCommandForStartup() {
+  const userSpecified = String(process.env.THUNDERCLAW_FREQTRADE_CMD || "").trim();
+  if (userSpecified) {
+    if (!commandExists(userSpecified)) {
+      throw new Error(`[ThunderClaw] THUNDERCLAW_FREQTRADE_CMD is set but unavailable: ${userSpecified}`);
+    }
+    return userSpecified;
+  }
+
+  const managedCmd = path.join(ROOT_DIR, ".thunderclaw", "freqtrade-venv", "bin", "freqtrade");
+  if (commandExists(managedCmd)) {
+    process.env.THUNDERCLAW_FREQTRADE_CMD = managedCmd;
+    return managedCmd;
+  }
+
+  const defaultCmd = "freqtrade";
+  if (commandExists(defaultCmd)) {
+    return defaultCmd;
+  }
+
+  throw new Error(
+    `[ThunderClaw] freqtrade is required but not installed. ` +
+    `Run: bash scripts/setup-install-freqtrade.sh (recommended), ` +
+    `or set THUNDERCLAW_FREQTRADE_CMD to an existing binary.`
+  );
+}
+
 
 function uniqStrings(items) {
   return Array.from(
@@ -259,6 +300,27 @@ async function runOpenClawCommand(args, options = {}) {
       });
     });
   });
+}
+
+function buildLocalAgentEnvFromStore() {
+  const env = {};
+  const key = String(xbrainStore?.base?.deepseekApiKey || "").trim();
+  if (key) {
+    env.DEEPSEEK_API_KEY = key;
+    env.DEEPSEEK_KEY = key;
+  }
+  return env;
+}
+
+function buildRuleBasedAgentReply(messageLike = "") {
+  const text = String(messageLike || "").trim();
+  if (!text) return "收到。";
+  const lower = text.toLowerCase();
+  const hasTrade = lower.includes("btc") || lower.includes("eth") || lower.includes("策略") || lower.includes("止损") || lower.includes("止盈");
+  if (hasTrade) {
+    return "建议先从低风险回测开始：定义入场条件、止损1%-2%、止盈2%-4%、单笔风险不超过总资金1%。";
+  }
+  return "收到，当前外部模型暂不可用，已切换本地规则回复。";
 }
 
 function extractAgentReply(payload) {
@@ -1169,8 +1231,28 @@ const {
   oauthIsRunning,
 });
 
+const backtestEngineKey = String(process.env.THUNDERCLAW_BACKTEST_ENGINE || "freqtrade").trim().toLowerCase();
+if (backtestEngineKey !== "freqtrade") {
+  throw new Error(`[ThunderClaw] unsupported backtest engine: ${backtestEngineKey}. Only 'freqtrade' is supported.`);
+}
+ensureFreqtradeCommandForStartup();
+const freqtradeBacktestAdapter = createFreqtradeBacktestAdapter({
+  enabled: process.env.THUNDERCLAW_ENABLE_FREQTRADE,
+  command: process.env.THUNDERCLAW_FREQTRADE_CMD,
+});
+
+const availability = typeof freqtradeBacktestAdapter.checkAvailability === "function"
+  ? freqtradeBacktestAdapter.checkAvailability()
+  : { ok: false, error: "freqtrade adapter unavailable" };
+if (!availability.ok) {
+  throw new Error(`[ThunderClaw] freqtrade is required but unavailable: ${availability.error}. Install freqtrade first.`);
+}
+const strategyBacktestEngine = freqtradeBacktestAdapter;
+console.warn(`[ThunderClaw] strategy backtest engine: freqtrade (${availability.version})`);
+
 const strategyLabStore = createStrategyLabStore({
   statePath: STRATEGY_LAB_STATE_PATH,
+  backtestEngine: strategyBacktestEngine,
 });
 
 const {
@@ -1214,11 +1296,13 @@ async function runAgentTurn(params) {
   if (thinking) {
     args.push("--thinking", thinking);
   }
+
   const gatewayBeforeRun = await waitGatewayHealthy({ timeoutMs: 4_000, pollMs: 700 }).catch(() => ({ ok: false }));
   if (!gatewayBeforeRun?.ok) {
     startGateway();
     await waitGatewayHealthy({ timeoutMs: 20_000, pollMs: 1_000 }).catch(() => null);
   }
+
   let result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
   if (!result.ok) {
     const errText = [result.stderr, result.stdout].filter(Boolean).join("\n");
@@ -1228,17 +1312,39 @@ async function runAgentTurn(params) {
       result = await runOpenClawCommand(args, { timeoutMs: 180_000 });
     }
   }
+
+  if (!result.ok) {
+    const localArgs = [...args, "--local"];
+    result = await runOpenClawCommand(localArgs, {
+      timeoutMs: 180_000,
+      env: buildLocalAgentEnvFromStore(),
+    });
+  }
+
   const payload = parseJsonSafe(result.stdout);
   let reply = extractAgentReply(payload);
   if (!reply) {
     const errText = String(result.stderr || "").trim();
     const errLine = errText
       .split(/\r?\n/)
-      .find((line) => /HTTP\s+\d{3}|authentication|api key|gateway closed/i.test(String(line || "")));
+      .find((line) => /HTTP\s+\d{3}|authentication|api key|gateway closed|connection error/i.test(String(line || "")));
     if (errLine) {
       reply = errLine;
     }
   }
+
+  if (!result.ok) {
+    reply = buildRuleBasedAgentReply(message);
+    result = {
+      ok: true,
+      code: 0,
+      timedOut: false,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      source: "rule_fallback",
+    };
+  }
+
   if (!reply) {
     reply = "收到，但暂时没有可返回内容。";
   }

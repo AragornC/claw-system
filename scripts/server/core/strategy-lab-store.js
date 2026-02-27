@@ -51,15 +51,28 @@ import {
   buildSampleExecutionReport,
   filterExecutionReport,
 } from "./strategy-lifecycle-helpers.js";
-import { createStrategyExecutionEngine } from "./strategy-execution-engine.js";
+import {
+  normalizeLayerFramework,
+  buildLayerCapabilityMatrix,
+} from "./strategy-layer-framework.js";
 
 export function createStrategyLabStore(deps = {}) {
   const statePath = String(deps.statePath || "").trim();
   if (!statePath) throw new Error("statePath is required");
 
   let storeCache = null;
-  const strategyExecutionEngine = createStrategyExecutionEngine();
+  const injectedBacktestEngine = deps.backtestEngine && typeof deps.backtestEngine.runBacktest === "function"
+    ? deps.backtestEngine
+    : null;
+  if (!injectedBacktestEngine) {
+    throw new Error("backtestEngine is required: Freqtrade is the only supported engine");
+  }
+  const strategyExecutionEngine = injectedBacktestEngine;
   const executionReportCache = new Map();
+
+  function runBacktestWithFallback(paramsLike = {}) {
+    return strategyExecutionEngine.runBacktest(paramsLike);
+  }
 
   function persistSafe(storeLike) {
     const store = storeLike && typeof storeLike === "object" ? storeLike : buildSeedStore();
@@ -302,6 +315,38 @@ export function createStrategyLabStore(deps = {}) {
     return (store.strategyVersions || []).find((item) => toText(item?.strategyVersionId || "") === strategyVersionId) || null;
   }
 
+
+
+  function buildFeatureCatalogFromLockedFeatures(lockedLike = []) {
+    const rows = Array.isArray(lockedLike) ? lockedLike : [];
+    return rows
+      .map((itemLike) => {
+        const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+        const featureId = toText(item.featureId || item.featureName || "");
+        if (!featureId) return null;
+        return {
+          featureRef: featureId,
+          featureName: toText(item.featureName || featureId),
+          featureId,
+          featureVersion: toText(item.featureVersion || "v1.0.0"),
+          mainCategory: "custom",
+          mainCategoryLabel: "自定义",
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function enrichExecutionReportWithFeatureCatalog(reportLike, lockedLike = []) {
+    const report = reportLike && typeof reportLike === "object" ? reportLike : null;
+    if (!report) return null;
+    const existing = Array.isArray(report.featureCatalog) ? report.featureCatalog.filter(Boolean) : [];
+    if (existing.length > 0) return report;
+    return {
+      ...report,
+      featureCatalog: buildFeatureCatalogFromLockedFeatures(lockedLike),
+    };
+  }
+
   function toUnixSeconds(valueLike, fallbackSec = 0) {
     const raw = toText(valueLike || "");
     if (!raw) return Math.max(0, Math.floor(Number(fallbackSec || 0)));
@@ -466,7 +511,7 @@ export function createStrategyLabStore(deps = {}) {
         const featureLookup = buildFeatureLookup(store.features || []);
         const draftFeatureRefs = normalizeFeatureRefs(strategy?.draftConfig?.signalLayer?.featureRefs || []);
         const lockedFeatureVersions = lockFeatureVersions(draftFeatureRefs, featureLookup);
-        const out = strategyExecutionEngine.runBacktest({
+        const out = runBacktestWithFallback({
           strategy,
           version: {
             strategyVersionId: "",
@@ -577,7 +622,7 @@ export function createStrategyLabStore(deps = {}) {
     const cacheHit = readEngineReportCache(cacheKey);
     if (cacheHit) return cacheHit;
     try {
-      const out = strategyExecutionEngine.runBacktest({
+      const out = runBacktestWithFallback({
         strategy,
         version,
         features: store.features || [],
@@ -622,7 +667,7 @@ export function createStrategyLabStore(deps = {}) {
         const featureLookup = buildFeatureLookup(store.features || []);
         const draftFeatureRefs = normalizeFeatureRefs(strategy?.draftConfig?.signalLayer?.featureRefs || []);
         const lockedFeatureVersions = lockFeatureVersions(draftFeatureRefs, featureLookup);
-        const out = strategyExecutionEngine.runBacktest({
+        const out = runBacktestWithFallback({
           strategy,
           version: {
             strategyVersionId: "",
@@ -659,18 +704,15 @@ export function createStrategyLabStore(deps = {}) {
         }
       } catch (_) {}
     }
-    const strategySlug = slugify(strategy.name || "");
     const strategyId = toText(strategy.strategyId || "");
     (store.artifacts || []).forEach((artifactLike) => {
       const artifact = artifactLike && typeof artifactLike === "object" ? artifactLike : {};
       const config = artifact.config && typeof artifact.config === "object" ? artifact.config : {};
       const result = artifact.result && typeof artifact.result === "object" ? artifact.result : {};
       const directStrategyId = toText(config.strategyId || result.strategyId || "");
-      const nameSlug = slugify(config.strategy || result.strategy || artifact.label || "");
       const mode = inferArtifactTradingMode(artifact);
       const matchById = directStrategyId && directStrategyId === strategyId;
-      const matchByName = !directStrategyId && strategySlug && nameSlug && strategySlug === nameSlug;
-      if (!matchById && !matchByName) return;
+      if (!matchById) return;
       if (mode !== "backtest") return;
       const report = buildArtifactExecutionReport(artifact, strategy);
       const summary = summarizeExecutionReport(report, {
@@ -934,7 +976,10 @@ export function createStrategyLabStore(deps = {}) {
     if (!normalized.title) throw new Error("invalid strategy candidate");
     const now = nowIso();
     const titleKey = normalized.title.toLowerCase();
-    const existing = (store.versions || []).find((item) => String(item?.title || "").toLowerCase() === titleKey) || null;
+    const allowTitleMerge = metaLike?.allowTitleMerge === true;
+    const existing = allowTitleMerge
+      ? ((store.versions || []).find((item) => String(item?.title || "").toLowerCase() === titleKey) || null)
+      : null;
     const featureRefs = uniqStrings([
       ...normalized.featureRefs,
       ...normalized.features.map((f) => f.name),
@@ -1027,23 +1072,33 @@ export function createStrategyLabStore(deps = {}) {
         ...(Array.isArray(prepared.featureRefs) ? prepared.featureRefs : []),
         ...extraFeatureRefs,
       ]);
-      const result = upsertStrategy(prepared, metaLike);
-      const lifecycleResult = saveStrategyDraft({
-        name: prepared.title,
-        description: toText(prepared.thesis || candidate.summary || ""),
+      const layerFramework = normalizeLayerFramework(prepared.layers || {
         signalLayer: {
-          featureRefs: draftFeatureRefs,
+          signalType: "composite",
           signalLogic: toText(prepared.entry || "多信号确认"),
-          params: {},
+          featureRefs: draftFeatureRefs,
         },
+        positionLayer: {},
         riskLayer: {
           riskPauseCondition: toText(prepared.riskControl || ""),
         },
         executionLayer: {},
-        positionLayer: {},
+      });
+      const result = upsertStrategy(prepared, {
+        ...metaLike,
+        allowTitleMerge: false,
+      });
+      const lifecycleResult = saveStrategyDraft({
+        name: prepared.title,
+        description: toText(prepared.thesis || candidate.summary || ""),
+        signalLayer: layerFramework.signalLayer,
+        positionLayer: layerFramework.positionLayer,
+        riskLayer: layerFramework.riskLayer,
+        executionLayer: layerFramework.executionLayer,
       }, {
         ...metaLike,
         source: toText(metaLike?.source || "chat_intent"),
+        forceCreate: true,
         reason: "来自 ThunderClaw 对话候选",
       });
       return {
@@ -1052,6 +1107,7 @@ export function createStrategyLabStore(deps = {}) {
         feature: null,
         version: result.version,
         strategy: lifecycleResult?.strategy || null,
+        layerMatrix: buildLayerCapabilityMatrix(layerFramework),
       };
     }
     throw new Error("candidate.kind must be feature or strategy");
@@ -1202,7 +1258,7 @@ export function createStrategyLabStore(deps = {}) {
     const draftConfig = buildStrategyDraftPayload(draftInput);
     const featureLookup = buildFeatureLookup(store.features || []);
     const lockedFeatureVersions = lockFeatureVersions(draftConfig?.signalLayer?.featureRefs || [], featureLookup);
-    const out = strategyExecutionEngine.runBacktest({
+    const out = runBacktestWithFallback({
       strategy: {
         ...strategy,
         draftConfig,
@@ -1222,9 +1278,10 @@ export function createStrategyLabStore(deps = {}) {
       bars: Array.isArray(params.bars) ? params.bars : [],
       rangeDays,
     });
-    const executionReport = out?.executionReport && typeof out.executionReport === "object"
+    const executionReportRaw = out?.executionReport && typeof out.executionReport === "object"
       ? out.executionReport
       : null;
+    const executionReport = enrichExecutionReportWithFeatureCatalog(executionReportRaw, lockedFeatureVersions);
     if (!executionReport) throw new Error("strategy replay failed");
     const summary = summarizeExecutionReport(executionReport, {
       latestReturnPct: Number(out?.summary?.latestReturnPct || 0) || 0,
@@ -1355,9 +1412,13 @@ export function createStrategyLabStore(deps = {}) {
     const now = nowIso();
     const name = toText(payload.name || payload.title || "");
     if (!name) throw new Error("strategy name is required");
-    let strategy = resolveStrategyById(store, payload.strategyId || "")
-      || resolveStrategyByName(store, name)
-      || null;
+    const forceCreate = meta?.forceCreate === true;
+    const allowNameMerge = meta?.allowNameMerge === true;
+    let strategy = forceCreate
+      ? null
+      : (resolveStrategyById(store, payload.strategyId || "")
+        || (allowNameMerge ? resolveStrategyByName(store, name) : null)
+        || null);
     const requestedStatusRaw = toText(payload.status || "");
     const requestedStatus = requestedStatusRaw
       ? normalizeStatus(requestedStatusRaw, "draft")
@@ -1465,7 +1526,7 @@ export function createStrategyLabStore(deps = {}) {
     const engineRangeDays = normalizeRangeDays(params.rangeDays || 30);
     const engineOut = (() => {
       try {
-        return strategyExecutionEngine.runBacktest({
+        return runBacktestWithFallback({
           strategy,
           version: {
             strategyVersionId,
@@ -1489,9 +1550,10 @@ export function createStrategyLabStore(deps = {}) {
     const engineReport = engineOut?.executionReport && typeof engineOut.executionReport === "object"
       ? engineOut.executionReport
       : null;
-    const executionReport = params.executionReport && typeof params.executionReport === "object"
+    const executionReportRaw = params.executionReport && typeof params.executionReport === "object"
       ? params.executionReport
       : (engineReport || buildSampleExecutionReport({ days: engineRangeDays, stepSec: 3600 }));
+    const executionReport = enrichExecutionReportWithFeatureCatalog(executionReportRaw, lockedFeatureVersions);
     const latestReturnFallback = Number(clampNumber(engineSummary.latestReturnPct, -1000, 2000, strategy.latestReturnPct || 0).toFixed(4));
     const maxDrawdownFallback = Number(clampNumber(engineSummary.maxDrawdownPct, 0, 100, strategy.maxDrawdownPct || 0).toFixed(4));
     const winRateFallback = Number(clampNumber(engineSummary.winRate, 0, 100, 0).toFixed(4));

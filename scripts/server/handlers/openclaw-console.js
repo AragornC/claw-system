@@ -79,7 +79,7 @@ export function createOpenClawConsoleHandlers(deps = {}) {
     args.push("--json");
     const result = await runOpenClawCommand(args, { timeoutMs: 15_000 });
     if (!result.ok) {
-      sendJson(res, 500, { ok: false, error: openclawErrorText(result) });
+      sendJson(res, 200, { ok: true, jobs: [], degraded: true, error: openclawErrorText(result) });
       return;
     }
     const payload = parseJsonSafe(result.stdout);

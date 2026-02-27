@@ -1,0 +1,65 @@
+{
+  "features": [
+    {
+      "id": "news",
+      "keywords": ["新闻", "news", "headline", "快讯", "资讯"],
+      "candidate": {
+        "candidateId": "cand_feature_news_sentiment",
+        "kind": "feature",
+        "title": "新闻情绪信号",
+        "summary": "基于新闻语义与事件强度生成情绪分数",
+        "confidence": 0.71,
+        "feature": {
+          "name": "news_sentiment_signal",
+          "group": "signal_external",
+          "kind": "news_sentiment",
+          "description": "新闻情绪与事件影响评分",
+          "params": { "windowMin": 180, "minImpact": 0.45 }
+        }
+      }
+    },
+    {
+      "id": "social",
+      "keywords": ["twitter", "推特", "推上", "tweet", "x.com", "社媒", "热度"],
+      "candidate": {
+        "candidateId": "cand_feature_social_sentiment",
+        "kind": "feature",
+        "title": "社媒情绪信号",
+        "summary": "基于社媒讨论热度与情绪分布生成信号",
+        "confidence": 0.69,
+        "feature": {
+          "name": "twitter_sentiment_signal",
+          "group": "signal_external",
+          "kind": "social_sentiment",
+          "description": "Twitter/X 话题热度与情绪评分",
+          "params": { "windowMin": 120, "minMentions": 30 }
+        }
+      }
+    },
+    {
+      "id": "prediction",
+      "keywords": ["polymarket", "polymarkt", "预测市场", "预测盘", "赔率", "概率盘"],
+      "candidate": {
+        "candidateId": "cand_feature_prediction_signal",
+        "kind": "feature",
+        "title": "预测市场概率信号",
+        "summary": "基于预测市场隐含概率与变化率生成信号",
+        "confidence": 0.68,
+        "feature": {
+          "name": "polymarket_probability_signal",
+          "group": "signal_external",
+          "kind": "prediction_market",
+          "description": "Polymarket 隐含概率变化信号",
+          "params": { "minMovePct": 1.2, "windowMin": 240 }
+        }
+      }
+    }
+  ],
+  "confidenceWhenDetected": 0.7,
+  "confidenceWhenMissing": 0.3,
+  "reasoningDetected": "识别到外部信号型策略偏好",
+  "reasoningMissing": "未识别到外部信号型策略偏好",
+  "strategyHints": {
+    "entry": "外部信号方向与基础趋势同向时入场"
+  }
+}

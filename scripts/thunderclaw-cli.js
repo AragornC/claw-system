@@ -16,33 +16,39 @@ function printHelp() {
       "",
       "可用命令:",
       "  thunderclaw help",
-      "  thunderclaw start [--port 3456]",
+      "  thunderclaw start [--port 3456] [--host 127.0.0.1]",
       "  thunderclaw status",
       "  thunderclaw assets",
       "  thunderclaw idea",
       "",
       "说明:",
-      "  start: 启动 ThunderClaw 本地控制台（/ 默认旧功能页，虾脑内含模型注册中心）。",
+      "  start: 启动 ThunderClaw 控制台（/ 默认旧功能页，虾脑内含模型注册中心）。",
+      "         用 --host=0.0.0.0 可让局域网/端口转发访问。",
       "  status: 检查 OpenClaw CLI 是否已就绪。",
     ].join("\n"),
   );
+}
+
+function readOption(argsLike, key) {
+  const args = Array.isArray(argsLike) ? argsLike : [];
+  const flag = `--${key}`;
+  const flagWithEq = `${flag}=`;
+  const inline = args.find((arg) => String(arg).startsWith(flagWithEq));
+  if (inline) return String(inline).slice(flagWithEq.length);
+  const idx = args.indexOf(flag);
+  return idx >= 0 ? String(args[idx + 1] || "") : "";
 }
 
 if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   printHelp();
   process.exit(0);
 } else if (cmd === "start") {
-  const portFlag = args.find((arg) => String(arg).startsWith("--port="));
-  const idx = args.indexOf("--port");
-  const rawPort = portFlag
-    ? String(portFlag).slice("--port=".length)
-    : idx >= 0
-      ? String(args[idx + 1] || "")
-      : "";
+  const rawPort = readOption(args, "port");
   const parsedPort = Number.parseInt(rawPort, 10);
   const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 3456;
+  const host = String(readOption(args, "host") || process.env.THUNDERCLAW_HOST || "127.0.0.1").trim() || "127.0.0.1";
   const { startThunderClawServer } = await import("./thunderclaw-server.js");
-  startThunderClawServer({ port, host: "127.0.0.1" });
+  startThunderClawServer({ port, host });
 } else if (cmd === "status") {
   const bin = path.resolve(
     root,

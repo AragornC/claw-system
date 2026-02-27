@@ -939,7 +939,7 @@
       gap: 7px;
       min-width: 0;
     }
-    .strategy-layer-card.signal { grid-column: span 2; }
+    .strategy-layer-card.signal { grid-column: span 1; }
     .strategy-layer-head {
       display: flex;
       align-items: baseline;
@@ -1051,6 +1051,13 @@
       display: grid;
       gap: 6px;
     }
+    .strategy-feature-groups.compact .strategy-feature-chip {
+      padding: 5px 6px;
+    }
+    .strategy-feature-groups.compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
     .strategy-feature-group {
       border: 1px dashed rgba(139,148,158,0.35);
       border-radius: 8px;
@@ -1122,6 +1129,7 @@
       margin-left: auto;
     }
     .strategy-run-replay-btn:hover { border-color: rgba(177,218,255,0.8); background: rgba(88,166,255,0.26); }
+    .strategy-replay-progress { font-size: 0.66rem; color: var(--muted); margin-left: 8px; }
     .strategy-trading-main {
       display: grid;
       grid-template-columns: 1fr;
@@ -1372,6 +1380,7 @@
       .strategy-basic-grid { grid-template-columns: 1fr; }
       .strategy-layer-grid { grid-template-columns: 1fr; }
       .strategy-layer-card.signal { grid-column: span 1; }
+      .strategy-feature-groups.compact { grid-template-columns: 1fr; }
       .strategy-layer-controls { grid-template-columns: 1fr; }
       .strategy-run-replay-btn { margin-left: 0; }
       .strategy-trading-main.with-playbacks { grid-template-columns: 1fr; }
@@ -10988,8 +10997,15 @@
         backtestPanelRuntime = createBacktestPanelRuntime({
           ohlcvByTf: OHLCV_BY_TF || {},
           normalizeBars: normalizeBars,
-          normalizeStrategyDslSpec: normalizeStrategyDslSpec,
-          reportStrategyArtifactResult: reportStrategyArtifactResult,
+          normalizeStrategyDslSpec: (typeof normalizeStrategyDslSpec === 'function'
+            ? normalizeStrategyDslSpec
+            : function(specLike) {
+                const src = specLike && typeof specLike === 'object' ? specLike : {};
+                return src;
+              }),
+          reportStrategyArtifactResult: (typeof reportStrategyArtifactResult === 'function'
+            ? reportStrategyArtifactResult
+            : async function() { return { ok: false, error: 'reportStrategyArtifactResult_unavailable' }; }),
           setupStrategyLabPanel: setupStrategyLabPanel,
           escapeHtml: escapeHtml,
           windowObj: window,

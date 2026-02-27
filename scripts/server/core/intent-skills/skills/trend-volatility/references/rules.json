@@ -1,0 +1,49 @@
+{
+  "features": [
+    {
+      "id": "ema",
+      "keywords": ["ema", "均线"],
+      "candidate": {
+        "candidateId": "cand_feature_ema",
+        "kind": "feature",
+        "title": "EMA 趋势特征",
+        "summary": "对话命中 EMA/均线关键词",
+        "confidence": 0.72,
+        "feature": {
+          "name": "ema_trend",
+          "group": "trend",
+          "kind": "ema",
+          "description": "EMA 快慢线趋势判断",
+          "params": { "fast": 12, "slow": 26 }
+        }
+      }
+    },
+    {
+      "id": "atr",
+      "keywords": ["atr", "波动", "波动率"],
+      "candidate": {
+        "candidateId": "cand_feature_atr",
+        "kind": "feature",
+        "title": "ATR 波动过滤",
+        "summary": "对话命中 ATR/波动关键词",
+        "confidence": 0.7,
+        "feature": {
+          "name": "atr_filter",
+          "group": "volatility",
+          "kind": "atr",
+          "description": "ATR 波动率过滤",
+          "params": { "period": 14 }
+        }
+      }
+    }
+  ],
+  "confidenceWhenDetected": 0.68,
+  "confidenceWhenMissing": 0.3,
+  "reasoningDetected": "识别到趋势/波动特征偏好",
+  "reasoningMissing": "未识别到趋势/波动特征偏好",
+  "strategyHints": {
+    "entry": "趋势方向一致且波动过滤通过时入场",
+    "riskControl": "止损1%-2%，单笔风险不超过总资金1%",
+    "exit": "止盈2%-4%或趋势反转离场"
+  }
+}

@@ -203,9 +203,17 @@ function renderCandidateMetaRuntime(candidateLike) {
   const state = tcSafeText(candidate.syncStatus || strategy.status || "");
   const stateLabel = strategyStatusLabelRuntime(state);
   const stateText = stateLabel ? (" · 状态: " + stateLabel) : "";
+  const framework = strategy.frameworkSummary && typeof strategy.frameworkSummary === "object"
+    ? strategy.frameworkSummary
+    : {};
+  const frameworkText = [
+    tcSafeText(framework.signal || ""),
+    tcSafeText(framework.risk || ""),
+  ].filter(Boolean).join(" | ");
   return "Horizon: " + tcSafeText(strategy.horizon || "intraday")
     + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced")
-    + stateText;
+    + stateText
+    + (frameworkText ? (" · " + frameworkText) : "");
 }
 
 function renderCandidateDetailRuntime(candidateLike) {

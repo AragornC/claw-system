@@ -7,7 +7,7 @@ import {
   buildFeatureVersionInfo,
 } from "../domain/feature-taxonomy.js";
 
-const FEATURE_GROUPS = new Set(["trend", "momentum", "volatility", "risk", "execution", "custom"]);
+const FEATURE_GROUPS = new Set(["trend", "momentum", "volatility", "risk", "execution", "signal_external", "custom"]);
 const FEATURE_KINDS = new Set([
   "ema",
   "sma",
@@ -17,6 +17,9 @@ const FEATURE_KINDS = new Set([
   "volume",
   "price_action",
   "risk_rule",
+  "news_sentiment",
+  "social_sentiment",
+  "prediction_market",
   "custom",
 ]);
 const STRATEGY_HORIZONS = new Set(["scalp", "intraday", "swing", "position"]);
