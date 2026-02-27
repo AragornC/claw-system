@@ -121,17 +121,18 @@ function normalizeStrategy(rawLike = {}) {
     .filter(Boolean)
     .slice(0, 8);
   const dsl = raw.dsl && typeof raw.dsl === "object" ? raw.dsl : null;
+  const rawLayers = raw.layers && typeof raw.layers === "object" ? raw.layers : {};
   const layers = normalizeLayerFramework({
-    signalLayer: {
+    signalLayer: rawLayers.signalLayer || {
       signalType: "composite",
       signalLogic: entry || "ema_fast > ema_slow",
       featureRefs,
     },
-    positionLayer: {},
-    riskLayer: {
+    positionLayer: rawLayers.positionLayer || {},
+    riskLayer: rawLayers.riskLayer || {
       riskPauseCondition: riskControl,
     },
-    executionLayer: {},
+    executionLayer: rawLayers.executionLayer || {},
   });
   return {
     title,
@@ -144,6 +145,125 @@ function normalizeStrategy(rawLike = {}) {
     featureRefs,
     features,
     dsl,
+    layers,
+    frameworkSummary: summarizeLayerFramework(layers),
+  };
+}
+
+function deriveLayerSupportFeatures(featureCandidatesLike = []) {
+  const featureCandidates = Array.isArray(featureCandidatesLike) ? featureCandidatesLike : [];
+  const refs = featureCandidates
+    .map((item) => toText(item?.feature?.name || ""))
+    .filter(Boolean);
+  const hasExternalSignal = refs.some((name) => (
+    name.includes("news")
+    || name.includes("twitter")
+    || name.includes("social")
+    || name.includes("polymarket")
+    || name.includes("prediction")
+  ));
+  const extra = [
+    {
+      candidateId: "cand_feature_position_budget",
+      kind: "feature",
+      title: "仓位预算约束",
+      summary: "根据信号置信度动态约束单笔仓位",
+      confidence: 0.66,
+      feature: {
+        name: "position_budget_guard",
+        group: "custom",
+        kind: "custom",
+        description: "仓位层预算保护",
+        params: { mode: "risk_budget", maxExposurePct: hasExternalSignal ? 22 : 30 },
+      },
+    },
+    {
+      candidateId: "cand_feature_risk_guard",
+      kind: "feature",
+      title: "回撤风控约束",
+      summary: "限制连续亏损并触发风控暂停",
+      confidence: 0.68,
+      feature: {
+        name: "risk_drawdown_guard",
+        group: "risk",
+        kind: "risk_rule",
+        description: "风控层回撤与连亏保护",
+        params: { maxDrawdownPct: hasExternalSignal ? 12 : 15, maxConsecutiveLoss: 2 },
+      },
+    },
+    {
+      candidateId: "cand_feature_execution_slippage",
+      kind: "feature",
+      title: "执行滑点约束",
+      summary: "执行层控制滑点与重试回退",
+      confidence: 0.64,
+      feature: {
+        name: "execution_slippage_guard",
+        group: "execution",
+        kind: "custom",
+        description: "执行层滑点和重试策略",
+        params: { slippageBps: hasExternalSignal ? 4 : 6, retryCount: 2 },
+      },
+    },
+  ];
+  return extra;
+}
+
+function buildLayeredStrategy(featureCandidatesLike = [], strategyHintsLike = {}) {
+  const featureCandidates = Array.isArray(featureCandidatesLike) ? featureCandidatesLike : [];
+  const strategyHints = strategyHintsLike && typeof strategyHintsLike === "object" ? strategyHintsLike : {};
+  const allFeatures = [...featureCandidates, ...deriveLayerSupportFeatures(featureCandidates)];
+  const featureRefs = uniqStrings(allFeatures.map((item) => item?.feature?.name).filter(Boolean));
+  const externalRefs = featureRefs.filter((name) => (
+    name.includes("news")
+    || name.includes("twitter")
+    || name.includes("social")
+    || name.includes("polymarket")
+    || name.includes("prediction")
+  ));
+  const hasExternalSignal = externalRefs.length > 0;
+  const layers = normalizeLayerFramework({
+    signalLayer: {
+      signalType: hasExternalSignal ? "composite_external" : "composite",
+      signalLogic: hasExternalSignal
+        ? `external_signal_score > 0.55 && trend_confirmed && volatility_ok // refs: ${externalRefs.join(",")}`
+        : toText(strategyHints.entry || "trend_confirmed && volatility_ok"),
+      featureRefs,
+      params: {
+        longThreshold: hasExternalSignal ? 0.58 : 0.55,
+        shortThreshold: hasExternalSignal ? 0.42 : 0.45,
+        signalMargin: hasExternalSignal ? 0.06 : 0.08,
+        maxHoldBars: 96,
+      },
+    },
+    positionLayer: {
+      mode: "risk_budget",
+      maxPositions: 1,
+      maxExposurePct: hasExternalSignal ? 22 : 30,
+      minNotional: 10,
+      maxNotional: hasExternalSignal ? 60 : 80,
+      leverageLimit: hasExternalSignal ? 5 : 8,
+    },
+    riskLayer: {
+      stopLossPct: hasExternalSignal ? 1.8 : 2.5,
+      takeProfitPct: hasExternalSignal ? 4.2 : 5.5,
+      maxDrawdownPct: hasExternalSignal ? 12 : 18,
+      frequencyLimitPerDay: 10,
+      maxConsecutiveLoss: 2,
+      riskPauseCondition: toText(strategyHints.riskControl || "连续亏损2次暂停策略"),
+    },
+    executionLayer: {
+      orderMode: hasExternalSignal ? "limit" : "market",
+      slippageBps: hasExternalSignal ? 4 : 6,
+      feeModel: "taker",
+      retryCount: 2,
+      retryBackoffMs: 400,
+    },
+  });
+  return {
+    featureCandidates: allFeatures,
+    featureRefs,
+    features: allFeatures.map((item) => item.feature).filter(Boolean),
     layers,
     frameworkSummary: summarizeLayerFramework(layers),
   };
@@ -260,6 +380,7 @@ ${assistantReply}`;
   const strategyHints = skillPack.strategyHints && typeof skillPack.strategyHints === "object"
     ? skillPack.strategyHints
     : {};
+  const layered = buildLayeredStrategy(featureCandidates, strategyHints);
 
   const strategyCandidate = {
     candidateId: "cand_strategy_heuristic",
@@ -275,8 +396,10 @@ ${assistantReply}`;
       entry: toText(strategyHints.entry || "趋势方向一致且波动过滤通过时入场"),
       riskControl: toText(strategyHints.riskControl || "止损1%-2%，单笔风险不超过总资金1%"),
       exit: toText(strategyHints.exit || "止盈2%-4%或趋势反转离场"),
-      featureRefs: featureCandidates.map((item) => item.feature?.name).filter(Boolean),
-      features: featureCandidates.map((item) => item.feature).filter(Boolean),
+      featureRefs: layered.featureRefs,
+      features: layered.features,
+      layers: layered.layers,
+      frameworkSummary: layered.frameworkSummary,
       dsl: {
         entry: "trend_confirm && feature_signal_confirm",
         risk: "sl_1_2_pct",
@@ -289,7 +412,7 @@ ${assistantReply}`;
     intentDetected: true,
     confidence: clampNumber(skillPack.confidence, 0, 1, 0.74),
     reasoning: toText(skillPack.reasoning || "启用本地技能编排交易意图提取"),
-    candidates: [...featureCandidates.slice(0, 3), strategyCandidate],
+    candidates: [...layered.featureCandidates.slice(0, 6), strategyCandidate],
   };
 }
 

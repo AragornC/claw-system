@@ -128,7 +128,7 @@ function computeSimpleSummary(barsLike = [], layersLike = {}, contextLike = {}) 
       slippageBps: 0,
       reasonRule: "freqtrade_adapter_simulation",
       pnlPct: Number(pnlPct.toFixed(6)),
-      decisionSnapshot: buildDecisionSnapshot(layers, bars[i], context),
+      decisionSnapshot: buildDecisionSnapshot(layers, bars[i], contextLike),
     });
   }
   const tradeCount = wins + losses;

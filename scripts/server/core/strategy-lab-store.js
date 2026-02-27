@@ -1918,18 +1918,42 @@ export function createStrategyLabStore(deps = {}) {
     const featureRelations = featureRefs.map((ref) => {
       const lock = lockLookup.get(ref) || null;
       const featureMeta = featuresByKey.get(ref) || featuresByKey.get(slugify(ref)) || null;
+      const featureGroup = toText(featureMeta?.group || "", "").toLowerCase();
       const mainCategory = toText(featureMeta?.mainCategory || "", "");
       const mainCategoryConfig = MAIN_CATEGORY_CONFIG[mainCategory] || null;
       const outputType = toText(featureMeta?.outputType || "", "");
       const outputTypeLabel = OUTPUT_TYPE_CONFIG[outputType]?.label || outputType || "";
       const tags = Array.isArray(featureMeta?.tags) ? featureMeta.tags.slice(0, 3) : [];
       const tagLabels = tags.map((tag) => TAG_CONFIG[tag]?.label || tag).filter(Boolean);
+      let relationType = "signal_input";
+      if (
+        featureGroup === "execution"
+        || ref.includes("execution")
+        || ref.includes("slippage")
+        || ref.includes("fee")
+      ) {
+        relationType = "execution_rule";
+      } else if (
+        featureGroup === "risk"
+        || toText(featureMeta?.kind || "", "").toLowerCase() === "risk_rule"
+        || ref.includes("risk")
+        || ref.includes("drawdown")
+      ) {
+        relationType = "risk_guard";
+      } else if (
+        ref.includes("position")
+        || ref.includes("exposure")
+        || ref.includes("sizing")
+      ) {
+        relationType = "position_sizing";
+      }
       return {
         featureRef: ref,
         featureId: toText(lock?.featureId || ref),
         featureName: toText(lock?.featureName || featureMeta?.name || ref),
         featureVersion: toText(lock?.featureVersion || "v1.0.0"),
-        relationType: "signal_input",
+        relationType,
+        featureGroup,
         mainCategory: mainCategory,
         mainCategoryLabel: toText(mainCategoryConfig?.label || "未分类"),
         kind: toText(featureMeta?.kind || ""),

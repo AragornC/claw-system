@@ -208,12 +208,37 @@ function renderCandidateMetaRuntime(candidateLike) {
     : {};
   const frameworkText = [
     tcSafeText(framework.signal || ""),
+    tcSafeText(framework.position || ""),
     tcSafeText(framework.risk || ""),
+    tcSafeText(framework.execution || ""),
   ].filter(Boolean).join(" | ");
   return "Horizon: " + tcSafeText(strategy.horizon || "intraday")
     + " · Risk: " + tcSafeText(strategy.riskLevel || "balanced")
     + stateText
     + (frameworkText ? (" · " + frameworkText) : "");
+}
+
+function renderStrategyLayersRuntime(candidateLike) {
+  const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
+  if (candidate.kind !== "strategy") return "";
+  const strategy = candidate.strategy && typeof candidate.strategy === "object" ? candidate.strategy : {};
+  const layers = strategy.layers && typeof strategy.layers === "object" ? strategy.layers : {};
+  const signal = layers.signalLayer && typeof layers.signalLayer === "object" ? layers.signalLayer : {};
+  const position = layers.positionLayer && typeof layers.positionLayer === "object" ? layers.positionLayer : {};
+  const risk = layers.riskLayer && typeof layers.riskLayer === "object" ? layers.riskLayer : {};
+  const execution = layers.executionLayer && typeof layers.executionLayer === "object" ? layers.executionLayer : {};
+  const signalSummary = tcSafeText(signal.signalLogic || strategy.entry || "").slice(0, 80);
+  const featureCount = Array.isArray(signal.featureRefs) ? signal.featureRefs.length : 0;
+  const positionSummary = "mode=" + tcSafeText(position.mode || "risk_budget") + ", exposure<= " + String(tcSafeText(position.maxExposurePct || "-")) + "%";
+  const riskSummary = "SL " + String(tcSafeText(risk.stopLossPct || "-")) + "% / TP " + String(tcSafeText(risk.takeProfitPct || "-")) + "%";
+  const executionSummary = tcSafeText(execution.orderMode || "market") + " · slippage " + String(tcSafeText(execution.slippageBps || "-")) + "bps";
+  return ''
+    + '<div class="ai-intent-layer-grid">'
+    + '<div class="ai-intent-layer-item"><span>信号层</span><small>' + tcSafeText(signalSummary || "未配置") + (featureCount ? (" · refs=" + String(featureCount)) : "") + '</small></div>'
+    + '<div class="ai-intent-layer-item"><span>仓位层</span><small>' + tcSafeText(positionSummary) + '</small></div>'
+    + '<div class="ai-intent-layer-item"><span>风控层</span><small>' + tcSafeText(riskSummary) + '</small></div>'
+    + '<div class="ai-intent-layer-item"><span>执行层</span><small>' + tcSafeText(executionSummary) + '</small></div>'
+    + '</div>';
 }
 
 function renderCandidateDetailRuntime(candidateLike) {
@@ -332,6 +357,16 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     d.className = "ai-strategy-intent-detail";
     d.textContent = renderCandidateDetailRuntime(candidate);
     card.appendChild(d);
+
+    if (candidate.kind === "strategy") {
+      const layerHtml = renderStrategyLayersRuntime(candidate);
+      if (layerHtml) {
+        const layerWrap = document.createElement("div");
+        layerWrap.className = "ai-strategy-intent-layers";
+        layerWrap.innerHTML = layerHtml;
+        card.appendChild(layerWrap);
+      }
+    }
 
     const actions = document.createElement("div");
     actions.className = "ai-strategy-intent-actions";

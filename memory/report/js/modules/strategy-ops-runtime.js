@@ -375,10 +375,11 @@
       const row = item && typeof item === "object" ? item : {};
       const relation = soText(row.relationType || "").toLowerCase();
       const category = soText(row.mainCategory || "other").toLowerCase();
+      const featureGroup = soText(row.featureGroup || "").toLowerCase();
       let bucket = "signal";
-      if (relation.includes("position") || relation.includes("sizing") || relation.includes("exposure")) bucket = "position";
-      else if (relation.includes("risk") || category === "risk") bucket = "risk";
-      else if (relation.includes("execution") || relation.includes("order") || relation.includes("fee") || relation.includes("slippage")) bucket = "execution";
+      if (relation.includes("position") || relation.includes("sizing") || relation.includes("exposure") || featureGroup === "position") bucket = "position";
+      else if (relation.includes("risk") || category === "risk" || featureGroup === "risk") bucket = "risk";
+      else if (relation.includes("execution") || relation.includes("order") || relation.includes("fee") || relation.includes("slippage") || featureGroup === "execution") bucket = "execution";
       empty[bucket].push(row);
     });
     return empty;
