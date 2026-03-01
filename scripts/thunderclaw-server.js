@@ -240,6 +240,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   refreshRuntimeModelFromSession, extractModelSwitchIntent,
   saveXbrainStore: saveXbrainStore, toModelRef, maskSecret, parseJsonSafe,
   extractTradingIntentCandidates, updateChatCardStatus,
+  detectAndClarify,
   xbrainStore, chatHistory, gatewayState,
 });
 

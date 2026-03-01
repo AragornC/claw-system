@@ -650,3 +650,217 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
 
   return row;
 };
+
+/**
+ * Create an interactive clarification card (点点AI style).
+ * Shows a headline, AI-generated questions with choice chips, and a submit button.
+ * After submission, shows progress → result description → "加入特征库" button.
+ */
+var createClarificationCardRuntime = function createClarificationCardRuntime(optionsLike) {
+  const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+  const headline = tcSafeText(options.headline || "想帮你规划一条更合适的特征，先明确一下你的想法：");
+  const featureConcept = options.featureConcept && typeof options.featureConcept === "object" ? options.featureConcept : {};
+  const questions = Array.isArray(options.clarifyingQuestions) ? options.clarifyingQuestions : [];
+  const onSubmit = typeof options.onSubmit === "function" ? options.onSubmit : null;
+  const onApply = typeof options.onApply === "function" ? options.onApply : null;
+
+  if (!questions.length) return null;
+
+  // Track user selections
+  const selections = {};
+
+  const row = document.createElement("div");
+  row.className = "ai-msg-row bot ai-clarify-row";
+
+  const bubble = document.createElement("div");
+  bubble.className = "ai-msg bot ai-clarify-bubble";
+  row.appendChild(bubble);
+
+  // Headline
+  const headlineEl = document.createElement("div");
+  headlineEl.className = "ai-clarify-headline";
+  headlineEl.textContent = headline;
+  bubble.appendChild(headlineEl);
+
+  // Questions container
+  const questionsEl = document.createElement("div");
+  questionsEl.className = "ai-clarify-questions";
+  bubble.appendChild(questionsEl);
+
+  questions.forEach(function(q) {
+    const qObj = q && typeof q === "object" ? q : {};
+    const qId = tcSafeText(qObj.id, "q");
+    const qText = tcSafeText(qObj.question, "");
+    const qOptions = Array.isArray(qObj.options) ? qObj.options : [];
+    if (!qText || qOptions.length < 2) return;
+
+    const section = document.createElement("div");
+    section.className = "ai-clarify-question";
+
+    const label = document.createElement("div");
+    label.className = "ai-clarify-question-label";
+    label.textContent = qText;
+    section.appendChild(label);
+
+    const chipsWrap = document.createElement("div");
+    chipsWrap.className = "ai-clarify-chips";
+
+    qOptions.forEach(function(opt) {
+      const optObj = opt && typeof opt === "object" ? opt : {};
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "ai-clarify-chip";
+      chip.textContent = tcSafeText(optObj.label, "");
+      chip.dataset.qid = qId;
+      chip.dataset.value = tcSafeText(optObj.value, "");
+      chip.addEventListener("click", function() {
+        // Deselect siblings
+        chipsWrap.querySelectorAll(".ai-clarify-chip").forEach(function(c) { c.classList.remove("selected"); });
+        chip.classList.add("selected");
+        selections[qId] = tcSafeText(optObj.value, "");
+      });
+      chipsWrap.appendChild(chip);
+    });
+    section.appendChild(chipsWrap);
+    questionsEl.appendChild(section);
+  });
+
+  // Submit button
+  const submitWrap = document.createElement("div");
+  submitWrap.className = "ai-clarify-submit-wrap";
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "button";
+  submitBtn.className = "ai-clarify-submit";
+  submitBtn.textContent = "开始生成特征";
+  submitWrap.appendChild(submitBtn);
+  bubble.appendChild(submitWrap);
+
+  // Progress area (hidden initially)
+  const progressEl = document.createElement("div");
+  progressEl.className = "ai-clarify-progress";
+  progressEl.style.display = "none";
+  bubble.appendChild(progressEl);
+
+  // Result area (hidden initially)
+  const resultEl = document.createElement("div");
+  resultEl.className = "ai-clarify-result";
+  resultEl.style.display = "none";
+  bubble.appendChild(resultEl);
+
+  function setProgress(text) {
+    progressEl.style.display = "block";
+    progressEl.textContent = text;
+  }
+
+  function showResult(result) {
+    progressEl.style.display = "none";
+    resultEl.style.display = "block";
+    resultEl.innerHTML = "";
+
+    const ok = Boolean(result && result.ok);
+    const summary = tcSafeText(result?.resultSummary || "", "");
+    const feature = result?.feature || {};
+    const featureName = tcSafeText(feature.name || featureConcept.name || "", "特征");
+
+    if (!ok) {
+      const errDiv = document.createElement("div");
+      errDiv.className = "ai-clarify-result-error";
+      errDiv.textContent = "⚠️ " + tcSafeText(result?.error || "特征生成失败，请重试或调整描述");
+      resultEl.appendChild(errDiv);
+      // Re-enable submit
+      submitBtn.disabled = false;
+      submitBtn.textContent = "重新生成";
+      return;
+    }
+
+    // Success: show result summary
+    const successDiv = document.createElement("div");
+    successDiv.className = "ai-clarify-result-success";
+
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "ai-clarify-result-title";
+    titleDiv.textContent = "✅ 特征已生成";
+    successDiv.appendChild(titleDiv);
+
+    if (summary) {
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "ai-clarify-result-summary";
+      summaryDiv.textContent = summary;
+      successDiv.appendChild(summaryDiv);
+    }
+
+    const nameDiv = document.createElement("div");
+    nameDiv.className = "ai-clarify-result-name";
+    nameDiv.textContent = "特征名称：" + featureName;
+    successDiv.appendChild(nameDiv);
+
+    // "加入特征库" button
+    if (onApply) {
+      const applyBtn = document.createElement("button");
+      applyBtn.type = "button";
+      applyBtn.className = "ai-clarify-apply";
+      applyBtn.textContent = "加入特征库";
+      applyBtn.addEventListener("click", function() {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "正在加入...";
+        Promise.resolve(onApply(result))
+          .then(function(outcome) {
+            if (outcome && outcome.ok) {
+              applyBtn.textContent = "✅ 已加入特征库";
+              applyBtn.classList.add("done");
+            } else {
+              applyBtn.textContent = "加入失败：" + tcSafeText(outcome?.error || "");
+              applyBtn.disabled = false;
+            }
+          })
+          .catch(function(err) {
+            applyBtn.textContent = "加入失败";
+            applyBtn.disabled = false;
+          });
+      });
+      successDiv.appendChild(applyBtn);
+    }
+
+    resultEl.appendChild(successDiv);
+  }
+
+  submitBtn.addEventListener("click", function() {
+    if (!onSubmit) return;
+    // Check at least one selection
+    const hasSelections = Object.keys(selections).length > 0;
+    if (!hasSelections) {
+      // Auto-select first option for each question
+      questionsEl.querySelectorAll(".ai-clarify-chips").forEach(function(chipsWrap) {
+        const firstChip = chipsWrap.querySelector(".ai-clarify-chip");
+        if (firstChip && !chipsWrap.querySelector(".ai-clarify-chip.selected")) {
+          firstChip.classList.add("selected");
+          selections[firstChip.dataset.qid] = firstChip.dataset.value;
+        }
+      });
+    }
+
+    // Disable UI
+    submitBtn.disabled = true;
+    submitBtn.textContent = "生成中...";
+    questionsEl.querySelectorAll(".ai-clarify-chip").forEach(function(c) { c.disabled = true; });
+
+    // Progress phases
+    setProgress("⏳ 正在分析你的偏好...");
+    var progressTimer = setTimeout(function() { setProgress("🔄 正在生成特征代码..."); }, 3000);
+    var progressTimer2 = setTimeout(function() { setProgress("🔍 正在验证代码可执行性..."); }, 8000);
+
+    Promise.resolve(onSubmit({ featureConcept: featureConcept, userChoices: selections }))
+      .then(function(result) {
+        clearTimeout(progressTimer);
+        clearTimeout(progressTimer2);
+        showResult(result);
+      })
+      .catch(function(err) {
+        clearTimeout(progressTimer);
+        clearTimeout(progressTimer2);
+        showResult({ ok: false, error: tcSafeText(err?.message || err, "生成失败") });
+      });
+  });
+
+  return row;
+};
