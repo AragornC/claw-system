@@ -478,10 +478,11 @@
     const pipelineRuntime = resolveExternalPipelineCodeRuntime(feature);
     const pipelineCode = pipelineRuntime.code;
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
-    const codegenStatus = sfText(params.codegenStatus || "", "").toLowerCase();
-    const codeValidationError = sfText(params.codeValidationError || "", "");
-    const requiredInputs = Array.isArray(params.requiredInputs)
-      ? params.requiredInputs.map(function mapRequired(row) {
+    const codegen = params.codegen && typeof params.codegen === "object" ? params.codegen : {};
+    const codegenStatus = sfText(codegen.codegenStatus || params.codegenStatus || "", "").toLowerCase();
+    const codeValidationError = sfText(codegen.codeValidationError || params.codeValidationError || "", "");
+    const requiredInputs = Array.isArray(codegen.requiredInputs) || Array.isArray(params.requiredInputs)
+      ? (Array.isArray(codegen.requiredInputs) ? codegen.requiredInputs : params.requiredInputs).map(function mapRequired(row) {
         const item = row && typeof row === "object" ? row : {};
         return sfText(item.label || item.key || "", "");
       }).filter(Boolean)
@@ -554,7 +555,7 @@
       + '<section id="' + sfEscapeHtml(sectionIds.execution) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">可执行特征代码（用于 populate_indicators）</div>'
       + '<div class="meta">输出列：' + sfEscapeHtml(sfText(params.outputColumn || "", "-")) + ' · 周期：' + sfEscapeHtml(sfText(params.timeframe || "", "-")) + '</div>'
       + '<div class="meta">来源：' + sfEscapeHtml(sfText(params.sourceType || feature.sourceType || "", "-")) + ' / ' + sfEscapeHtml(sfText(params.provider || "", "-")) + '</div>'
-      + '<div class="meta">代码来源：' + sfEscapeHtml(sfText(params.codeSource || "", "未标注")) + '</div>'
+      + '<div class="meta">代码来源：' + sfEscapeHtml(sfText((params.codegen && params.codegen.codeSource) || params.codeSource || "", "未标注")) + '</div>'
       + '<pre class="mini-mono">' + sfEscapeHtml(executionCode || (needsInputHint ? ("# 暂无执行代码\n" + needsInputHint) : "# 暂无执行代码（请在确认卡片时补充 pythonIndicator）")) + '</pre>'
       + (pipelineCode ? ('<details class="feature-detail-fold" open><summary>外部信号主算法（具体执行代码）</summary><div class="meta">主算法来源：' + sfEscapeHtml(sfText(pipelineRuntime.source || '', '-')) + '</div><pre class="mini-mono">' + sfEscapeHtml(pipelineCode) + '</pre></details>') : '<div class="meta" style="margin-top:8px;">外部主算法代码：未生成（仅接受模型生成）。</div>')
       + '</section>'
@@ -573,7 +574,8 @@
   function resolveExternalPipelineCodeRuntime(featureLike) {
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
-    const fromCandidate = sfText(params.pipelineCode || params.pipeline_code || feature.pipelineCode || "", "");
+    const runtime = params.runtime && typeof params.runtime === "object" ? params.runtime : {};
+    const fromCandidate = sfText(runtime.pipelineCode || params.pipelineCode || params.pipeline_code || feature.pipelineCode || "", "");
     if (!fromCandidate) {
       return {
         code: "",
@@ -582,14 +584,19 @@
     }
     return {
       code: fromCandidate,
-      source: sfText(params.codeSource || "", "model_generated"),
+      source: sfText((params.codegen && params.codegen.codeSource) || params.codeSource || "", "model_generated"),
     };
   }
 
   function resolveExecutionCodeRuntime(featureLike) {
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const runtime = params.runtime && typeof params.runtime === "object" ? params.runtime : {};
     const candidates = [
+      runtime.pythonIndicator,
+      runtime.pythonCode,
+      runtime.code,
+      runtime.expression,
       params.pythonIndicator,
       params.pythonindicator,
       params.pythonCode,

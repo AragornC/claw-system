@@ -280,6 +280,9 @@ function normalizeFeatureCandidate(rawLike = {}) {
   const kind = pickEnum(raw.kind, FEATURE_KINDS, "custom");
   const description = toText(raw.description || raw.summary || raw.note || "来自对话提案");
   const paramsRaw = raw.params && typeof raw.params === "object" ? raw.params : {};
+  const runtimeRaw = paramsRaw.runtime && typeof paramsRaw.runtime === "object" ? paramsRaw.runtime : {};
+  const sourceRaw = paramsRaw.source && typeof paramsRaw.source === "object" ? paramsRaw.source : {};
+  const codegenRaw = paramsRaw.codegen && typeof paramsRaw.codegen === "object" ? paramsRaw.codegen : {};
   const params = {};
   const paramAliasMap = {
     pythonindicator: "pythonIndicator",
@@ -288,6 +291,9 @@ function normalizeFeatureCandidate(rawLike = {}) {
     urltemplate: "urlTemplate",
     outputcolumn: "outputColumn",
     pipelinecode: "pipelineCode",
+    codegenstatus: "codegenStatus",
+    codevalidationerror: "codeValidationError",
+    coderefineinstruction: "codeRefineInstruction",
   };
   const importantParamKeys = new Set([
     "pythonIndicator",
@@ -344,6 +350,60 @@ function normalizeFeatureCandidate(rawLike = {}) {
           .filter((row) => row.key);
       }
     });
+  const nestedMap = {
+    pythonIndicator: toText(runtimeRaw.pythonIndicator || ""),
+    pipelineCode: toText(runtimeRaw.pipelineCode || ""),
+    outputColumn: toText(runtimeRaw.outputColumn || ""),
+    timeframe: toText(runtimeRaw.timeframe || ""),
+    sourceType: toText(sourceRaw.sourceType || ""),
+    provider: toText(sourceRaw.provider || ""),
+    url: toText(sourceRaw.url || ""),
+    urlTemplate: toText(sourceRaw.urlTemplate || ""),
+    query: toText(sourceRaw.query || ""),
+    codeSource: toText(codegenRaw.codeSource || ""),
+    codegenStatus: toText(codegenRaw.codegenStatus || ""),
+    codeValidationError: toText(codegenRaw.codeValidationError || ""),
+    codeDataSourceWarning: toText(codegenRaw.codeDataSourceWarning || ""),
+  };
+  Object.entries(nestedMap).forEach(([k,v]) => {
+    if (toText(v || "")) params[k] = v;
+  });
+  const requiredInputsFromNested = Array.isArray(codegenRaw.requiredInputs) ? codegenRaw.requiredInputs : [];
+  if (!Array.isArray(params.requiredInputs) && requiredInputsFromNested.length > 0) {
+    params.requiredInputs = requiredInputsFromNested
+      .slice(0, 8)
+      .map((item) => {
+        const row = item && typeof item === "object" ? item : {};
+        return {
+          key: toText(row.key || ""),
+          label: toText(row.label || row.key || ""),
+          type: toText(row.type || "text"),
+          required: row.required !== false,
+          hint: toText(row.hint || ""),
+        };
+      })
+      .filter((row) => row.key);
+  }
+  params.runtime = {
+    pythonIndicator: toText(params.pythonIndicator || ""),
+    pipelineCode: toText(params.pipelineCode || ""),
+    outputColumn: toText(params.outputColumn || ""),
+    timeframe: toText(params.timeframe || ""),
+  };
+  params.source = {
+    sourceType: toText(params.sourceType || ""),
+    provider: toText(params.provider || ""),
+    url: toText(params.url || ""),
+    urlTemplate: toText(params.urlTemplate || ""),
+    query: toText(params.query || ""),
+  };
+  params.codegen = {
+    codeSource: toText(params.codeSource || ""),
+    codegenStatus: toText(params.codegenStatus || ""),
+    codeValidationError: toText(params.codeValidationError || ""),
+    codeDataSourceWarning: toText(params.codeDataSourceWarning || ""),
+    requiredInputs: Array.isArray(params.requiredInputs) ? params.requiredInputs : [],
+  };
   const tags = uniqStrings(Array.isArray(raw.tags) ? raw.tags : []).slice(0, 3);
   const algorithmSteps = Array.isArray(raw.algorithmSteps)
     ? raw.algorithmSteps.map((v) => toText(v)).filter(Boolean).slice(0, 5)

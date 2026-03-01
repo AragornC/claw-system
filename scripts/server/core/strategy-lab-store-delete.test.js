@@ -230,4 +230,8 @@ test('applyIntentCandidate keeps pythonIndicator/pipelineCode even with many par
   assert.match(String(target.params.pipelineCode || ''), /compute_signal/);
   assert.equal(String(target.params.codeSource || ''), 'model_generated');
   assert.ok(Array.isArray(target.params.requiredInputs));
+  assert.equal(String(target.params.runtime?.pythonIndicator || ''), String(target.params.pythonIndicator || ''));
+  assert.equal(String(target.params.runtime?.pipelineCode || ''), String(target.params.pipelineCode || ''));
+  assert.equal(String(target.params.source?.sourceType || ''), 'news');
+  assert.equal(String(target.params.codegen?.codeSource || ''), 'model_generated');
 });
