@@ -354,12 +354,49 @@ async function handleAiChat(req, res) {
     sendJson(res, 400, { ok: false, error: "message is required" });
     return;
   }
-  appendChatEvent({
-    role: "user",
-    source: "dashboard",
-    text: message,
-  });
-  await syncXbrainFromOpenClaw().catch(() => null);
+  appendChatEvent({ role: "user", source: "dashboard", text: message });
+
+  // ═══ FAST PATH: Try clarification first (DeepSeek direct, ~10s) ═══
+  // If trading intent detected → return card immediately, skip slow openclaw CLI.
+  if (typeof deps.detectAndClarify === "function") {
+    try {
+      const clarification = await deps.detectAndClarify({
+        userMessage: message,
+        assistantReply: "",
+      });
+      if (clarification.intentDetected) {
+        const shortReply = clarification.headline || "正在理解你的需求...";
+        appendChatEvent({ role: "bot", source: "dashboard", text: shortReply, cards: [] });
+        sendJson(res, 200, {
+          ok: true,
+          reply: shortReply,
+          source: "clarification_fast_path",
+          actions: [],
+          executionTrace: [],
+          state: getXbrainStateSnapshot(),
+          modelRefUsed: getCurrentRuntimeModelRefFromStore(),
+          runtimeModelRef: getCurrentRuntimeModelRefFromStore(),
+          sessionIdUsed: "thunderclaw-main",
+          modelAutoSync: { detected: false },
+          modelSyncIntent: { ok: false, shouldProbeSessionModel: false, confidence: 0, reasoning: "", error: "" },
+          intentCandidates: [],
+          intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
+          clarification: {
+            intentDetected: true,
+            confidence: Number(clarification.confidence || 0),
+            headline: String(clarification.headline || ""),
+            featureConcept: clarification.featureConcept || null,
+            clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
+          },
+          replyEventId: null,
+        });
+        return;
+      }
+    } catch {}
+    // If clarification didn't detect intent → fall through to normal chat
+  }
+
+  // ═══ SLOW PATH: Regular chat via OpenClaw CLI ═══
   const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
   let turnResult = await runAgentTurn({
     message,
@@ -375,100 +412,16 @@ async function handleAiChat(req, res) {
         sessionId: "thunderclaw-main",
       }).catch(() => ({ ok: false }));
       if (healed?.ok) {
-        turnResult = await runAgentTurn({
-          message,
-          sessionId: "thunderclaw-main",
-          modelRef: runtimeModelRefBefore,
-          thinking: "medium",
-        });
+        turnResult = await runAgentTurn({ message, sessionId: "thunderclaw-main", modelRef: runtimeModelRefBefore, thinking: "medium" });
       }
     }
   }
   const { result, payload, reply, sessionId: sessionIdUsed } = turnResult;
-  let modelAutoSync = {
-    detected: false,
-    detectedBy: "",
-    modelRef: "",
-    defaultSync: { attempted: false, ok: null, error: null },
-    probe: null,
-  };
-  let modelSyncIntent = {
-    ok: false,
-    shouldProbeSessionModel: false,
-    confidence: 0,
-    reasoning: "",
-    error: "",
-  };
-  if (result.ok) {
-    if (typeof extractModelSwitchIntent === "function") {
-      modelSyncIntent = await extractModelSwitchIntent({
-        userMessage: message,
-        assistantReply: String(reply || ""),
-        sessionId: sessionIdUsed || "thunderclaw-main",
-        runtimeModelRef: runtimeModelRefBefore,
-        registry: uniqStrings(xbrainStore?.base?.modelRegistry || []),
-      }).catch((error) => ({
-        ok: false,
-        shouldProbeSessionModel: false,
-        confidence: 0,
-        reasoning: "",
-        error: String(error?.message || error || "model sync intent skill failed"),
-      }));
-    }
-    if (modelSyncIntent?.ok && modelSyncIntent?.shouldProbeSessionModel) {
-      const refreshed = await refreshRuntimeModelFromSession({
-        sessionId: sessionIdUsed || "thunderclaw-main",
-        fallbackRef: runtimeModelRefBefore,
-        syncDefault: true,
-      }).catch((error) => ({
-        ok: false,
-        changed: false,
-        modelRef: "",
-        defaultSync: { attempted: false, ok: null, error: null },
-        probe: { error: String(error?.message || error || "session model probe failed") },
-      }));
-      modelAutoSync.probe = refreshed?.probe || null;
-      if (refreshed?.changed) {
-        modelAutoSync = {
-          detected: true,
-          detectedBy: "session_probe",
-          modelRef: String(refreshed?.modelRef || "").trim(),
-          defaultSync: refreshed?.defaultSync || { attempted: false, ok: null, error: null },
-          probe: refreshed?.probe || null,
-        };
-      } else {
-        modelAutoSync = {
-          ...modelAutoSync,
-          probe: refreshed?.probe || null,
-        };
-      }
-    }
-  }
-  await syncXbrainFromOpenClaw().catch(() => null);
   const stateAfter = getXbrainStateSnapshot();
-  const runtimeModelRefAfter = toModelRef(
-    stateAfter?.base?.runtimeModelProvider,
-    stateAfter?.base?.runtimeModelId,
-  );
-  // Clarification flow only (no old multi-candidate flow)
-  let clarification = { ok: false, intentDetected: false };
-  if (result.ok && typeof deps.detectAndClarify === "function") {
-    clarification = await deps.detectAndClarify({
-      userMessage: message,
-      assistantReply: String(reply || ""),
-    }).catch((error) => ({
-      ok: false, intentDetected: false,
-      error: String(error?.message || error || "clarification failed"),
-    }));
-  }
+  const runtimeModelRefAfter = toModelRef(stateAfter?.base?.runtimeModelProvider, stateAfter?.base?.runtimeModelId);
   let replyEvent = null;
   if (reply) {
-    replyEvent = appendChatEvent({
-      role: "bot",
-      source: "dashboard",
-      text: reply,
-      cards: [],
-    });
+    replyEvent = appendChatEvent({ role: "bot", source: "dashboard", text: reply, cards: [] });
   }
   if (!result.ok) {
     sendJson(res, 500, {
@@ -479,19 +432,14 @@ async function handleAiChat(req, res) {
       actions: [],
       executionTrace: [],
       state: stateAfter,
-      modelRefUsed: modelAutoSync.detected ? modelAutoSync.modelRef : runtimeModelRefBefore,
+      modelRefUsed: runtimeModelRefBefore,
       runtimeModelRef: runtimeModelRefAfter,
       sessionIdUsed,
-      modelAutoSync,
-      modelSyncIntent: {
-        ok: Boolean(modelSyncIntent?.ok),
-        shouldProbeSessionModel: Boolean(modelSyncIntent?.shouldProbeSessionModel),
-        confidence: Number(modelSyncIntent?.confidence || 0),
-        reasoning: String(modelSyncIntent?.reasoning || ""),
-        error: String(modelSyncIntent?.error || ""),
-      },
+      modelAutoSync: { detected: false },
+      modelSyncIntent: { ok: false, shouldProbeSessionModel: false, confidence: 0, reasoning: "", error: "" },
       intentCandidates: [],
       intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
+      clarification: null,
     });
     return;
   }
@@ -502,27 +450,15 @@ async function handleAiChat(req, res) {
     actions: [],
     executionTrace: [],
     state: stateAfter,
-    modelRefUsed: modelAutoSync.detected ? modelAutoSync.modelRef : runtimeModelRefBefore,
+    modelRefUsed: runtimeModelRefBefore,
     runtimeModelRef: runtimeModelRefAfter,
     sessionIdUsed,
-    modelAutoSync,
-    modelSyncIntent: {
-      ok: Boolean(modelSyncIntent?.ok),
-      shouldProbeSessionModel: Boolean(modelSyncIntent?.shouldProbeSessionModel),
-      confidence: Number(modelSyncIntent?.confidence || 0),
-      reasoning: String(modelSyncIntent?.reasoning || ""),
-      error: String(modelSyncIntent?.error || ""),
-    },
-      intentCandidates: [],
+    modelAutoSync: { detected: false },
+    modelSyncIntent: { ok: false, shouldProbeSessionModel: false, confidence: 0, reasoning: "", error: "" },
+    intentCandidates: [],
     intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
-    clarification: clarification.intentDetected ? {
-      intentDetected: true,
-      confidence: Number(clarification.confidence || 0),
-      headline: String(clarification.headline || ""),
-      featureConcept: clarification.featureConcept || null,
-      clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
-    } : null,
-      replyEventId: Number(replyEvent?.id || 0) || null,
+    clarification: null,
+    replyEventId: Number(replyEvent?.id || 0) || null,
   });
 }
 
