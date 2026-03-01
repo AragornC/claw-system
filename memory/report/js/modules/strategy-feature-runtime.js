@@ -609,21 +609,31 @@
   }
 
   /**
-   * Render "计算特征值" button and result area for a feature.
+   * Render integrated feature evaluation section with time range selector.
    */
   function renderFeatureEvalButtonRuntime(featureLike) {
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const featureId = sfText(feature.featureId || feature.name || "", "");
     if (!featureId) return "";
     return '<div class="feature-eval-section" data-feature-eval-id="' + sfEscapeHtml(featureId) + '">'
-      + '<button class="feature-eval-btn" type="button" data-action="evaluate-feature" data-feature-id="' + sfEscapeHtml(featureId) + '">'
-      + '📊 计算特征值（在历史K线上运行指标）'
-      + '</button>'
+      + '<div class="feature-eval-header">'
+      + '<span class="feature-eval-title">📊 特征值计算</span>'
+      + '<div class="feature-eval-controls">'
+      + '<select class="feature-eval-range" data-feature-eval-range="' + sfEscapeHtml(featureId) + '">'
+      + '<option value="7">近7天</option>'
+      + '<option value="14">近14天</option>'
+      + '<option value="30" selected>近30天</option>'
+      + '<option value="90">近90天</option>'
+      + '</select>'
+      + '<button class="feature-eval-run-btn" type="button" data-action="evaluate-feature" data-feature-id="' + sfEscapeHtml(featureId) + '">运行计算</button>'
+      + '</div>'
+      + '</div>'
       + '<div class="feature-eval-result" style="display:none;">'
       + '<div class="feature-eval-loading" style="display:none;">⏳ 正在计算特征值...</div>'
       + '<div class="feature-eval-stats"></div>'
       + '<div class="feature-eval-chart"></div>'
       + '</div>'
+      + '<div class="feature-eval-history" data-feature-eval-history="' + sfEscapeHtml(featureId) + '"></div>'
       + '</div>';
   }
 
@@ -706,17 +716,24 @@
     return row ? sfText(row.label || row.key || key) : key;
   }
 
+  // In-memory evaluation history per feature
+  var featureEvalHistory = {};
+
   /**
    * Handle feature evaluation button click.
-   * Calls /api/strategy/features/evaluate and renders results inline.
+   * Reads time range, calls API, renders results, saves to history.
    */
   async function handleFeatureEvalClickRuntime(featureId) {
     var section = document.querySelector('[data-feature-eval-id="' + featureId + '"]');
     if (!section) return;
+    var rangeSelect = section.querySelector('.feature-eval-range');
+    var rangeDays = rangeSelect ? parseInt(rangeSelect.value, 10) : 30;
+    if (!Number.isFinite(rangeDays) || rangeDays < 1) rangeDays = 30;
     var resultDiv = section.querySelector('.feature-eval-result');
     var loadingDiv = section.querySelector('.feature-eval-loading');
     var statsDiv = section.querySelector('.feature-eval-stats');
     var chartDiv = section.querySelector('.feature-eval-chart');
+    var historyDiv = section.querySelector('[data-feature-eval-history]');
     if (resultDiv) resultDiv.style.display = 'block';
     if (loadingDiv) loadingDiv.style.display = 'block';
     if (statsDiv) statsDiv.innerHTML = '';
@@ -725,7 +742,7 @@
       var resp = await fetch('/api/strategy/features/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ featureIds: [featureId], rangeDays: 30 }),
+        body: JSON.stringify({ featureIds: [featureId], rangeDays: rangeDays }),
       });
       var body = await resp.json();
       if (loadingDiv) loadingDiv.style.display = 'none';
@@ -733,12 +750,47 @@
         if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">特征计算失败：' + sfEscapeHtml(body.error || '未知错误') + '</div>';
         return;
       }
-      if (statsDiv) statsDiv.innerHTML = '<div class="feature-eval-stats-title">📊 特征统计摘要（' + (body.barCount || 0) + ' 根K线）</div>' + renderFeatureEvalStatsRuntime(body.featureStats, body.featureColumns);
+      if (statsDiv) statsDiv.innerHTML = '<div class="feature-eval-stats-title">📊 特征统计摘要（' + (body.barCount || 0) + ' 根K线 · 近' + rangeDays + '天）</div>' + renderFeatureEvalStatsRuntime(body.featureStats, body.featureColumns);
       if (chartDiv) chartDiv.innerHTML = renderFeatureEvalTimeSeriesRuntime(body.featureTimeSeries, body.featureColumns);
+      // Save to evaluation history
+      if (!featureEvalHistory[featureId]) featureEvalHistory[featureId] = [];
+      featureEvalHistory[featureId].unshift({
+        rangeDays: rangeDays,
+        barCount: body.barCount || 0,
+        columns: body.featureColumns || [],
+        stats: body.featureStats || {},
+        timestamp: new Date().toISOString(),
+      });
+      if (featureEvalHistory[featureId].length > 10) featureEvalHistory[featureId] = featureEvalHistory[featureId].slice(0, 10);
+      // Render history
+      if (historyDiv) renderEvalHistory(historyDiv, featureId);
     } catch (err) {
       if (loadingDiv) loadingDiv.style.display = 'none';
       if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">请求失败：' + sfEscapeHtml(String(err.message || err)) + '</div>';
     }
+  }
+
+  function renderEvalHistory(container, featureId) {
+    var history = featureEvalHistory[featureId] || [];
+    if (!history.length) { container.innerHTML = ''; return; }
+    var html = '<div class="feature-eval-history-title">计算历史（最近' + history.length + '次）</div>';
+    html += '<div class="feature-eval-history-list">';
+    history.forEach(function(item, idx) {
+      var timeStr = item.timestamp ? new Date(item.timestamp).toLocaleString('zh-CN') : '-';
+      var cols = (item.columns || []).filter(function(c) { return c.indexOf('tc_feat_') === 0; });
+      var statsSummary = cols.map(function(col) {
+        var s = item.stats[col] || {};
+        return col.replace('tc_feat_', '') + '=' + (sfNum(s.mean, 0).toFixed(3));
+      }).join(' ');
+      html += '<div class="feature-eval-history-item' + (idx === 0 ? ' latest' : '') + '">'
+        + '<span class="time">' + sfEscapeHtml(timeStr) + '</span>'
+        + '<span class="range">近' + item.rangeDays + '天</span>'
+        + '<span class="bars">' + item.barCount + '根K线</span>'
+        + '<span class="summary">' + sfEscapeHtml(statsSummary || '-') + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
   }
 
   // Global click handler for evaluate buttons
