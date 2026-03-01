@@ -462,114 +462,72 @@
   function renderStrategyFeatureDetailModalRuntime(featureLike, contextLike) {
     const feature = normalizeStrategyFeatureRuntime(featureLike);
     const context = contextLike && typeof contextLike === "object" ? contextLike : {};
-    const detailContext = {
-      ...context,
-      detailMode: true,
-      previewWindow: Math.max(180, Math.floor(sfNum(context.previewWindow, 220))),
-      originTrailLimit: Math.max(6, Math.floor(sfNum(context.originTrailLimit, 8))),
-    };
-    const preview = renderFeatureVisualizationRuntime(feature, detailContext);
+    const executionCode = resolveExecutionCodeRuntime(feature);
     const createdAt = sfFormatTs(feature.createdAt);
     const updatedAt = sfFormatTs(feature.updatedAt);
-    const trailHtml = renderOriginTrailRuntime(feature, detailContext.originTrailLimit);
-    const stepsHtml = feature.algorithmSteps.slice(0, 5).map(function mapStep(step, idx) {
-      return "<li>" + sfEscapeHtml(String(idx + 1) + ". " + sfText(step, "")) + "</li>";
-    }).join("");
-    const pseudoCodeText = feature.pseudoCode.join("\n");
-    const executionCode = resolveExecutionCodeRuntime(feature);
-    const pipelineRuntime = resolveExternalPipelineCodeRuntime(feature);
-    const pipelineCode = pipelineRuntime.code;
-    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
-    const codegen = params.codegen && typeof params.codegen === "object" ? params.codegen : {};
-    const codegenStatus = sfText(codegen.codegenStatus || params.codegenStatus || "", "").toLowerCase();
-    const codeValidationError = sfText(codegen.codeValidationError || params.codeValidationError || "", "");
-    const requiredInputs = Array.isArray(codegen.requiredInputs) || Array.isArray(params.requiredInputs)
-      ? (Array.isArray(codegen.requiredInputs) ? codegen.requiredInputs : params.requiredInputs).map(function mapRequired(row) {
-        const item = row && typeof row === "object" ? row : {};
-        return sfText(item.label || item.key || "", "");
-      }).filter(Boolean)
-      : [];
-    const needsInputHint = codegenStatus === "needs_user_input"
-      ? [
-        codeValidationError ? ("当前状态：" + codeValidationError) : "当前状态：模型代码需补充后再确认。",
-        requiredInputs.length ? ("待补充：" + requiredInputs.join("、")) : "",
-      ].filter(Boolean).join("\n")
-      : "";
-    const version = feature.versionInfo || {};
-    const anchorBase = sanitizeAnchorPartRuntime(feature.featureId || feature.name || feature.title || "feature");
-    const sectionIds = {
-      visual: "fd-" + anchorBase + "-visual",
-      source: "fd-" + anchorBase + "-source",
-      algorithm: "fd-" + anchorBase + "-algorithm",
-      params: "fd-" + anchorBase + "-params",
-      pseudo: "fd-" + anchorBase + "-pseudo",
-      execution: "fd-" + anchorBase + "-execution",
-      version: "fd-" + anchorBase + "-version",
-    };
-    const tocHtml = '<aside class="feature-detail-toc">'
-      + '<div class="feature-detail-toc-title">目录导航</div>'
-      + '<button class="feature-detail-toc-btn active" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.visual) + '">分类可视化</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.source) + '">来源模块</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.algorithm) + '">算法摘要</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.params) + '">参数表</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.pseudo) + '">伪代码</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.execution) + '">执行代码</button>'
-      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.version) + '">版本信息</button>'
-      + "</aside>";
-    const allTags = feature.tags.slice(0, 3).map(function mapTag(key) {
-      const label = FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key;
-      return '<span class="tag">' + sfEscapeHtml(label) + "</span>";
-    }).join("");
-    return '<div class="feature-detail-view">'
-      + '<div class="feature-detail-hero">'
-      + '<div class="feature-detail-title-wrap">'
-      + '<div class="feature-detail-title">' + sfEscapeHtml(feature.title) + "</div>"
-      + '<div class="feature-detail-sub">主分类：<span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> 功能标签：' + (allTags || '<span class="tag">过滤</span>') + ' 输出：<span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + "</span></div>"
-      + "</div>"
-      + '<div class="feature-detail-summary">'
-      + '<div class="meta">用途：' + sfEscapeHtml(feature.usageSummary) + "</div>"
-      + '<div class="meta">触发逻辑：' + sfEscapeHtml(feature.triggerLogic) + "</div>"
-      + "</div>"
-      + "</div>"
-      + '<div class="feature-detail-layout">'
-      + tocHtml
-      + '<div class="feature-detail-body">'
-      + '<section id="' + sfEscapeHtml(sectionIds.visual) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">分类可视化（' + sfEscapeHtml(feature.mainCategoryLabel) + ' · display_mode=' + sfEscapeHtml(feature.displayMode) + "）</div>" + preview.html + "</section>"
-      + '<div class="feature-detail-grid">'
-      + '<section id="' + sfEscapeHtml(sectionIds.source) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">来源模块</div>'
-      + '<div class="meta">来源类型：' + sfEscapeHtml(feature.sourceType || feature.source || "-") + "</div>"
-      + '<div class="meta">创建人：' + sfEscapeHtml(feature.createdBy || "ThunderClaw") + "</div>"
-      + '<div class="meta">创建时间：' + sfEscapeHtml(createdAt) + "</div>"
-      + '<div class="meta">最近更新：' + sfEscapeHtml(updatedAt) + "</div>"
-      + (feature.originQuery ? ('<div class="meta">触发问题：' + sfEscapeHtml(sfTrimText(feature.originQuery, 220)) + "</div>") : "")
-      + (feature.originReply ? ('<div class="meta">触发回复：' + sfEscapeHtml(sfTrimText(feature.originReply, 220)) + "</div>") : "")
-      + (trailHtml ? ('<div class="meta" style="margin-top:6px;">最近链路：</div>' + trailHtml) : "")
-      + "</section>"
-      + '<section id="' + sfEscapeHtml(sectionIds.algorithm) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">算法摘要与计算步骤</div>'
-      + '<div class="meta">' + sfEscapeHtml(feature.algorithmSummary) + "</div>"
-      + (stepsHtml ? ('<ol class="meta feature-step-list">' + stepsHtml + "</ol>") : '<div class="meta">暂无步骤。</div>')
-      + "</section>"
-      + "</div>"
-      + '<section id="' + sfEscapeHtml(sectionIds.params) + '" class="feature-detail-section feature-detail-card"><div class="feature-detail-card-title">参数表（默认值）</div>'
-      + renderParamTableRuntime(feature.paramSpecs)
-      + "</section>"
-      + '<section id="' + sfEscapeHtml(sectionIds.pseudo) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></section>"
+    const featureId = sfText(feature.featureId || feature.name || "", "");
+    const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object" ? feature.generatedCode : {};
+    const codeSource = sfText(generatedCode.codeSource || "", "");
+    const allTags = feature.tags.slice(0, 3).map(function(key) {
+      return '<span class="tag">' + sfEscapeHtml(FEATURE_TAG_CONFIG[key] ? FEATURE_TAG_CONFIG[key].label : key) + "</span>";
+    }).join(" ");
+
+    // Module 1: 特征详情 (基础信息 + 执行代码)
+    var module1 = '<details class="fd-module">'
+      + '<summary class="fd-module-header">📋 特征详情</summary>'
+      + '<div class="fd-module-body">'
+      + '<div class="fd-info-grid">'
+      + '<div class="fd-info-item"><span class="fd-info-label">名称</span><span class="fd-info-value">' + sfEscapeHtml(feature.title) + '</span></div>'
+      + '<div class="fd-info-item"><span class="fd-info-label">分类</span><span class="fd-info-value"><span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> ' + allTags + '</span></div>'
+      + '<div class="fd-info-item"><span class="fd-info-label">描述</span><span class="fd-info-value">' + sfEscapeHtml(feature.description) + '</span></div>'
+      + '<div class="fd-info-item"><span class="fd-info-label">用途</span><span class="fd-info-value">' + sfEscapeHtml(feature.usageSummary) + '</span></div>'
+      + '<div class="fd-info-item"><span class="fd-info-label">创建时间</span><span class="fd-info-value">' + sfEscapeHtml(createdAt) + '</span></div>'
+      + '<div class="fd-info-item"><span class="fd-info-label">最近更新</span><span class="fd-info-value">' + sfEscapeHtml(updatedAt) + '</span></div>'
+      + (codeSource ? '<div class="fd-info-item"><span class="fd-info-label">代码来源</span><span class="fd-info-value">' + sfEscapeHtml(codeSource) + '</span></div>' : '')
+      + '</div>'
+      + '<div class="fd-code-section">'
+      + '<div class="fd-code-title">执行代码（populate_indicators）</div>'
+      + '<pre class="fd-code-block">' + sfEscapeHtml(executionCode || "# 暂无执行代码") + '</pre>'
+      + '</div>'
+      + '</div></details>';
+
+    // Module 2: 特征说明 (K线可视化解释)
+    var detailContext = { ...context, detailMode: true, previewWindow: 220 };
+    var preview = renderFeatureVisualizationRuntime(feature, detailContext);
+    var module2 = '<details class="fd-module">'
+      + '<summary class="fd-module-header">📊 特征说明</summary>'
+      + '<div class="fd-module-body">'
+      + '<div class="fd-explain">'
+      + '<div class="meta">触发逻辑：' + sfEscapeHtml(feature.triggerLogic) + '</div>'
+      + '<div class="meta">算法：' + sfEscapeHtml(feature.algorithmSummary) + '</div>'
+      + '</div>'
+      + '<div class="fd-kline-preview">' + preview.html + '</div>'
+      + '</div></details>';
+
+    // Module 3: 特征回测 (K线 + 周期选择 + 运行评估)
+    var module3 = '<details class="fd-module">'
+      + '<summary class="fd-module-header">🔬 特征回测</summary>'
+      + '<div class="fd-module-body">'
       + renderFeatureEvalButtonRuntime(feature)
-      + '<section id="' + sfEscapeHtml(sectionIds.execution) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">可执行特征代码（用于 populate_indicators）</div>'
-      + '<div class="meta">输出列：' + sfEscapeHtml(sfText(params.outputColumn || "", "-")) + ' · 周期：' + sfEscapeHtml(sfText(params.timeframe || "", "-")) + '</div>'
-      + '<div class="meta">来源：' + sfEscapeHtml(sfText(params.sourceType || feature.sourceType || "", "-")) + ' / ' + sfEscapeHtml(sfText(params.provider || "", "-")) + '</div>'
-      + '<div class="meta">代码来源：' + sfEscapeHtml(sfText((params.codegen && params.codegen.codeSource) || params.codeSource || "", "未标注")) + '</div>'
-      + '<pre class="mini-mono">' + sfEscapeHtml(executionCode || (needsInputHint ? ("# 暂无执行代码\n" + needsInputHint) : "# 暂无执行代码（请在确认卡片时补充 pythonIndicator）")) + '</pre>'
-      + (pipelineCode ? ('<details class="feature-detail-fold" open><summary>外部信号主算法（具体执行代码）</summary><div class="meta">主算法来源：' + sfEscapeHtml(sfText(pipelineRuntime.source || '', '-')) + '</div><pre class="mini-mono">' + sfEscapeHtml(pipelineCode) + '</pre></details>') : '<div class="meta" style="margin-top:8px;">外部主算法代码：未生成（仅接受模型生成）。</div>')
-      + '</section>'
-      + '<section id="' + sfEscapeHtml(sectionIds.version) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold"><summary>版本信息（折叠）</summary>'
-      + '<div class="meta">版本：' + sfEscapeHtml(sfText(version.version, "v1.0.0")) + "</div>"
-      + '<div class="meta">修订：' + sfEscapeHtml(String(Math.floor(sfNum(version.revision, 1)))) + "</div>"
-      + (sfText(version.notes, "") ? ('<div class="meta">备注：' + sfEscapeHtml(sfText(version.notes, "")) + "</div>") : "")
-      + "</details></section>"
-      + "</div>"
-      + "</div>"
-      + "</div>";
+      + '</div></details>';
+
+    // Module 4: 回测历史
+    var module4 = '<details class="fd-module">'
+      + '<summary class="fd-module-header">📜 回测历史</summary>'
+      + '<div class="fd-module-body">'
+      + '<div class="feature-eval-history" data-feature-eval-history="' + sfEscapeHtml(featureId) + '"></div>'
+      + '<div class="meta" style="color:#8b949e;font-size:0.72rem;">运行回测后，结果将保存在此列表中。</div>'
+      + '</div></details>';
+
+    return '<div class="feature-detail-view fd-new-layout">'
+      + '<div class="fd-header">'
+      + '<div class="fd-header-title">' + sfEscapeHtml(feature.title) + '</div>'
+      + '<div class="fd-header-meta"><span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> ' + allTags + ' <span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + '</span></div>'
+      + '</div>'
+      + '<div class="fd-modules">'
+      + module1 + module2 + module3 + module4
+      + '</div>'
+      + '</div>';
   }
 
 
