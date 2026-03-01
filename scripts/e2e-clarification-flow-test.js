@@ -72,10 +72,7 @@ async function main() {
     const ready = await waitForServer(45000);
     if (!ready) throw new Error(`Server not ready: ${serverStderr.slice(-300)}`);
     log("SETUP", "✅ Server ready");
-
-    // Setup API key
-    await post("/api/setup/quick", { provider: "deepseek-api-key", apiKey: API_KEY }, 60000);
-    log("SETUP", "✅ API key configured");
+    // Skip openclaw setup (slow) — API key is set via env var
 
     // ━━━━━ Step 1: Intent Clarification ━━━━━
     log("STEP1", "Sending non-professional message...");

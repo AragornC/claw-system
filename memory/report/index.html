@@ -9225,23 +9225,7 @@
               div.setAttribute('data-event-id', String(idNum));
             }
             box.appendChild(div);
-            const metaCards = Array.isArray(r?.meta?.intentCards) ? r.meta.intentCards : [];
-            if (false && metaCards.length && Number.isFinite(idNum) && idNum > 0) {
-              // Old multi-candidate cards disabled — only clarification cards are used now
-              void maybeRenderStrategyIntentSuggestions({
-                source: 'stored',
-                eventId: idNum,
-                userText: '',
-                assistantText: String(r?.meta?.intentAssistantText || r?.text || '').trim(),
-                sessionId: 'thunderclaw-main',
-                runtimeModelRef: '',
-                actions: [],
-                intentCandidates: metaCards,
-                skipDetect: true,
-                persist: false,
-                insertAfterEventId: idNum,
-              });
-            }
+            // (Old multi-candidate card rendering removed — clarification-only flow)
           });
           box.scrollTop = box.scrollHeight;
         }
@@ -10804,7 +10788,11 @@
                 .catch(function(err) { return { ok: false, error: String(err?.message || err) }; });
               },
             });
-            if (card) return card;
+            if (card) {
+              box.appendChild(card);
+              box.scrollTop = box.scrollHeight;
+              return card;
+            }
           }
 
           if (typeof createStrategyIntentSuggestionRowRuntime !== 'function') return null;
@@ -11181,42 +11169,8 @@
           }
           return null;
         }
-        function renderStrategyIntentCardsFromEvent(evLike, finalTextLike, idLike) {
-          // Old multi-candidate cards disabled — only clarification cards are used now
-          return;
-          const ev = evLike && typeof evLike === 'object' ? evLike : null;
-          if (!ev) return;
-          const cards = Array.isArray(ev.cards) ? ev.cards : [];
-          if (!cards.length) return;
-          const eventIdNum = Number.isFinite(Number(idLike)) ? Number(idLike) : Number(ev.id || 0);
-          if (!Number.isFinite(eventIdNum) || eventIdNum <= 0) return;
-          upsertLocalIntentCardsMeta(eventIdNum, cards, String(finalTextLike || ev.text || '').trim());
-          const existing = box.querySelector('.ai-strategy-intent-row[data-card-event-id="' + String(eventIdNum) + '"]');
-          if (existing) {
-            if (chatHistoryState.renderedCardEventIds instanceof Set) chatHistoryState.renderedCardEventIds.add(eventIdNum);
-            return;
-          }
-          if (chatHistoryState.renderedCardEventIds && chatHistoryState.renderedCardEventIds.has(eventIdNum)) return;
-          void maybeRenderStrategyIntentSuggestions({
-            source: 'history',
-            eventId: eventIdNum,
-            userText: '',
-            assistantText: String(finalTextLike || ev.text || '').trim(),
-            sessionId: 'thunderclaw-main',
-            runtimeModelRef: '',
-            actions: [],
-            intentCandidates: cards,
-            skipDetect: true,
-            persist: false,
-            insertAfterEventId: eventIdNum,
-          });
-          if (chatHistoryState.renderedCardEventIds instanceof Set) {
-            chatHistoryState.renderedCardEventIds.add(eventIdNum);
-            if (chatHistoryState.renderedCardEventIds.size > 1200) {
-              const keep = Array.from(chatHistoryState.renderedCardEventIds).slice(-900);
-              chatHistoryState.renderedCardEventIds = new Set(keep);
-            }
-          }
+        function renderStrategyIntentCardsFromEvent() {
+          // Removed — old multi-candidate flow replaced by clarification cards
         }
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
