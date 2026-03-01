@@ -336,6 +336,8 @@
       originQuery: sfText(raw.originQuery || ""),
       originReply: sfText(raw.originReply || ""),
       originTrail: Array.isArray(raw.originTrail) ? raw.originTrail.slice(-16) : [],
+      // Preserve pipeline-generated code
+      generatedCode: raw.generatedCode && typeof raw.generatedCode === "object" ? raw.generatedCode : null,
     };
     return normalized;
   }
