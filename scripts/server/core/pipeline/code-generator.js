@@ -123,7 +123,7 @@ function generateFromTemplate(feature) {
     return {
       featureName: name,
       indicatorCode: [
-        `        bb_result = ta.BBANDS(dataframe, timeperiod=${period}, nbdevup=${nbdev}, nbdevdn=${nbdev})`,
+        `        bb_result = ta.BBANDS(dataframe, timeperiod=${period}, nbdevup=${nbdev}.0, nbdevdn=${nbdev}.0)`,
         `        dataframe['bb_upper'] = bb_result['upperband']`,
         `        dataframe['bb_middle'] = bb_result['middleband']`,
         `        dataframe['bb_lower'] = bb_result['lowerband']`,

@@ -38,11 +38,6 @@ const SCENARIOS = [
     message: "我听说均线很有用，能帮我做一个简单的提醒工具吗？当价格穿过某条线的时候提醒我",
     description: "日常用户听说了均线概念",
   },
-  {
-    id: "volatility_risk",
-    message: "波动太大了我怕亏钱，有没有什么指标能告诉我现在风险大不大",
-    description: "日常用户关心风险",
-  },
 ];
 
 function log(tag, msg) { console.log(`[${tag}] ${msg}`); }
