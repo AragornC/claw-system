@@ -1259,10 +1259,12 @@ const {
   extractTradingIntentCandidates,
   generateFeatureCodeForCandidate,
 } = createTradingIntentSkill({
-  runOpenClawCommand,
-  parseJsonSafe,
-  extractAgentReply,
   normalizeSessionId,
+  getApiKey: () => {
+    const storeKey = String(xbrainStore?.base?.deepseekApiKey || "").trim();
+    if (storeKey) return storeKey;
+    return String(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "").trim();
+  },
 });
 
 const {

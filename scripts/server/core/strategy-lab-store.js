@@ -967,6 +967,22 @@ export function createStrategyLabStore(deps = {}) {
     const normalized = normalizeFeatureCandidate(featureLike);
     if (!normalized) throw new Error("invalid feature candidate");
     const now = nowIso();
+
+    // Extract generated code from the feature if present
+    const rawFeature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const generatedCode = rawFeature.generatedCode && typeof rawFeature.generatedCode === "object"
+      ? {
+        indicatorCode: toText(rawFeature.generatedCode.indicatorCode, ""),
+        entryConditionCode: toText(rawFeature.generatedCode.entryConditionCode, ""),
+        exitConditionCode: toText(rawFeature.generatedCode.exitConditionCode, ""),
+        columnNames: Array.isArray(rawFeature.generatedCode.columnNames) ? rawFeature.generatedCode.columnNames : [],
+        codeSource: toText(rawFeature.generatedCode.codeSource, "pipeline"),
+        description: toText(rawFeature.generatedCode.description, ""),
+        validatedAt: toText(rawFeature.generatedCode.validatedAt, ""),
+        featureName: toText(rawFeature.generatedCode.featureName, ""),
+      }
+      : null;
+
     const existing = findFeatureByName(normalized.name);
     if (existing) {
       existing.group = normalized.group;
@@ -992,6 +1008,10 @@ export function createStrategyLabStore(deps = {}) {
       existing.sourceType = normalized.sourceType || existing.sourceType;
       existing.createdBy = normalized.createdBy || existing.createdBy;
       existing.enabled = normalized.enabled !== false;
+      // Persist generated code
+      if (generatedCode && generatedCode.indicatorCode) {
+        existing.generatedCode = generatedCode;
+      }
       applyProvenanceMeta(existing, metaLike, now, toText(existing.source || "chat_intent", "chat_intent"));
       applyFeatureProductMeta(existing, {
         ...metaLike,
@@ -1029,6 +1049,8 @@ export function createStrategyLabStore(deps = {}) {
       originReply: "",
       createdAt: now,
       updatedAt: now,
+      // Store generated code for this feature
+      ...(generatedCode && generatedCode.indicatorCode ? { generatedCode } : {}),
     };
     applyProvenanceMeta(item, metaLike, now, "chat_intent");
     applyFeatureProductMeta(item, {
@@ -1116,6 +1138,19 @@ export function createStrategyLabStore(deps = {}) {
   function validateFeatureExecutionCodeForApply(featureLike = {}) {
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+
+    // If feature has pipeline-generated code, accept it directly
+    const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object"
+      ? feature.generatedCode : null;
+    if (generatedCode && toText(generatedCode.indicatorCode)) {
+      // Pipeline-validated code is accepted
+      const codeSource = toText(generatedCode.codeSource || params.codeSource || "");
+      if (codeSource === "pipeline" || codeSource === "template" || codeSource === "deepseek" || codeSource === "deepseek_repair") {
+        return; // Accepted
+      }
+    }
+
+    // Legacy validation for external features
     const kind = toText(feature.kind || "").toLowerCase();
     const name = toText(feature.name || feature.featureId || "").toLowerCase();
     const sourceType = toText(params.sourceType || feature.sourceType || "").toLowerCase();
@@ -1137,10 +1172,10 @@ export function createStrategyLabStore(deps = {}) {
       throw new Error("外部特征必须先由模型产出 pythonIndicator 执行代码，才能确认加入");
     }
     const codeSource = toText(params.codeSource || "").toLowerCase();
-    if (codeSource !== "model_generated") {
-      throw new Error("外部特征代码来源无效：仅允许 model_generated");
+    if (codeSource !== "model_generated" && codeSource !== "pipeline" && codeSource !== "template" && codeSource !== "deepseek") {
+      throw new Error("外部特征代码来源无效：仅允许 model_generated 或 pipeline");
     }
-    const codegenStatus = toText(params.codegenStatus || "").toLowerCase();
+    const codegenStatus = toText(params.codegenStatus || feature.codegenStatus || "").toLowerCase();
     if (codegenStatus === "needs_user_input") {
       const needed = Array.isArray(params.requiredInputs) ? params.requiredInputs : [];
       const neededKeys = needed.map((row) => toText(row && row.key || "")).filter(Boolean);
