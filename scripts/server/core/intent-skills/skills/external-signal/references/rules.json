@@ -2,7 +2,13 @@
   "features": [
     {
       "id": "news",
-      "keywords": ["新闻", "news", "headline", "快讯", "资讯"],
+      "keywords": [
+        "新闻",
+        "news",
+        "headline",
+        "快讯",
+        "资讯"
+      ],
       "candidate": {
         "candidateId": "cand_feature_news_sentiment",
         "kind": "feature",
@@ -14,13 +20,26 @@
           "group": "signal_external",
           "kind": "news_sentiment",
           "description": "新闻情绪与事件影响评分",
-          "params": { "windowMin": 180, "minImpact": 0.45 }
+          "params": {
+            "windowMin": 180,
+            "minImpact": 0.45,
+            "sourceType": "news",
+            "provider": "coindesk"
+          }
         }
       }
     },
     {
       "id": "social",
-      "keywords": ["twitter", "推特", "推上", "tweet", "x.com", "社媒", "热度"],
+      "keywords": [
+        "twitter",
+        "推特",
+        "推上",
+        "tweet",
+        "x.com",
+        "社媒",
+        "热度"
+      ],
       "candidate": {
         "candidateId": "cand_feature_social_sentiment",
         "kind": "feature",
@@ -32,13 +51,27 @@
           "group": "signal_external",
           "kind": "social_sentiment",
           "description": "Twitter/X 话题热度与情绪评分",
-          "params": { "windowMin": 120, "minMentions": 30 }
+          "params": {
+            "windowMin": 120,
+            "minMentions": 30,
+            "sourceType": "social",
+            "provider": "twitter",
+            "urlTemplate": "https://api.github.com/search/issues?q={query}&sort=updated&order=desc&per_page=30",
+            "query": "BTC lang:en"
+          }
         }
       }
     },
     {
       "id": "prediction",
-      "keywords": ["polymarket", "polymarkt", "预测市场", "预测盘", "赔率", "概率盘"],
+      "keywords": [
+        "polymarket",
+        "polymarkt",
+        "预测市场",
+        "预测盘",
+        "赔率",
+        "概率盘"
+      ],
       "candidate": {
         "candidateId": "cand_feature_prediction_signal",
         "kind": "feature",
@@ -50,7 +83,13 @@
           "group": "signal_external",
           "kind": "prediction_market",
           "description": "Polymarket 隐含概率变化信号",
-          "params": { "minMovePct": 1.2, "windowMin": 240 }
+          "params": {
+            "minMovePct": 1.2,
+            "windowMin": 240,
+            "sourceType": "prediction",
+            "provider": "polymarket",
+            "url": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=50"
+          }
         }
       }
     }

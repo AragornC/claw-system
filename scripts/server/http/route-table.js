@@ -46,6 +46,7 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/openclaw/config/set", handler: expectHandler(handlers, "handleOpenClawConfigSet") },
     { method: "POST", path: "/api/openclaw/config/unset", handler: expectHandler(handlers, "handleOpenClawConfigUnset") },
     { method: "GET", path: "/api/strategy/features", handler: expectHandler(handlers, "handleStrategyFeatures") },
+    { method: "POST", path: "/api/strategy/features/delete", handler: expectHandler(handlers, "handleStrategyFeatureDelete") },
     { method: "GET", path: "/api/strategy/versions", handler: expectHandler(handlers, "handleStrategyVersions") },
     { method: "POST", path: "/api/strategy/versions/propose", handler: expectHandler(handlers, "handleStrategyVersionsPropose") },
     { method: "POST", path: "/api/strategy/versions/evaluate", handler: expectHandler(handlers, "handleStrategyVersionsEvaluate") },
@@ -59,6 +60,7 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/strategy/entities/replay", handler: expectHandler(handlers, "handleStrategyEntityReplay") },
     { method: "POST", path: "/api/strategy/entities/publish", handler: expectHandler(handlers, "handleStrategyEntityPublish") },
     { method: "POST", path: "/api/strategy/entities/status", handler: expectHandler(handlers, "handleStrategyEntityStatus") },
+    { method: "POST", path: "/api/strategy/entities/delete", handler: expectHandler(handlers, "handleStrategyEntityDelete") },
     { method: "POST", path: "/api/chat", handler: expectHandler(handlers, "handleChat") },
   ];
 }

@@ -281,10 +281,21 @@ function normalizeFeatureCandidate(rawLike = {}) {
   const description = toText(raw.description || raw.summary || raw.note || "来自对话提案");
   const paramsRaw = raw.params && typeof raw.params === "object" ? raw.params : {};
   const params = {};
+  const paramAliasMap = {
+    pythonindicator: "pythonIndicator",
+    codesource: "codeSource",
+    sourcetype: "sourceType",
+    urltemplate: "urlTemplate",
+    outputcolumn: "outputColumn",
+    pipelinecode: "pipelineCode",
+  };
   Object.entries(paramsRaw)
     .slice(0, 16)
     .forEach(([k, v]) => {
-      const key = slugify(k).split("-").join("_");
+      const keyRaw = toText(k || "").trim();
+      if (!keyRaw) return;
+      const keySafe = keyRaw.replace(/[^a-zA-Z0-9_]/g, "");
+      const key = paramAliasMap[String(keySafe).toLowerCase()] || keySafe;
       if (!key) return;
       if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
         params[key] = v;
@@ -356,6 +367,20 @@ function normalizeStrategyCandidate(rawLike = {}) {
     .filter(Boolean)
     .slice(0, 8);
   const dsl = raw.dsl && typeof raw.dsl === "object" ? raw.dsl : null;
+  const requiredInputs = Array.isArray(raw.requiredInputs)
+    ? raw.requiredInputs
+      .map((itemLike) => {
+        const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+        return {
+          key: toText(item.key || ""),
+          label: toText(item.label || ""),
+          type: toText(item.type || "text"),
+          required: item.required !== false,
+        };
+      })
+      .filter((item) => item.key && item.label)
+      .slice(0, 16)
+    : [];
   return {
     title,
     thesis,
@@ -367,6 +392,7 @@ function normalizeStrategyCandidate(rawLike = {}) {
     featureRefs,
     features,
     dsl,
+    requiredInputs,
   };
 }
 
@@ -524,6 +550,39 @@ function migrateStoreShape(storeLike) {
   return changed;
 }
 
+function inferFeatureRelationType(featureRefLike, featureMetaLike = null) {
+  const ref = toText(featureRefLike || "", "").toLowerCase();
+  const featureMeta = featureMetaLike && typeof featureMetaLike === "object" ? featureMetaLike : {};
+  const featureGroup = toText(featureMeta.group || "", "").toLowerCase();
+  const featureKind = toText(featureMeta.kind || "", "").toLowerCase();
+
+  if (
+    featureGroup === "execution"
+    || ref.includes("execution")
+    || ref.includes("slippage")
+    || ref.includes("fee")
+  ) {
+    return "execution_rule";
+  }
+  if (
+    featureGroup === "risk"
+    || featureKind === "risk_rule"
+    || ref.includes("risk")
+    || ref.includes("drawdown")
+  ) {
+    return "risk_guard";
+  }
+  if (
+    featureGroup === "position"
+    || ref.includes("position")
+    || ref.includes("exposure")
+    || ref.includes("sizing")
+  ) {
+    return "position_sizing";
+  }
+  return "signal_input";
+}
+
 export {
   FEATURE_GROUPS,
   FEATURE_KINDS,
@@ -549,4 +608,5 @@ export {
   applyProvenanceMeta,
   applyFeatureProductMeta,
   migrateStoreShape,
+  inferFeatureRelationType,
 };

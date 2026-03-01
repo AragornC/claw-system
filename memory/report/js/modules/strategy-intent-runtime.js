@@ -247,6 +247,21 @@ function renderCandidateDetailRuntime(candidateLike) {
     const feature = candidate.feature && typeof candidate.feature === "object" ? candidate.feature : {};
     const desc = tcSafeText(feature.usageSummary || feature.description || candidate.summary || "");
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const codegenStatus = tcSafeText(params.codegenStatus || "", "").toLowerCase();
+    const codeError = tcSafeText(params.codeValidationError || "", "");
+    const needed = Array.isArray(params.requiredInputs)
+      ? params.requiredInputs.map(function(row) {
+        const item = row && typeof row === "object" ? row : {};
+        return tcSafeText(item.label || item.key || "", "");
+      }).filter(Boolean)
+      : [];
+    if (codegenStatus === "needs_user_input") {
+      return [
+        desc,
+        codeError ? ("需补充：" + codeError) : "需补充模型代码后才能加入",
+        needed.length ? ("待补充项：" + needed.join("、")) : "",
+      ].filter(Boolean).join(" · ");
+    }
     const entries = Object.entries(params).slice(0, 4).map(function(item) {
       return String(item[0]) + "=" + String(item[1]);
     });
@@ -374,7 +389,24 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
     const applyBtn = document.createElement("button");
     applyBtn.type = "button";
     applyBtn.className = "apply";
-    applyBtn.textContent = candidate.kind === "strategy" ? "保存草稿" : "加入虾策";
+    applyBtn.textContent = candidate.kind === "strategy" ? "保存草稿" : "确认并加入特征库";
+    const featureParams = candidate.kind === "feature" && candidate.feature && typeof candidate.feature === "object"
+      ? (candidate.feature.params && typeof candidate.feature.params === "object" ? candidate.feature.params : {})
+      : {};
+    const featureNeedsInput = candidate.kind === "feature" && tcSafeText(featureParams.codegenStatus || "", "").toLowerCase() === "needs_user_input";
+    const featureNeedHints = featureNeedsInput && Array.isArray(featureParams.requiredInputs)
+      ? featureParams.requiredInputs.map(function(row) {
+        const item = row && typeof row === "object" ? row : {};
+        return tcSafeText(item.label || item.key || "", "");
+      }).filter(Boolean)
+      : [];
+    if (featureNeedsInput) {
+      applyBtn.textContent = "需补充后再确认";
+      applyBtn.disabled = true;
+      applyBtn.title = featureNeedHints.length
+        ? ("缺少：" + featureNeedHints.join("、"))
+        : tcSafeText(featureParams.codeValidationError || "请先补充模型代码", "请先补充模型代码");
+    }
 
     let editBtn = null;
     if (candidate.kind === "strategy" && onEdit) {
@@ -392,7 +424,9 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
 
     const status = document.createElement("span");
     status.className = "ai-strategy-intent-status";
-    status.textContent = "";
+    status.textContent = featureNeedsInput
+      ? tcSafeText(featureParams.codeValidationError || "请先补充模型代码后再确认", "")
+      : "";
 
     actions.appendChild(applyBtn);
     if (editBtn) actions.appendChild(editBtn);
@@ -440,7 +474,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
           const ok = Boolean(outcome && outcome.ok);
           if (ok) {
             const done = function() {
-              setAccepted(outcome.message || "已加入");
+              setAccepted(outcome.message || "已确认并加入");
             };
             if (onStatusChange) {
               Promise.resolve(onStatusChange(candidate, "accepted"))

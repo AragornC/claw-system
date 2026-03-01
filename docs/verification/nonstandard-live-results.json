@@ -1,0 +1,126 @@
+{
+  "total": 10,
+  "success": 10,
+  "results": [
+    {
+      "index": 1,
+      "input": "哥们我看不懂图，你就告诉我今天网上是在喊冲还是喊跑。",
+      "ok": true,
+      "result": {
+        "score": -0.005,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+crypto+is:issue&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "BIP-137 signature verification fails for P2WPKH (bc1q) addresses"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+crypto+is:issue&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\npos = (\"bull\", \"breakout\", \"pump\", \"etf\", \"approve\", \"surge\")\nneg = (\"hack\", \"ban\", \"dump\", \"selloff\", \"lawsuit\", \"liquidation\")\nscore = 0.0\nfor it in items:\n    txt = f\"{it.get('title','')} {it.get('body','')[:200]}\".lower()\n    score += sum(0.15 for k in pos if k in txt)\n    score -= sum(0.15 for k in neg if k in txt)\nscore = max(-1.0, min(1.0, score / max(1, len(items))))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"title\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 2,
+      "input": "最近消息太吵了，帮我算个冷热值，越热越正，越冷越负。",
+      "ok": true,
+      "result": {
+        "score": 0.9191990641171337,
+        "source_url": "https://api.github.com/search/repositories?q=bitcoin+trading+bot&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "Xandrua/BitPay-Crypto-Signal-Trading-Bot-Analysis-Signal-Masters-Trading-Crypto"
+      },
+      "code": "\nimport json, urllib.request, datetime\nURL = \"https://api.github.com/search/repositories?q=bitcoin+trading+bot&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nnow = datetime.datetime.now(datetime.timezone.utc)\nheat = 0.0\nfor it in items:\n    pushed = datetime.datetime.fromisoformat(it[\"pushed_at\"].replace(\"Z\", \"+00:00\"))\n    hours = max(0.0, (now - pushed).total_seconds() / 3600.0)\n    heat += 1.0 / (1.0 + hours / 24.0)\nscore = max(-1.0, min(1.0, (heat / max(1, len(items)) - 0.5) * 2))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"full_name\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 3,
+      "input": "我怕追高，给我一个保守点的外部信号，看看风险大不大。",
+      "ok": true,
+      "result": {
+        "score": -0.016666666666666666,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+security+is:issue&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "feat: implement mutation testing for test quality assurance"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+security+is:issue&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nrisk_words = (\"critical\", \"exploit\", \"breach\", \"vulnerability\", \"scam\", \"phishing\")\nrisk = 0.0\nfor it in items:\n    txt = f\"{it.get('title','')} {(it.get('body') or '')[:180]}\".lower()\n    risk += sum(1 for w in risk_words if w in txt)\nscore = max(-1.0, min(1.0, -risk / max(1, len(items) * 2)))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"title\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 4,
+      "input": "别讲术语，直接看大家现在是乐观还是悲观。",
+      "ok": true,
+      "result": {
+        "score": 0.0,
+        "source_url": "https://api.github.com/search/issues?q=ethereum+bitcoin+is:issue&sort=comments&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "Claim your ThunderCore Developer Rewards"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=ethereum+bitcoin+is:issue&sort=comments&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\noptim = (\"adoption\", \"upgrade\", \"growth\", \"launch\", \"partnership\")\npess = (\"delay\", \"problem\", \"loss\", \"attack\", \"bankrupt\")\nscore = 0.0\nfor it in items:\n    txt = it.get(\"title\", \"\").lower()\n    score += sum(0.2 for k in optim if k in txt)\n    score -= sum(0.2 for k in pess if k in txt)\nscore = max(-1.0, min(1.0, score / max(1, len(items))))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"title\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 5,
+      "input": "我就想知道今天危险不危险，给个一眼能懂的分。",
+      "ok": true,
+      "result": {
+        "score": 0.9333333333333333,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+is:issue+is:open&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "open_hot=1"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+is:issue+is:open&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nopen_hot = sum(1 for i in items if i.get(\"comments\",0) >= 5)\nscore = max(-1.0, min(1.0, 1.0 - (open_hot / max(1, len(items)) * 2.0)))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": f\"open_hot={open_hot}\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 6,
+      "input": "推特太乱了，我不看推特了，你抓公开数据给我个方向。",
+      "ok": true,
+      "result": {
+        "score": -0.14307337894583916,
+        "source_url": "https://api.github.com/search/repositories?q=topic:cryptocurrency+topic:trading&sort=stars&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "fork_star_ratio=0.2477"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/repositories?q=topic:cryptocurrency+topic:trading&sort=stars&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nstars = [i.get(\"stargazers_count\", 0) for i in items]\nforks = [i.get(\"forks_count\", 0) for i in items]\nratio = (sum(forks) / max(1, sum(stars)))\nscore = max(-1.0, min(1.0, (0.2 - ratio) * 3.0))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": f\"fork_star_ratio={ratio:.4f}\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 7,
+      "input": "最近是不是都在讨论利空？你给我个直接结果。",
+      "ok": true,
+      "result": {
+        "score": -0.03333333333333333,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+crash+OR+ban+OR+hack&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "negative_mentions=1"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+crash+OR+ban+OR+hack&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nmentions = sum(1 for i in items if any(k in i.get('title','').lower() for k in (\"crash\",\"ban\",\"hack\")))\nscore = max(-1.0, min(1.0, -mentions / max(1, len(items))))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": f\"negative_mentions={mentions}\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 8,
+      "input": "别搞复杂模型，看看最近大家讨论是偏正面还是偏负面。",
+      "ok": true,
+      "result": {
+        "score": -0.013333333333333334,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+is:issue&sort=comments&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "An in-range update of ccxt is breaking the build 🚨"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+is:issue&sort=comments&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\npos_words = (\"profit\", \"growth\", \"bull\", \"green\")\nneg_words = (\"loss\", \"red\", \"bear\", \"risk\")\nweighted = 0.0\nfor it in items:\n    w = 1 + min(10, it.get(\"comments\",0)) * 0.1\n    t = it.get(\"title\",\"\").lower()\n    weighted += w * (sum(1 for p in pos_words if p in t) - sum(1 for n in neg_words if n in t))\nscore = max(-1.0, min(1.0, weighted / max(1, len(items) * 5)))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"title\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 9,
+      "input": "我没背景，你就给我个现在该激进还是保守的建议分。",
+      "ok": true,
+      "result": {
+        "score": 1.0,
+        "source_url": "https://api.github.com/search/repositories?q=bitcoin+language:python&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "active_7d=30"
+      },
+      "code": "\nimport json, urllib.request, datetime\nURL = \"https://api.github.com/search/repositories?q=bitcoin+language:python&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nnow = datetime.datetime.now(datetime.timezone.utc)\nactive = 0\nfor it in items:\n    pushed = datetime.datetime.fromisoformat(it[\"pushed_at\"].replace(\"Z\", \"+00:00\"))\n    if (now - pushed).total_seconds() < 7 * 86400:\n        active += 1\nratio = active / max(1, len(items))\nscore = max(-1.0, min(1.0, (ratio - 0.5) * 2.0))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": f\"active_7d={active}\"}, ensure_ascii=False))\n"
+    },
+    {
+      "index": 10,
+      "input": "一句话：拿真实外部数据算个情绪分给我，不要假的。",
+      "ok": true,
+      "result": {
+        "score": 0.0,
+        "source_url": "https://api.github.com/search/issues?q=bitcoin+etf+OR+approval+OR+lawsuit&sort=updated&order=desc&per_page=30",
+        "sample_size": 30,
+        "evidence": "feat: implement mutation testing for test quality assurance"
+      },
+      "code": "\nimport json, urllib.request\nURL = \"https://api.github.com/search/issues?q=bitcoin+etf+OR+approval+OR+lawsuit&sort=updated&order=desc&per_page=30\"\nreq = urllib.request.Request(URL, headers={\"User-Agent\": \"thunderclaw-live-check\"})\nitems = json.loads(urllib.request.urlopen(req, timeout=20).read().decode(\"utf-8\")).get(\"items\", [])\nscore = 0.0\nfor it in items:\n    t = it.get(\"title\",\"\").lower()\n    if \"approval\" in t or \"inflow\" in t or \"launch\" in t:\n        score += 0.25\n    if \"lawsuit\" in t or \"reject\" in t or \"delay\" in t:\n        score -= 0.25\nscore = max(-1.0, min(1.0, score / max(1, len(items))))\nprint(json.dumps({\"score\": score, \"source_url\": URL, \"sample_size\": len(items), \"evidence\": items[0].get(\"title\",\"\") if items else \"\"}, ensure_ascii=False))\n"
+    }
+  ]
+}

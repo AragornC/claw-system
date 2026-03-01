@@ -157,6 +157,24 @@ function normalizeSignalLayer(rawLike = {}) {
     if (!key) return;
     if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
       safeParams[key] = v;
+      return;
+    }
+    if (Array.isArray(v) && key === "dynamicFeatureSpecs") {
+      safeParams[key] = v
+        .map((item) => {
+          const row = item && typeof item === "object" ? item : {};
+          return {
+            ref: text(row.ref || ""),
+            sourceType: text(row.sourceType || ""),
+            provider: text(row.provider || ""),
+            url: text(row.url || ""),
+            urlTemplate: text(row.urlTemplate || ""),
+            query: text(row.query || ""),
+            pythonIndicator: text(row.pythonIndicator || ""),
+          };
+        })
+        .filter((item) => item.ref)
+        .slice(0, 24);
     }
   });
   return {

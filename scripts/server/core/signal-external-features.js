@@ -13,6 +13,11 @@ function toNum(valueLike, fallback = 0) {
   return Number.isFinite(n) ? n : Number(fallback || 0);
 }
 
+function toBool(valueLike, fallback = false) {
+  const s = toText(valueLike, String(fallback ? "1" : "0")).toLowerCase();
+  return ["1", "true", "yes", "on"].includes(s);
+}
+
 function clamp(valueLike, min, max, fallback = 0) {
   const n = toNum(valueLike, fallback);
   if (Number.isFinite(min) && n < min) return min;
@@ -34,7 +39,10 @@ function normalizeFeatureRefList(rowsLike = []) {
   return rows.map((v) => toText(v || "").toLowerCase()).filter(Boolean);
 }
 
-function inferExternalType(featureRefLike = "") {
+function inferExternalType(featureRefLike = "", featureConfigLike = null) {
+  const cfg = featureConfigLike && typeof featureConfigLike === "object" ? featureConfigLike : {};
+  const cfgType = toText(cfg.type || cfg.sourceType || "").toLowerCase();
+  if (cfgType === "news" || cfgType === "social" || cfgType === "prediction") return cfgType;
   const ref = toText(featureRefLike || "").toLowerCase();
   if (!ref) return "";
   if (ref.includes("polymarket") || ref.includes("prediction")) return "prediction";
@@ -118,31 +126,80 @@ function loadExternalSignalRules() {
 
 const EXTERNAL_SIGNAL_RULES = loadExternalSignalRules();
 
-function fetchNewsSignal(contextLike = "") {
-  const url = toText(process.env.THUNDERCLAW_NEWS_RSS_URL || "https://www.coindesk.com/arc/outboundfeeds/rss/");
+function fetchNewsSignal(contextLike = "", configLike = {}) {
+  const cfg = configLike && typeof configLike === "object" ? configLike : {};
+  const url = toText(cfg.url || cfg.newsUrl || process.env.THUNDERCLAW_NEWS_RSS_URL || "https://www.coindesk.com/arc/outboundfeeds/rss/");
   const rsp = execCurl([url], 8000);
   if (!rsp.ok) return { ok: false, score: 0, sourceLabel: "news", sourceUrl: url, error: rsp.error };
   const titles = parseRssTitles(rsp.text);
   const assetWords = detectAssetKeywords(contextLike).map((v) => v.toLowerCase());
   const filtered = titles.filter((t) => assetWords.some((kw) => t.toLowerCase().includes(kw))).slice(0, 20);
   const score = scoreByLexicon(filtered.length ? filtered : titles.slice(0, 20));
-  return { ok: true, score, sourceLabel: "news", sourceUrl: url, sampleSize: filtered.length || titles.length };
+  return {
+    ok: true,
+    score,
+    sourceLabel: "news",
+    sourceUrl: url,
+    sampleSize: filtered.length || titles.length,
+    sampleHeadlines: (filtered.length ? filtered : titles).slice(0, 3),
+  };
 }
 
-function fetchSocialSignal(contextLike = "") {
+function fetchSocialSignal(contextLike = "", configLike = {}) {
+  const cfg = configLike && typeof configLike === "object" ? configLike : {};
   const [asset] = detectAssetKeywords(contextLike);
-  const query = encodeURIComponent(`${asset} lang:en`);
-  const template = toText(process.env.THUNDERCLAW_SOCIAL_RSS_URL || "https://nitter.net/search/rss?f=tweets&q={query}");
+  const queryRaw = toText(cfg.query || `${asset} lang:en`);
+  const query = encodeURIComponent(queryRaw);
+  const template = toText(cfg.urlTemplate || cfg.template || process.env.THUNDERCLAW_SOCIAL_RSS_URL || "https://nitter.net/search/rss?f=tweets&q={query}");
   const url = template.replace("{query}", query);
   const rsp = execCurl([url], 8000);
   if (!rsp.ok) return { ok: false, score: 0, sourceLabel: "social", sourceUrl: url, error: rsp.error };
   const titles = parseRssTitles(rsp.text).slice(0, 30);
   const score = scoreByLexicon(titles);
-  return { ok: true, score, sourceLabel: "social", sourceUrl: url, sampleSize: titles.length };
+  return {
+    ok: true,
+    score,
+    sourceLabel: "social",
+    sourceUrl: url,
+    sampleSize: titles.length,
+    sampleHeadlines: titles.slice(0, 3),
+  };
 }
 
-function fetchPredictionSignal() {
-  const url = toText(process.env.THUNDERCLAW_PREDICTION_API_URL || "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=50");
+function fetchGithubIssueSignal(queryLike = "", label = "github_issues") {
+  const query = encodeURIComponent(toText(queryLike || "bitcoin crypto"));
+  const url = `https://api.github.com/search/issues?q=${query}&sort=updated&order=desc&per_page=30`;
+  const rsp = execCurl([
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+    url,
+  ], 9000);
+  if (!rsp.ok) return { ok: false, score: 0, sourceLabel: label, sourceUrl: url, error: rsp.error };
+  let rows = [];
+  try {
+    const parsed = JSON.parse(rsp.text || "{}");
+    rows = Array.isArray(parsed?.items) ? parsed.items : [];
+  } catch {
+    return { ok: false, score: 0, sourceLabel: label, sourceUrl: url, error: "invalid_json" };
+  }
+  const lines = rows
+    .slice(0, 30)
+    .map((item) => `${toText(item?.title || "")} ${toText(item?.body || "").slice(0, 220)}`.trim())
+    .filter(Boolean);
+  const score = scoreByLexicon(lines);
+  return {
+    ok: true,
+    score,
+    sourceLabel: label,
+    sourceUrl: url,
+    sampleSize: lines.length,
+    sampleHeadlines: lines.slice(0, 3),
+  };
+}
+
+function fetchPredictionSignal(configLike = {}) {
+  const cfg = configLike && typeof configLike === "object" ? configLike : {};
+  const url = toText(cfg.url || cfg.apiUrl || process.env.THUNDERCLAW_PREDICTION_API_URL || "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=50");
   const rsp = execCurl([url], 9000);
   if (!rsp.ok) return { ok: false, score: 0, sourceLabel: "prediction", sourceUrl: url, error: rsp.error };
   let rows = [];
@@ -162,28 +219,66 @@ function fetchPredictionSignal() {
 
 const LIVE_CACHE = new Map();
 
-function resolveLiveSignalByType(type = "", contextText = "") {
-  if (type === "news") return fetchNewsSignal(contextText);
-  if (type === "social") return fetchSocialSignal(contextText);
-  if (type === "prediction") return fetchPredictionSignal();
+function resolveLiveSignalByType(type = "", contextText = "", featureConfig = {}) {
+  if (type === "news") {
+    const first = fetchNewsSignal(contextText, featureConfig);
+    if (first.ok) return first;
+    return fetchGithubIssueSignal(`${contextText} crypto news`, "news_github_live");
+  }
+  if (type === "social") {
+    const first = fetchSocialSignal(contextText, featureConfig);
+    if (first.ok) return first;
+    return fetchGithubIssueSignal(`${contextText} crypto sentiment social`, "social_github_live");
+  }
+  if (type === "prediction") {
+    const first = fetchPredictionSignal(featureConfig);
+    if (first.ok) return first;
+    return fetchGithubIssueSignal(`${contextText} polymarket prediction odds`, "prediction_github_live");
+  }
   return { ok: false, score: 0, sourceLabel: type || "unknown", sourceUrl: "", error: "unsupported_type" };
 }
 
-function resolveScoreForRef({ ref = "", type = "", contextText = "", ts = 0, useLive = false }) {
-  const cacheKey = `${type}|${contextText}`;
+function resolveScoreForRef({ ref = "", type = "", contextText = "", ts = 0, useLive = false, strictLive = false, featureConfig = {} }) {
+  const urlKey = toText(featureConfig?.url || featureConfig?.newsUrl || featureConfig?.apiUrl || featureConfig?.template || "");
+  const cacheKey = `${type}|${contextText}|${urlKey}`;
+  const seed = hashSeed(ref) + hashSeed(contextText) + hashSeed(urlKey) + ts;
+  const oscillation = Math.sin(seed / 97) * 0.65 + Math.cos(seed / 53) * 0.35;
+  const syntheticScore = clamp(oscillation, -1, 1, 0);
   if (useLive) {
     const hit = LIVE_CACHE.get(cacheKey);
     const now = Date.now();
     if (hit && now - hit.ts < 5 * 60 * 1000) {
       return { ...hit.payload, fromCache: true };
     }
-    const payload = resolveLiveSignalByType(type, contextText);
+    const payload = resolveLiveSignalByType(type, contextText, featureConfig);
+    if (!payload.ok) {
+      if (strictLive) {
+        return {
+          ok: false,
+          score: 0,
+          sourceLabel: `${type}_live_failed`,
+          sourceUrl: toText(payload.sourceUrl || ""),
+          sampleSize: Math.max(0, Math.floor(toNum(payload.sampleSize, 0))),
+          sampleHeadlines: Array.isArray(payload.sampleHeadlines) ? payload.sampleHeadlines.slice(0, 3) : [],
+          error: toText(payload.error || "live_fetch_failed"),
+        };
+      }
+      const fallback = {
+        ok: false,
+        score: syntheticScore,
+        sourceLabel: `${type}_live_degraded_fallback`,
+        sourceUrl: toText(payload.sourceUrl || ""),
+        sampleSize: Math.max(0, Math.floor(toNum(payload.sampleSize, 0))),
+        sampleHeadlines: Array.isArray(payload.sampleHeadlines) ? payload.sampleHeadlines.slice(0, 3) : [],
+        error: toText(payload.error || "live_fetch_failed"),
+      };
+      LIVE_CACHE.set(cacheKey, { ts: now, payload: fallback });
+      return fallback;
+    }
     LIVE_CACHE.set(cacheKey, { ts: now, payload });
     return payload;
   }
-  const seed = hashSeed(ref) + hashSeed(contextText) + ts;
-  const oscillation = Math.sin(seed / 97) * 0.65 + Math.cos(seed / 53) * 0.35;
-  return { ok: true, score: clamp(oscillation, -1, 1, 0), sourceLabel: `${type}_synthetic`, sourceUrl: "", sampleSize: 0 };
+  return { ok: true, score: syntheticScore, sourceLabel: `${type}_synthetic`, sourceUrl: "", sampleSize: 0 };
 }
 
 export function buildExternalSignalSnapshot(paramsLike = {}) {
@@ -191,12 +286,15 @@ export function buildExternalSignalSnapshot(paramsLike = {}) {
   const featureRefs = normalizeFeatureRefList(params.featureRefs || []);
   const ts = Math.max(0, Math.floor(toNum(params.timeSec, 0)));
   const contextText = toText(params.contextText || "");
-  const useLive = ["1", "true", "yes", "on"].includes(toText(process.env.THUNDERCLAW_EXTERNAL_SIGNAL_LIVE || "0").toLowerCase());
+  const featureConfigs = params.featureConfigs && typeof params.featureConfigs === "object" ? params.featureConfigs : {};
+  const useLive = toBool(process.env.THUNDERCLAW_EXTERNAL_SIGNAL_LIVE || "1", true);
+  const strictLive = toBool(process.env.THUNDERCLAW_EXTERNAL_SIGNAL_STRICT || "1", true);
   const externalRows = [];
   featureRefs.forEach((ref) => {
-    const type = inferExternalType(ref);
+    const cfg = featureConfigs[ref] && typeof featureConfigs[ref] === "object" ? featureConfigs[ref] : {};
+    const type = inferExternalType(ref, cfg);
     if (!type) return;
-    const resolved = resolveScoreForRef({ ref, type, contextText, ts, useLive });
+    const resolved = resolveScoreForRef({ ref, type, contextText, ts, useLive, strictLive, featureConfig: cfg });
     const score = clamp(resolved.score, -1, 1, 0);
     externalRows.push({
       featureRef: ref,
@@ -210,8 +308,16 @@ export function buildExternalSignalSnapshot(paramsLike = {}) {
       dataLive: Boolean(useLive),
       sourceStatus: resolved.ok ? "ok" : "degraded",
       sourceError: resolved.ok ? "" : toText(resolved.error || ""),
+      sampleHeadlines: Array.isArray(resolved.sampleHeadlines) ? resolved.sampleHeadlines.slice(0, 3) : [],
     });
   });
+  if (useLive && strictLive) {
+    const failed = externalRows.filter((row) => row.sourceStatus !== "ok");
+    if (failed.length > 0) {
+      const detail = failed.map((row) => `${row.featureRef}:${row.sourceError || row.sourceStatus}`).join(", ");
+      throw new Error(`external live signal fetch failed in strict mode: ${detail}`);
+    }
+  }
   return {
     externalSignals: externalRows,
     externalSignalScore: Number(externalRows.reduce((acc, row) => acc + toNum(row.score, 0), 0).toFixed(6)),

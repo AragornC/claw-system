@@ -1094,6 +1094,32 @@
       white-space: nowrap;
     }
     .strategy-feature-chip .meta { color: var(--muted); font-size: 0.63rem; }
+    .strategy-feature-code-list { display: grid; gap: 8px; margin-bottom: 8px; }
+    .strategy-feature-code-item {
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 9px;
+      background: rgba(0,0,0,0.2);
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .strategy-feature-code-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .strategy-feature-code-head span { color: var(--text); font-size: 0.68rem; font-weight: 600; }
+    .strategy-feature-code-meta { color: var(--muted) !important; font-size: 0.62rem !important; font-weight: 500 !important; }
+    .strategy-feature-code-pre {
+      margin: 0;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      padding: 7px 8px;
+      color: #c9d1d9;
+      font-size: 0.67rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .strategy-feature-code-empty { color: var(--muted); font-size: 0.67rem; }
     .strategy-relation-empty { color: var(--muted); font-size: 0.67rem; }
     .strategy-trading-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
     .strategy-mode-tab {

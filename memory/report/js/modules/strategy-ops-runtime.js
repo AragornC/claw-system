@@ -557,6 +557,26 @@
     return lines.join("\n");
   }
 
+  function renderGeneratedFeatureCodeSectionRuntime(detailLike) {
+    const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
+    const rows = Array.isArray(detail?.details?.generatedFeatureCode) ? detail.details.generatedFeatureCode : [];
+    if (!rows.length) {
+      return '<div class="strategy-feature-code-empty">暂无特征执行代码（先确认特征并执行回测后可见）。</div>';
+    }
+    return '<div class="strategy-feature-code-list">' + rows.slice(0, 40).map(function(itemLike, idx) {
+      const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+      const ref = soText(item.featureRef || item.ref || ('feature_' + String(idx + 1)));
+      const source = [soText(item.sourceType || item.type || ''), soText(item.provider || '')].filter(Boolean).join(' / ');
+      const column = soText(item.column || item.outputColumn || '');
+      const expr = soText(item.expression || item.code || item.pythonIndicator || '', '# 暂无代码');
+      return ''
+        + '<div class="strategy-feature-code-item">'
+        + '<div class="strategy-feature-code-head"><span>' + soEsc(ref) + '</span><span class="strategy-feature-code-meta">' + soEsc((source || '-') + (column ? (' · 列=' + column) : '')) + '</span></div>'
+        + '<pre class="strategy-feature-code-pre"><code>' + soEsc(expr) + '</code></pre>'
+        + '</div>';
+    }).join('') + '</div>';
+  }
+
   function renderStrategyDetailSectionRuntime(detailLike) {
     const detail = detailLike && typeof detailLike === "object" ? detailLike : {};
     const layers = normalizeStrategyLayersRuntime(detail);
@@ -621,6 +641,8 @@
       + '<textarea class="strategy-detail-expression" data-sl-edit-field="featureRefs" placeholder="feature_id_1, feature_id_2 ...">' + soEsc(featureRefsText) + "</textarea>"
       + "</div>"
       + '<div class="strategy-chart-title"><span>第二层：四层可调参数与特征分布</span><span>调整参数后可直接执行回放</span></div>'+ '<div class="strategy-chart-title"><span>策略执行代码预览</span><span>用于快速核对当前策略执行逻辑</span></div>'+ '<pre class="strategy-detail-expression"><code>' + soEsc(buildStrategyCodeRuntime(detail)) + '</code></pre>'
+      + '<div class="strategy-chart-title"><span>特征计算代码（回测实际使用）</span><span>以下代码会在 Freqtrade populate_indicators 中写入 dataframe 列</span></div>'
+      + renderGeneratedFeatureCodeSectionRuntime(detail)
       + '<div class="strategy-layer-grid">'
       + '<div class="strategy-layer-card signal">'
       + '<div class="strategy-layer-head"><span>信号层</span><small>信号阈值 + 特征类型分布</small></div>'

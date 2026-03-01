@@ -474,6 +474,24 @@
       return "<li>" + sfEscapeHtml(String(idx + 1) + ". " + sfText(step, "")) + "</li>";
     }).join("");
     const pseudoCodeText = feature.pseudoCode.join("\n");
+    const executionCode = resolveExecutionCodeRuntime(feature);
+    const pipelineRuntime = resolveExternalPipelineCodeRuntime(feature);
+    const pipelineCode = pipelineRuntime.code;
+    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const codegenStatus = sfText(params.codegenStatus || "", "").toLowerCase();
+    const codeValidationError = sfText(params.codeValidationError || "", "");
+    const requiredInputs = Array.isArray(params.requiredInputs)
+      ? params.requiredInputs.map(function mapRequired(row) {
+        const item = row && typeof row === "object" ? row : {};
+        return sfText(item.label || item.key || "", "");
+      }).filter(Boolean)
+      : [];
+    const needsInputHint = codegenStatus === "needs_user_input"
+      ? [
+        codeValidationError ? ("当前状态：" + codeValidationError) : "当前状态：模型代码需补充后再确认。",
+        requiredInputs.length ? ("待补充：" + requiredInputs.join("、")) : "",
+      ].filter(Boolean).join("\n")
+      : "";
     const version = feature.versionInfo || {};
     const anchorBase = sanitizeAnchorPartRuntime(feature.featureId || feature.name || feature.title || "feature");
     const sectionIds = {
@@ -482,6 +500,7 @@
       algorithm: "fd-" + anchorBase + "-algorithm",
       params: "fd-" + anchorBase + "-params",
       pseudo: "fd-" + anchorBase + "-pseudo",
+      execution: "fd-" + anchorBase + "-execution",
       version: "fd-" + anchorBase + "-version",
     };
     const tocHtml = '<aside class="feature-detail-toc">'
@@ -491,6 +510,7 @@
       + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.algorithm) + '">算法摘要</button>'
       + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.params) + '">参数表</button>'
       + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.pseudo) + '">伪代码</button>'
+      + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.execution) + '">执行代码</button>'
       + '<button class="feature-detail-toc-btn" type="button" data-feature-toc-target="' + sfEscapeHtml(sectionIds.version) + '">版本信息</button>'
       + "</aside>";
     const allTags = feature.tags.slice(0, 3).map(function mapTag(key) {
@@ -531,6 +551,13 @@
       + renderParamTableRuntime(feature.paramSpecs)
       + "</section>"
       + '<section id="' + sfEscapeHtml(sectionIds.pseudo) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></section>"
+      + '<section id="' + sfEscapeHtml(sectionIds.execution) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">可执行特征代码（用于 populate_indicators）</div>'
+      + '<div class="meta">输出列：' + sfEscapeHtml(sfText(params.outputColumn || "", "-")) + ' · 周期：' + sfEscapeHtml(sfText(params.timeframe || "", "-")) + '</div>'
+      + '<div class="meta">来源：' + sfEscapeHtml(sfText(params.sourceType || feature.sourceType || "", "-")) + ' / ' + sfEscapeHtml(sfText(params.provider || "", "-")) + '</div>'
+      + '<div class="meta">代码来源：' + sfEscapeHtml(sfText(params.codeSource || "", "未标注")) + '</div>'
+      + '<pre class="mini-mono">' + sfEscapeHtml(executionCode || (needsInputHint ? ("# 暂无执行代码\n" + needsInputHint) : "# 暂无执行代码（请在确认卡片时补充 pythonIndicator）")) + '</pre>'
+      + (pipelineCode ? ('<details class="feature-detail-fold" open><summary>外部信号主算法（具体执行代码）</summary><div class="meta">主算法来源：' + sfEscapeHtml(sfText(pipelineRuntime.source || '', '-')) + '</div><pre class="mini-mono">' + sfEscapeHtml(pipelineCode) + '</pre></details>') : '<div class="meta" style="margin-top:8px;">外部主算法代码：未生成（仅接受模型生成）。</div>')
+      + '</section>'
       + '<section id="' + sfEscapeHtml(sectionIds.version) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold"><summary>版本信息（折叠）</summary>'
       + '<div class="meta">版本：' + sfEscapeHtml(sfText(version.version, "v1.0.0")) + "</div>"
       + '<div class="meta">修订：' + sfEscapeHtml(String(Math.floor(sfNum(version.revision, 1)))) + "</div>"
@@ -539,6 +566,45 @@
       + "</div>"
       + "</div>"
       + "</div>";
+  }
+
+
+
+  function resolveExternalPipelineCodeRuntime(featureLike) {
+    const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const fromCandidate = sfText(params.pipelineCode || params.pipeline_code || feature.pipelineCode || "", "");
+    if (!fromCandidate) {
+      return {
+        code: "",
+        source: "",
+      };
+    }
+    return {
+      code: fromCandidate,
+      source: sfText(params.codeSource || "", "model_generated"),
+    };
+  }
+
+  function resolveExecutionCodeRuntime(featureLike) {
+    const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const candidates = [
+      params.pythonIndicator,
+      params.pythonindicator,
+      params.pythonCode,
+      params.code,
+      params.expression,
+      feature.pythonIndicator,
+      feature.pythonCode,
+      feature.code,
+      feature.expression,
+    ];
+    for (var i = 0; i < candidates.length; i += 1) {
+      const text = sfText(candidates[i], "");
+      if (text) return text;
+    }
+    return "";
   }
 
   function getStrategyFeatureConfigRuntime() {

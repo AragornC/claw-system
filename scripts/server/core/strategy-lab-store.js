@@ -31,6 +31,7 @@ import {
   applyProvenanceMeta,
   applyFeatureProductMeta,
   migrateStoreShape,
+  inferFeatureRelationType,
 } from "./strategy-lab-store-helpers.js";
 import {
   STRATEGY_STATUS_LABELS,
@@ -437,6 +438,78 @@ export function createStrategyLabStore(deps = {}) {
       latestReturnPct: Number(latestReturnPct.toFixed(4)),
       maxDrawdownPct: Number(maxDrawdownPct.toFixed(4)),
     };
+  }
+
+  function buildEventReasonDetails(eventLike = {}) {
+    const event = eventLike && typeof eventLike === "object" ? eventLike : {};
+    const snapshot = event.decisionSnapshot && typeof event.decisionSnapshot === "object"
+      ? event.decisionSnapshot
+      : {};
+    const signal = snapshot.signal && typeof snapshot.signal === "object" ? snapshot.signal : {};
+    const position = snapshot.position && typeof snapshot.position === "object" ? snapshot.position : {};
+    const risk = snapshot.risk && typeof snapshot.risk === "object" ? snapshot.risk : {};
+    const execution = snapshot.execution && typeof snapshot.execution === "object" ? snapshot.execution : {};
+    const externalSignals = Array.isArray(signal.externalSignals)
+      ? signal.externalSignals.slice(0, 4).map((itemLike) => {
+        const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+        return {
+          featureRef: toText(item.featureRef || ""),
+          sourceType: toText(item.sourceType || ""),
+          sourceLabel: toText(item.sourceLabel || ""),
+          sourceUrl: toText(item.sourceUrl || ""),
+          score: Number(item.score || 0),
+          sourceStatus: toText(item.sourceStatus || ""),
+          headlines: Array.isArray(item.sampleHeadlines) ? item.sampleHeadlines.slice(0, 3) : [],
+        };
+      })
+      : [];
+    const indicatorSignals = [
+      {
+        name: "longThreshold",
+        value: Number(signal.longThreshold || 0),
+      },
+      {
+        name: "shortThreshold",
+        value: Number(signal.shortThreshold || 0),
+      },
+      {
+        name: "observedDeltaPct",
+        value: Number(signal.observedDeltaPct || 0),
+      },
+      {
+        name: "externalSignalScore",
+        value: Number(signal.externalSignalScore || 0),
+      },
+    ];
+    const reasonSummary = [
+      toText(event.reasonRule || ""),
+      `signal=${toText(signal.signalType || "")}`,
+      `delta=${Number(signal.observedDeltaPct || 0).toFixed(4)}%`,
+      externalSignals.length ? `external=${externalSignals.map((row) => `${row.sourceLabel}:${row.score.toFixed(3)}`).join("|")}` : "",
+    ].filter(Boolean).join(" ; ");
+    return {
+      reasonSummary,
+      indicatorSignals,
+      externalSignals,
+      runtime: {
+        position,
+        risk,
+        execution,
+      },
+    };
+  }
+
+  function enrichEventsWithReason(rowsLike = []) {
+    const rows = Array.isArray(rowsLike) ? rowsLike : [];
+    return rows.map((item) => {
+      const reasonDetails = buildEventReasonDetails(item);
+      return {
+        ...item,
+        tradeTypeLabel: TRADE_TYPE_LABELS[toText(item?.tradeType || "").toLowerCase()] || toText(item?.tradeType || ""),
+        reasonDetails,
+        reasonSummary: toText(reasonDetails.reasonSummary || toText(item?.reasonRule || "")),
+      };
+    });
   }
 
   function inferArtifactTradingMode(artifactLike) {
@@ -1038,6 +1111,48 @@ export function createStrategyLabStore(deps = {}) {
     return { created: true, version: item };
   }
 
+
+
+  function validateFeatureExecutionCodeForApply(featureLike = {}) {
+    const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+    const kind = toText(feature.kind || "").toLowerCase();
+    const name = toText(feature.name || feature.featureId || "").toLowerCase();
+    const sourceType = toText(params.sourceType || feature.sourceType || "").toLowerCase();
+    const isExternal = sourceType === "news"
+      || sourceType === "social"
+      || sourceType === "prediction"
+      || kind === "news_sentiment"
+      || kind === "social_sentiment"
+      || kind === "prediction_market"
+      || name.includes("news")
+      || name.includes("social")
+      || name.includes("twitter")
+      || name.includes("prediction")
+      || name.includes("polymarket");
+    if (!isExternal) return;
+
+    const pythonIndicator = toText(params.pythonIndicator || "");
+    if (!pythonIndicator) {
+      throw new Error("外部特征必须先由模型产出 pythonIndicator 执行代码，才能确认加入");
+    }
+    const codeSource = toText(params.codeSource || "").toLowerCase();
+    if (codeSource !== "model_generated") {
+      throw new Error("外部特征代码来源无效：仅允许 model_generated");
+    }
+    const codegenStatus = toText(params.codegenStatus || "").toLowerCase();
+    if (codegenStatus === "needs_user_input") {
+      const needed = Array.isArray(params.requiredInputs) ? params.requiredInputs : [];
+      const neededKeys = needed.map((row) => toText(row && row.key || "")).filter(Boolean);
+      const detail = neededKeys.length ? `（待补充：${neededKeys.join(",")}）` : "";
+      throw new Error(`外部特征代码仍需用户确认后改造${detail}`);
+    }
+    const codeValidationError = toText(params.codeValidationError || "");
+    if (codeValidationError) {
+      throw new Error(`外部特征代码校验未通过：${codeValidationError}`);
+    }
+  }
+
   function applyIntentCandidate(candidateLike, metaLike = {}) {
     const candidate = candidateLike && typeof candidateLike === "object" ? candidateLike : {};
     const kind = String(candidate.kind || "").trim().toLowerCase();
@@ -1045,6 +1160,7 @@ export function createStrategyLabStore(deps = {}) {
       const featureRaw = candidate.feature && typeof candidate.feature === "object"
         ? candidate.feature
         : candidate;
+      validateFeatureExecutionCodeForApply(featureRaw);
       const result = upsertFeature(featureRaw, metaLike);
       return {
         kind: "feature",
@@ -1313,6 +1429,7 @@ export function createStrategyLabStore(deps = {}) {
       },
     });
     const filtered = filterExecutionReport(executionReport, { rangeDays, tradeType });
+    const replayEvents = enrichEventsWithReason(filtered.report.events || []);
     return {
       strategyId,
       artifactId: toText(artifactResult?.artifactId || ""),
@@ -1321,7 +1438,7 @@ export function createStrategyLabStore(deps = {}) {
       visualization: {
         rangeDays: filtered.rangeDays,
         tradeType: filtered.tradeType,
-        events: filtered.report.events || [],
+        events: replayEvents,
         equityCurve: filtered.report.equityCurve || [],
         drawdownCurve: filtered.report.drawdownCurve || [],
         summary,
@@ -1774,6 +1891,66 @@ export function createStrategyLabStore(deps = {}) {
     };
   }
 
+
+  function buildFeatureCodePreviewFromLayers(featureRefsLike = [], signalLayerLike = {}) {
+    const refs = normalizeFeatureRefs(featureRefsLike || []);
+    const signalLayer = signalLayerLike && typeof signalLayerLike === "object" ? signalLayerLike : {};
+    const params = signalLayer.params && typeof signalLayer.params === "object" ? signalLayer.params : {};
+    const dynamicSpecs = Array.isArray(params.dynamicFeatureSpecs) ? params.dynamicFeatureSpecs : [];
+    const dynByRef = new Map();
+    dynamicSpecs.forEach((itemLike) => {
+      const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+      const ref = slugify(item.ref || "");
+      if (!ref) return;
+      dynByRef.set(ref, item);
+    });
+    return refs.map((ref, index) => {
+      const dyn = dynByRef.get(slugify(ref)) || {};
+      const lower = toText(ref || "").toLowerCase();
+      const inferredSourceType = lower.includes("polymarket") || lower.includes("prediction")
+        ? "prediction"
+        : (lower.includes("twitter") || lower.includes("social") || lower.includes("x_")
+          ? "social"
+          : ((lower.includes("news") || lower.includes("headline") || lower.includes("sentiment")) ? "news" : ""));
+      const inferredProvider = inferredSourceType === "prediction"
+        ? "polymarket"
+        : (inferredSourceType === "social" ? "twitter" : (inferredSourceType === "news" ? "coindesk" : ""));
+      let formula = "momentum";
+      if (lower.includes("ema") || lower.includes("trend")) formula = "trend_ema";
+      else if (lower.includes("adx")) formula = "adx_strength";
+      else if (lower.includes("rsi")) formula = "rsi_bias";
+      else if (lower.includes("atr") || lower.includes("volatility")) formula = "atr_guard";
+      else if (lower.includes("risk") || lower.includes("drawdown") || lower.includes("stop")) formula = "risk_guard";
+      else if (lower.includes("position") || lower.includes("exposure") || lower.includes("sizing")) formula = "position_cap";
+      else if (lower.includes("execution") || lower.includes("slippage") || lower.includes("fee")) formula = "execution_cost";
+      else if (lower.includes("news") || lower.includes("social") || lower.includes("twitter") || lower.includes("prediction") || lower.includes("polymarket")) formula = "external";
+      const externalDefaultExpr = {
+        news: "dataframe['{col}'] = dataframe['{col}'].rolling(3).mean().fillna(dataframe['{col}']).clip(-1, 1)",
+        social: "dataframe['{col}'] = dataframe['{col}'].ewm(span=5, adjust=False).mean().clip(-1, 1)",
+        prediction: "dataframe['{col}'] = dataframe['{col}'].fillna(0.0).clip(-1, 1)",
+      }[inferredSourceType] || "map(external_series_by_ref[feature_ref], candle_time)";
+      const expression = toText(dyn.pythonIndicator || "") || ({
+        trend_ema: "((ema_fast - ema_slow) / close).clip(-1, 1)",
+        adx_strength: "((adx - 20.0) / 25.0).clip(0, 1)",
+        rsi_bias: "((rsi - 50.0) / 50.0).clip(-1, 1)",
+        atr_guard: "(0.7 - atr_pct * 25.0).clip(-1, 1)",
+        risk_guard: "(0.8 - abs(ret_1) * 20.0).clip(-1, 1)",
+        position_cap: "(0.6 - abs(ret_1) * 12.0).clip(-1, 1)",
+        execution_cost: "(0.75 - atr_pct * 20.0).clip(-1, 1)",
+        external: externalDefaultExpr,
+      }[formula] || "(ret_1 * 12.0).clip(-1, 1)");
+      return {
+        featureRef: ref,
+        column: `tc_feat_${index}`,
+        formula,
+        sourceType: toText(dyn.sourceType || inferredSourceType),
+        provider: toText(dyn.provider || inferredProvider),
+        sourceUrl: toText(dyn.url || ""),
+        expression,
+      };
+    });
+  }
+
   function getStrategyDetail(options = {}) {
     const store = loadStore();
     const strategyId = toText(options.strategyId || "");
@@ -1877,10 +2054,7 @@ export function createStrategyLabStore(deps = {}) {
     }
     const filtered = filterExecutionReport(reportRaw, { rangeDays, tradeType });
     const report = filtered.report;
-    const events = (Array.isArray(report.events) ? report.events : []).map((item) => ({
-      ...item,
-      tradeTypeLabel: TRADE_TYPE_LABELS[toText(item?.tradeType || "").toLowerCase()] || toText(item?.tradeType || ""),
-    }));
+    const events = enrichEventsWithReason(Array.isArray(report.events) ? report.events : []);
     const summary = summarizeExecutionReport(report, version?.performance || {});
     const sourceKey = toText(strategy.source || "", "unknown");
     const sourceLabel = sourceKey === "chat_intent"
@@ -1925,28 +2099,7 @@ export function createStrategyLabStore(deps = {}) {
       const outputTypeLabel = OUTPUT_TYPE_CONFIG[outputType]?.label || outputType || "";
       const tags = Array.isArray(featureMeta?.tags) ? featureMeta.tags.slice(0, 3) : [];
       const tagLabels = tags.map((tag) => TAG_CONFIG[tag]?.label || tag).filter(Boolean);
-      let relationType = "signal_input";
-      if (
-        featureGroup === "execution"
-        || ref.includes("execution")
-        || ref.includes("slippage")
-        || ref.includes("fee")
-      ) {
-        relationType = "execution_rule";
-      } else if (
-        featureGroup === "risk"
-        || toText(featureMeta?.kind || "", "").toLowerCase() === "risk_rule"
-        || ref.includes("risk")
-        || ref.includes("drawdown")
-      ) {
-        relationType = "risk_guard";
-      } else if (
-        ref.includes("position")
-        || ref.includes("exposure")
-        || ref.includes("sizing")
-      ) {
-        relationType = "position_sizing";
-      }
+      const relationType = inferFeatureRelationType(ref, featureMeta);
       return {
         featureRef: ref,
         featureId: toText(lock?.featureId || ref),
@@ -1990,6 +2143,15 @@ export function createStrategyLabStore(deps = {}) {
       maxDrawdownPct: Number(Number(item?.maxDrawdownPct || 0).toFixed(4)),
       selected: toText(item?.playbackId || "") === toText(runtimeMeta.selectedPlaybackId || ""),
     }));
+    const runtimeBacktestMeta = report?.backtestMeta && typeof report.backtestMeta === "object"
+      ? report.backtestMeta
+      : {};
+    const generatedFeatureCode = Array.isArray(runtimeBacktestMeta.featureCode) && runtimeBacktestMeta.featureCode.length
+      ? runtimeBacktestMeta.featureCode
+      : buildFeatureCodePreviewFromLayers(featureRefs, detailsLayers.signalLayer);
+    const signalDiagnostics = runtimeBacktestMeta.signalDiagnostics && typeof runtimeBacktestMeta.signalDiagnostics === "object"
+      ? runtimeBacktestMeta.signalDiagnostics
+      : {};
     return {
       strategy: {
         ...strategy,
@@ -2005,6 +2167,7 @@ export function createStrategyLabStore(deps = {}) {
         expression: toText(detailsLayers.signalLayer?.signalLogic || "未配置策略表达式"),
         featureRelations,
         layers: detailsLayers,
+        generatedFeatureCode,
       },
       trading: {
         mode: tradingMode,
@@ -2016,6 +2179,7 @@ export function createStrategyLabStore(deps = {}) {
         backtestPlaybacks,
         playbackTotal: backtestPlaybacks.length,
         summary,
+        signalDiagnostics,
       },
       visualization: {
         rangeDays: filtered.rangeDays,
@@ -2035,6 +2199,212 @@ export function createStrategyLabStore(deps = {}) {
         runtimeEnv: STRATEGY_RUNTIME_ENV_LABELS,
         tradeType: TRADE_TYPE_LABELS,
       },
+    };
+  }
+
+
+  function deleteFeature(paramsLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const targetId = toText(params.featureId || params.id || "");
+    const targetName = toText(params.featureName || params.name || params.featureRef || "");
+    const targetSlug = slugify(targetId || targetName);
+    if (!targetId && !targetSlug) throw new Error("featureId or featureName is required");
+
+    const features = Array.isArray(store.features) ? store.features : [];
+    const targetFeature = features.find((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const featureId = toText(row.featureId || "");
+      const featureName = toText(row.name || "");
+      if (targetId && featureId && featureId === targetId) return true;
+      const candidates = [featureId, featureName].map((v) => slugify(v)).filter(Boolean);
+      return targetSlug ? candidates.includes(targetSlug) : false;
+    }) || null;
+    if (!targetFeature) throw new Error("feature not found");
+
+    const matchSlugs = new Set(
+      [
+        toText(targetFeature.featureId || ""),
+        toText(targetFeature.name || ""),
+      ].map((v) => slugify(v)).filter(Boolean),
+    );
+    const removeRefs = (refsLike) => {
+      const refs = normalizeFeatureRefs(refsLike || []);
+      return refs.filter((ref) => !matchSlugs.has(slugify(ref)));
+    };
+
+    store.features = features.filter((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const featureId = toText(row.featureId || "");
+      if (targetId && featureId && featureId === targetId) return false;
+      return !matchSlugs.has(slugify(featureId || row.name || ""));
+    });
+
+    let affectedVersionCount = 0;
+    store.versions = (Array.isArray(store.versions) ? store.versions : []).map((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const strategy = row.strategy && typeof row.strategy === "object" ? row.strategy : null;
+      if (!strategy) return row;
+      const before = normalizeFeatureRefs(strategy.featureRefs || []);
+      const after = removeRefs(before);
+      if (after.length === before.length) return row;
+      affectedVersionCount += 1;
+      return {
+        ...row,
+        strategy: {
+          ...strategy,
+          featureRefs: after,
+        },
+      };
+    });
+
+    let affectedStrategyCount = 0;
+    store.strategies = (Array.isArray(store.strategies) ? store.strategies : []).map((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const draftConfig = row.draftConfig && typeof row.draftConfig === "object" ? row.draftConfig : null;
+      if (!draftConfig) return row;
+      const signalLayer = draftConfig.signalLayer && typeof draftConfig.signalLayer === "object"
+        ? draftConfig.signalLayer
+        : {};
+      const before = normalizeFeatureRefs(signalLayer.featureRefs || []);
+      const after = removeRefs(before);
+      if (after.length === before.length) return row;
+      affectedStrategyCount += 1;
+      return {
+        ...row,
+        featureCount: after.length,
+        updatedAt: nowIso(),
+        draftConfig: {
+          ...draftConfig,
+          signalLayer: {
+            ...signalLayer,
+            featureRefs: after,
+          },
+        },
+      };
+    });
+
+    let affectedStrategyVersionCount = 0;
+    store.strategyVersions = (Array.isArray(store.strategyVersions) ? store.strategyVersions : []).map((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const signalLayer = row.signalLayer && typeof row.signalLayer === "object" ? row.signalLayer : {};
+      const before = normalizeFeatureRefs(signalLayer.featureRefs || []);
+      const after = removeRefs(before);
+      const lockedBefore = Array.isArray(row.lockedFeatureVersions) ? row.lockedFeatureVersions : [];
+      const lockedAfter = lockedBefore.filter((itemLike) => {
+        const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+        const featureId = slugify(item.featureId || item.featureName || "");
+        return featureId ? !matchSlugs.has(featureId) : true;
+      });
+      const changed = after.length !== before.length || lockedAfter.length !== lockedBefore.length;
+      if (!changed) return row;
+      affectedStrategyVersionCount += 1;
+      return {
+        ...row,
+        signalLayer: {
+          ...signalLayer,
+          featureRefs: after,
+        },
+        lockedFeatureVersions: lockedAfter,
+      };
+    });
+
+    executionReportCache.clear();
+
+    appendStrategyAudit(store, {
+      strategyId: "",
+      strategyVersionId: "",
+      action: "feature_deleted",
+      fromStatus: "",
+      toStatus: "",
+      operator: toText(meta.operator || meta.createdBy || "ThunderClaw"),
+      reason: toText(meta.reason || "删除交易特征"),
+      detail: {
+        featureId: toText(targetFeature.featureId || ""),
+        featureName: toText(targetFeature.name || ""),
+        affectedVersionCount,
+        affectedStrategyCount,
+        affectedStrategyVersionCount,
+      },
+    });
+
+    saveStore();
+    return {
+      ok: true,
+      featureId: toText(targetFeature.featureId || ""),
+      featureName: toText(targetFeature.name || ""),
+      affectedVersionCount,
+      affectedStrategyCount,
+      affectedStrategyVersionCount,
+    };
+  }
+
+  function deleteStrategy(paramsLike = {}, metaLike = {}) {
+    const store = loadStore();
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    const strategyId = toText(params.strategyId || params.id || "");
+    if (!strategyId) throw new Error("strategyId is required");
+
+    const strategies = Array.isArray(store.strategies) ? store.strategies : [];
+    const target = strategies.find((item) => toText(item?.strategyId || "") === strategyId) || null;
+    if (!target) throw new Error("strategy not found");
+
+    const versionIds = new Set(
+      (Array.isArray(store.strategyVersions) ? store.strategyVersions : [])
+        .filter((row) => toText(row?.strategyId || "") === strategyId)
+        .map((row) => toText(row?.strategyVersionId || ""))
+        .filter(Boolean),
+    );
+
+    const beforeStrategyVersionCount = Array.isArray(store.strategyVersions) ? store.strategyVersions.length : 0;
+    const beforeAuditCount = Array.isArray(store.strategyAudits) ? store.strategyAudits.length : 0;
+    const beforeArtifactCount = Array.isArray(store.artifacts) ? store.artifacts.length : 0;
+
+    store.strategies = strategies.filter((item) => toText(item?.strategyId || "") !== strategyId);
+    store.strategyVersions = (Array.isArray(store.strategyVersions) ? store.strategyVersions : [])
+      .filter((row) => toText(row?.strategyId || "") !== strategyId);
+    store.strategyAudits = (Array.isArray(store.strategyAudits) ? store.strategyAudits : [])
+      .filter((row) => toText(row?.strategyId || "") !== strategyId);
+    store.artifacts = (Array.isArray(store.artifacts) ? store.artifacts : []).filter((rowLike) => {
+      const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+      const config = row.config && typeof row.config === "object" ? row.config : {};
+      const result = row.result && typeof row.result === "object" ? row.result : {};
+      const artifactStrategyId = toText(config.strategyId || result.strategyId || "");
+      const artifactVersionId = toText(config.strategyVersionId || result.strategyVersionId || "");
+      if (artifactStrategyId && artifactStrategyId === strategyId) return false;
+      if (artifactVersionId && versionIds.has(artifactVersionId)) return false;
+      return true;
+    });
+
+    executionReportCache.clear();
+
+    appendStrategyAudit(store, {
+      strategyId: "",
+      strategyVersionId: "",
+      action: "strategy_deleted",
+      fromStatus: toText(target.status || ""),
+      toStatus: "deleted",
+      operator: toText(meta.operator || meta.createdBy || "ThunderClaw"),
+      reason: toText(meta.reason || "删除策略"),
+      detail: {
+        deletedStrategyId: strategyId,
+        deletedStrategyName: toText(target.name || ""),
+        removedStrategyVersionCount: Math.max(0, beforeStrategyVersionCount - store.strategyVersions.length),
+        removedAuditCount: Math.max(0, beforeAuditCount - store.strategyAudits.length),
+        removedArtifactCount: Math.max(0, beforeArtifactCount - store.artifacts.length),
+      },
+    });
+
+    saveStore();
+    return {
+      ok: true,
+      strategyId,
+      strategyName: toText(target.name || ""),
+      removedStrategyVersionCount: Math.max(0, beforeStrategyVersionCount - store.strategyVersions.length),
+      removedAuditCount: Math.max(0, beforeAuditCount - store.strategyAudits.length),
+      removedArtifactCount: Math.max(0, beforeArtifactCount - store.artifacts.length),
     };
   }
 
@@ -2066,6 +2436,8 @@ export function createStrategyLabStore(deps = {}) {
     evaluateVersion,
     reportArtifact,
     runStrategyReplay,
+    deleteFeature,
+    deleteStrategy,
     getStats,
   };
 }

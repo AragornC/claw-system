@@ -1449,6 +1449,7 @@ const {
 
 const {
   handleStrategyFeatures,
+  handleStrategyFeatureDelete,
   handleStrategyVersions,
   handleStrategyVersionsPropose,
   handleStrategyVersionsEvaluate,
@@ -1462,6 +1463,7 @@ const {
   handleStrategyEntityPublish,
   handleStrategyEntityStatus,
   handleStrategyEntityAudits,
+  handleStrategyEntityDelete,
 } = createStrategyLabHandlers({
   readJsonBody,
   sendJson,
@@ -1522,6 +1524,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleOpenClawConfigSet,
   handleOpenClawConfigUnset,
   handleStrategyFeatures,
+  handleStrategyFeatureDelete,
   handleStrategyVersions,
   handleStrategyVersionsPropose,
   handleStrategyVersionsEvaluate,
@@ -1535,6 +1538,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyEntityPublish,
   handleStrategyEntityStatus,
   handleStrategyEntityAudits,
+  handleStrategyEntityDelete,
   handleChat,
 }));
 

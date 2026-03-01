@@ -106,6 +106,62 @@ export function createStrategyLabHandlers(deps = {}) {
     });
   }
 
+
+  async function handleStrategyFeatureDelete(req, res) {
+    if (typeof strategyLabStore.deleteFeature !== "function") {
+      sendJson(res, 500, { ok: false, error: "feature deletion is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    const featureId = toText(payload.featureId || payload.id || "");
+    const featureName = toText(payload.featureName || payload.name || payload.featureRef || "");
+    if (!featureId && !featureName) {
+      sendJson(res, 400, { ok: false, error: "featureId or featureName is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.deleteFeature(payload, {
+        operator: toText(payload.operator || payload.createdBy || "ThunderClaw"),
+        reason: toText(payload.reason || "删除交易特征"),
+      });
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+        stats: strategyLabStore.getStats(),
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "feature delete failed") });
+    }
+  }
+
+  async function handleStrategyEntityDelete(req, res) {
+    if (typeof strategyLabStore.deleteStrategy !== "function") {
+      sendJson(res, 500, { ok: false, error: "strategy deletion is not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    const strategyId = toText(payload.strategyId || payload.id || "");
+    if (!strategyId) {
+      sendJson(res, 400, { ok: false, error: "strategyId is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.deleteStrategy(payload, {
+        operator: toText(payload.operator || payload.createdBy || "ThunderClaw"),
+        reason: toText(payload.reason || "删除策略"),
+      });
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+        stats: strategyLabStore.getStats(),
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "strategy delete failed") });
+    }
+  }
+
   async function handleStrategyVersions(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const limit = parsePositiveInt(url.searchParams.get("limit"), 80, 1, 300);
@@ -231,6 +287,13 @@ export function createStrategyLabHandlers(deps = {}) {
     const candidate = body.candidate && typeof body.candidate === "object" ? body.candidate : null;
     if (!candidate) {
       sendJson(res, 400, { ok: false, error: "candidate is required" });
+      return;
+    }
+    if (toText(candidate.kind || "").toLowerCase() === "strategy") {
+      sendJson(res, 400, {
+        ok: false,
+        error: "strategy candidate apply is disabled. confirm feature cards first and generate executable feature code.",
+      });
       return;
     }
     const meta = {
@@ -474,6 +537,7 @@ export function createStrategyLabHandlers(deps = {}) {
 
   return {
     handleStrategyFeatures,
+    handleStrategyFeatureDelete,
     handleStrategyVersions,
     handleStrategyVersionsPropose,
     handleStrategyVersionsEvaluate,
@@ -487,5 +551,6 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyEntityStatus,
     handleStrategyEntityAudits,
     handleStrategyEntityReplay,
+    handleStrategyEntityDelete,
   };
 }
