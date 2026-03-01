@@ -597,6 +597,26 @@ export function createStrategyLabHandlers(deps = {}) {
       );
     }
 
+    // Ensure features have generatedCode — fallback from params.pythonIndicator
+    features = features.map((f) => {
+      const feature = f && typeof f === "object" ? { ...f } : {};
+      if (feature.generatedCode && toText(feature.generatedCode.indicatorCode)) return feature;
+      // Try to construct generatedCode from params
+      const params = feature.params && typeof feature.params === "object" ? feature.params : {};
+      const pythonIndicator = toText(params.pythonIndicator || params.runtime?.pythonIndicator || "");
+      if (pythonIndicator) {
+        feature.generatedCode = {
+          indicatorCode: pythonIndicator,
+          entryConditionCode: "",
+          exitConditionCode: "",
+          codeSource: toText(params.codeSource || params.codegen?.codeSource || "legacy"),
+          columnNames: [],
+          description: "",
+        };
+      }
+      return feature;
+    });
+
     if (!features.length) {
       sendJson(res, 200, { ok: false, error: "No features specified or found" });
       return;

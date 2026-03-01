@@ -427,6 +427,20 @@ function normalizeFeatureCandidate(rawLike = {}) {
       .filter((item) => item.name)
       .slice(0, 20)
     : [];
+  // Pass through generatedCode from the pipeline if present
+  const generatedCode = raw.generatedCode && typeof raw.generatedCode === "object"
+    ? {
+        indicatorCode: toText(raw.generatedCode.indicatorCode, ""),
+        entryConditionCode: toText(raw.generatedCode.entryConditionCode, ""),
+        exitConditionCode: toText(raw.generatedCode.exitConditionCode, ""),
+        columnNames: Array.isArray(raw.generatedCode.columnNames) ? raw.generatedCode.columnNames : [],
+        codeSource: toText(raw.generatedCode.codeSource, ""),
+        description: toText(raw.generatedCode.description, ""),
+        validatedAt: toText(raw.generatedCode.validatedAt, ""),
+        featureName: toText(raw.generatedCode.featureName, ""),
+      }
+    : null;
+
   return {
     name,
     group,
@@ -446,6 +460,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
     sourceType: toText(raw.sourceType || ""),
     createdBy: toText(raw.createdBy || raw.creator || ""),
     enabled: raw.enabled !== false,
+    ...(generatedCode && generatedCode.indicatorCode ? { generatedCode } : {}),
   };
 }
 
