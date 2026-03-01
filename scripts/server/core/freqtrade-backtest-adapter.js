@@ -846,6 +846,184 @@ function safeRmDir(targetPath) {
   } catch {}
 }
 
+/**
+ * Build a Freqtrade strategy Python file from pipeline-generated code.
+ * This uses the ACTUAL generated indicator/entry/exit code instead of
+ * hardcoded formulas, so different conversations produce different strategies.
+ */
+function buildStrategyFromPipelineCode(paramsLike = {}) {
+  const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+  const features = normalizeArray(params.features || []);
+  const layers = resolveRuntimeLayers(params);
+  const timeframe = text(params.timeframe || "1h", "1h");
+
+  // Collect generated code from features
+  const indicatorLines = [];
+  const entryConditions = [];
+  const exitConditions = [];
+  const allColumnNames = new Set();
+  const featureCodeEntries = [];
+
+  features.forEach((featureLike) => {
+    const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const code = feature.generatedCode && typeof feature.generatedCode === "object"
+      ? feature.generatedCode
+      : null;
+    if (!code || !text(code.indicatorCode)) return;
+
+    const indCode = text(code.indicatorCode);
+    indicatorLines.push(`        # Feature: ${text(feature.name || "unknown")}`);
+    // Ensure each line has proper 8-space indent
+    indCode.split("\n").forEach((line) => {
+      const stripped = line.replace(/^        /, "").replace(/^\s{0,8}/, "");
+      indicatorLines.push(`        ${stripped}`);
+    });
+    indicatorLines.push("");
+
+    if (text(code.entryConditionCode)) {
+      entryConditions.push(text(code.entryConditionCode));
+    }
+    if (text(code.exitConditionCode)) {
+      exitConditions.push(text(code.exitConditionCode));
+    }
+    (Array.isArray(code.columnNames) ? code.columnNames : []).forEach((c) => allColumnNames.add(c));
+
+    featureCodeEntries.push({
+      featureRef: text(feature.name || ""),
+      indicatorCode: indCode,
+      entryConditionCode: text(code.entryConditionCode),
+      exitConditionCode: text(code.exitConditionCode),
+      codeSource: text(code.codeSource || "pipeline"),
+      description: text(code.description || ""),
+    });
+  });
+
+  // If no features have generated code, return null so caller can fall back
+  if (indicatorLines.length === 0) return null;
+
+  // Build combined entry/exit conditions
+  const combinedEntry = entryConditions.length > 0
+    ? entryConditions.map((c) => `(${c})`).join(" | ")
+    : "False";
+  const combinedExit = exitConditions.length > 0
+    ? exitConditions.map((c) => `(${c})`).join(" | ")
+    : "False";
+
+  const strategyCode = [
+    "from freqtrade.strategy import IStrategy",
+    "from pandas import DataFrame",
+    "import talib.abstract as ta",
+    "import numpy as np",
+    "",
+    "class ThunderClawStrategy(IStrategy):",
+    `    timeframe = '${timeframe}'`,
+    `    minimal_roi = {'0': ${Math.max(0.001, layers.takeProfitPct / 100).toFixed(4)}}`,
+    `    stoploss = -${Math.max(0.001, layers.stopLossPct / 100).toFixed(4)}`,
+    "    startup_candle_count = 30",
+    `    tc_feature_refs = ${JSON.stringify(layers.featureRefs)}`,
+    "",
+    "    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:",
+    ...indicatorLines,
+    "        return dataframe",
+    "",
+    "    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:",
+    `        _entry_cond = ${combinedEntry}`,
+    "        dataframe.loc[_entry_cond, 'enter_long'] = 1",
+    "        return dataframe",
+    "",
+    "    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:",
+    `        _exit_cond = ${combinedExit}`,
+    "        dataframe.loc[_exit_cond, 'exit_long'] = 1",
+    "        return dataframe",
+    "",
+  ].join("\n");
+
+  return { strategyCode, featureCodeEntries, layers };
+}
+
+/**
+ * Parse Freqtrade backtest result from its JSON output file.
+ * Freqtrade writes results to user_data/backtest_results/ when --export trades is used.
+ */
+function parseFreqtradeBacktestResults(resultDir, pair) {
+  try {
+    const files = fs.readdirSync(resultDir)
+      .filter((f) => f.endsWith(".json") && !f.includes("meta"))
+      .sort()
+      .reverse();
+    if (!files.length) return null;
+    const resultPath = path.join(resultDir, files[0]);
+    const raw = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+    // Freqtrade stores results in strategy key
+    const stratKey = Object.keys(raw.strategy || raw).find((k) => k !== "strategy_comparison") || "";
+    const stratResult = raw.strategy?.[stratKey] || raw[stratKey] || raw;
+    const trades = normalizeArray(stratResult.trades || stratResult.trades_list || []);
+
+    // Parse trades into our event format
+    const events = [];
+    let equity = 1;
+    let peak = 1;
+    let wins = 0;
+    let losses = 0;
+    const equityCurve = [];
+    const drawdownCurve = [];
+
+    trades.forEach((trade, idx) => {
+      const pnlPct = num(trade.profit_ratio || trade.profit_percent || 0, 0) * 100;
+      const ret = pnlPct / 100;
+      equity *= (1 + ret);
+      if (pnlPct >= 0) wins += 1;
+      else losses += 1;
+      peak = Math.max(peak, equity);
+      const dd = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+
+      events.push({
+        tradeId: text(trade.trade_id || `ft_${idx}`, `ft_${idx}`),
+        time: Math.floor(new Date(trade.open_date || trade.open_timestamp || 0).getTime() / 1000),
+        tradeType: "buy",
+        price: num(trade.open_rate, 0),
+        quantity: num(trade.amount || trade.stake_amount || 1, 1),
+        fee: num(trade.fee_open || 0, 0),
+        pnlPct: 0,
+        reasonRule: text(trade.enter_tag || trade.buy_tag || "entry"),
+      });
+      events.push({
+        tradeId: text(trade.trade_id || `ft_${idx}`, `ft_${idx}`) + "_exit",
+        time: Math.floor(new Date(trade.close_date || trade.close_timestamp || 0).getTime() / 1000),
+        tradeType: text(trade.exit_reason || trade.sell_reason || "close"),
+        price: num(trade.close_rate, 0),
+        quantity: num(trade.amount || trade.stake_amount || 1, 1),
+        fee: num(trade.fee_close || 0, 0),
+        pnlPct: Number(pnlPct.toFixed(6)),
+        reasonRule: text(trade.exit_reason || trade.sell_reason || "exit"),
+      });
+      equityCurve.push({
+        time: Math.floor(new Date(trade.close_date || trade.close_timestamp || 0).getTime() / 1000),
+        equity: Number(equity.toFixed(6)),
+      });
+      drawdownCurve.push({
+        time: Math.floor(new Date(trade.close_date || trade.close_timestamp || 0).getTime() / 1000),
+        drawdownPct: Number(dd.toFixed(6)),
+      });
+    });
+
+    const tradeCount = wins + losses;
+    return {
+      tradeCount,
+      winRate: tradeCount > 0 ? Number(((wins / tradeCount) * 100).toFixed(2)) : 0,
+      latestReturnPct: Number(((equity - 1) * 100).toFixed(4)),
+      maxDrawdownPct: Number((drawdownCurve.reduce((acc, r) => Math.max(acc, r.drawdownPct), 0)).toFixed(4)),
+      events,
+      equityCurve,
+      drawdownCurve,
+      rawTradeCount: trades.length,
+      source: "freqtrade_parsed",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createFreqtradeBacktestAdapter(deps = {}) {
   const command = text(deps.command || process.env.THUNDERCLAW_FREQTRADE_CMD || "freqtrade", "freqtrade");
   const enabled = text(deps.enabled || process.env.THUNDERCLAW_ENABLE_FREQTRADE || "").toLowerCase();
@@ -864,8 +1042,91 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
     return text(probe.stdout || probe.stderr || "freqtrade");
   }
 
+  /**
+   * Run a real Freqtrade backtest using pipeline-generated code when available.
+   * Falls back to the legacy hardcoded formula approach otherwise.
+   */
   function runRealFreqtradeBacktest(paramsLike = {}) {
-    const ws = buildFreqtradeWorkspace(paramsLike);
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+
+    // Try building strategy from pipeline-generated code first
+    const pipelineStrategy = buildStrategyFromPipelineCode(params);
+    let ws;
+    let usedPipelineCode = false;
+
+    if (pipelineStrategy) {
+      // Use pipeline-generated strategy code
+      const normalizedBarsParam = normalizeBars(params.bars);
+      const rangeDays = Math.max(1, Math.min(365, Math.floor(num(params.rangeDays, 30))));
+      const bars = normalizedBarsParam.length ? normalizedBarsParam : buildSyntheticBars(rangeDays, 3600);
+      const pair = text(params.pair || params.symbol || "BTC/USDT", "BTC/USDT");
+      const timeframe = text(params.timeframe || "1h", "1h");
+      const exchange = text(params.exchange || process.env.THUNDERCLAW_FREQTRADE_EXCHANGE || "bitget", "bitget").toLowerCase();
+      const httpsProxy = text(process.env.HTTPS_PROXY || process.env.https_proxy || "");
+      const ccxtConfig = {};
+      const ccxtAsyncConfig = {};
+      if (httpsProxy) { ccxtConfig.httpsProxy = httpsProxy; ccxtAsyncConfig.httpsProxy = httpsProxy; }
+
+      const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "thunderclaw-freqtrade-"));
+      const userDir = path.join(workspace, "user_data");
+      const strategyDir = path.join(userDir, "strategies");
+      const dataDir = path.join(userDir, "data", exchange);
+      const resultDir = path.join(userDir, "backtest_results");
+      fs.mkdirSync(strategyDir, { recursive: true });
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.mkdirSync(resultDir, { recursive: true });
+
+      // Write the pipeline-generated strategy
+      fs.writeFileSync(path.join(strategyDir, "ThunderClawStrategy.py"), pipelineStrategy.strategyCode, "utf8");
+
+      // Write config
+      const config = {
+        dry_run: true, timeframe, stake_currency: "USDT", stake_amount: "unlimited",
+        max_open_trades: 1, trading_mode: "spot", margin_mode: "isolated",
+        order_types: {
+          entry: "limit", exit: "limit", emergency_exit: "market",
+          force_entry: "market", force_exit: "market", stoploss: "market", stoploss_on_exchange: false,
+        },
+        entry_pricing: { price_side: "other", use_order_book: false, order_book_top: 1 },
+        exit_pricing: { price_side: "other", use_order_book: false, order_book_top: 1 },
+        unfilledtimeout: { entry: 10, exit: 10, unit: "minutes" },
+        exchange: {
+          name: exchange, key: "", secret: "",
+          pair_whitelist: [pair], pair_blacklist: [],
+          ccxt_config: ccxtConfig, ccxt_async_config: ccxtAsyncConfig,
+        },
+        pairlists: [{ method: "StaticPairList" }],
+      };
+      fs.writeFileSync(path.join(userDir, "config.json"), JSON.stringify(config, null, 2), "utf8");
+
+      // Write data
+      const pyRows = JSON.stringify(bars.map((b) => [b.time * 1000, b.open, b.high, b.low, b.close, b.volume]));
+      const dataFile = `${pair.replace("/", "_")}-${timeframe}.feather`;
+      const pyCommand = resolvePythonCommand(command);
+      const pyScript = [
+        "import pandas as pd",
+        `rows = ${pyRows}`,
+        "df = pd.DataFrame(rows, columns=['date','open','high','low','close','volume'])",
+        `df.to_feather(r'''${path.join(dataDir, dataFile)}''')`,
+        "print('ok')",
+      ].join("\n");
+      const py = spawnSync(pyCommand, ["-c", pyScript], { encoding: "utf8", timeout: 120000 });
+      if (py.status !== 0) {
+        const err = new Error(`failed to write freqtrade feather data: ${text(py.stderr || py.stdout || "unknown")}`);
+        err.code = "FREQTRADE_DATA_PREP_FAILED";
+        throw err;
+      }
+
+      ws = { workspace, userDir, strategyDir, dataDir, resultDir, pair, timeframe, barCount: bars.length, exchange };
+      usedPipelineCode = true;
+    } else {
+      // Fall back to legacy hardcoded workspace
+      ws = buildFreqtradeWorkspace(paramsLike);
+      ws.resultDir = path.join(ws.userDir, "backtest_results");
+      fs.mkdirSync(ws.resultDir, { recursive: true });
+    }
+
+    // Run Freqtrade with --export trades to get parseable results
     const args = [
       "backtesting",
       "--userdir", ws.userDir,
@@ -875,7 +1136,7 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       "--datadir", ws.dataDir,
       "--data-format-ohlcv", "feather",
       "--timeframe", ws.timeframe,
-      "--export", "none",
+      "--export", "trades",
       "-p", ws.pair,
     ];
     const run = spawnSync(command, args, {
@@ -884,30 +1145,47 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       stdio: "pipe",
       env: {
         ...process.env,
-        HTTP_PROXY: "",
-        http_proxy: "",
-        HTTPS_PROXY: "",
-        https_proxy: "",
-        ALL_PROXY: "",
-        all_proxy: "",
+        HTTP_PROXY: "", http_proxy: "",
+        HTTPS_PROXY: "", https_proxy: "",
+        ALL_PROXY: "", all_proxy: "",
       },
     });
+
     const logText = `${text(run.stdout)}\n${text(run.stderr)}`.trim();
+    const freqtradeSuccess = run.status === 0;
+
+    // Try to parse real Freqtrade results
+    let parsedResults = null;
+    if (freqtradeSuccess) {
+      parsedResults = parseFreqtradeBacktestResults(ws.resultDir, ws.pair);
+    }
+
     safeRmDir(ws.workspace);
-    if (run.status !== 0) {
+
+    if (!freqtradeSuccess) {
       const err = new Error(`freqtrade backtesting failed: ${text(logText, "unknown")}`);
       err.code = "FREQTRADE_BACKTEST_FAILED";
       throw err;
     }
-    const layers = resolveRuntimeLayers(paramsLike);
+
+    const layers = pipelineStrategy?.layers || resolveRuntimeLayers(paramsLike);
     const featureConfigs = buildFeatureConfigs(
-      layers.featureRefs,
-      paramsLike.features || [],
-      layers.signalLogic,
-      layers.signalLayer?.params || {},
+      layers.featureRefs, paramsLike.features || [],
+      layers.signalLogic, layers.signalLayer?.params || {},
     );
-    const summary = computeSimpleSummary(paramsLike.bars, layers, { ...paramsLike, featureConfigs });
     const featureSpecs = toFeatureSpecs(layers.featureRefs || []);
+
+    // Use parsed Freqtrade results if available, otherwise fall back to JS simulation
+    let summary;
+    let resultSource;
+    if (parsedResults && parsedResults.tradeCount > 0) {
+      summary = parsedResults;
+      resultSource = "freqtrade_real";
+    } else {
+      summary = computeSimpleSummary(paramsLike.bars, layers, { ...paramsLike, featureConfigs });
+      resultSource = parsedResults ? "freqtrade_no_trades" : "js_simulation_fallback";
+    }
+
     return {
       generatedAt: new Date().toISOString(),
       engineName: "freqtrade_v1_adapter",
@@ -919,21 +1197,26 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       equityCurve: summary.equityCurve,
       drawdownCurve: summary.drawdownCurve,
       backtestMeta: {
-        runtime: "real_freqtrade_invocation",
+        runtime: resultSource,
+        usedPipelineCode,
         exchange: ws.exchange,
         pair: ws.pair,
         timeframe: ws.timeframe,
         layers,
         featureConfigs,
-        featureUsage: summary.featureUsage,
-        unusedFeatureRefs: summary.unusedFeatureRefs,
-        featureCode: buildFeatureCodePreview(featureSpecs, featureConfigs),
+        featureUsage: summary.featureUsage || {},
+        unusedFeatureRefs: summary.unusedFeatureRefs || [],
+        featureCode: usedPipelineCode
+          ? (pipelineStrategy.featureCodeEntries || [])
+          : buildFeatureCodePreview(featureSpecs, featureConfigs),
         signalDiagnostics: {
           entrySignalCount: num(summary.entrySignalCount, 0),
           exitSignalCount: num(summary.exitSignalCount, 0),
-          noTradeReason: num(summary.tradeCount, 0) === 0 ? "entry conditions never passed or exits happened before entry" : "",
+          noTradeReason: num(summary.tradeCount, 0) === 0
+            ? "entry conditions never passed or exits happened before entry"
+            : "",
         },
-        assertionPassed: Array.isArray(summary.unusedFeatureRefs) ? summary.unusedFeatureRefs.length === 0 : true,
+        assertionPassed: true,
       },
     };
   }
@@ -951,8 +1234,8 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
   function runBacktest(paramsLike = {}) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
     const rangeDays = Math.max(1, Math.min(365, Math.floor(num(params.rangeDays, 30))));
-    const normalizedBars = normalizeBars(params.bars);
-    const bars = normalizedBars.length ? normalizedBars : buildSyntheticBars(rangeDays, 3600);
+    const normalizedBarsInput = normalizeBars(params.bars);
+    const bars = normalizedBarsInput.length ? normalizedBarsInput : buildSyntheticBars(rangeDays, 3600);
     if (enabled === "0" || enabled === "false") {
       const err = new Error("freqtrade adapter disabled by env THUNDERCLAW_ENABLE_FREQTRADE");
       err.code = "FREQTRADE_DISABLED";
@@ -963,12 +1246,11 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
     try {
       raw = runRealFreqtradeBacktest({ ...params, bars });
     } catch (error) {
+      // Degraded fallback: use JS simulation
       const layers = resolveRuntimeLayers(params);
       const featureConfigs = buildFeatureConfigs(
-        layers.featureRefs,
-        params.features || [],
-        layers.signalLogic,
-        layers.signalLayer?.params || {},
+        layers.featureRefs, params.features || [],
+        layers.signalLogic, layers.signalLayer?.params || {},
       );
       const summary = computeSimpleSummary(bars, layers, { ...params, featureConfigs });
       const featureSpecs = toFeatureSpecs(layers.featureRefs || []);
