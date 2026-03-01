@@ -487,6 +487,12 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       status.textContent = tcSafeText(textLike || "已忽略");
     }
 
+    function setProgress(phase, detailLike) {
+      const detail = tcSafeText(detailLike || "", "");
+      const phaseText = tcSafeText(phase || "处理中", "处理中");
+      status.textContent = detail ? ("[" + phaseText + "] " + detail) : phaseText;
+    }
+
     const initialStatus = normalizeCardStatusRuntime(candidate.status);
     const strategyStateLabel = strategyStatusLabelRuntime(candidate.syncStatus || "");
     if (initialStatus === "accepted" || initialStatus === "registered") {
@@ -507,7 +513,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       if (refineInput) refineInput.disabled = true;
 
       var runApply = function(candidateToApply) {
-        status.textContent = "写入中...";
+        setProgress("写入", "正在保存到特征库...");
         return Promise.resolve(onApply(candidateToApply))
           .then(function(outcome) {
             const ok = Boolean(outcome && outcome.ok);
@@ -523,7 +529,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
                 done();
               }
             } else {
-              status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
+              setProgress("写入失败", tcSafeText(outcome && outcome.message ? outcome.message : "写入失败"));
               applyBtn.disabled = false;
               ignoreBtn.disabled = false;
               if (editBtn) editBtn.disabled = false;
@@ -531,7 +537,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
             }
           })
           .catch(function(err) {
-            status.textContent = "写入失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
+            setProgress("写入失败", tcSafeText(err && err.message ? err.message : err, "未知错误"));
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
             if (editBtn) editBtn.disabled = false;
@@ -542,16 +548,17 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       if (candidate.kind === "feature" && onGenerate) {
         var refineInstruction = refineInput ? tcSafeText(refineInput.value || "", "") : "";
         if (featureNeedsInput && !refineInstruction) {
-          status.textContent = "请先补充改造要求，再重新生成";
+          setProgress("等待补充", "请先补充改造要求，再重新生成");
           applyBtn.disabled = false;
           ignoreBtn.disabled = false;
           if (editBtn) editBtn.disabled = false;
           if (refineInput) refineInput.focus();
           return;
         }
-        status.textContent = "代码生成中...";
+        setProgress("代码生成", "正在请求模型生成执行代码...");
         Promise.resolve(onGenerate(candidate, { refineInstruction: refineInstruction }))
           .then(function(genOutcome) {
+            setProgress("代码校验", "正在校验生成结果...");
             var generated = genOutcome && genOutcome.candidate && typeof genOutcome.candidate === "object" ? genOutcome.candidate : candidate;
             var params = generated.feature && typeof generated.feature === "object" && generated.feature.params && typeof generated.feature.params === "object"
               ? generated.feature.params
@@ -563,7 +570,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
                 return tcSafeText(item.label || item.key || "", "");
               }).filter(Boolean).join("、");
               var baseText = tcSafeText(params.codeValidationError || "代码生成未完成，请补充需求后重试", "代码生成未完成，请补充需求后重试");
-              status.textContent = requiredText ? (baseText + "（待补充：" + requiredText + "）") : baseText;
+              setProgress("等待补充", requiredText ? (baseText + "（待补充：" + requiredText + "）") : baseText);
               applyBtn.textContent = "补充并重新生成";
               applyBtn.disabled = false;
               ignoreBtn.disabled = false;
@@ -571,10 +578,11 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
               if (refineInput) refineInput.disabled = false;
               return;
             }
+            setProgress("写入", "代码可用，开始加入特征库...");
             runApply(generated);
           })
           .catch(function(err) {
-            status.textContent = "代码生成失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
+            setProgress("生成失败", tcSafeText(err && err.message ? err.message : err, "未知错误"));
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
             if (editBtn) editBtn.disabled = false;

@@ -195,3 +195,39 @@ test('applyIntentCandidate rejects external feature confirmation without generat
     });
   }, /pythonIndicator/);
 });
+
+
+test('applyIntentCandidate keeps pythonIndicator/pipelineCode even with many params', () => {
+  const { store } = createTestStore();
+  const noisyParams = {};
+  for (let i = 0; i < 80; i += 1) noisyParams['noise' + String(i)] = String(i);
+  noisyParams.pythonIndicator = "dataframe['{col}']=dataframe['close'].rolling(5).mean()";
+  noisyParams.pipelineCode = "def compute_signal(payload):\n    return 0.1";
+  noisyParams.codeSource = 'model_generated';
+  noisyParams.sourceType = 'news';
+  noisyParams.requiredInputs = [{ key: 'external_data_source', label: '外部数据源 URL 或 API', required: true }];
+
+  const out = store.applyIntentCandidate({
+    kind: 'feature',
+    feature: {
+      name: 'news_big_param_feature',
+      group: 'signal_external',
+      kind: 'news_sentiment',
+      description: 'noisy params test',
+      params: noisyParams,
+    },
+  }, {
+    source: 'chat_intent',
+    query: 'q',
+    reply: 'r',
+  });
+
+  assert.ok(out?.feature?.featureId);
+  const listed = store.listFeatures({ limit: 200 }).features;
+  const target = listed.find((item) => item.featureId === out.feature.featureId);
+  assert.ok(target);
+  assert.match(String(target.params.pythonIndicator || ''), /rolling\(5\)/);
+  assert.match(String(target.params.pipelineCode || ''), /compute_signal/);
+  assert.equal(String(target.params.codeSource || ''), 'model_generated');
+  assert.ok(Array.isArray(target.params.requiredInputs));
+});

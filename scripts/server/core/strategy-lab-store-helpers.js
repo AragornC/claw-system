@@ -289,16 +289,59 @@ function normalizeFeatureCandidate(rawLike = {}) {
     outputcolumn: "outputColumn",
     pipelinecode: "pipelineCode",
   };
-  Object.entries(paramsRaw)
-    .slice(0, 16)
-    .forEach(([k, v]) => {
+  const importantParamKeys = new Set([
+    "pythonIndicator",
+    "pipelineCode",
+    "codeSource",
+    "codegenStatus",
+    "codeValidationError",
+    "codeRefineInstruction",
+    "sourceType",
+    "provider",
+    "url",
+    "urlTemplate",
+    "query",
+    "outputColumn",
+    "timeframe",
+    "requiredInputs",
+  ]);
+  const entries = Object.entries(paramsRaw)
+    .map(([k, v]) => {
       const keyRaw = toText(k || "").trim();
-      if (!keyRaw) return;
+      if (!keyRaw) return null;
       const keySafe = keyRaw.replace(/[^a-zA-Z0-9_]/g, "");
       const key = paramAliasMap[String(keySafe).toLowerCase()] || keySafe;
-      if (!key) return;
+      if (!key) return null;
+      return [key, v];
+    })
+    .filter(Boolean);
+  entries
+    .sort((a, b) => {
+      const aImportant = importantParamKeys.has(String(a[0] || ""));
+      const bImportant = importantParamKeys.has(String(b[0] || ""));
+      if (aImportant === bImportant) return 0;
+      return aImportant ? -1 : 1;
+    })
+    .slice(0, 48)
+    .forEach(([key, v]) => {
       if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
         params[key] = v;
+        return;
+      }
+      if (key === "requiredInputs" && Array.isArray(v)) {
+        params[key] = v
+          .slice(0, 8)
+          .map((item) => {
+            const row = item && typeof item === "object" ? item : {};
+            return {
+              key: toText(row.key || ""),
+              label: toText(row.label || row.key || ""),
+              type: toText(row.type || "text"),
+              required: row.required !== false,
+              hint: toText(row.hint || ""),
+            };
+          })
+          .filter((row) => row.key);
       }
     });
   const tags = uniqStrings(Array.isArray(raw.tags) ? raw.tags : []).slice(0, 3);
