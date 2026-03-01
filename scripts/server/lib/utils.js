@@ -165,3 +165,46 @@ export function buildSyntheticBars(rangeDaysLike = 30, stepSecLike = 3600) {
 export function pyString(valueLike = "") {
   return JSON.stringify(String(valueLike ?? ""));
 }
+
+export function parseJsonSafe(text) {
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try { return JSON.parse(trimmed); } catch {}
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(trimmed.slice(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
+export function stripAnsi(textLike) {
+  return String(textLike || "").replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "");
+}
+
+export function extractUrlFromText(textLike) {
+  const text = stripAnsi(textLike);
+  const m = text.match(/https?:\/\/[^\s"'<>]+/i);
+  return m ? String(m[0] || "").trim() : "";
+}
+
+export function sleepMs(msLike) {
+  const ms = Number.isFinite(Number(msLike)) ? Math.max(0, Number(msLike)) : 0;
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function commandExistsSync(spawnSyncFn, commandLike) {
+  const command = String(commandLike || "").trim();
+  if (!command) return false;
+  const probe = spawnSyncFn(command, ["--version"], {
+    encoding: "utf8", stdio: "pipe", timeout: 8_000,
+  });
+  return !probe.error && probe.status === 0;
+}
+
+export function sanitizeProviderCatalogForStore(items, normalizeProviderKey) {
+  return uniqStrings(
+    (Array.isArray(items) ? items : []).map((v) => normalizeProviderKey(v)),
+  );
+}
