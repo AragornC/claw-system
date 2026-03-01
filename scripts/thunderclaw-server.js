@@ -1239,10 +1239,22 @@ const {
   generateFeatureCodeForCandidate,
 } = createTradingIntentSkill({
   normalizeSessionId,
-  getApiKey: () => {
-    const storeKey = String(xbrainStore?.base?.deepseekApiKey || "").trim();
-    if (storeKey) return storeKey;
-    return String(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "").trim();
+  getModelConfig: () => {
+    // Read current model from xbrainStore to follow model switching in 虾脑
+    const provider = String(xbrainStore?.base?.runtimeModelProvider || "deepseek").trim().toLowerCase();
+    const modelId = String(xbrainStore?.base?.runtimeModelId || "deepseek-chat").trim();
+    const providerAuth = xbrainStore?.base?.providerAuth && typeof xbrainStore.base.providerAuth === "object"
+      ? xbrainStore.base.providerAuth : {};
+    const authEntry = providerAuth[provider] || {};
+    // Resolve API key: provider-specific key → DeepSeek key → env
+    let apiKey = String(authEntry?.plain || "").trim();
+    if (!apiKey && provider === "deepseek") {
+      apiKey = String(xbrainStore?.base?.deepseekApiKey || "").trim();
+    }
+    if (!apiKey) {
+      apiKey = String(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "").trim();
+    }
+    return { provider, model: modelId, apiKey, apiBase: "" };
   },
 });
 

@@ -103,20 +103,24 @@ export function createTradingIntentSkill(deps = {}) {
   // Legacy deps kept for backward compat with server wiring
   const normalizeSessionId = deps.normalizeSessionId || ((s) => toText(s, "thunderclaw-main"));
 
-  // Create the feature pipeline with API key from xbrain store or env
+  // Create the feature pipeline with model config from xbrain store
+  // Supports model switching: when user changes model in 虾脑, pipeline follows.
   let pipeline = null;
   function getPipeline() {
     if (pipeline) return pipeline;
-    pipeline = createFeaturePipeline({
-      getApiKey: () => {
-        // Try xbrainStore if available via closure
-        const storeKey = toText(
-          typeof deps.getApiKey === "function" ? deps.getApiKey() : ""
-        );
-        if (storeKey) return storeKey;
-        return toText(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "");
-      },
-    });
+    if (typeof deps.getModelConfig === "function") {
+      // Full model config: supports any provider (DeepSeek, OpenAI, Anthropic, etc.)
+      pipeline = createFeaturePipeline({ getModelConfig: deps.getModelConfig });
+    } else {
+      // Backward compat: DeepSeek-only via getApiKey
+      pipeline = createFeaturePipeline({
+        getApiKey: () => {
+          const storeKey = toText(typeof deps.getApiKey === "function" ? deps.getApiKey() : "");
+          if (storeKey) return storeKey;
+          return toText(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "");
+        },
+      });
+    }
     return pipeline;
   }
 
