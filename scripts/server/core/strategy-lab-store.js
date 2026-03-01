@@ -2135,6 +2135,17 @@ export function createStrategyLabStore(deps = {}) {
       const tags = Array.isArray(featureMeta?.tags) ? featureMeta.tags.slice(0, 3) : [];
       const tagLabels = tags.map((tag) => TAG_CONFIG[tag]?.label || tag).filter(Boolean);
       const relationType = inferFeatureRelationType(ref, featureMeta);
+      // Include generated code from stored feature if available
+      const storedCode = featureMeta?.generatedCode && typeof featureMeta.generatedCode === "object"
+        ? {
+          indicatorCode: toText(featureMeta.generatedCode.indicatorCode, ""),
+          entryConditionCode: toText(featureMeta.generatedCode.entryConditionCode, ""),
+          exitConditionCode: toText(featureMeta.generatedCode.exitConditionCode, ""),
+          codeSource: toText(featureMeta.generatedCode.codeSource, ""),
+          description: toText(featureMeta.generatedCode.description, ""),
+          validatedAt: toText(featureMeta.generatedCode.validatedAt, ""),
+        }
+        : null;
       return {
         featureRef: ref,
         featureId: toText(lock?.featureId || ref),
@@ -2149,6 +2160,7 @@ export function createStrategyLabStore(deps = {}) {
         outputTypeLabel: outputTypeLabel,
         tags,
         tagLabels,
+        generatedCode: storedCode,
       };
     });
     const detailsLayers = {
