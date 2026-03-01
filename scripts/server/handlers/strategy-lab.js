@@ -16,6 +16,7 @@ export function createStrategyLabHandlers(deps = {}) {
   const sendJson = deps.sendJson;
   const strategyLabStore = deps.strategyLabStore;
   const extractTradingIntentCandidates = deps.extractTradingIntentCandidates;
+  const generateFeatureCodeForCandidate = deps.generateFeatureCodeForCandidate;
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
   const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
 
@@ -23,6 +24,7 @@ export function createStrategyLabHandlers(deps = {}) {
   if (typeof sendJson !== "function") throw new Error("sendJson is required");
   if (!strategyLabStore || typeof strategyLabStore !== "object") throw new Error("strategyLabStore is required");
   if (typeof extractTradingIntentCandidates !== "function") throw new Error("extractTradingIntentCandidates is required");
+  if (typeof generateFeatureCodeForCandidate !== "function") throw new Error("generateFeatureCodeForCandidate is required");
   if (typeof getCurrentRuntimeModelRefFromStore !== "function") throw new Error("getCurrentRuntimeModelRefFromStore is required");
 
   function syncStrategyCardStatus(strategyLike, statusLike, reasonLike) {
@@ -336,6 +338,33 @@ export function createStrategyLabHandlers(deps = {}) {
     }
   }
 
+  async function handleStrategyIntentGenerateCode(req, res) {
+    const body = await readJsonBody(req);
+    const candidate = body.candidate && typeof body.candidate === "object" ? body.candidate : null;
+    if (!candidate) {
+      sendJson(res, 400, { ok: false, error: "candidate is required" });
+      return;
+    }
+    const runtimeModelRef = toText(body.runtimeModelRef || getCurrentRuntimeModelRefFromStore() || "");
+    const out = await generateFeatureCodeForCandidate({
+      candidate,
+      userMessage: toText(body.userMessage || body.query || ""),
+      assistantReply: toText(body.assistantReply || body.reply || ""),
+      sessionId: toText(body.sessionId || body.conversationId || "thunderclaw-main", "thunderclaw-main"),
+      runtimeModelRef,
+    }).catch((error) => ({ ok: false, error: String(error?.message || error || "generate feature code failed") }));
+    if (!out.ok) {
+      sendJson(res, 200, { ok: false, error: toText(out.error || "generate feature code failed") });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      candidate: out.candidate,
+      modelRef: toText(out.modelRef || runtimeModelRef),
+      sessionId: toText(out.sessionId || body.sessionId || ""),
+    });
+  }
+
   async function handleStrategyEntities(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const q = toText(url.searchParams.get("q") || "");
@@ -543,6 +572,7 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyVersionsEvaluate,
     handleStrategyArtifactReport,
     handleStrategyIntentCandidates,
+    handleStrategyIntentGenerateCode,
     handleStrategyIntentApply,
     handleStrategyEntities,
     handleStrategyEntityDetail,

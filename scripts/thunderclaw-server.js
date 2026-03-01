@@ -1257,6 +1257,7 @@ const strategyLabStore = createStrategyLabStore({
 
 const {
   extractTradingIntentCandidates,
+  generateFeatureCodeForCandidate,
 } = createTradingIntentSkill({
   runOpenClawCommand,
   parseJsonSafe,
@@ -1455,6 +1456,7 @@ const {
   handleStrategyVersionsEvaluate,
   handleStrategyArtifactReport,
   handleStrategyIntentCandidates,
+  handleStrategyIntentGenerateCode,
   handleStrategyIntentApply,
   handleStrategyEntities,
   handleStrategyEntityDetail,
@@ -1469,6 +1471,7 @@ const {
   sendJson,
   strategyLabStore,
   extractTradingIntentCandidates,
+  generateFeatureCodeForCandidate,
   getCurrentRuntimeModelRefFromStore,
   updateChatCardStatus,
 });
@@ -1530,6 +1533,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyVersionsEvaluate,
   handleStrategyArtifactReport,
   handleStrategyIntentCandidates,
+  handleStrategyIntentGenerateCode,
   handleStrategyIntentApply,
   handleStrategyEntities,
   handleStrategyEntityDetail,

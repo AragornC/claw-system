@@ -52,6 +52,7 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/strategy/versions/evaluate", handler: expectHandler(handlers, "handleStrategyVersionsEvaluate") },
     { method: "POST", path: "/api/strategy/artifacts/report", handler: expectHandler(handlers, "handleStrategyArtifactReport") },
     { method: "POST", path: "/api/strategy/intent-candidates", handler: expectHandler(handlers, "handleStrategyIntentCandidates") },
+    { method: "POST", path: "/api/strategy/intent-candidates/generate-code", handler: expectHandler(handlers, "handleStrategyIntentGenerateCode") },
     { method: "POST", path: "/api/strategy/intent-candidates/apply", handler: expectHandler(handlers, "handleStrategyIntentApply") },
     { method: "GET", path: "/api/strategy/entities", handler: expectHandler(handlers, "handleStrategyEntities") },
     { method: "GET", path: "/api/strategy/entities/detail", handler: expectHandler(handlers, "handleStrategyEntityDetail") },

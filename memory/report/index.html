@@ -8700,6 +8700,7 @@
         };
         const STRATEGY_INTENT_ROUTES = {
           detect: '/api/strategy/intent-candidates',
+          generate: '/api/strategy/intent-candidates/generate-code',
           apply: '/api/strategy/intent-candidates/apply',
           status: '/api/chat/cards/status',
         };
@@ -10536,11 +10537,38 @@
               return { ok: false, message: String(err?.message || err || '写入失败') };
             });
           }
+
+          function generateIntentCandidateCodeViaApi(candidate) {
+            if (!strategyIntentApiClient) {
+              return Promise.resolve({ ok: false, message: '策略候选写入器未就绪', candidate: candidate });
+            }
+            return strategyIntentApiClient.generate(candidate, {
+              source: 'chat_intent',
+              userMessage: userText,
+              assistantReply: assistantText,
+              query: userText,
+              reply: assistantText,
+              conversationId: 'thunderclaw-main',
+              sessionId: String(params.sessionId || 'thunderclaw-main'),
+              runtimeModelRef: String(params.runtimeModelRef || ''),
+            }).then(function(payload) {
+              if (payload && payload.ok && payload.candidate) {
+                return { ok: true, candidate: payload.candidate, message: '代码生成完成' };
+              }
+              return { ok: false, candidate: candidate, message: String(payload?.error || '代码生成失败') };
+            }).catch(function(err) {
+              return { ok: false, candidate: candidate, message: String(err?.message || err || '代码生成失败') };
+            });
+          }
+
           const row = createStrategyIntentSuggestionRowRuntime({
             candidates: candidates,
             confidence: Number((detected && detected.confidence) || candidates[0]?.confidence || 0.72),
             onApply: function(candidate) {
               return applyIntentCandidateViaApi(candidate, false);
+            },
+            onGenerate: function(candidate) {
+              return generateIntentCandidateCodeViaApi(candidate);
             },
             onEdit: function(candidate) {
               return applyIntentCandidateViaApi(candidate, true);

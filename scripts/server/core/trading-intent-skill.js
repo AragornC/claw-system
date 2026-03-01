@@ -840,7 +840,32 @@ export function createTradingIntentSkill(deps = {}) {
     };
   }
 
+  async function generateFeatureCodeForCandidate(params = {}) {
+    const candidate = normalizeCandidate(params.candidate || {}, 0);
+    if (!candidate || candidate.kind !== "feature") {
+      return { ok: false, error: "feature candidate is required" };
+    }
+    const userMessage = toText(params.userMessage || "");
+    const assistantReply = toText(params.assistantReply || "");
+    const runtimeModelRef = toText(params.runtimeModelRef || "");
+    const sessionId = normalizeSessionId(toText(params.sessionId || "thunderclaw-main", "thunderclaw-main"));
+    const enriched = await enrichCandidatesWithDynamicPlan({
+      candidates: [candidate],
+      userMessage,
+      assistantReply,
+      runtimeModelRef,
+      sessionId,
+    });
+    return {
+      ok: true,
+      candidate: enriched[0] || candidate,
+      sessionId,
+      modelRef: runtimeModelRef,
+    };
+  }
+
   return {
     extractTradingIntentCandidates,
+    generateFeatureCodeForCandidate,
   };
 }

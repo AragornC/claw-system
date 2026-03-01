@@ -112,6 +112,7 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
   const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
   const routes = options.routes && typeof options.routes === "object" ? options.routes : {};
   const detectRoute = tcSafeText(routes.detect || "/api/strategy/intent-candidates", "/api/strategy/intent-candidates");
+  const generateRoute = tcSafeText(routes.generate || "/api/strategy/intent-candidates/generate-code", "/api/strategy/intent-candidates/generate-code");
   const applyRoute = tcSafeText(routes.apply || "/api/strategy/intent-candidates/apply", "/api/strategy/intent-candidates/apply");
   const statusRoute = tcSafeText(routes.status || "/api/chat/cards/status", "/api/chat/cards/status");
 
@@ -161,6 +162,22 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
     });
   }
 
+
+  async function generate(candidateLike, metaLike) {
+    const candidate = normalizeIntentCandidateRuntime(candidateLike);
+    if (!candidate) throw new Error("invalid candidate");
+    const meta = metaLike && typeof metaLike === "object" ? metaLike : {};
+    return await postJson(generateRoute, {
+      candidate: candidate,
+      userMessage: tcSafeText(meta.userMessage || meta.query || ""),
+      assistantReply: tcSafeText(meta.assistantReply || meta.reply || ""),
+      query: tcSafeText(meta.query || ""),
+      reply: tcSafeText(meta.reply || ""),
+      sessionId: tcSafeText(meta.sessionId || meta.conversationId || "thunderclaw-main", "thunderclaw-main"),
+      runtimeModelRef: tcSafeText(meta.runtimeModelRef || ""),
+    });
+  }
+
   async function updateStatus(eventIdLike, cardIdLike, statusLike) {
     const eventId = Number(eventIdLike);
     const cardId = tcSafeText(cardIdLike || "");
@@ -176,6 +193,7 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
 
   return {
     detect: detect,
+    generate: generate,
     apply: apply,
     updateStatus: updateStatus,
   };
@@ -288,6 +306,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
   if (!candidates.length) return null;
 
   const onApply = typeof options.onApply === "function" ? options.onApply : null;
+  const onGenerate = typeof options.onGenerate === "function" ? options.onGenerate : null;
   const onEdit = typeof options.onEdit === "function" ? options.onEdit : null;
   const onIgnore = typeof options.onIgnore === "function" ? options.onIgnore : null;
   const onStatusChange = typeof options.onStatusChange === "function" ? options.onStatusChange : null;
@@ -468,34 +487,65 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
       if (editBtn) editBtn.disabled = true;
-      status.textContent = "写入中...";
-      Promise.resolve(onApply(candidate))
-        .then(function(outcome) {
-          const ok = Boolean(outcome && outcome.ok);
-          if (ok) {
-            const done = function() {
-              setAccepted(outcome.message || "已确认并加入");
-            };
-            if (onStatusChange) {
-              Promise.resolve(onStatusChange(candidate, "accepted"))
-                .then(done)
-                .catch(function() { done(); });
+
+      var runApply = function(candidateToApply) {
+        status.textContent = "写入中...";
+        return Promise.resolve(onApply(candidateToApply))
+          .then(function(outcome) {
+            const ok = Boolean(outcome && outcome.ok);
+            if (ok) {
+              const done = function() {
+                setAccepted(outcome.message || "已确认并加入");
+              };
+              if (onStatusChange) {
+                Promise.resolve(onStatusChange(candidateToApply, "accepted"))
+                  .then(done)
+                  .catch(function() { done(); });
+              } else {
+                done();
+              }
             } else {
-              done();
+              status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
+              applyBtn.disabled = false;
+              ignoreBtn.disabled = false;
+              if (editBtn) editBtn.disabled = false;
             }
-          } else {
-            status.textContent = tcSafeText(outcome && outcome.message ? outcome.message : "写入失败");
+          })
+          .catch(function(err) {
+            status.textContent = "写入失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
             if (editBtn) editBtn.disabled = false;
-          }
-        })
-        .catch(function(err) {
-          status.textContent = "写入失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
-          applyBtn.disabled = false;
-          ignoreBtn.disabled = false;
-          if (editBtn) editBtn.disabled = false;
-        });
+          });
+      };
+
+      if (candidate.kind === "feature" && onGenerate) {
+        status.textContent = "代码生成中...";
+        Promise.resolve(onGenerate(candidate))
+          .then(function(genOutcome) {
+            var generated = genOutcome && genOutcome.candidate && typeof genOutcome.candidate === "object" ? genOutcome.candidate : candidate;
+            var params = generated.feature && typeof generated.feature === "object" && generated.feature.params && typeof generated.feature.params === "object"
+              ? generated.feature.params
+              : {};
+            if (tcSafeText(params.codegenStatus || "", "").toLowerCase() === "needs_user_input") {
+              status.textContent = tcSafeText(params.codeValidationError || "代码生成未完成，请补充需求后重试", "代码生成未完成，请补充需求后重试");
+              applyBtn.disabled = false;
+              ignoreBtn.disabled = false;
+              if (editBtn) editBtn.disabled = false;
+              return;
+            }
+            runApply(generated);
+          })
+          .catch(function(err) {
+            status.textContent = "代码生成失败: " + tcSafeText(err && err.message ? err.message : err, "未知错误");
+            applyBtn.disabled = false;
+            ignoreBtn.disabled = false;
+            if (editBtn) editBtn.disabled = false;
+          });
+        return;
+      }
+
+      runApply(candidate);
     });
 
     if (editBtn) {
