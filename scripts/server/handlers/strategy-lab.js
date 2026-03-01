@@ -565,6 +565,75 @@ export function createStrategyLabHandlers(deps = {}) {
     }
   }
 
+  /**
+   * Feature evaluation — compute feature indicator values on OHLCV data.
+   * Returns per-bar feature values and statistics (not trades).
+   * Used by "查看详情" to display feature output.
+   */
+  async function handleStrategyFeatureEvaluate(req, res) {
+    const body = await readJsonBody(req);
+    const payload = body && typeof body === "object" ? body : {};
+    // Accept either featureIds (look up from store) or candidates (direct)
+    const featureIds = Array.isArray(payload.featureIds) ? payload.featureIds.map(String).filter(Boolean) : [];
+    const directCandidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+    const rangeDays = parsePositiveInt(payload.rangeDays, 30, 1, 365);
+    const pair = toText(payload.pair || "BTC/USDT", "BTC/USDT");
+    const timeframe = toText(payload.timeframe || "1h", "1h");
+
+    // Collect features with generated code
+    let features = [];
+    if (directCandidates.length > 0) {
+      features = directCandidates.map((c) => {
+        const cand = c && typeof c === "object" ? c : {};
+        return cand.feature || cand;
+      }).filter(Boolean);
+    } else if (featureIds.length > 0 && typeof strategyLabStore.listFeatures === "function") {
+      const allFeatures = strategyLabStore.listFeatures({ limit: 500 }).features || [];
+      features = allFeatures.filter((f) =>
+        featureIds.includes(toText(f.featureId || "")) || featureIds.includes(toText(f.name || "")),
+      );
+    }
+
+    if (!features.length) {
+      sendJson(res, 200, { ok: false, error: "No features specified or found" });
+      return;
+    }
+
+    // Check if backtestEngine supports runFeatureEvaluation
+    if (typeof strategyLabStore?.backtestEngine?.runFeatureEvaluation !== "function") {
+      // Try to access it via the injected engine
+      const engine = strategyLabStore._getBacktestEngine?.() || null;
+      if (!engine || typeof engine.runFeatureEvaluation !== "function") {
+        sendJson(res, 200, { ok: false, error: "Feature evaluation not available (engine missing runFeatureEvaluation)" });
+        return;
+      }
+    }
+
+    try {
+      // Get the backtest engine from the store deps
+      const result = deps.backtestEngine
+        ? deps.backtestEngine.runFeatureEvaluation({ features, rangeDays, pair, timeframe })
+        : { ok: false, error: "backtestEngine not available" };
+      if (!result.ok) {
+        sendJson(res, 200, { ok: false, error: toText(result.error, "feature evaluation failed") });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        featureTimeSeries: result.featureTimeSeries || [],
+        featureStats: result.featureStats || {},
+        featureColumns: result.featureColumns || [],
+        barCount: result.barCount || 0,
+        generatedCode: result.generatedCode || [],
+        pair: result.pair || pair,
+        timeframe: result.timeframe || timeframe,
+        rangeDays: result.rangeDays || rangeDays,
+      });
+    } catch (error) {
+      sendJson(res, 200, { ok: false, error: String(error?.message || error || "feature evaluation failed") });
+    }
+  }
+
   return {
     handleStrategyFeatures,
     handleStrategyFeatureDelete,
@@ -583,5 +652,6 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyEntityAudits,
     handleStrategyEntityReplay,
     handleStrategyEntityDelete,
+    handleStrategyFeatureEvaluate,
   };
 }

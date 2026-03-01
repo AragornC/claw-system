@@ -557,6 +557,89 @@
       background: rgba(88,166,255,0.08);
       font-weight: 600;
     }
+    /* Feature evaluation UI */
+    .feature-eval-section {
+      margin: 12px 0;
+      padding: 12px;
+      background: rgba(88,166,255,0.05);
+      border-radius: 8px;
+      border: 1px solid rgba(88,166,255,0.15);
+    }
+    .feature-eval-btn {
+      padding: 8px 18px;
+      background: linear-gradient(135deg, #58a6ff 0%, #388bfd 100%);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .feature-eval-btn:hover { opacity: 0.85; }
+    .feature-eval-btn:active { opacity: 0.7; }
+    .feature-eval-loading {
+      margin-top: 10px;
+      color: #d2a8ff;
+      font-size: 0.8rem;
+    }
+    .feature-eval-stats-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #79c0ff;
+      margin: 10px 0 6px;
+    }
+    .feature-eval-stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+      margin-bottom: 10px;
+    }
+    .feature-eval-stats-table th,
+    .feature-eval-stats-table td {
+      border: 1px solid rgba(139,148,158,0.2);
+      padding: 3px 6px;
+      text-align: right;
+    }
+    .feature-eval-stats-table th {
+      text-align: left;
+      color: #79c0ff;
+      background: rgba(88,166,255,0.08);
+      font-weight: 600;
+    }
+    .feature-eval-stats-table td:first-child { text-align: left; }
+    .feature-eval-ts-wrap { margin-top: 8px; }
+    .feature-eval-ts-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+    .feature-eval-ts-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.68rem;
+      max-height: 400px;
+      overflow-y: auto;
+      display: block;
+    }
+    .feature-eval-ts-table th,
+    .feature-eval-ts-table td {
+      border: 1px solid rgba(139,148,158,0.15);
+      padding: 2px 5px;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .feature-eval-ts-table th {
+      text-align: center;
+      color: #79c0ff;
+      background: rgba(88,166,255,0.06);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    .feature-eval-ts-table td:first-child,
+    .feature-eval-ts-table td:nth-child(2) { text-align: left; }
     .strategy-feature-item .feature-sample-table tr[data-feature-bar-time],
     .feature-detail-card .feature-sample-table tr[data-feature-bar-time] { cursor: pointer; }
     .strategy-feature-item .feature-sample-table tr[data-feature-bar-time]:hover,

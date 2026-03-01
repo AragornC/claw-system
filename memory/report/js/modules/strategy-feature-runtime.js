@@ -552,6 +552,7 @@
       + renderParamTableRuntime(feature.paramSpecs)
       + "</section>"
       + '<section id="' + sfEscapeHtml(sectionIds.pseudo) + '" class="feature-detail-section feature-detail-card"><details class="feature-detail-fold" open><summary>伪代码（折叠）</summary><pre class="mini-mono">' + sfEscapeHtml(pseudoCodeText || "// 暂无伪代码") + "</pre></details></section>"
+      + renderFeatureEvalButtonRuntime(feature)
       + '<section id="' + sfEscapeHtml(sectionIds.execution) + '" class="feature-detail-section feature-detail-card feature-detail-card-wide"><div class="feature-detail-card-title">可执行特征代码（用于 populate_indicators）</div>'
       + '<div class="meta">输出列：' + sfEscapeHtml(sfText(params.outputColumn || "", "-")) + ' · 周期：' + sfEscapeHtml(sfText(params.timeframe || "", "-")) + '</div>'
       + '<div class="meta">来源：' + sfEscapeHtml(sfText(params.sourceType || feature.sourceType || "", "-")) + ' / ' + sfEscapeHtml(sfText(params.provider || "", "-")) + '</div>'
@@ -592,26 +593,93 @@
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
     const runtime = params.runtime && typeof params.runtime === "object" ? params.runtime : {};
+    // Priority: generatedCode (pipeline) → runtime → params → feature
+    const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object" ? feature.generatedCode : {};
+    if (sfText(generatedCode.indicatorCode, "")) return sfText(generatedCode.indicatorCode, "");
     const candidates = [
-      runtime.pythonIndicator,
-      runtime.pythonCode,
-      runtime.code,
-      runtime.expression,
-      params.pythonIndicator,
-      params.pythonindicator,
-      params.pythonCode,
-      params.code,
-      params.expression,
-      feature.pythonIndicator,
-      feature.pythonCode,
-      feature.code,
-      feature.expression,
+      runtime.pythonIndicator, runtime.pythonCode, runtime.code, runtime.expression,
+      params.pythonIndicator, params.pythonindicator, params.pythonCode, params.code, params.expression,
+      feature.pythonIndicator, feature.pythonCode, feature.code, feature.expression,
     ];
     for (var i = 0; i < candidates.length; i += 1) {
       const text = sfText(candidates[i], "");
       if (text) return text;
     }
     return "";
+  }
+
+  /**
+   * Render "计算特征值" button and result area for a feature.
+   */
+  function renderFeatureEvalButtonRuntime(featureLike) {
+    const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    const featureId = sfText(feature.featureId || feature.name || "", "");
+    if (!featureId) return "";
+    return '<div class="feature-eval-section" data-feature-eval-id="' + sfEscapeHtml(featureId) + '">'
+      + '<button class="feature-eval-btn" type="button" data-action="evaluate-feature" data-feature-id="' + sfEscapeHtml(featureId) + '">'
+      + '📊 计算特征值（在历史K线上运行指标）'
+      + '</button>'
+      + '<div class="feature-eval-result" style="display:none;">'
+      + '<div class="feature-eval-loading" style="display:none;">⏳ 正在计算特征值...</div>'
+      + '<div class="feature-eval-stats"></div>'
+      + '<div class="feature-eval-chart"></div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  /**
+   * Render feature evaluation statistics.
+   */
+  function renderFeatureEvalStatsRuntime(statsLike, columnsLike) {
+    const stats = statsLike && typeof statsLike === "object" ? statsLike : {};
+    const columns = Array.isArray(columnsLike) ? columnsLike : Object.keys(stats);
+    if (!columns.length) return '<div class="meta">暂无特征统计数据。</div>';
+    var html = '<table class="feature-eval-stats-table"><thead><tr>'
+      + '<th>特征列</th><th>均值</th><th>标准差</th><th>最小值</th><th>最大值</th><th>有效数</th>'
+      + '</tr></thead><tbody>';
+    columns.forEach(function(col) {
+      var s = stats[col] || {};
+      html += '<tr>'
+        + '<td><code>' + sfEscapeHtml(col) + '</code></td>'
+        + '<td>' + sfEscapeHtml(String(sfNum(s.mean, 0).toFixed(4))) + '</td>'
+        + '<td>' + sfEscapeHtml(String(sfNum(s.std, 0).toFixed(4))) + '</td>'
+        + '<td>' + sfEscapeHtml(String(sfNum(s.min, 0).toFixed(4))) + '</td>'
+        + '<td>' + sfEscapeHtml(String(sfNum(s.max, 0).toFixed(4))) + '</td>'
+        + '<td>' + sfEscapeHtml(String(Math.floor(sfNum(s.nonNull, 0)))) + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+  }
+
+  /**
+   * Render a simple text-based feature time series chart (last N bars).
+   */
+  function renderFeatureEvalTimeSeriesRuntime(timeSeriesLike, columnsLike) {
+    var ts = Array.isArray(timeSeriesLike) ? timeSeriesLike : [];
+    var columns = Array.isArray(columnsLike) ? columnsLike.filter(function(c) { return c.indexOf("tc_feat_") === 0; }) : [];
+    if (!ts.length || !columns.length) return '<div class="meta">暂无时序数据。</div>';
+    // Show last 50 bars as a mini-table
+    var recent = ts.slice(-50);
+    var html = '<div class="feature-eval-ts-wrap"><div class="feature-eval-ts-title">最近 ' + recent.length + ' 根K线特征值</div>'
+      + '<table class="feature-eval-ts-table"><thead><tr><th>时间</th><th>收盘价</th>';
+    columns.forEach(function(col) { html += '<th>' + sfEscapeHtml(col.replace("tc_feat_", "")) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    recent.forEach(function(row) {
+      var r = row && typeof row === "object" ? row : {};
+      var timeStr = r.time ? new Date(r.time * 1000).toISOString().slice(0, 16).replace("T", " ") : "-";
+      html += '<tr><td>' + sfEscapeHtml(timeStr) + '</td>';
+      html += '<td>' + sfEscapeHtml(String(sfNum(r.close, 0).toFixed(2))) + '</td>';
+      columns.forEach(function(col) {
+        var v = r[col];
+        var display = v !== null && v !== undefined ? Number(v).toFixed(4) : "-";
+        var color = v > 0 ? "color:#22c55e" : (v < 0 ? "color:#ef4444" : "");
+        html += '<td style="' + color + '">' + sfEscapeHtml(display) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
   }
 
   function getStrategyFeatureConfigRuntime() {
@@ -638,9 +706,57 @@
     return row ? sfText(row.label || row.key || key) : key;
   }
 
+  /**
+   * Handle feature evaluation button click.
+   * Calls /api/strategy/features/evaluate and renders results inline.
+   */
+  async function handleFeatureEvalClickRuntime(featureId) {
+    var section = document.querySelector('[data-feature-eval-id="' + featureId + '"]');
+    if (!section) return;
+    var resultDiv = section.querySelector('.feature-eval-result');
+    var loadingDiv = section.querySelector('.feature-eval-loading');
+    var statsDiv = section.querySelector('.feature-eval-stats');
+    var chartDiv = section.querySelector('.feature-eval-chart');
+    if (resultDiv) resultDiv.style.display = 'block';
+    if (loadingDiv) loadingDiv.style.display = 'block';
+    if (statsDiv) statsDiv.innerHTML = '';
+    if (chartDiv) chartDiv.innerHTML = '';
+    try {
+      var resp = await fetch('/api/strategy/features/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featureIds: [featureId], rangeDays: 30 }),
+      });
+      var body = await resp.json();
+      if (loadingDiv) loadingDiv.style.display = 'none';
+      if (!body.ok) {
+        if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">特征计算失败：' + sfEscapeHtml(body.error || '未知错误') + '</div>';
+        return;
+      }
+      if (statsDiv) statsDiv.innerHTML = '<div class="feature-eval-stats-title">📊 特征统计摘要（' + (body.barCount || 0) + ' 根K线）</div>' + renderFeatureEvalStatsRuntime(body.featureStats, body.featureColumns);
+      if (chartDiv) chartDiv.innerHTML = renderFeatureEvalTimeSeriesRuntime(body.featureTimeSeries, body.featureColumns);
+    } catch (err) {
+      if (loadingDiv) loadingDiv.style.display = 'none';
+      if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">请求失败：' + sfEscapeHtml(String(err.message || err)) + '</div>';
+    }
+  }
+
+  // Global click handler for evaluate buttons
+  if (typeof document !== "undefined") {
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-action="evaluate-feature"]');
+      if (!btn) return;
+      var featureId = btn.getAttribute('data-feature-id');
+      if (featureId) handleFeatureEvalClickRuntime(featureId);
+    });
+  }
+
   globalObj.getStrategyFeatureConfigRuntime = getStrategyFeatureConfigRuntime;
   globalObj.getStrategyFeatureLabelRuntime = getStrategyFeatureLabelRuntime;
   globalObj.normalizeStrategyFeatureRuntime = normalizeStrategyFeatureRuntime;
   globalObj.renderStrategyFeatureCardRuntime = renderStrategyFeatureCardRuntime;
   globalObj.renderStrategyFeatureDetailModalRuntime = renderStrategyFeatureDetailModalRuntime;
+  globalObj.renderFeatureEvalStatsRuntime = renderFeatureEvalStatsRuntime;
+  globalObj.renderFeatureEvalTimeSeriesRuntime = renderFeatureEvalTimeSeriesRuntime;
+  globalObj.handleFeatureEvalClickRuntime = handleFeatureEvalClickRuntime;
 })(typeof window !== "undefined" ? window : this);

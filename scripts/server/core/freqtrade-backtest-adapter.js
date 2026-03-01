@@ -1295,8 +1295,156 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
     return normalized;
   }
 
+  /**
+   * Run feature evaluation — compute indicator values on OHLCV data WITHOUT trading.
+   * Returns per-bar feature values and statistics.
+   * This is what "查看详情" displays: the actual indicator output, not trade results.
+   *
+   * @param {Object} params
+   * @param {Array} params.features - Feature objects with generatedCode
+   * @param {number} [params.rangeDays=30]
+   * @param {string} [params.pair="BTC/USDT"]
+   * @param {string} [params.timeframe="1h"]
+   * @returns {{ ok, featureTimeSeries, featureStats, generatedCode, barCount }}
+   */
+  function runFeatureEvaluation(paramsLike = {}) {
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const features = normalizeArray(params.features || []);
+    const rangeDays = Math.max(1, Math.min(365, Math.floor(num(params.rangeDays, 30))));
+    const pair = text(params.pair || "BTC/USDT", "BTC/USDT");
+    const timeframe = text(params.timeframe || "1h", "1h");
+
+    // Collect indicator code from features
+    const codeBlocks = [];
+    const featureNames = [];
+    const featureCodeEntries = [];
+    features.forEach((featureLike) => {
+      const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+      const code = feature.generatedCode && typeof feature.generatedCode === "object"
+        ? feature.generatedCode : null;
+      const name = text(feature.name || feature.featureName || "");
+      if (!name) return;
+      featureNames.push(name);
+      if (code && text(code.indicatorCode)) {
+        const indCode = text(code.indicatorCode);
+        // Normalize indentation to 4 spaces for script body
+        const normalized = indCode.split("\n").map((line) => {
+          const stripped = line.replace(/^\s{0,8}/, "");
+          return stripped ? `    ${stripped}` : "";
+        }).join("\n");
+        codeBlocks.push(`    # Feature: ${name}\n${normalized}`);
+        featureCodeEntries.push({
+          featureName: name,
+          indicatorCode: indCode,
+          entryConditionCode: text(code.entryConditionCode, ""),
+          exitConditionCode: text(code.exitConditionCode, ""),
+          codeSource: text(code.codeSource, ""),
+          description: text(code.description, ""),
+        });
+      }
+    });
+
+    if (codeBlocks.length === 0) {
+      return { ok: false, error: "No features with generated indicator code found" };
+    }
+
+    // Build Python evaluation script
+    const bars = buildSyntheticBars(rangeDays, timeframe === "1h" ? 3600 : 900);
+    const pyRows = JSON.stringify(bars.map((b) => [b.time * 1000, b.open, b.high, b.low, b.close, b.volume]));
+    // Find columns starting with tc_feat_
+    const pyScript = [
+      "import json, sys, math",
+      "try:",
+      "    import pandas as pd",
+      "    import numpy as np",
+      "    import talib.abstract as ta",
+      "except ImportError as e:",
+      "    print(json.dumps({'ok': False, 'error': f'Missing dependency: {e}'}))",
+      "    sys.exit(0)",
+      "",
+      `rows = ${pyRows}`,
+      "df = pd.DataFrame(rows, columns=['date','open','high','low','close','volume'])",
+      "df['date'] = pd.to_datetime(df['date'], unit='ms')",
+      "df['high'] = df[['open','close','high']].max(axis=1)",
+      "df['low'] = df[['open','close','low']].min(axis=1)",
+      "",
+      "dataframe = df.copy()",
+      "try:",
+      ...codeBlocks,
+      "except Exception as e:",
+      "    print(json.dumps({'ok': False, 'error': f'Indicator code error: {e}'}))",
+      "    sys.exit(0)",
+      "",
+      "# Extract feature columns",
+      "base_cols = {'date','open','high','low','close','volume'}",
+      "feature_cols = [c for c in dataframe.columns if c not in base_cols]",
+      "",
+      "# Build time series output",
+      "ts_data = []",
+      "for i, row in dataframe.iterrows():",
+      "    entry = {'time': int(row['date'].timestamp()), 'close': float(row['close'])}",
+      "    for col in feature_cols:",
+      "        v = row[col]",
+      "        entry[col] = float(v) if pd.notna(v) and np.isfinite(v) else None",
+      "    ts_data.append(entry)",
+      "",
+      "# Compute statistics",
+      "stats = {}",
+      "for col in feature_cols:",
+      "    series = dataframe[col].dropna()",
+      "    if len(series) == 0:",
+      "        stats[col] = {'mean': 0, 'std': 0, 'min': 0, 'max': 0, 'count': 0, 'nonNull': 0}",
+      "    else:",
+      "        finite = series[np.isfinite(series)]",
+      "        stats[col] = {",
+      "            'mean': round(float(finite.mean()), 6) if len(finite) else 0,",
+      "            'std': round(float(finite.std()), 6) if len(finite) else 0,",
+      "            'min': round(float(finite.min()), 6) if len(finite) else 0,",
+      "            'max': round(float(finite.max()), 6) if len(finite) else 0,",
+      "            'count': int(len(series)),",
+      "            'nonNull': int(len(finite)),",
+      "        }",
+      "",
+      "print(json.dumps({'ok': True, 'timeSeries': ts_data[-200:], 'stats': stats, 'featureCols': feature_cols, 'totalBars': len(dataframe)}))",
+    ].join("\n");
+
+    const pyCommand = resolvePythonCommand(command);
+    const run = spawnSync(pyCommand, ["-c", pyScript], {
+      encoding: "utf8",
+      timeout: 60_000,
+      stdio: "pipe",
+      env: { ...process.env, LD_LIBRARY_PATH: `${text(process.env.LD_LIBRARY_PATH, "")}` },
+    });
+    if (run.error || run.status !== 0) {
+      return {
+        ok: false,
+        error: `Feature evaluation failed: ${text(run.stderr || run.stdout || "unknown")}`,
+      };
+    }
+    try {
+      const output = JSON.parse(text(run.stdout));
+      if (!output.ok) {
+        return { ok: false, error: text(output.error, "evaluation failed") };
+      }
+      return {
+        ok: true,
+        featureTimeSeries: output.timeSeries || [],
+        featureStats: output.stats || {},
+        featureColumns: output.featureCols || [],
+        barCount: output.totalBars || 0,
+        generatedCode: featureCodeEntries,
+        pair,
+        timeframe,
+        rangeDays,
+      };
+    } catch {
+      return { ok: false, error: "Failed to parse evaluation output" };
+    }
+  }
+
   return {
     runBacktest,
+    runFeatureEvaluation,
     checkAvailability,
     normalizeFreqtradeResultToExecutionReport,
   };

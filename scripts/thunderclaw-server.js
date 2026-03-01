@@ -256,10 +256,11 @@ const { handleXbrainState, handleXbrainUpdate, handleXbrainModelSwitch, handleXb
   submitOauthPromptInput, xbrainStore,
 });
 
-const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete } = createStrategyLabHandlers({
+const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate } = createStrategyLabHandlers({
   readJsonBody, sendJson, strategyLabStore,
   extractTradingIntentCandidates, generateFeatureCodeForCandidate,
   getCurrentRuntimeModelRefFromStore, updateChatCardStatus,
+  backtestEngine: freqtradeBacktestAdapter,
 });
 
 // ─── Gateway Handlers ────────────────────────────────────────────────
@@ -282,7 +283,8 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates,
   handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail,
   handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish,
-  handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleChat,
+  handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete,
+  handleStrategyFeatureEvaluate, handleChat,
 }));
 
 // ─── HTTP Server ─────────────────────────────────────────────────────
