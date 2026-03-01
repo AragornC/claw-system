@@ -528,12 +528,6 @@ function stripAnsi(textLike) {
   return String(textLike || "").replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "");
 }
 
-function shellQuoteArg(argLike) {
-  const arg = String(argLike ?? "");
-  if (!arg) return "''";
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
-}
-
 function extractUrlFromText(textLike) {
   const text = stripAnsi(textLike);
   const m = text.match(/https?:\/\/[^\s"'<>]+/i);
@@ -758,21 +752,6 @@ function pushOauthLog(stream, chunkLike) {
   if (oauthState.logs.length > 500) {
     oauthState.logs.splice(0, oauthState.logs.length - 500);
   }
-}
-
-function detectOauthErrorFromLogs(logsLike) {
-  const logs = Array.isArray(logsLike) ? logsLike : [];
-  const recent = logs.slice(-120).map((item) => String(item?.line || "").trim()).filter(Boolean);
-  if (!recent.length) return "";
-  const explicit = recent.find((line) => /^error[:\s]/i.test(line));
-  if (explicit) return explicit;
-  const providerMissing = recent.find((line) => /No provider plugins found/i.test(line));
-  if (providerMissing) {
-    return "No provider plugins found. 请先安装并启用对应 OAuth provider 插件。";
-  }
-  const generic = recent.find((line) => /\b(failed|failure|invalid|denied|forbidden|unauthorized|timeout)\b/i.test(line));
-  if (generic) return generic;
-  return "";
 }
 
 function guessContentType(filePath) {
