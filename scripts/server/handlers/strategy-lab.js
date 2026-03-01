@@ -592,8 +592,11 @@ export function createStrategyLabHandlers(deps = {}) {
       }).filter(Boolean);
     } else if (featureIds.length > 0 && typeof strategyLabStore.listFeatures === "function") {
       const allFeatures = strategyLabStore.listFeatures({ limit: 500 }).features || [];
+      // Match by featureId, name, or slugified variants (handle hyphens vs underscores)
+      const normalizeForMatch = (s) => toText(s).toLowerCase().replace(/[-_]/g, "");
+      const featureIdSet = new Set(featureIds.map(normalizeForMatch));
       features = allFeatures.filter((f) =>
-        featureIds.includes(toText(f.featureId || "")) || featureIds.includes(toText(f.name || "")),
+        featureIdSet.has(normalizeForMatch(f.featureId || "")) || featureIdSet.has(normalizeForMatch(f.name || "")),
       );
     }
 
