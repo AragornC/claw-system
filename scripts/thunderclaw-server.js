@@ -159,7 +159,7 @@ const strategyLabStore = createStrategyLabStore({
 });
 
 // ─── Trading Intent Skill ────────────────────────────────────────────
-const { extractTradingIntentCandidates, generateFeatureCodeForCandidate } = createTradingIntentSkill({
+const { extractTradingIntentCandidates, generateFeatureCodeForCandidate, detectAndClarify, generateFromClarification } = createTradingIntentSkill({
   normalizeSessionId,
   getModelConfig: () => {
     const provider = String(xbrainStore?.base?.runtimeModelProvider || "deepseek").trim().toLowerCase();
@@ -256,9 +256,10 @@ const { handleXbrainState, handleXbrainUpdate, handleXbrainModelSwitch, handleXb
   submitOauthPromptInput, xbrainStore,
 });
 
-const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate } = createStrategyLabHandlers({
+const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm } = createStrategyLabHandlers({
   readJsonBody, sendJson, strategyLabStore,
   extractTradingIntentCandidates, generateFeatureCodeForCandidate,
+  detectAndClarify, generateFromClarification,
   getCurrentRuntimeModelRefFromStore, updateChatCardStatus,
   backtestEngine: freqtradeBacktestAdapter,
 });
@@ -284,7 +285,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail,
   handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish,
   handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete,
-  handleStrategyFeatureEvaluate, handleChat,
+  handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm, handleChat,
 }));
 
 // ─── HTTP Server ─────────────────────────────────────────────────────

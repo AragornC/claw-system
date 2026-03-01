@@ -17,6 +17,8 @@ export function createStrategyLabHandlers(deps = {}) {
   const strategyLabStore = deps.strategyLabStore;
   const extractTradingIntentCandidates = deps.extractTradingIntentCandidates;
   const generateFeatureCodeForCandidate = deps.generateFeatureCodeForCandidate;
+  const detectAndClarify = typeof deps.detectAndClarify === "function" ? deps.detectAndClarify : null;
+  const generateFromClarification = typeof deps.generateFromClarification === "function" ? deps.generateFromClarification : null;
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
   const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
   const backtestEngine = deps.backtestEngine || null;
@@ -627,6 +629,74 @@ export function createStrategyLabHandlers(deps = {}) {
     }
   }
 
+  /**
+   * Intent Clarification — detect one feature concept and return AI-generated questions.
+   * Fast: no code generation, just 1 LLM call.
+   */
+  async function handleStrategyIntentClarify(req, res) {
+    if (!detectAndClarify) {
+      sendJson(res, 200, { ok: false, error: "Intent clarification not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const userMessage = toText(body.userMessage || body.message || "");
+    const assistantReply = toText(body.assistantReply || body.reply || "");
+    if (!userMessage && !assistantReply) {
+      sendJson(res, 200, { ok: true, intentDetected: false, headline: "", featureConcept: null, clarifyingQuestions: [] });
+      return;
+    }
+    try {
+      const result = await detectAndClarify({ userMessage, assistantReply });
+      sendJson(res, 200, {
+        ok: true,
+        intentDetected: Boolean(result.intentDetected),
+        confidence: Number(result.confidence || 0),
+        headline: toText(result.headline, ""),
+        featureConcept: result.featureConcept || null,
+        clarifyingQuestions: Array.isArray(result.clarifyingQuestions) ? result.clarifyingQuestions : [],
+        source: toText(result.source, ""),
+      });
+    } catch (error) {
+      sendJson(res, 200, { ok: false, intentDetected: false, error: String(error?.message || error || "clarification failed") });
+    }
+  }
+
+  /**
+   * Intent Confirm — generate feature from user's clarification choices.
+   * Heavy: LLM code generation + validation. Returns result description.
+   */
+  async function handleStrategyIntentConfirm(req, res) {
+    if (!generateFromClarification) {
+      sendJson(res, 200, { ok: false, error: "Feature generation from clarification not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const featureConcept = body.featureConcept && typeof body.featureConcept === "object" ? body.featureConcept : null;
+    const userChoices = body.userChoices && typeof body.userChoices === "object" ? body.userChoices : {};
+    if (!featureConcept) {
+      sendJson(res, 400, { ok: false, error: "featureConcept is required" });
+      return;
+    }
+    try {
+      const result = await generateFromClarification({
+        featureConcept,
+        userChoices,
+        userMessage: toText(body.userMessage || body.originalMessage || ""),
+        assistantReply: toText(body.assistantReply || ""),
+      });
+      sendJson(res, 200, {
+        ok: Boolean(result.ok),
+        feature: result.feature || null,
+        generatedCode: result.generatedCode || null,
+        resultSummary: toText(result.resultSummary, ""),
+        source: toText(result.source, ""),
+        error: result.ok ? "" : toText(result.error, "feature generation failed"),
+      });
+    } catch (error) {
+      sendJson(res, 200, { ok: false, error: String(error?.message || error || "confirm failed") });
+    }
+  }
+
   return {
     handleStrategyFeatures,
     handleStrategyFeatureDelete,
@@ -646,5 +716,7 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyEntityReplay,
     handleStrategyEntityDelete,
     handleStrategyFeatureEvaluate,
+    handleStrategyIntentClarify,
+    handleStrategyIntentConfirm,
   };
 }
