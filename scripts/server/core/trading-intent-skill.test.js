@@ -1041,3 +1041,51 @@ test('payload-only pipeline without explicit fetch intent should not get datasou
   const allowedErrors = new Set(['', 'pipelineCode 缺少外部数据获取步骤']);
   assert.ok(allowedErrors.has(validationError));
 });
+
+test('generateFeatureCodeForCandidate appends refine instruction and previous failure context into model prompt', async () => {
+  const calls = [];
+  const skill = createTradingIntentSkill({
+    runOpenClawCommand: async (args) => {
+      calls.push(Array.isArray(args) ? args.slice() : []);
+      return { ok: false, stdout: '', stderr: 'offline' };
+    },
+    parseJsonSafe: (text) => {
+      try { return JSON.parse(String(text || '{}')); } catch { return {}; }
+    },
+    extractAgentReply: () => '',
+    normalizeSessionId: (s) => String(s || 'main'),
+  });
+
+  const out = await skill.generateFeatureCodeForCandidate({
+    candidate: {
+      candidateId: 'cand_feature_news_sentiment_refine',
+      kind: 'feature',
+      title: '新闻情绪',
+      summary: 'test',
+      confidence: 0.7,
+      feature: {
+        name: 'news_sentiment_signal',
+        group: 'signal_external',
+        kind: 'news_sentiment',
+        params: {
+          sourceType: 'news',
+          codeValidationError: 'pipelineCode 缺少外部数据获取步骤',
+          requiredInputs: [{ key: 'external_data_source', label: '外部数据源 URL 或 API', required: true }],
+        },
+      },
+    },
+    userMessage: '给我做个新闻情绪特征',
+    assistantReply: '先出一个版本',
+    refineInstruction: '改成抓取 cointelegraph 的 rss 并给出阈值',
+    sessionId: 'test-refine-generate',
+  });
+
+  assert.equal(out.ok, true);
+  const last = calls[calls.length - 1] || [];
+  const idx = last.indexOf('--message');
+  assert.ok(idx >= 0);
+  const prompt = String(last[idx + 1] || '');
+  assert.match(prompt, /用户补充要求：改成抓取 cointelegraph 的 rss 并给出阈值/);
+  assert.match(prompt, /上次失败原因：pythonIndicator\/pipelineCode missing/);
+  assert.match(prompt, /待补充项：补充代码改造要求/);
+});

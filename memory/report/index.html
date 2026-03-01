@@ -1685,6 +1685,19 @@
       font-size: 0.65rem;
       color: var(--muted);
     }
+    .ai-strategy-intent-refine {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      padding: 6px 8px;
+      font-size: 0.67rem;
+      resize: vertical;
+      margin-top: 6px;
+      box-sizing: border-box;
+    }
     @keyframes ai-dots {
       0% { content: ''; }
       25% { content: '.'; }
@@ -10493,6 +10506,7 @@
               assistantReply: assistantText,
               sessionId: String(params.sessionId || 'thunderclaw-main'),
               runtimeModelRef: String(params.runtimeModelRef || ''),
+              refineInstruction: String(options.refineInstruction || ''),
               clientContext: buildClientContext(),
             }).catch(function() { return null; });
             if (detected && detected.intentDetected) {
@@ -10538,10 +10552,11 @@
             });
           }
 
-          function generateIntentCandidateCodeViaApi(candidate) {
+          function generateIntentCandidateCodeViaApi(candidate, optionsLike) {
             if (!strategyIntentApiClient) {
               return Promise.resolve({ ok: false, message: '策略候选写入器未就绪', candidate: candidate });
             }
+            const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
             return strategyIntentApiClient.generate(candidate, {
               source: 'chat_intent',
               userMessage: userText,
@@ -10551,6 +10566,7 @@
               conversationId: 'thunderclaw-main',
               sessionId: String(params.sessionId || 'thunderclaw-main'),
               runtimeModelRef: String(params.runtimeModelRef || ''),
+              refineInstruction: String(options.refineInstruction || ''),
             }).then(function(payload) {
               if (payload && payload.ok && payload.candidate) {
                 return { ok: true, candidate: payload.candidate, message: '代码生成完成' };
@@ -10567,8 +10583,8 @@
             onApply: function(candidate) {
               return applyIntentCandidateViaApi(candidate, false);
             },
-            onGenerate: function(candidate) {
-              return generateIntentCandidateCodeViaApi(candidate);
+            onGenerate: function(candidate, options) {
+              return generateIntentCandidateCodeViaApi(candidate, options);
             },
             onEdit: function(candidate) {
               return applyIntentCandidateViaApi(candidate, true);

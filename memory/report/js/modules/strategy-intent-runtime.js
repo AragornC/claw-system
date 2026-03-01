@@ -175,6 +175,7 @@ var createStrategyIntentApiClientRuntime = function createStrategyIntentApiClien
       reply: tcSafeText(meta.reply || ""),
       sessionId: tcSafeText(meta.sessionId || meta.conversationId || "thunderclaw-main", "thunderclaw-main"),
       runtimeModelRef: tcSafeText(meta.runtimeModelRef || ""),
+      refineInstruction: tcSafeText(meta.refineInstruction || ""),
     });
   }
 
@@ -420,8 +421,8 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       }).filter(Boolean)
       : [];
     if (featureNeedsInput) {
-      applyBtn.textContent = "需补充后再确认";
-      applyBtn.disabled = true;
+      applyBtn.textContent = onGenerate ? "补充并重新生成" : "需补充后再确认";
+      applyBtn.disabled = !onGenerate;
       applyBtn.title = featureNeedHints.length
         ? ("缺少：" + featureNeedHints.join("、"))
         : tcSafeText(featureParams.codeValidationError || "请先补充模型代码", "请先补充模型代码");
@@ -447,6 +448,21 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       ? tcSafeText(featureParams.codeValidationError || "请先补充模型代码后再确认", "")
       : "";
 
+    let refineInput = null;
+    if (candidate.kind === "feature" && onGenerate) {
+      refineInput = document.createElement("textarea");
+      refineInput.className = "ai-strategy-intent-refine";
+      refineInput.rows = 2;
+      const hintText = featureNeedHints.length
+        ? ("请补充：" + featureNeedHints.join("、"))
+        : "可补充你的改造要求（例如：改成抓取某数据源并说明阈值）";
+      refineInput.placeholder = hintText;
+      refineInput.value = tcSafeText(featureParams.codeRefineInstruction || "", "");
+      if (featureNeedsInput) {
+        card.appendChild(refineInput);
+      }
+    }
+
     actions.appendChild(applyBtn);
     if (editBtn) actions.appendChild(editBtn);
     actions.appendChild(ignoreBtn);
@@ -459,6 +475,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
       if (editBtn) editBtn.disabled = true;
+      if (refineInput) refineInput.disabled = true;
       ignoreBtn.style.display = "none";
       status.textContent = tcSafeText(textLike || "已加入");
     }
@@ -487,6 +504,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
       applyBtn.disabled = true;
       ignoreBtn.disabled = true;
       if (editBtn) editBtn.disabled = true;
+      if (refineInput) refineInput.disabled = true;
 
       var runApply = function(candidateToApply) {
         status.textContent = "写入中...";
@@ -509,6 +527,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
               applyBtn.disabled = false;
               ignoreBtn.disabled = false;
               if (editBtn) editBtn.disabled = false;
+              if (refineInput) refineInput.disabled = false;
             }
           })
           .catch(function(err) {
@@ -516,22 +535,40 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
             if (editBtn) editBtn.disabled = false;
+            if (refineInput) refineInput.disabled = false;
           });
       };
 
       if (candidate.kind === "feature" && onGenerate) {
+        var refineInstruction = refineInput ? tcSafeText(refineInput.value || "", "") : "";
+        if (featureNeedsInput && !refineInstruction) {
+          status.textContent = "请先补充改造要求，再重新生成";
+          applyBtn.disabled = false;
+          ignoreBtn.disabled = false;
+          if (editBtn) editBtn.disabled = false;
+          if (refineInput) refineInput.focus();
+          return;
+        }
         status.textContent = "代码生成中...";
-        Promise.resolve(onGenerate(candidate))
+        Promise.resolve(onGenerate(candidate, { refineInstruction: refineInstruction }))
           .then(function(genOutcome) {
             var generated = genOutcome && genOutcome.candidate && typeof genOutcome.candidate === "object" ? genOutcome.candidate : candidate;
             var params = generated.feature && typeof generated.feature === "object" && generated.feature.params && typeof generated.feature.params === "object"
               ? generated.feature.params
               : {};
             if (tcSafeText(params.codegenStatus || "", "").toLowerCase() === "needs_user_input") {
-              status.textContent = tcSafeText(params.codeValidationError || "代码生成未完成，请补充需求后重试", "代码生成未完成，请补充需求后重试");
+              var requiredList = Array.isArray(params.requiredInputs) ? params.requiredInputs : [];
+              var requiredText = requiredList.map(function(row) {
+                const item = row && typeof row === "object" ? row : {};
+                return tcSafeText(item.label || item.key || "", "");
+              }).filter(Boolean).join("、");
+              var baseText = tcSafeText(params.codeValidationError || "代码生成未完成，请补充需求后重试", "代码生成未完成，请补充需求后重试");
+              status.textContent = requiredText ? (baseText + "（待补充：" + requiredText + "）") : baseText;
+              applyBtn.textContent = "补充并重新生成";
               applyBtn.disabled = false;
               ignoreBtn.disabled = false;
               if (editBtn) editBtn.disabled = false;
+              if (refineInput) refineInput.disabled = false;
               return;
             }
             runApply(generated);
@@ -541,6 +578,7 @@ var createStrategyIntentSuggestionRowRuntime = function createStrategyIntentSugg
             applyBtn.disabled = false;
             ignoreBtn.disabled = false;
             if (editBtn) editBtn.disabled = false;
+            if (refineInput) refineInput.disabled = false;
           });
         return;
       }

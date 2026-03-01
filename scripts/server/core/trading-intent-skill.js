@@ -849,9 +849,28 @@ export function createTradingIntentSkill(deps = {}) {
     const assistantReply = toText(params.assistantReply || "");
     const runtimeModelRef = toText(params.runtimeModelRef || "");
     const sessionId = normalizeSessionId(toText(params.sessionId || "thunderclaw-main", "thunderclaw-main"));
+    const refineInstruction = toText(params.refineInstruction || "");
+    const featureParams = candidate.feature && typeof candidate.feature === "object" && candidate.feature.params && typeof candidate.feature.params === "object"
+      ? candidate.feature.params
+      : {};
+    const lastValidationError = toText(featureParams.codeValidationError || "");
+    const requiredInputs = Array.isArray(featureParams.requiredInputs)
+      ? featureParams.requiredInputs.map((row) => {
+        const item = row && typeof row === "object" ? row : {};
+        return toText(item.label || item.key || "");
+      }).filter(Boolean)
+      : [];
+    const refineContext = [
+      refineInstruction ? `用户补充要求：${refineInstruction}` : "",
+      lastValidationError ? `上次失败原因：${lastValidationError}` : "",
+      requiredInputs.length ? `待补充项：${requiredInputs.join("、")}` : "",
+    ].filter(Boolean).join("\n");
+    const requestUserMessage = refineContext
+      ? [userMessage, refineContext].filter(Boolean).join("\n\n")
+      : userMessage;
     const enriched = await enrichCandidatesWithDynamicPlan({
       candidates: [candidate],
-      userMessage,
+      userMessage: requestUserMessage,
       assistantReply,
       runtimeModelRef,
       sessionId,

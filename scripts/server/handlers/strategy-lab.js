@@ -352,6 +352,7 @@ export function createStrategyLabHandlers(deps = {}) {
       assistantReply: toText(body.assistantReply || body.reply || ""),
       sessionId: toText(body.sessionId || body.conversationId || "thunderclaw-main", "thunderclaw-main"),
       runtimeModelRef,
+      refineInstruction: toText(body.refineInstruction || ""),
     }).catch((error) => ({ ok: false, error: String(error?.message || error || "generate feature code failed") }));
     if (!out.ok) {
       sendJson(res, 200, { ok: false, error: toText(out.error || "generate feature code failed") });
