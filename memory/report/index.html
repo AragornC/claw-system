@@ -9226,7 +9226,8 @@
             }
             box.appendChild(div);
             const metaCards = Array.isArray(r?.meta?.intentCards) ? r.meta.intentCards : [];
-            if (metaCards.length && Number.isFinite(idNum) && idNum > 0) {
+            if (false && metaCards.length && Number.isFinite(idNum) && idNum > 0) {
+              // Old multi-candidate cards disabled — only clarification cards are used now
               void maybeRenderStrategyIntentSuggestions({
                 source: 'stored',
                 eventId: idNum,
@@ -11181,6 +11182,8 @@
           return null;
         }
         function renderStrategyIntentCardsFromEvent(evLike, finalTextLike, idLike) {
+          // Old multi-candidate cards disabled — only clarification cards are used now
+          return;
           const ev = evLike && typeof evLike === 'object' ? evLike : null;
           if (!ev) return;
           const cards = Array.isArray(ev.cards) ? ev.cards : [];

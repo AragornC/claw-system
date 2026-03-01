@@ -450,44 +450,24 @@ async function handleAiChat(req, res) {
     stateAfter?.base?.runtimeModelProvider,
     stateAfter?.base?.runtimeModelId,
   );
-  // Use the new clarification flow (fast, no codegen) if available
+  // Clarification flow only (no old multi-candidate flow)
   let clarification = { ok: false, intentDetected: false };
-  let intentSkill = { ok: false, intentDetected: false, confidence: 0, reasoning: "", candidates: [], error: "" };
-  if (result.ok) {
-    // Try clarification flow first (preferred — single concept + questions)
-    if (typeof deps.detectAndClarify === "function") {
-      clarification = await deps.detectAndClarify({
-        userMessage: message,
-        assistantReply: String(reply || ""),
-      }).catch((error) => ({
-        ok: false, intentDetected: false,
-        error: String(error?.message || error || "clarification failed"),
-      }));
-    }
-    // Fallback: old multi-candidate flow
-    if (!clarification.intentDetected && typeof extractTradingIntentCandidates === "function") {
-      intentSkill = await extractTradingIntentCandidates({
-        userMessage: message,
-        assistantReply: String(reply || ""),
-        sessionId: sessionIdUsed || "thunderclaw-main",
-        runtimeModelRef: runtimeModelRefAfter || runtimeModelRefBefore,
-        clientContext: body?.clientContext && typeof body.clientContext === "object" ? body.clientContext : {},
-      }).catch((error) => ({
-        ok: false, intentDetected: false, confidence: 0, reasoning: "", candidates: [],
-        error: String(error?.message || error || "intent skill failed"),
-      }));
-    }
+  if (result.ok && typeof deps.detectAndClarify === "function") {
+    clarification = await deps.detectAndClarify({
+      userMessage: message,
+      assistantReply: String(reply || ""),
+    }).catch((error) => ({
+      ok: false, intentDetected: false,
+      error: String(error?.message || error || "clarification failed"),
+    }));
   }
-  const intentCandidates = intentSkill?.ok && intentSkill?.intentDetected
-    ? (Array.isArray(intentSkill.candidates) ? intentSkill.candidates : [])
-    : [];
   let replyEvent = null;
   if (reply) {
     replyEvent = appendChatEvent({
       role: "bot",
       source: "dashboard",
       text: reply,
-      cards: intentCandidates,
+      cards: [],
     });
   }
   if (!result.ok) {
@@ -511,13 +491,7 @@ async function handleAiChat(req, res) {
         error: String(modelSyncIntent?.error || ""),
       },
       intentCandidates: [],
-      intentSkill: {
-        ok: Boolean(intentSkill?.ok),
-        intentDetected: Boolean(intentSkill?.intentDetected),
-        confidence: Number(intentSkill?.confidence || 0),
-        reasoning: String(intentSkill?.reasoning || ""),
-        error: String(intentSkill?.error || ""),
-      },
+      intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
     });
     return;
   }
@@ -539,15 +513,8 @@ async function handleAiChat(req, res) {
       reasoning: String(modelSyncIntent?.reasoning || ""),
       error: String(modelSyncIntent?.error || ""),
     },
-      intentCandidates: Array.isArray(replyEvent?.cards) ? replyEvent.cards : intentCandidates,
-    intentSkill: {
-      ok: Boolean(intentSkill?.ok),
-      intentDetected: Boolean(intentSkill?.intentDetected),
-      confidence: Number(intentSkill?.confidence || 0),
-      reasoning: String(intentSkill?.reasoning || ""),
-      error: String(intentSkill?.error || ""),
-    },
-    // New: clarification card data (single concept + questions)
+      intentCandidates: [],
+    intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
     clarification: clarification.intentDetected ? {
       intentDetected: true,
       confidence: Number(clarification.confidence || 0),
