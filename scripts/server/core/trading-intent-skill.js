@@ -329,23 +329,31 @@ function normalizeFeature(rawLike = {}) {
     params.codeSource = "model_generated";
   }
   const sourceType = toText(params.sourceType || "").toLowerCase();
-  if ((sourceType === "news" || sourceType === "social" || sourceType === "prediction") && params.codeSource === "model_generated") {
-    const validation = validateModelExternalCode(params);
-    if (!validation.ok) {
-      markCodeNeedsUserInput(params, validation.reason, {
+  const isExternal = sourceType === "news" || sourceType === "social" || sourceType === "prediction";
+  if (isExternal) {
+    const hasCode = Boolean(toText(params.pythonIndicator || "") && toText(params.pipelineCode || ""));
+    if (!hasCode) {
+      markCodeNeedsUserInput(params, "pythonIndicator/pipelineCode missing", {
         requireFetch: shouldRequireExternalFetch(params, {}),
       });
-    } else {
-      delete params.codegenStatus;
-      delete params.codeValidationError;
-      delete params.codeDataSourceWarning;
-      if (Array.isArray(params.requiredInputs)) {
-        params.requiredInputs = params.requiredInputs.filter((row) => {
-          const key = toText(row && row.key).toLowerCase();
-          return key !== "code_refine_instruction" && key !== "external_data_source";
+    } else if (params.codeSource === "model_generated") {
+      const validation = validateModelExternalCode(params);
+      if (!validation.ok) {
+        markCodeNeedsUserInput(params, validation.reason, {
+          requireFetch: shouldRequireExternalFetch(params, {}),
         });
+      } else {
+        delete params.codegenStatus;
+        delete params.codeValidationError;
+        delete params.codeDataSourceWarning;
+        if (Array.isArray(params.requiredInputs)) {
+          params.requiredInputs = params.requiredInputs.filter((row) => {
+            const key = toText(row && row.key).toLowerCase();
+            return key !== "code_refine_instruction" && key !== "external_data_source";
+          });
+        }
+        if (!Array.isArray(params.requiredInputs) || params.requiredInputs.length === 0) delete params.requiredInputs;
       }
-      if (!Array.isArray(params.requiredInputs) || params.requiredInputs.length === 0) delete params.requiredInputs;
     }
   }
   return {
@@ -701,27 +709,34 @@ export function createTradingIntentSkill(deps = {}) {
       if (!toText(params.codeSource || "") && (toText(params.pythonIndicator || "") || toText(params.pipelineCode || ""))) {
         params.codeSource = "model_generated";
       }
-      if (toText(params.sourceType || "") && params.codeSource === "model_generated") {
-        const validation = validateModelExternalCode(params);
+      if (toText(params.sourceType || "")) {
+        const hasCode = Boolean(toText(params.pythonIndicator || "") && toText(params.pipelineCode || ""));
         const requireFetch = shouldRequireExternalFetch(params, {
           userMessage: requestUserMessage,
           assistantReply: requestAssistantReply,
         });
-        if (!validation.ok) {
-          markCodeNeedsUserInput(params, validation.reason, { requireFetch });
-        } else if (requireFetch && !hasExternalDataFetchPattern(params.pipelineCode || "")) {
-          markCodeNeedsUserInput(params, "pipelineCode 缺少外部数据获取步骤", { requireFetch: true });
-        } else {
-          delete params.codegenStatus;
-          delete params.codeValidationError;
-          delete params.codeDataSourceWarning;
-          if (Array.isArray(params.requiredInputs)) {
-            params.requiredInputs = params.requiredInputs.filter((row) => {
-              const key = toText(row && row.key).toLowerCase();
-              return key !== "code_refine_instruction" && key !== "external_data_source";
-            });
+        if (!hasCode) {
+          markCodeNeedsUserInput(params, "pythonIndicator/pipelineCode missing", { requireFetch });
+        } else if (params.codeSource === "model_generated") {
+          const validation = validateModelExternalCode(params);
+          if (!validation.ok) {
+            markCodeNeedsUserInput(params, validation.reason, { requireFetch });
+          } else if (requireFetch && !hasExternalDataFetchPattern(params.pipelineCode || "")) {
+            markCodeNeedsUserInput(params, "pipelineCode 缺少外部数据获取步骤", { requireFetch: true });
+          } else {
+            delete params.codegenStatus;
+            delete params.codeValidationError;
+            delete params.codeDataSourceWarning;
+            if (Array.isArray(params.requiredInputs)) {
+              params.requiredInputs = params.requiredInputs.filter((row) => {
+                const key = toText(row && row.key).toLowerCase();
+                return key !== "code_refine_instruction" && key !== "external_data_source";
+              });
+            }
+            if (!Array.isArray(params.requiredInputs) || params.requiredInputs.length === 0) delete params.requiredInputs;
           }
-          if (!Array.isArray(params.requiredInputs) || params.requiredInputs.length === 0) delete params.requiredInputs;
+        } else {
+          markCodeNeedsUserInput(params, "external feature codeSource must be model_generated", { requireFetch });
         }
       }
       if (patch.requiredInputs.length > 0) params.requiredInputs = patch.requiredInputs;
