@@ -252,8 +252,37 @@ export function createTradingIntentSkill(deps = {}) {
     }
   }
 
+  /**
+   * Detect intent and generate clarifying questions (fast, no code generation).
+   */
+  async function detectAndClarify(params = {}) {
+    const userMessage = toText(params.userMessage);
+    const assistantReply = toText(params.assistantReply);
+    if (!userMessage && !assistantReply) {
+      return { ok: true, intentDetected: false, headline: "", featureConcept: null, clarifyingQuestions: [] };
+    }
+    try {
+      return await getPipeline().detectAndClarify({ userMessage, assistantReply });
+    } catch (error) {
+      return { ok: false, intentDetected: false, error: toText(error?.message || error) };
+    }
+  }
+
+  /**
+   * Generate feature from user's clarification choices (heavy, deferred).
+   */
+  async function generateFromClarification(params = {}) {
+    try {
+      return await getPipeline().generateFromClarification(params);
+    } catch (error) {
+      return { ok: false, error: toText(error?.message || error) };
+    }
+  }
+
   return {
     extractTradingIntentCandidates,
     generateFeatureCodeForCandidate,
+    detectAndClarify,
+    generateFromClarification,
   };
 }
