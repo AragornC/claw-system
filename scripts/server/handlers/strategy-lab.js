@@ -19,6 +19,7 @@ export function createStrategyLabHandlers(deps = {}) {
   const generateFeatureCodeForCandidate = deps.generateFeatureCodeForCandidate;
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
   const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
+  const backtestEngine = deps.backtestEngine || null;
 
   if (typeof readJsonBody !== "function") throw new Error("readJsonBody is required");
   if (typeof sendJson !== "function") throw new Error("sendJson is required");
@@ -599,21 +600,13 @@ export function createStrategyLabHandlers(deps = {}) {
       return;
     }
 
-    // Check if backtestEngine supports runFeatureEvaluation
-    if (typeof strategyLabStore?.backtestEngine?.runFeatureEvaluation !== "function") {
-      // Try to access it via the injected engine
-      const engine = strategyLabStore._getBacktestEngine?.() || null;
-      if (!engine || typeof engine.runFeatureEvaluation !== "function") {
-        sendJson(res, 200, { ok: false, error: "Feature evaluation not available (engine missing runFeatureEvaluation)" });
-        return;
-      }
+    if (!backtestEngine || typeof backtestEngine.runFeatureEvaluation !== "function") {
+      sendJson(res, 200, { ok: false, error: "Feature evaluation not available (backtestEngine not configured)" });
+      return;
     }
 
     try {
-      // Get the backtest engine from the store deps
-      const result = deps.backtestEngine
-        ? deps.backtestEngine.runFeatureEvaluation({ features, rangeDays, pair, timeframe })
-        : { ok: false, error: "backtestEngine not available" };
+      const result = backtestEngine.runFeatureEvaluation({ features, rangeDays, pair, timeframe });
       if (!result.ok) {
         sendJson(res, 200, { ok: false, error: toText(result.error, "feature evaluation failed") });
         return;
