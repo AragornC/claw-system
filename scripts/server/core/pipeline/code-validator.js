@@ -13,14 +13,23 @@ import { toText } from "../../lib/utils.js";
 function resolvePython() {
   const envPy = toText(process.env.THUNDERCLAW_FREQTRADE_PYTHON || "").trim();
   if (envPy) return envPy;
-  // Try the freqtrade venv python first
-  const candidates = [
-    process.env.THUNDERCLAW_FREQTRADE_CMD
-      ? process.env.THUNDERCLAW_FREQTRADE_CMD.replace(/freqtrade$/, "python")
-      : "",
-    "python3",
-    "python",
-  ];
+
+  // Try the freqtrade venv python first (has pandas, talib, numpy)
+  const ftCmd = toText(process.env.THUNDERCLAW_FREQTRADE_CMD || "").trim();
+  const candidates = [];
+  if (ftCmd && ftCmd.includes("/")) {
+    // Derive python from freqtrade binary path
+    const binDir = ftCmd.replace(/\/freqtrade$/, "");
+    candidates.push(`${binDir}/python`, `${binDir}/python3`);
+  }
+  // Also try the standard project-local venv path
+  const cwd = process.cwd();
+  candidates.push(
+    `${cwd}/.thunderclaw/freqtrade-venv/bin/python`,
+    `${cwd}/.thunderclaw/freqtrade-venv/bin/python3`,
+  );
+  candidates.push("python3", "python");
+
   for (const cmd of candidates) {
     if (!cmd) continue;
     const probe = spawnSync(cmd, ["--version"], { encoding: "utf8", timeout: 5_000, stdio: "pipe" });
@@ -106,9 +115,6 @@ function validateSyntax(code) {
   return { valid: errors.length === 0, errors };
 }
 
-function escPy(s) {
-  return String(s || "").replace(/\\/g, "\\\\").replace(/'''/g, "\\'\\'\\'");
-}
 
 /**
  * Validate that the code runs correctly against a mock DataFrame.
