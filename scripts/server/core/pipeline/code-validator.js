@@ -43,35 +43,43 @@ function validateSyntax(code) {
     return { valid: false, errors };
   }
 
+  // Normalize indicator code indentation:
+  // The code may have 8-space indent (for class method body) or 4-space or none.
+  // We need to strip the leading indent and re-indent to 4-space for a plain function body.
+  const codeLines = indicatorCode.split("\n");
+  const normalizedLines = codeLines.map(line => {
+    // Strip leading whitespace up to 8 spaces, then re-indent with 4
+    const stripped = line.replace(/^\s{0,8}/, "");
+    return stripped ? `    ${stripped}` : "";
+  });
+
   // Build a Python script that parses all code fragments
+  const wrappedCode = [
+    "def _test_indicator(dataframe):",
+    ...normalizedLines,
+    "    return dataframe",
+  ].join("\n");
+
   const pyScript = [
     "import ast, sys",
     "errors = []",
     "",
     "# Validate indicator code (statements in method body)",
-    "indicator_code = '''",
-    "def _test_indicator(dataframe):",
-    ...indicatorCode.split("\n").map(line => {
-      // Ensure proper indentation for the test function
-      const trimmed = line.replace(/^        /, "    ");
-      return trimmed;
-    }),
-    "    return dataframe",
-    "'''",
+    `indicator_code = ${JSON.stringify(wrappedCode)}`,
     "try:",
     "    ast.parse(indicator_code)",
     "except SyntaxError as e:",
     "    errors.append(f'indicatorCode syntax error: {e}')",
     "",
     "# Validate entry condition (expression)",
-    `entry_code = '''${escPy(entryCode || "True")}'''`,
+    `entry_code = ${JSON.stringify(entryCode || "True")}`,
     "try:",
     "    ast.parse(entry_code, mode='eval')",
     "except SyntaxError as e:",
     "    errors.append(f'entryConditionCode syntax error: {e}')",
     "",
     "# Validate exit condition (expression)",
-    `exit_code = '''${escPy(exitCode || "True")}'''`,
+    `exit_code = ${JSON.stringify(exitCode || "True")}`,
     "try:",
     "    ast.parse(exit_code, mode='eval')",
     "except SyntaxError as e:",
@@ -119,10 +127,10 @@ function validateRuntime(code) {
     return { valid: false, errors, warnings };
   }
 
-  // Ensure we indent properly - the code may or may not have 8-space indent
+  // Normalize indentation: strip any leading whitespace and re-indent with 8 spaces (class method body)
   const codeLines = indicatorCode.split("\n").map(line => {
-    const stripped = line.replace(/^        /, "");
-    return `        ${stripped}`;
+    const stripped = line.replace(/^\s{0,8}/, "");
+    return stripped ? `        ${stripped}` : "";
   });
 
   const pyScript = [
