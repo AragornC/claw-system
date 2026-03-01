@@ -26,6 +26,7 @@ memory/*.md
 !memory/PERP-ARCHITECTURE.md
 !memory/perp-tradeplan.v1.md
 !memory/perp-strategy-v5.json
+!memory/e2e-generated-code-report.json
 
 # workspace scratch files
 .last_*.json
