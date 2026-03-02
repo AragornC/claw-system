@@ -2079,6 +2079,108 @@
       border-color: rgba(63,185,80,0.6);
       background: rgba(63,185,80,0.2);
     }
+    /* Session management toolbar */
+    .ai-chat-session-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(139,148,158,0.12);
+      background: rgba(13,17,23,0.3);
+      border-radius: 10px 10px 0 0;
+    }
+    .ai-chat-session-label {
+      font-size: 0.72rem;
+      color: #8b949e;
+    }
+    .ai-chat-session-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .session-btn {
+      padding: 3px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(139,148,158,0.2);
+      background: rgba(255,255,255,0.04);
+      color: #8b949e;
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .session-btn:hover {
+      border-color: rgba(88,166,255,0.3);
+      color: #c9d1d9;
+      background: rgba(88,166,255,0.06);
+    }
+    .session-history-panel {
+      border-bottom: 1px solid rgba(139,148,158,0.12);
+      background: rgba(13,17,23,0.5);
+      padding: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .session-history-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #79c0ff;
+      margin-bottom: 8px;
+    }
+    .session-history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .session-history-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(139,148,158,0.12);
+      background: rgba(0,0,0,0.15);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .session-history-item:hover {
+      border-color: rgba(88,166,255,0.3);
+      background: rgba(88,166,255,0.04);
+    }
+    .session-history-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .session-history-item-summary {
+      font-size: 0.74rem;
+      color: #c9d1d9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-history-item-meta {
+      font-size: 0.66rem;
+      color: #8b949e;
+      margin-top: 2px;
+    }
+    .session-history-item-assets {
+      display: flex;
+      gap: 4px;
+    }
+    .session-history-item-assets .tag {
+      font-size: 0.6rem;
+      padding: 1px 5px;
+    }
+    .session-history-item-restore {
+      padding: 3px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(63,185,80,0.3);
+      background: rgba(63,185,80,0.08);
+      color: #3fb950;
+      font-size: 0.68rem;
+      cursor: pointer;
+    }
+    .session-history-item-restore:hover {
+      background: rgba(63,185,80,0.15);
+    }
     @keyframes ai-dots {
       0% { content: ''; }
       25% { content: '.'; }
@@ -3671,6 +3773,18 @@
 
     <section id="view-dashboard" class="view-panel active">
       <div class="panel-card ai-chat-wrap">
+        <div class="ai-chat-session-bar">
+          <span class="ai-chat-session-label" id="session-label">当前会话</span>
+          <div class="ai-chat-session-actions">
+            <button id="session-archive-btn" class="session-btn" type="button" title="归档当前会话">📦 归档</button>
+            <button id="session-history-btn" class="session-btn" type="button" title="查看历史会话">📋 历史</button>
+          </div>
+        </div>
+        <div id="session-history-panel" class="session-history-panel" style="display:none;">
+          <div class="session-history-title">历史会话</div>
+          <div id="session-history-list" class="session-history-list"></div>
+          <button id="session-history-close" class="session-btn" type="button">关闭</button>
+        </div>
         <div id="ai-chat-box" class="ai-chat-box">
           <div class="ai-msg bot">聊天加载中...</div>
         </div>
@@ -11259,6 +11373,106 @@
         }
         sendBtn.addEventListener('click', function() { void send(); });
         bindChatInputEnterRuntime(input, function() { void send(); });
+
+        // ─── Session Management UI ───────────────────────────────
+        const sessionLabel = document.getElementById('session-label');
+        const sessionArchiveBtn = document.getElementById('session-archive-btn');
+        const sessionHistoryBtn = document.getElementById('session-history-btn');
+        const sessionHistoryPanel = document.getElementById('session-history-panel');
+        const sessionHistoryList = document.getElementById('session-history-list');
+        const sessionHistoryClose = document.getElementById('session-history-close');
+
+        if (sessionArchiveBtn) {
+          sessionArchiveBtn.addEventListener('click', async function() {
+            sessionArchiveBtn.disabled = true;
+            sessionArchiveBtn.textContent = '归档中...';
+            try {
+              const resp = await fetch('/api/session/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+              const body = await resp.json();
+              if (body.ok && body.archived) {
+                // Clear chat box and start fresh
+                box.innerHTML = '<div class="ai-msg bot">新会话已开始。之前的对话已归档。</div>';
+                if (sessionLabel) sessionLabel.textContent = '新会话';
+              }
+            } catch {}
+            sessionArchiveBtn.disabled = false;
+            sessionArchiveBtn.textContent = '📦 归档';
+          });
+        }
+
+        async function renderSessionHistory() {
+          if (!sessionHistoryList) return;
+          try {
+            const resp = await fetch('/api/session/list');
+            const body = await resp.json();
+            const archived = Array.isArray(body.archived) ? body.archived : [];
+            if (!archived.length) {
+              sessionHistoryList.innerHTML = '<div class="meta" style="color:#8b949e;font-size:0.72rem;">暂无历史会话</div>';
+              return;
+            }
+            sessionHistoryList.innerHTML = archived.map(function(s) {
+              const time = s.updatedAt ? new Date(s.updatedAt).toLocaleString('zh-CN') : '-';
+              const assets = (s.assets || []).map(function(a) {
+                return '<span class="tag">' + (a.name || a.id || '').replace(/</g, '&lt;') + '</span>';
+              }).join(' ');
+              return '<div class="session-history-item" data-session-id="' + (s.id || '').replace(/"/g, '') + '">'
+                + '<div class="session-history-item-info">'
+                + '<div class="session-history-item-summary">' + (s.summary || '(无摘要)').replace(/</g, '&lt;').slice(0, 80) + '</div>'
+                + '<div class="session-history-item-meta">' + time + ' · ' + (s.messageCount || 0) + '条消息' + (s.assetCount ? ' · ' + s.assetCount + '个资产' : '') + '</div>'
+                + (assets ? '<div class="session-history-item-assets">' + assets + '</div>' : '')
+                + '</div>'
+                + '<button class="session-history-item-restore" type="button">恢复</button>'
+                + '</div>';
+            }).join('');
+            // Bind restore buttons
+            sessionHistoryList.querySelectorAll('.session-history-item-restore').forEach(function(btn) {
+              btn.addEventListener('click', async function(e) {
+                e.stopPropagation();
+                const item = btn.closest('.session-history-item');
+                const sessionId = item ? item.getAttribute('data-session-id') : '';
+                if (!sessionId) return;
+                btn.disabled = true;
+                btn.textContent = '恢复中...';
+                try {
+                  const resp = await fetch('/api/session/restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: sessionId }),
+                  });
+                  const body = await resp.json();
+                  if (body.ok && Array.isArray(body.messages)) {
+                    // Re-render chat with restored messages
+                    box.innerHTML = '';
+                    body.messages.forEach(function(msg) {
+                      const role = msg.role === 'user' ? 'user' : 'bot';
+                      const div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', 'restored');
+                      box.appendChild(div);
+                    });
+                    box.scrollTop = box.scrollHeight;
+                    if (sessionLabel) sessionLabel.textContent = '已恢复的会话';
+                    if (sessionHistoryPanel) sessionHistoryPanel.style.display = 'none';
+                  }
+                } catch {}
+                btn.disabled = false;
+                btn.textContent = '恢复';
+              });
+            });
+          } catch {}
+        }
+
+        if (sessionHistoryBtn) {
+          sessionHistoryBtn.addEventListener('click', function() {
+            if (!sessionHistoryPanel) return;
+            const visible = sessionHistoryPanel.style.display !== 'none';
+            sessionHistoryPanel.style.display = visible ? 'none' : 'block';
+            if (!visible) void renderSessionHistory();
+          });
+        }
+        if (sessionHistoryClose) {
+          sessionHistoryClose.addEventListener('click', function() {
+            if (sessionHistoryPanel) sessionHistoryPanel.style.display = 'none';
+          });
+        }
         function findRecentLocalDuplicate(roleLike, sourceLike, textLike, eventTsMsLike, maxAgeMsLike) {
           const role = String(roleLike || '').trim().toLowerCase();
           const source = String(sourceLike || 'dashboard').trim();
