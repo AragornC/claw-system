@@ -43,6 +43,7 @@ import { createOpenClawCli } from "./server/core/openclaw-cli.js";
 import { createGatewayManager } from "./server/core/gateway-manager.js";
 import { createOAuthManager } from "./server/core/oauth-manager.js";
 import { createAgentRuntime, extractAgentReply } from "./server/core/agent-runtime.js";
+import { createConversationContextManager } from "./server/core/conversation-context.js";
 import { sendJson, readJsonBody, createStaticFileServer } from "./server/lib/http-helpers.js";
 import {
   parseJsonSafe, uniqStrings, maskSecret, sleepMs, stripAnsi,
@@ -96,6 +97,9 @@ const { chatHistory, appendChatEvent, updateChatCardStatus } = createChatHistory
   fsModule: fs, memoryDir: MEMORY_DIR, chatHistoryPath: CHAT_HISTORY_PATH,
   maxChatEvents: MAX_CHAT_EVENTS,
 });
+
+// ─── Conversation Context ────────────────────────────────────────────
+const conversationContext = createConversationContextManager({ memoryDir: MEMORY_DIR });
 
 // ─── Xbrain Runtime ──────────────────────────────────────────────────
 const {
@@ -231,7 +235,7 @@ async function handleStatus(req, res) {
 const { handleOpenClawConsoleStatus, handleOpenClawCronList, handleOpenClawCronAdd, handleOpenClawCronRemove, handleOpenClawCronToggle, handleOpenClawConfigGet, handleOpenClawConfigSet, handleOpenClawConfigUnset } = createOpenClawConsoleHandlers({ runOpenClawCommand, parseJsonSafe, readJsonBody, sendJson, getGatewayLogs: () => gatewayState.logs });
 const { handleTelegramHealth, handleTelegramTest, handleTelegramHandshake } = createTelegramHandlers({ sendJson, readJsonBody, getStore: () => xbrainStore, saveStore: saveXbrainStore });
 
-const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, handleSetModel, handleChat, handleAiChat, handleConfigChat, handleAiHealth, handleChatHistory, handleChatCardStatus } = createChatConfigHandlers({
+const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, handleSetModel, handleChat, handleAiChat, handleConfigChat, handleAiHealth, handleChatHistory, handleChatCardStatus, handleSessionArchive, handleSessionList, handleSessionRestore } = createChatConfigHandlers({
   normalizeProviderKey, uniqStrings, inferProviderFromModelRef, PROVIDER_DEFAULT_MODEL_REFS,
   readJsonBody, runSetupFromInput, sendJson, runOpenClawCommand,
   switchThunderSessionModel, waitGatewayHealthy, startGateway,
@@ -241,6 +245,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   saveXbrainStore: saveXbrainStore, toModelRef, maskSecret, parseJsonSafe,
   extractTradingIntentCandidates, updateChatCardStatus,
   detectAndClarify,
+  conversationContext,
   xbrainStore, chatHistory, gatewayState,
 });
 
@@ -286,7 +291,8 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail,
   handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish,
   handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete,
-  handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm, handleChat,
+  handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm,
+  handleSessionArchive, handleSessionList, handleSessionRestore, handleChat,
 }));
 
 // ─── HTTP Server ─────────────────────────────────────────────────────

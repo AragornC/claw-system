@@ -356,16 +356,23 @@ async function handleAiChat(req, res) {
   }
   appendChatEvent({ role: "user", source: "dashboard", text: message });
 
+  // Track message in conversation context
+  const ctx = deps.conversationContext;
+  if (ctx) ctx.addMessage("user", message);
+
   // ═══ FAST PATH: Try clarification first (DeepSeek direct, ~10s) ═══
   // If trading intent detected → return card immediately, skip slow openclaw CLI.
   if (typeof deps.detectAndClarify === "function") {
     try {
+      const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
       const clarification = await deps.detectAndClarify({
         userMessage: message,
         assistantReply: "",
+        conversationHistory,
       });
       if (clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
+        if (ctx) ctx.addMessage("assistant", shortReply);
         appendChatEvent({ role: "bot", source: "dashboard", text: shortReply, cards: [] });
         sendJson(res, 200, {
           ok: true,
@@ -421,6 +428,7 @@ async function handleAiChat(req, res) {
   const runtimeModelRefAfter = toModelRef(stateAfter?.base?.runtimeModelProvider, stateAfter?.base?.runtimeModelId);
   let replyEvent = null;
   if (reply) {
+    if (ctx) ctx.addMessage("assistant", reply);
     replyEvent = appendChatEvent({ role: "bot", source: "dashboard", text: reply, cards: [] });
   }
   if (!result.ok) {
@@ -738,6 +746,45 @@ async function handleChatCardStatus(req, res) {
 }
 
 
+  // ─── Session Management ─────────────────────────────────────────────
+  async function handleSessionArchive(req, res) {
+    if (!deps.conversationContext) {
+      sendJson(res, 200, { ok: false, error: "conversation context not available" });
+      return;
+    }
+    const result = deps.conversationContext.archiveCurrentSession();
+    sendJson(res, 200, result);
+  }
+
+  async function handleSessionList(req, res) {
+    if (!deps.conversationContext) {
+      sendJson(res, 200, { ok: true, active: null, archived: [], totalArchived: 0 });
+      return;
+    }
+    sendJson(res, 200, { ok: true, ...deps.conversationContext.listSessions() });
+  }
+
+  async function handleSessionRestore(req, res) {
+    if (!deps.conversationContext) {
+      sendJson(res, 200, { ok: false, error: "conversation context not available" });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const sessionId = String(body.sessionId || "").trim();
+    if (!sessionId) {
+      sendJson(res, 400, { ok: false, error: "sessionId is required" });
+      return;
+    }
+    const result = deps.conversationContext.restoreSession(sessionId);
+    // If restored, also return the session messages for UI to render
+    if (result.ok) {
+      const detail = deps.conversationContext.getSessionDetail(sessionId);
+      sendJson(res, 200, { ...result, messages: detail?.messages || [] });
+    } else {
+      sendJson(res, 200, result);
+    }
+  }
+
   return {
     handleSetup,
     handleQuickSetup,
@@ -750,5 +797,8 @@ async function handleChatCardStatus(req, res) {
     handleAiHealth,
     handleChatHistory,
     handleChatCardStatus,
+    handleSessionArchive,
+    handleSessionList,
+    handleSessionRestore,
   };
 }

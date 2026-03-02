@@ -65,6 +65,9 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/strategy/entities/publish", handler: expectHandler(handlers, "handleStrategyEntityPublish") },
     { method: "POST", path: "/api/strategy/entities/status", handler: expectHandler(handlers, "handleStrategyEntityStatus") },
     { method: "POST", path: "/api/strategy/entities/delete", handler: expectHandler(handlers, "handleStrategyEntityDelete") },
+    { method: "POST", path: "/api/session/archive", handler: expectHandler(handlers, "handleSessionArchive") },
+    { method: "GET", path: "/api/session/list", handler: expectHandler(handlers, "handleSessionList") },
+    { method: "POST", path: "/api/session/restore", handler: expectHandler(handlers, "handleSessionRestore") },
     { method: "POST", path: "/api/chat", handler: expectHandler(handlers, "handleChat") },
   ];
 }
