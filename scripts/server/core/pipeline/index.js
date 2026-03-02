@@ -203,6 +203,7 @@ export function createFeaturePipeline(deps = {}) {
   async function detectAndClarify(params = {}) {
     const userMessage = toText(params.userMessage);
     const assistantReply = toText(params.assistantReply);
+    const conversationHistory = Array.isArray(params.conversationHistory) ? params.conversationHistory : [];
     if (!userMessage && !assistantReply) {
       return { ok: true, intentDetected: false, headline: "", featureConcept: null, clarifyingQuestions: [] };
     }
@@ -211,7 +212,7 @@ export function createFeaturePipeline(deps = {}) {
       const result = await llmClient.chatCompletionJson({
         messages: [
           { role: "system", content: INTENT_CLARIFICATION_SYSTEM_PROMPT },
-          { role: "user", content: buildClarificationUserMessage({ userMessage, assistantReply }) },
+          { role: "user", content: buildClarificationUserMessage({ userMessage, assistantReply, conversationHistory }) },
         ],
         temperature: 0.3,
         maxTokens: 2048,
@@ -219,14 +220,16 @@ export function createFeaturePipeline(deps = {}) {
       });
       if (result.ok && result.data) {
         const data = result.data;
+        // Flexible question parsing — no rigid count/option limits
         const questions = Array.isArray(data.clarifyingQuestions)
           ? data.clarifyingQuestions.map((q) => ({
               id: toText(q.id, "q"),
               question: toText(q.question, ""),
+              purpose: toText(q.purpose, ""),
               options: Array.isArray(q.options)
                 ? q.options.map((o) => ({ value: toText(o.value, ""), label: toText(o.label, "") })).filter((o) => o.value && o.label)
                 : [],
-            })).filter((q) => q.question && q.options.length >= 2)
+            })).filter((q) => q.question)
           : [];
         const concept = data.featureConcept && typeof data.featureConcept === "object"
           ? {
@@ -234,11 +237,12 @@ export function createFeaturePipeline(deps = {}) {
               description: toText(data.featureConcept.description, ""),
               category: toText(data.featureConcept.category, "custom"),
               indicatorHint: toText(data.featureConcept.indicatorHint, ""),
+              technicalApproach: toText(data.featureConcept.technicalApproach, ""),
             }
           : null;
         return {
           ok: true,
-          intentDetected: Boolean(data.intentDetected) && concept !== null && questions.length > 0,
+          intentDetected: Boolean(data.intentDetected) && concept !== null,
           confidence: clampNumber(data.confidence, 0, 1, 0.7),
           headline: toText(data.headline, ""),
           featureConcept: concept,
@@ -308,6 +312,7 @@ export function createFeaturePipeline(deps = {}) {
             assistantReply: params.assistantReply,
             featureConcept,
             userChoices,
+            conversationHistory: params.conversationHistory,
           }) },
         ],
         temperature: 0.2,
