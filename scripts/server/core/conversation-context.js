@@ -91,12 +91,24 @@ export function createConversationContextManager(deps = {}) {
       content: toText(content, ""),
       ts: nowIso(),
     });
-    session.messageCount = session.messages.length;
+    session.messageCount = (session.totalMessageCount || session.messages.length) + 1;
+    session.totalMessageCount = session.messageCount;
     session.updatedAt = nowIso();
-    // Sliding window: keep last N messages
+    // Sliding window: keep last N messages (compressed prefix preserved)
     if (session.messages.length > maxMessagesPerSession) {
       session.messages = session.messages.slice(-maxMessagesPerSession);
     }
+    saveStore();
+  }
+
+  /**
+   * Set a compressed prefix for the active session.
+   * Used by evolution compression to replace old messages with a summary.
+   */
+  function setCompressedPrefix(summary) {
+    const session = getActiveSession();
+    session.compressedPrefix = toText(summary, "");
+    session.updatedAt = nowIso();
     saveStore();
   }
 
@@ -106,10 +118,16 @@ export function createConversationContextManager(deps = {}) {
    */
   function getRecentHistory(maxCount = 20) {
     const session = getActiveSession();
-    return session.messages.slice(-Math.max(1, maxCount)).map((m) => ({
+    const messages = session.messages.slice(-Math.max(1, maxCount)).map((m) => ({
       role: m.role,
       content: m.content,
     }));
+    // Prepend compressed prefix as a system context message
+    const prefix = toText(session.compressedPrefix, "");
+    if (prefix) {
+      messages.unshift({ role: "system", content: `[对话历史摘要] ${prefix}` });
+    }
+    return messages;
   }
 
   /**
@@ -252,6 +270,7 @@ export function createConversationContextManager(deps = {}) {
   return {
     addMessage,
     getRecentHistory,
+    setCompressedPrefix,
     trackAsset,
     archiveCurrentSession,
     listSessions,

@@ -361,7 +361,13 @@ async function handleAiChat(req, res) {
   if (ctx) ctx.addMessage("user", message);
 
   // ═══ FAST PATH: Try clarification first (DeepSeek direct, ~10s) ═══
-  // If trading intent detected → return card immediately, skip slow openclaw CLI.
+  // L2: Trigger evolution compression if needed (non-blocking)
+  const ml = deps.memoryLayer;
+  if (ml) void ml.maybeCompressContext().catch(() => {});
+
+  // Build memory context (L2+L3+L4) for injection into system prompt
+  const memoryContext = ml ? await ml.buildFullMemoryContext(message).catch(() => "") : "";
+
   if (typeof deps.detectAndClarify === "function") {
     try {
       const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
@@ -369,6 +375,7 @@ async function handleAiChat(req, res) {
         userMessage: message,
         assistantReply: "",
         conversationHistory,
+        memoryContext,
       });
       if (clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
@@ -751,6 +758,19 @@ async function handleChatCardStatus(req, res) {
     if (!deps.conversationContext) {
       sendJson(res, 200, { ok: false, error: "conversation context not available" });
       return;
+    }
+    // Generate LLM summary before archiving (L2)
+    const ml = deps.memoryLayer;
+    if (ml) {
+      try {
+        const history = deps.conversationContext.getRecentHistory(30);
+        const summary = await ml.generateSessionSummary(history);
+        if (summary) {
+          // The archiveCurrentSession will use this as session.summary
+          const session = deps.conversationContext.getSessionDetail(deps.conversationContext.getActiveSessionId());
+          if (session) session.summary = summary;
+        }
+      } catch {}
     }
     const result = deps.conversationContext.archiveCurrentSession();
     sendJson(res, 200, result);

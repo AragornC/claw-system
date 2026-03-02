@@ -44,6 +44,7 @@ import { createGatewayManager } from "./server/core/gateway-manager.js";
 import { createOAuthManager } from "./server/core/oauth-manager.js";
 import { createAgentRuntime, extractAgentReply } from "./server/core/agent-runtime.js";
 import { createConversationContextManager } from "./server/core/conversation-context.js";
+import { createMemoryLayer } from "./server/core/memory-layer.js";
 import { sendJson, readJsonBody, createStaticFileServer } from "./server/lib/http-helpers.js";
 import {
   parseJsonSafe, uniqStrings, maskSecret, sleepMs, stripAnsi,
@@ -162,6 +163,13 @@ const strategyLabStore = createStrategyLabStore({
   backtestEngine: freqtradeBacktestAdapter,
 });
 
+// ─── Memory Layer ────────────────────────────────────────────────────
+const memoryLayer = createMemoryLayer({
+  conversationContext,
+  strategyLabStore,
+  runOpenClawCommand,
+});
+
 // ─── Trading Intent Skill ────────────────────────────────────────────
 const { extractTradingIntentCandidates, generateFeatureCodeForCandidate, detectAndClarify, generateFromClarification } = createTradingIntentSkill({
   normalizeSessionId,
@@ -245,7 +253,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   saveXbrainStore: saveXbrainStore, toModelRef, maskSecret, parseJsonSafe,
   extractTradingIntentCandidates, updateChatCardStatus,
   detectAndClarify,
-  conversationContext,
+  conversationContext, memoryLayer,
   xbrainStore, chatHistory, gatewayState,
 });
 
@@ -268,7 +276,7 @@ const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersi
   detectAndClarify, generateFromClarification,
   getCurrentRuntimeModelRefFromStore, updateChatCardStatus,
   backtestEngine: freqtradeBacktestAdapter,
-  conversationContext,
+  conversationContext, memoryLayer,
 });
 
 // ─── Gateway Handlers ────────────────────────────────────────────────

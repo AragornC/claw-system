@@ -328,6 +328,11 @@ export function createStrategyLabHandlers(deps = {}) {
           nameText,
         );
       }
+      // L4: Write to OpenClaw memory for long-term retrieval
+      const ml = deps.memoryLayer || null;
+      if (ml && applied?.kind === "feature" && applied?.feature) {
+        ml.recordFeatureCreation(applied.feature);
+      }
       const state = {
         features: strategyLabStore.listFeatures({ limit: 120 }).features,
         versions: strategyLabStore.listVersions({ limit: 120 }).versions,
@@ -710,11 +715,16 @@ export function createStrategyLabHandlers(deps = {}) {
       return;
     }
     try {
+      // Build memory context for code generation
+      const ml = deps.memoryLayer || null;
+      const memoryContext = ml ? await ml.buildFullMemoryContext(toText(body.userMessage || "")).catch(() => "") : "";
       const result = await generateFromClarification({
         featureConcept,
         userChoices,
         userMessage: toText(body.userMessage || body.originalMessage || ""),
         assistantReply: toText(body.assistantReply || ""),
+        memoryContext,
+        conversationHistory: conversationContext ? conversationContext.getRecentHistory(10) : [],
       });
       sendJson(res, 200, {
         ok: Boolean(result.ok),

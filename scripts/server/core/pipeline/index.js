@@ -204,14 +204,17 @@ export function createFeaturePipeline(deps = {}) {
     const userMessage = toText(params.userMessage);
     const assistantReply = toText(params.assistantReply);
     const conversationHistory = Array.isArray(params.conversationHistory) ? params.conversationHistory : [];
+    const memoryContext = toText(params.memoryContext, "");
     if (!userMessage && !assistantReply) {
       return { ok: true, intentDetected: false, headline: "", featureConcept: null, clarifyingQuestions: [] };
     }
 
     try {
+      // Inject memory context (L2+L3+L4) into system prompt
+      const systemPrompt = INTENT_CLARIFICATION_SYSTEM_PROMPT + (memoryContext || "");
       const result = await llmClient.chatCompletionJson({
         messages: [
-          { role: "system", content: INTENT_CLARIFICATION_SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: buildClarificationUserMessage({ userMessage, assistantReply, conversationHistory }) },
         ],
         temperature: 0.3,
@@ -306,7 +309,7 @@ export function createFeaturePipeline(deps = {}) {
     try {
       llmResult = await llmClient.chatCompletionJson({
         messages: [
-          { role: "system", content: FEATURE_FROM_CLARIFICATION_SYSTEM_PROMPT },
+          { role: "system", content: FEATURE_FROM_CLARIFICATION_SYSTEM_PROMPT + toText(params.memoryContext, "") },
           { role: "user", content: buildFeatureFromClarificationUserMessage({
             userMessage: params.userMessage,
             assistantReply: params.assistantReply,
