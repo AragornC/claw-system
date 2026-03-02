@@ -268,6 +268,7 @@ const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersi
   detectAndClarify, generateFromClarification,
   getCurrentRuntimeModelRefFromStore, updateChatCardStatus,
   backtestEngine: freqtradeBacktestAdapter,
+  conversationContext,
 });
 
 // ─── Gateway Handlers ────────────────────────────────────────────────

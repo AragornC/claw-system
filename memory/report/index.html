@@ -11441,11 +11441,12 @@
                   });
                   const body = await resp.json();
                   if (body.ok && Array.isArray(body.messages)) {
-                    // Re-render chat with restored messages
+                    // Re-render chat with restored messages (markdown for bot)
                     box.innerHTML = '';
                     body.messages.forEach(function(msg) {
-                      const role = msg.role === 'user' ? 'user' : 'bot';
-                      const div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', 'restored');
+                      var role = msg.role === 'user' ? 'user' : 'bot';
+                      var source = role === 'bot' ? 'dashboard' : 'dashboard';
+                      var div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', source);
                       box.appendChild(div);
                     });
                     box.scrollTop = box.scrollHeight;

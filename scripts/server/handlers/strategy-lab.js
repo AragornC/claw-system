@@ -22,6 +22,7 @@ export function createStrategyLabHandlers(deps = {}) {
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
   const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
   const backtestEngine = deps.backtestEngine || null;
+  const conversationContext = deps.conversationContext || null;
 
   if (typeof readJsonBody !== "function") throw new Error("readJsonBody is required");
   if (typeof sendJson !== "function") throw new Error("sendJson is required");
@@ -318,6 +319,14 @@ export function createStrategyLabHandlers(deps = {}) {
         : toText(applied?.strategy?.name || applied?.version?.title || "");
       if (applied?.kind === "strategy" && applied?.strategy) {
         syncStrategyCardStatus(applied.strategy, toText(applied.strategy.status || "draft"), "候选策略已写入");
+      }
+      // Track asset in conversation context for session history
+      if (conversationContext && nameText) {
+        conversationContext.trackAsset(
+          applied?.kind || "feature",
+          toText(applied?.feature?.featureId || applied?.strategy?.strategyId || nameText),
+          nameText,
+        );
       }
       const state = {
         features: strategyLabStore.listFeatures({ limit: 120 }).features,
