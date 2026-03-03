@@ -30,6 +30,10 @@ export function extractAgentReply(payload) {
     const line = String(lineLike || "").trim().toLowerCase();
     if (!line) return false;
     if (line.includes("no tools") && (line.includes("tag") || line.includes("respond") || line.includes("need"))) return true;
+    // Filter /model command leakage from session model sync
+    if (/^\/?model\s+\S/.test(line)) return true;
+    if (line.includes("连续输入了/model") || line.includes("输入了 /model")) return true;
+    if (line.includes("/model ") && (line.includes("已切换") || line.includes("switched") || line.includes("session"))) return true;
     let score = 0;
     if (line.includes("assistant to=final")) score += 2;
     if (line.includes("reply tag")) score += 2;
