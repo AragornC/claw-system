@@ -21,7 +21,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
 const REPORT_PATH = path.join(ROOT_DIR, "memory", "e2e-generated-code-report.json");
 
-// Non-professional conversation scenarios (no finance background)
+// Non-professional conversation scenarios (no finance background) + diverse technical scenarios
 const SCENARIOS = [
   {
     id: "daily_buy_timing",
@@ -37,6 +37,31 @@ const SCENARIOS = [
     id: "moving_average_tool",
     message: "我听说均线很有用，能帮我做一个简单的提醒工具吗？当价格穿过某条线的时候提醒我",
     description: "日常用户听说了均线概念",
+  },
+  {
+    id: "news_sentiment",
+    message: "帮我分析最近的加密货币新闻，判断市场情绪是偏多还是偏空",
+    description: "外部数据：新闻情绪特征",
+  },
+  {
+    id: "social_buzz",
+    message: "社交媒体上大家都在讨论什么币？热度高的是不是代表要涨",
+    description: "外部数据：社交热度特征",
+  },
+  {
+    id: "multi_indicator",
+    message: "我想要一个综合RSI和布林带的策略，RSI低于30且价格触及下轨时买入",
+    description: "复合指标特征",
+  },
+  {
+    id: "volatility_filter",
+    message: "市场波动太大的时候我不想交易，帮我做一个波动率过滤器",
+    description: "波动率过滤特征",
+  },
+  {
+    id: "volume_analysis",
+    message: "成交量突然放大是不是意味着要变盘？帮我做个成交量异常检测",
+    description: "成交量异常特征",
   },
 ];
 

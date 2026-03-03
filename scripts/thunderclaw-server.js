@@ -253,6 +253,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   saveXbrainStore: saveXbrainStore, toModelRef, maskSecret, parseJsonSafe,
   extractTradingIntentCandidates, updateChatCardStatus,
   detectAndClarify,
+  setOpenClawDefaultModel, applyRuntimeModelRefToStore,
   conversationContext, memoryLayer,
   xbrainStore, chatHistory, gatewayState,
 });

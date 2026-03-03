@@ -11016,7 +11016,13 @@
               },
             });
             if (card) {
-              box.appendChild(card);
+              // If replaceElement is provided, replace it instead of appending
+              const replaceEl = params.replaceElement || null;
+              if (replaceEl && replaceEl.parentNode) {
+                replaceEl.parentNode.replaceChild(card, replaceEl);
+              } else {
+                box.appendChild(card);
+              }
               box.scrollTop = box.scrollHeight;
               return card;
             }
@@ -11258,44 +11264,21 @@
             const actionNote = applyAiActions(result?.actions, text);
             const traceText = formatExecutionTraceLocal(result?.executionTrace);
             const traceNote = traceText ? ('\n\n执行轨迹：\n' + traceText) : '';
-            const baseReply = reply || '收到，但暂时没有可返回内容。';
-            const modelAutoSync = result?.modelAutoSync && typeof result.modelAutoSync === 'object' ? result.modelAutoSync : null;
-            const syncDetected = Boolean(modelAutoSync?.detected);
-            const syncModelRef = String(modelAutoSync?.modelRef || result?.runtimeModelRef || '').trim();
-            const syncState = result?.state && typeof result.state === 'object' ? result.state : (xbrainClientState.data || {});
-            const syncModelSelectable = syncModelRef
-              ? buildThunderModelOptionsFromState(syncState).includes(syncModelRef)
-              : false;
-            const syncNote = syncDetected && syncModelRef && syncModelSelectable
-              ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
-              : '';
-            const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
             const source = String(result?.source || 'dashboard');
-            const storeSource = source === 'openclaw'
-              ? 'dashboard'
-              : (source === 'config' ? 'system' : source);
-            setRowTextWithTypewriter(thinking, finalText, {
-              enabled: true,
-              tickMs: 13,
-              maxDurationMs: 2400,
-              renderMarkdown: shouldRenderMarkdownForSource('bot', storeSource),
-              onDone: function() { finishRowPendingState(thinking); },
-            });
-            attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
-            appendLocalChatLog({
-              ts: new Date().toISOString(),
-              role: 'bot',
-              source: storeSource,
-              text: finalText,
-            });
-            // Render clarification card if present in response
+
+            // Check for clarification card BEFORE rendering text
             const responseClarification = result?.clarification && typeof result.clarification === 'object'
               ? result.clarification : null;
-            if (responseClarification && responseClarification.intentDetected) {
+            const isClarificationOnly = source === 'clarification_fast_path'
+              && responseClarification && responseClarification.intentDetected;
+
+            if (isClarificationOnly) {
+              // Replace the thinking element directly with the clarification card — no text bubble
+              finishRowPendingState(thinking);
               void maybeRenderStrategyIntentSuggestions({
                 source: 'realtime_clarification',
                 userText: text,
-                assistantText: baseReply,
+                assistantText: '',
                 sessionId: 'thunderclaw-main',
                 runtimeModelRef: String(result?.runtimeModelRef || ''),
                 actions: [],
@@ -11303,18 +11286,76 @@
                 clarification: responseClarification,
                 skipDetect: true,
                 persist: false,
+                replaceElement: thinking,
               });
-            }
-            if (source === 'openclaw' || source === 'config') {
-              chatHistoryState.pendingBotEchoes.push({
-                text: baseReply,
-                storeText: finalText,
-                createdAt: Date.now(),
-                rowEl: thinking,
+              // Log the card event (headline only) for local chat log
+              const headline = String(responseClarification.headline || '').trim();
+              if (headline) {
+                appendLocalChatLog({
+                  ts: new Date().toISOString(),
+                  role: 'bot',
+                  source: 'clarification_fast_path',
+                  text: '[特征建议卡片] ' + headline,
+                });
+              }
+            } else {
+              // Normal text rendering path
+              const baseReply = reply || '收到，但暂时没有可返回内容。';
+              const modelAutoSync = result?.modelAutoSync && typeof result.modelAutoSync === 'object' ? result.modelAutoSync : null;
+              const syncDetected = Boolean(modelAutoSync?.detected);
+              const syncModelRef = String(modelAutoSync?.modelRef || result?.runtimeModelRef || '').trim();
+              const syncState = result?.state && typeof result.state === 'object' ? result.state : (xbrainClientState.data || {});
+              const syncModelSelectable = syncModelRef
+                ? buildThunderModelOptionsFromState(syncState).includes(syncModelRef)
+                : false;
+              const syncNote = syncDetected && syncModelRef && syncModelSelectable
+                ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
+                : '';
+              const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
+              const storeSource = source === 'openclaw'
+                ? 'dashboard'
+                : (source === 'config' ? 'system' : source);
+              setRowTextWithTypewriter(thinking, finalText, {
+                enabled: true,
+                tickMs: 13,
+                maxDurationMs: 2400,
+                renderMarkdown: shouldRenderMarkdownForSource('bot', storeSource),
+                onDone: function() { finishRowPendingState(thinking); },
+              });
+              attachExecutionTraceReplayRuntime(thinking, result?.executionTrace);
+              appendLocalChatLog({
+                ts: new Date().toISOString(),
+                role: 'bot',
                 source: storeSource,
+                text: finalText,
               });
-              prunePendingBotEchoes();
+              // Render clarification card if present in non-fast-path response
+              if (responseClarification && responseClarification.intentDetected) {
+                void maybeRenderStrategyIntentSuggestions({
+                  source: 'realtime_clarification',
+                  userText: text,
+                  assistantText: baseReply,
+                  sessionId: 'thunderclaw-main',
+                  runtimeModelRef: String(result?.runtimeModelRef || ''),
+                  actions: [],
+                  intentCandidates: [],
+                  clarification: responseClarification,
+                  skipDetect: true,
+                  persist: false,
+                });
+              }
+              if (source === 'openclaw' || source === 'config') {
+                chatHistoryState.pendingBotEchoes.push({
+                  text: baseReply,
+                  storeText: finalText,
+                  createdAt: Date.now(),
+                  rowEl: thinking,
+                  source: storeSource,
+                });
+                prunePendingBotEchoes();
+              }
             }
+            // Update xbrain state from response (applies to both paths)
             if (result?.state && typeof result.state === 'object') {
               xbrainClientState.data = result.state;
               xbrainClientState.loaded = true;
@@ -11441,11 +11482,44 @@
                   });
                   const body = await resp.json();
                   if (body.ok && Array.isArray(body.messages)) {
-                    // Re-render chat with restored messages (markdown for bot)
+                    // Re-render chat with restored messages, including card reconstructions
                     box.innerHTML = '';
                     body.messages.forEach(function(msg) {
+                      // Skip system messages from card events (they're internal context)
+                      if (msg.role === 'system' && msg.meta && msg.meta.cardEvent) return;
+
                       var role = msg.role === 'user' ? 'user' : 'bot';
                       var source = role === 'bot' ? 'dashboard' : 'dashboard';
+
+                      // Check if this message had a clarification card
+                      var meta = msg.meta && typeof msg.meta === 'object' ? msg.meta : null;
+                      if (meta && meta.type === 'clarification_card' && meta.cardData && typeof createClarificationCardRuntime === 'function') {
+                        var cardData = meta.cardData;
+                        // Render a read-only version of the card (buttons disabled)
+                        var card = createClarificationCardRuntime({
+                          headline: String(cardData.headline || msg.content || ''),
+                          featureConcept: cardData.featureConcept || {},
+                          clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                          onSubmit: null,  // Read-only: no submit
+                          onApply: null,   // Read-only: no apply
+                        });
+                        if (card) {
+                          // Mark card as read-only (disable all buttons)
+                          card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+                          var statusEl = card.querySelector('.ai-clarify-result') || card.querySelector('.ai-clarify-progress');
+                          if (cardData.status === 'applied' || cardData.result) {
+                            var resultDiv = document.createElement('div');
+                            resultDiv.className = 'ai-clarify-result';
+                            resultDiv.style.display = 'block';
+                            resultDiv.innerHTML = '<div class="ai-clarify-result-success"><div class="ai-clarify-result-title">✅ 已恢复 — 特征已生成</div></div>';
+                            card.querySelector('.ai-clarify-bubble')?.appendChild(resultDiv);
+                          }
+                          box.appendChild(card);
+                          return;
+                        }
+                      }
+
+                      // Normal text message rendering
                       var div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', source);
                       box.appendChild(div);
                     });

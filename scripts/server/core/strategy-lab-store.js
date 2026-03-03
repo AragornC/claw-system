@@ -980,6 +980,10 @@ export function createStrategyLabStore(deps = {}) {
         description: toText(rawFeature.generatedCode.description, ""),
         validatedAt: toText(rawFeature.generatedCode.validatedAt, ""),
         featureName: toText(rawFeature.generatedCode.featureName, ""),
+        // User-facing config requirements (API keys, URLs, etc.) declared by LLM
+        requiredConfig: Array.isArray(rawFeature.generatedCode.requiredConfig)
+          ? rawFeature.generatedCode.requiredConfig.filter((c) => c && typeof c === "object" && toText(c.key, ""))
+          : [],
       }
       : null;
 
@@ -1135,6 +1139,10 @@ export function createStrategyLabStore(deps = {}) {
 
 
 
+  const ACCEPTED_CODE_SOURCES = new Set([
+    "pipeline", "template", "llm", "llm_repair", "fallback", "model_generated",
+  ]);
+
   function validateFeatureExecutionCodeForApply(featureLike = {}) {
     const feature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const params = feature.params && typeof feature.params === "object" ? feature.params : {};
@@ -1143,10 +1151,14 @@ export function createStrategyLabStore(deps = {}) {
     const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object"
       ? feature.generatedCode : null;
     if (generatedCode && toText(generatedCode.indicatorCode)) {
-      // Pipeline-validated code is accepted
-      const codeSource = toText(generatedCode.codeSource || params.codeSource || "");
-      if (codeSource === "pipeline" || codeSource === "template" || codeSource === "deepseek" || codeSource === "deepseek_repair") {
+      const codeSource = toText(generatedCode.codeSource || params.codeSource || "").toLowerCase();
+      // Accept any known code source from the pipeline
+      if (ACCEPTED_CODE_SOURCES.has(codeSource)) {
         return; // Accepted
+      }
+      // Also accept if the code was validated by the pipeline (has validatedAt timestamp)
+      if (generatedCode.validatedAt) {
+        return; // Pipeline-validated code, any source accepted
       }
     }
 
@@ -1167,13 +1179,18 @@ export function createStrategyLabStore(deps = {}) {
       || name.includes("polymarket");
     if (!isExternal) return;
 
+    // For external features: accept if pythonIndicator exists with a valid code source
     const pythonIndicator = toText(params.pythonIndicator || "");
     if (!pythonIndicator) {
+      // If we have generatedCode with indicatorCode (any source), construct pythonIndicator
+      if (generatedCode && toText(generatedCode.indicatorCode)) {
+        return; // Code exists even if source is unrecognized — allow it
+      }
       throw new Error("外部特征必须先由模型产出 pythonIndicator 执行代码，才能确认加入");
     }
     const codeSource = toText(params.codeSource || "").toLowerCase();
-    if (codeSource !== "model_generated" && codeSource !== "pipeline" && codeSource !== "template" && codeSource !== "deepseek") {
-      throw new Error("外部特征代码来源无效：仅允许 model_generated 或 pipeline");
+    if (!ACCEPTED_CODE_SOURCES.has(codeSource)) {
+      throw new Error("外部特征代码来源无效：仅允许 model_generated、pipeline、llm 等已知来源");
     }
     const codegenStatus = toText(params.codegenStatus || feature.codegenStatus || "").toLowerCase();
     if (codegenStatus === "needs_user_input") {

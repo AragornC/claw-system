@@ -28,6 +28,10 @@ export function createChatConfigHandlers(deps = {}) {
     updateChatCardStatus,
   } = deps;
 
+  // Used for slow path healing — sets default model without sending /model agent message
+  const setOpenClawDefaultModel = typeof deps.setOpenClawDefaultModel === "function" ? deps.setOpenClawDefaultModel : null;
+  const applyRuntimeModelRefToStore = typeof deps.applyRuntimeModelRefToStore === "function" ? deps.applyRuntimeModelRefToStore : null;
+
   const xbrainStore = deps.xbrainStore;
   const chatHistory = deps.chatHistory;
   const gatewayState = deps.gatewayState;
@@ -379,11 +383,26 @@ async function handleAiChat(req, res) {
       });
       if (clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
-        if (ctx) ctx.addMessage("assistant", shortReply);
+        if (ctx) {
+          ctx.addMessage("assistant", shortReply, {
+            type: "clarification_card",
+            cardData: {
+              headline: String(clarification.headline || ""),
+              featureConcept: clarification.featureConcept || null,
+              clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
+            },
+          });
+          ctx.addCardEvent("card_shown", {
+            headline: String(clarification.headline || ""),
+            featureName: String(clarification.featureConcept?.name || ""),
+          });
+        }
         appendChatEvent({ role: "bot", source: "dashboard", text: shortReply, cards: [] });
+        // Reply is empty — the clarification card IS the response.
+        // Frontend should render only the card, not an extra text bubble.
         sendJson(res, 200, {
           ok: true,
-          reply: shortReply,
+          reply: "",
           source: "clarification_fast_path",
           actions: [],
           executionTrace: [],
@@ -421,10 +440,14 @@ async function handleAiChat(req, res) {
   if (!turnResult?.result?.ok) {
     const errText = [turnResult?.result?.stderr, turnResult?.result?.stdout].filter(Boolean).join("\n");
     if (looksLikeSessionModelMismatch(errText) && runtimeModelRefBefore && runtimeModelRefBefore.includes("/")) {
-      const healed = await switchThunderSessionModel({
-        modelRef: runtimeModelRefBefore,
-        sessionId: "thunderclaw-main",
-      }).catch(() => ({ ok: false }));
+      // Heal by setting default model via CLI (not agent message) to avoid /model leakage
+      let healed = { ok: false };
+      if (setOpenClawDefaultModel) {
+        healed = await setOpenClawDefaultModel(runtimeModelRefBefore, 40_000).catch(() => ({ ok: false }));
+        if (healed?.ok && applyRuntimeModelRefToStore) {
+          applyRuntimeModelRefToStore(runtimeModelRefBefore, { save: true, ensureRegistry: true });
+        }
+      }
       if (healed?.ok) {
         turnResult = await runAgentTurn({ message, sessionId: "thunderclaw-main", modelRef: runtimeModelRefBefore, thinking: "medium" });
       }

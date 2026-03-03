@@ -165,6 +165,40 @@ async function main() {
       }
     }
 
+    // ━━━━━ Step 5: Test /api/ai/chat fast path (card-only, no extra text) ━━━━━
+    log("STEP5", "Testing /api/ai/chat fast path for card-only response...");
+    const chatResult = await post("/api/ai/chat", {
+      message: "帮我做一个判断市场波动率高低的工具",
+    }, 90000);
+    const chatChecks = {
+      chatOk: Boolean(chatResult?.ok),
+      isFastPath: chatResult?.source === "clarification_fast_path",
+      emptyReply: !String(chatResult?.reply || "").trim(),
+      hasClarification: Boolean(chatResult?.clarification?.intentDetected),
+    };
+    log("STEP5", `Chat OK: ${chatChecks.chatOk}, Fast path: ${chatChecks.isFastPath}`);
+    log("STEP5", `Empty reply (no extra text): ${chatChecks.emptyReply}`);
+    log("STEP5", `Has clarification card: ${chatChecks.hasClarification}`);
+    if (chatResult?.clarification?.headline) {
+      log("STEP5", `Headline: ${chatResult.clarification.headline}`);
+    }
+
+    // ━━━━━ Step 6: Test session archive/restore completeness ━━━━━
+    log("STEP6", "Testing session archive + restore...");
+    const archiveResult = await post("/api/session/archive", {});
+    log("STEP6", `Archive: ${archiveResult?.ok}, Archived: ${archiveResult?.archived}`);
+    const archivedId = archiveResult?.archivedSessionId || "";
+    let restoreChecks = { restoreOk: false, messageCount: 0, hasCardMeta: false };
+    if (archivedId) {
+      const restoreResult = await post("/api/session/restore", { sessionId: archivedId });
+      restoreChecks.restoreOk = Boolean(restoreResult?.ok);
+      restoreChecks.messageCount = (restoreResult?.messages || []).length;
+      restoreChecks.hasCardMeta = (restoreResult?.messages || []).some((m) =>
+        m.meta && typeof m.meta === "object"
+      );
+      log("STEP6", `Restore: ${restoreChecks.restoreOk}, Messages: ${restoreChecks.messageCount}, Card meta: ${restoreChecks.hasCardMeta}`);
+    }
+
     // ━━━━━ Summary ━━━━━
     console.log("\n" + "═".repeat(60));
     const checks = {
@@ -173,6 +207,8 @@ async function main() {
       featureGenerated: confirmResult.ok || false,
       hasCode: Boolean(confirmResult.generatedCode?.indicatorCode),
       hasResultSummary: Boolean(confirmResult.resultSummary),
+      fastPathCardOnly: chatChecks.isFastPath && chatChecks.emptyReply && chatChecks.hasClarification,
+      sessionRestoreOk: restoreChecks.restoreOk,
     };
     log("RESULT", JSON.stringify(checks, null, 2));
     const allPassed = checks.intentDetected && checks.hasQuestions && checks.featureGenerated && checks.hasCode;

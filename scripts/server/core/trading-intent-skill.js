@@ -5,7 +5,7 @@
  *   - extractTradingIntentCandidates(params) → { ok, intentDetected, confidence, reasoning, candidates }
  *   - generateFeatureCodeForCandidate(params) → { ok, candidate, sessionId, modelRef }
  *
- * Internal change: all AI calls now go through the DeepSeek direct client
+ * Internal change: all AI calls now go through the LLM client
  * via the pipeline, instead of slow openclaw CLI invocations.
  */
 
@@ -109,10 +109,10 @@ export function createTradingIntentSkill(deps = {}) {
   function getPipeline() {
     if (pipeline) return pipeline;
     if (typeof deps.getModelConfig === "function") {
-      // Full model config: supports any provider (DeepSeek, OpenAI, Anthropic, etc.)
+      // Full model config: supports any provider configured in 虾脑
       pipeline = createFeaturePipeline({ getModelConfig: deps.getModelConfig });
     } else {
-      // Backward compat: DeepSeek-only via getApiKey
+      // Backward compat: API key via getApiKey
       pipeline = createFeaturePipeline({
         getApiKey: () => {
           const storeKey = toText(typeof deps.getApiKey === "function" ? deps.getApiKey() : "");

@@ -2,7 +2,7 @@
  * Pipeline Stage 1: Intent Detection
  *
  * Analyzes conversation to extract actionable trading feature candidates.
- * Uses DeepSeek API directly for speed, falls back to declarative skill
+ * Uses LLM API directly for speed, falls back to declarative skill
  * keyword matching when the API is unavailable.
  */
 
@@ -147,11 +147,11 @@ function buildHeuristicFallback(params = {}) {
 }
 
 /**
- * Create the intent detector with a DeepSeek client dependency.
- * @param {{ deepseekClient: Object }} deps
+ * Create the intent detector with an LLM client dependency.
+ * @param {{ llmClient: Object }} deps
  */
 export function createIntentDetector(deps = {}) {
-  const deepseekClient = deps.deepseekClient;
+  const llmClient = deps.llmClient;
 
   /**
    * Detect trading intent from conversation.
@@ -167,10 +167,10 @@ export function createIntentDetector(deps = {}) {
       return { intentDetected: false, confidence: 0, reasoning: "", candidates: [], source: "empty" };
     }
 
-    // Try DeepSeek API first
-    if (deepseekClient) {
+    // Try LLM API first
+    if (llmClient) {
       try {
-        const result = await deepseekClient.chatCompletionJson({
+        const result = await llmClient.chatCompletionJson({
           messages: [
             { role: "system", content: INTENT_DETECTION_SYSTEM_PROMPT },
             { role: "user", content: buildIntentDetectionUserMessage({ userMessage, assistantReply }) },
@@ -191,7 +191,7 @@ export function createIntentDetector(deps = {}) {
             confidence: clampNumber(data.confidence, 0, 1, intentDetected ? 0.75 : 0.15),
             reasoning: toText(data.reasoning, ""),
             candidates,
-            source: "deepseek",
+            source: "llm",
           };
         }
         // API call succeeded but no valid data → fall through to heuristic

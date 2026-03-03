@@ -360,9 +360,7 @@ async function syncXbrainFromOpenClaw() {
   if (!sanitizedRegistry.length && defaultModelRef && isAllowedModelRefShape(defaultModelRef)) {
     sanitizedRegistry = [defaultModelRef];
   }
-  if (!sanitizedRegistry.length) {
-    sanitizedRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
-  }
+  // No longer force a default model — user configures via 虾脑
   xbrainStore.base.modelRegistry = sanitizedRegistry;
 
   const providerCatalog = new Set(
