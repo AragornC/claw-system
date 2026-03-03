@@ -152,13 +152,17 @@ async function runExternalScenario(scenario) {
     result.checks.applyError = "no feature to apply";
   }
 
-  // Step 5: Check for proxy mode hint in result summary
-  result.checks.hasProxyHint = Boolean(
-    String(confirmResult?.resultSummary || "").includes("代理数据模式") ||
-    String(confirmResult?.resultSummary || "").includes("proxy") ||
-    String(confirmResult?.generatedCode?.indicatorCode || "").includes("proxy")
-  );
-  log(scenario.id, `  Proxy hint: ${result.checks.hasProxyHint}`);
+    // Step 5: Check for requiredConfig (external features may declare API key needs)
+    const reqConfig = confirmResult?.generatedCode?.requiredConfig || [];
+    result.checks.hasRequiredConfig = reqConfig.length > 0;
+    result.checks.requiredConfigKeys = reqConfig.map((c) => c.key || "").filter(Boolean);
+    log(scenario.id, `  Required config: ${result.checks.hasRequiredConfig ? reqConfig.map((c) => c.key).join(", ") : "none"}`);
+
+    // Check that code contains real data-fetching patterns (not proxy)
+    const code = String(confirmResult?.generatedCode?.indicatorCode || "");
+    result.checks.hasRealDataFetch = code.includes("requests") || code.includes("urllib") || code.includes("http");
+    result.checks.hasTryExcept = code.includes("try:") || code.includes("except");
+    log(scenario.id, `  Real data fetch: ${result.checks.hasRealDataFetch}, Try/except: ${result.checks.hasTryExcept}`);
 
   return result;
 }
@@ -200,8 +204,9 @@ async function main() {
       allConfirmOk: results.every((r) => r.checks.confirmOk),
       allHasCode: results.every((r) => r.checks.hasCode),
       allApplyOk: results.every((r) => r.checks.applyOk),
-      anyProxyHint: results.some((r) => r.checks.hasProxyHint),
       allEmptyReply: results.every((r) => r.checks.emptyReply),
+      anyRealDataFetch: results.some((r) => r.checks.hasRealDataFetch),
+      anyTryExcept: results.some((r) => r.checks.hasTryExcept),
     };
     log("SUMMARY", JSON.stringify(allChecks, null, 2));
 
