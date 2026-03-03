@@ -569,7 +569,10 @@ function createChatApiClientRuntime(optionsLike = {}) {
     try {
       payload = await resp.json();
     } catch {}
-    if (!resp.ok || !payload || payload.ok !== true || !String(payload.reply || '').trim()) {
+    // Allow empty reply when clarification card is the response (source=clarification_fast_path)
+    const hasClarification = payload && payload.clarification && payload.clarification.intentDetected;
+    const hasReply = Boolean(String(payload?.reply || '').trim());
+    if (!resp.ok || !payload || payload.ok !== true || (!hasReply && !hasClarification)) {
       const reason = payload && payload.error ? String(payload.error) : 'HTTP ' + resp.status;
       throw new Error(reason);
     }
