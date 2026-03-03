@@ -174,6 +174,71 @@ function generateFromTemplate(feature) {
     };
   }
 
+  // External feature proxy templates — use OHLCV data to simulate sentiment/external signals
+  if (kind === "news_sentiment" || name.includes("news") || name.includes("sentiment")) {
+    const volPeriod = Number(params.vol_period || params.period || 20) || 20;
+    const retPeriod = Number(params.ret_period || 5) || 5;
+    return {
+      featureName: name,
+      indicatorCode: [
+        `        # proxy mode: 新闻情绪信号 (基于价格动量+成交量异常度模拟)`,
+        `        # 如需真实新闻数据源，可配置 THUNDERCLAW_NEWS_RSS_URL 环境变量`,
+        `        dataframe['_vol_ma_${volPeriod}'] = dataframe['volume'].rolling(${volPeriod}).mean()`,
+        `        dataframe['_vol_ratio'] = (dataframe['volume'] / dataframe['_vol_ma_${volPeriod}'].replace(0, 1)).fillna(1)`,
+        `        dataframe['_ret_${retPeriod}'] = dataframe['close'].pct_change(${retPeriod}).fillna(0)`,
+        `        dataframe['_vol_surprise'] = (dataframe['_vol_ratio'] - 1.0).clip(-2, 2)`,
+        `        dataframe['${col}'] = (dataframe['_ret_${retPeriod}'] * 6.0 + dataframe['_vol_surprise'] * 0.25).clip(-1, 1)`,
+      ].join("\n"),
+      entryConditionCode: `(dataframe['${col}'] > 0.3) & (dataframe['${col}'].shift(1) <= 0.3)`,
+      exitConditionCode: `(dataframe['${col}'] < -0.2)`,
+      requiredImports: [],
+      columnNames: [`_vol_ma_${volPeriod}`, `_vol_ratio`, `_ret_${retPeriod}`, `_vol_surprise`, col],
+      description: `News sentiment proxy signal (vol anomaly + ${retPeriod}-bar momentum). Proxy mode: real data source can be configured.`,
+    };
+  }
+
+  if (kind === "social_sentiment" || name.includes("social") || name.includes("twitter") || name.includes("tweet")) {
+    const period = Number(params.period || 14) || 14;
+    return {
+      featureName: name,
+      indicatorCode: [
+        `        # proxy mode: 社媒情绪信号 (基于成交量突增+价格离散度模拟)`,
+        `        # 如需真实社交数据，可配置 THUNDERCLAW_SOCIAL_RSS_URL 环境变量`,
+        `        dataframe['_vol_sma_${period}'] = dataframe['volume'].rolling(${period}).mean()`,
+        `        dataframe['_vol_z'] = ((dataframe['volume'] - dataframe['_vol_sma_${period}']) / dataframe['_vol_sma_${period}'].replace(0, 1)).fillna(0)`,
+        `        dataframe['_hl_range'] = ((dataframe['high'] - dataframe['low']) / dataframe['close'].replace(0, 1)).fillna(0)`,
+        `        dataframe['_hl_avg'] = dataframe['_hl_range'].rolling(${period}).mean().fillna(0)`,
+        `        dataframe['_buzz'] = (dataframe['_vol_z'] * 0.6 + (dataframe['_hl_range'] - dataframe['_hl_avg']) * 15).fillna(0)`,
+        `        dataframe['${col}'] = dataframe['_buzz'].clip(-1, 1)`,
+      ].join("\n"),
+      entryConditionCode: `(dataframe['${col}'] > 0.4)`,
+      exitConditionCode: `(dataframe['${col}'] < -0.15)`,
+      requiredImports: [],
+      columnNames: [`_vol_sma_${period}`, `_vol_z`, `_hl_range`, `_hl_avg`, `_buzz`, col],
+      description: `Social sentiment proxy signal (volume z-score + range anomaly). Proxy mode: real data source can be configured.`,
+    };
+  }
+
+  if (kind === "prediction_market" || name.includes("prediction") || name.includes("polymarket")) {
+    const period = Number(params.period || 10) || 10;
+    return {
+      featureName: name,
+      indicatorCode: [
+        `        # proxy mode: 预测市场信号 (基于价格均值回归强度模拟)`,
+        `        # 如需真实预测市场数据，可配置 THUNDERCLAW_PREDICTION_API_URL 环境变量`,
+        `        dataframe['_sma_${period}'] = ta.SMA(dataframe, timeperiod=${period})`,
+        `        dataframe['_deviation'] = ((dataframe['close'] - dataframe['_sma_${period}']) / dataframe['_sma_${period}'].replace(0, 1)).fillna(0)`,
+        `        dataframe['_vol_shift'] = (dataframe['volume'].pct_change(3).fillna(0)).clip(-2, 2)`,
+        `        dataframe['${col}'] = (dataframe['_deviation'] * 8.0 + dataframe['_vol_shift'] * 0.15).clip(-1, 1)`,
+      ].join("\n"),
+      entryConditionCode: `(dataframe['${col}'] < -0.3) & (dataframe['${col}'].shift(1) >= -0.3)`,
+      exitConditionCode: `(dataframe['${col}'] > 0.4)`,
+      requiredImports: [],
+      columnNames: [`_sma_${period}`, `_deviation`, `_vol_shift`, col],
+      description: `Prediction market proxy signal (mean-reversion + volume shift). Proxy mode: real data source can be configured.`,
+    };
+  }
+
   // No template available for this kind
   return null;
 }

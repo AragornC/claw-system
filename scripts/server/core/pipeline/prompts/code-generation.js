@@ -54,6 +54,17 @@ The strategy class has three methods you must target:
 6. Handle edge cases: fillna(0), avoid division by zero.
 7. The indicator code should compute a meaningful signal column (typically a score between -1 and 1, or a boolean).
 
+## External Feature Handling (news, social media, prediction markets)
+For features involving external data sources (news sentiment, social media buzz, prediction markets):
+- DO NOT use HTTP calls, requests, urllib, or any network I/O
+- Instead, create a **proxy signal** using only OHLCV data:
+  - Use volume anomalies (volume ratio vs rolling mean) as market activity proxy
+  - Use multi-bar returns and price range as sentiment proxy
+  - Combine them into a normalized [-1, 1] composite score
+- Add a Python comment at the top: "# proxy mode: real data source can be configured"
+- This proxy approach is correct and expected — the system will inform the user accordingly
+- The proxy signal captures the same market dynamics that external data would reflect
+
 ## Output Schema
 {
   "featureName": "snake_case_name",
