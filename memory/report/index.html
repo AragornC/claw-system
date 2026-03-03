@@ -11482,11 +11482,44 @@
                   });
                   const body = await resp.json();
                   if (body.ok && Array.isArray(body.messages)) {
-                    // Re-render chat with restored messages (markdown for bot)
+                    // Re-render chat with restored messages, including card reconstructions
                     box.innerHTML = '';
                     body.messages.forEach(function(msg) {
+                      // Skip system messages from card events (they're internal context)
+                      if (msg.role === 'system' && msg.meta && msg.meta.cardEvent) return;
+
                       var role = msg.role === 'user' ? 'user' : 'bot';
                       var source = role === 'bot' ? 'dashboard' : 'dashboard';
+
+                      // Check if this message had a clarification card
+                      var meta = msg.meta && typeof msg.meta === 'object' ? msg.meta : null;
+                      if (meta && meta.type === 'clarification_card' && meta.cardData && typeof createClarificationCardRuntime === 'function') {
+                        var cardData = meta.cardData;
+                        // Render a read-only version of the card (buttons disabled)
+                        var card = createClarificationCardRuntime({
+                          headline: String(cardData.headline || msg.content || ''),
+                          featureConcept: cardData.featureConcept || {},
+                          clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                          onSubmit: null,  // Read-only: no submit
+                          onApply: null,   // Read-only: no apply
+                        });
+                        if (card) {
+                          // Mark card as read-only (disable all buttons)
+                          card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+                          var statusEl = card.querySelector('.ai-clarify-result') || card.querySelector('.ai-clarify-progress');
+                          if (cardData.status === 'applied' || cardData.result) {
+                            var resultDiv = document.createElement('div');
+                            resultDiv.className = 'ai-clarify-result';
+                            resultDiv.style.display = 'block';
+                            resultDiv.innerHTML = '<div class="ai-clarify-result-success"><div class="ai-clarify-result-title">✅ 已恢复 — 特征已生成</div></div>';
+                            card.querySelector('.ai-clarify-bubble')?.appendChild(resultDiv);
+                          }
+                          box.appendChild(card);
+                          return;
+                        }
+                      }
+
+                      // Normal text message rendering
                       var div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', source);
                       box.appendChild(div);
                     });
