@@ -15,8 +15,9 @@ The strategy class has three methods you must target:
 1. \`populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame\`
    - Adds indicator columns to the OHLCV dataframe
    - Available columns: open, high, low, close, volume, date
-   - Must use TA-Lib via: \`import talib.abstract as ta\`
-   - Must use pandas DataFrame operations
+   - Can use TA-Lib via: \`import talib.abstract as ta\` for standard indicators
+   - Can use pandas DataFrame operations, numpy, and any other library as needed
+   - Can fetch external data via HTTP (requests/urllib) for news, social, API-based features
 
 2. \`populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame\`
    - Sets \`dataframe.loc[condition, 'enter_long'] = 1\` for long entries
@@ -48,22 +49,29 @@ The strategy class has three methods you must target:
 ## Rules
 1. Only output valid JSON. No markdown, no explanation.
 2. All code must be syntactically valid Python 3.10+.
-3. Use TA-Lib for standard indicators. Use pandas for custom calculations.
-4. Never use external HTTP calls, file I/O, or imports beyond: talib, pandas, numpy.
+3. Use TA-Lib for standard technical indicators. Use pandas/numpy for calculations.
+4. You MAY use any Python standard library or common third-party library (requests, urllib, json, etc.) for data acquisition. The only constraint is that the output must be a valid Freqtrade DataFrame with the expected columns.
 5. Code must be self-contained—no undefined helper functions.
 6. Handle edge cases: fillna(0), avoid division by zero.
 7. The indicator code should compute a meaningful signal column (typically a score between -1 and 1, or a boolean).
 
-## External Feature Handling (news, social media, prediction markets)
-For features involving external data sources (news sentiment, social media buzz, prediction markets):
-- DO NOT use HTTP calls, requests, urllib, or any network I/O
-- Instead, create a **proxy signal** using only OHLCV data:
-  - Use volume anomalies (volume ratio vs rolling mean) as market activity proxy
-  - Use multi-bar returns and price range as sentiment proxy
-  - Combine them into a normalized [-1, 1] composite score
-- Add a Python comment at the top: "# proxy mode: real data source can be configured"
-- This proxy approach is correct and expected — the system will inform the user accordingly
-- The proxy signal captures the same market dynamics that external data would reflect
+## External Data Sources (news, social media, prediction markets, APIs)
+For features that involve external data (news sentiment, social buzz, prediction markets, on-chain data, etc.):
+- You ARE allowed and encouraged to use \`requests\`, \`urllib\`, \`json\`, or any HTTP client to fetch real data.
+- Always wrap network calls in try/except. On failure (timeout, error, missing API key), gracefully fallback: fill the feature column with 0 or NaN — never let populate_indicators crash.
+- Use \`os.environ.get("KEY_NAME", "")\` for API keys or credentials the user may need to provide.
+- If the feature requires user-provided configuration (API keys, custom URLs, etc.), list them in the \`requiredConfig\` output field so the system can prompt the user.
+- Example pattern:
+  \`\`\`python
+  import requests, os
+  try:
+      api_key = os.environ.get("NEWS_API_KEY", "")
+      resp = requests.get(url, headers={"Authorization": api_key}, timeout=10)
+      data = resp.json()
+      # ... process into signal score ...
+  except Exception:
+      signal_score = 0.0  # graceful fallback
+  \`\`\`
 
 ## Output Schema
 {
@@ -73,8 +81,12 @@ For features involving external data sources (news sentiment, social media buzz,
   "exitConditionCode": "Python expression for exit (e.g., dataframe['tc_feat_x'] < -0.2)",
   "requiredImports": ["list of import statements if any beyond standard"],
   "columnNames": ["list of columns this code adds to dataframe"],
-  "description": "What this code does"
+  "description": "What this code does",
+  "requiredConfig": [
+    {"key": "ENV_VAR_NAME", "label": "Human-readable label", "description": "What this config is for"}
+  ]
 }
+Note: requiredConfig is optional. Only include it if the feature needs user-provided API keys, URLs, or other configuration to function fully. If not needed, omit or set to [].
 
 ## Examples
 

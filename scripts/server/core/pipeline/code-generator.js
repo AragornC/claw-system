@@ -249,7 +249,7 @@ function generateFromTemplate(feature) {
 function normalizeCodeOutput(rawLike, featureName) {
   const raw = rawLike && typeof rawLike === "object" ? rawLike : {};
   const name = toText(raw.featureName || featureName).toLowerCase().replace(/[^a-z0-9_]/g, "_");
-  return {
+  const result = {
     featureName: name,
     indicatorCode: toText(raw.indicatorCode, ""),
     entryConditionCode: toText(raw.entryConditionCode, ""),
@@ -258,6 +258,17 @@ function normalizeCodeOutput(rawLike, featureName) {
     columnNames: Array.isArray(raw.columnNames) ? raw.columnNames.map(String) : [],
     description: toText(raw.description, ""),
   };
+  // Optional: requiredConfig for features that need user-provided configuration (API keys, URLs, etc.)
+  if (Array.isArray(raw.requiredConfig) && raw.requiredConfig.length) {
+    result.requiredConfig = raw.requiredConfig
+      .filter((c) => c && typeof c === "object" && toText(c.key, ""))
+      .map((c) => ({
+        key: toText(c.key, ""),
+        label: toText(c.label, c.key || ""),
+        description: toText(c.description, ""),
+      }));
+  }
+  return result;
 }
 
 /**
