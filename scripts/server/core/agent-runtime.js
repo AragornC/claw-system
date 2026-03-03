@@ -34,6 +34,7 @@ export function extractAgentReply(payload) {
     if (/^\/?model\s+\S/.test(line)) return true;
     if (line.includes("连续输入了/model") || line.includes("输入了 /model")) return true;
     if (line.includes("/model ") && (line.includes("已切换") || line.includes("switched") || line.includes("session"))) return true;
+    if (/^已切换到模型/.test(line)) return true;
     let score = 0;
     if (line.includes("assistant to=final")) score += 2;
     if (line.includes("reply tag")) score += 2;
@@ -51,11 +52,21 @@ export function extractAgentReply(payload) {
     const original = String(textLike || "").trim();
     const raw = stripControlFragments(original).trim();
     if (!raw) return "";
-    const cleanedLines = raw.split(/\r?\n/)
+    const rawLines = raw.split(/\r?\n/);
+    const cleanedLines = rawLines
       .map((line) => String(line || "").trimEnd())
       .filter((line) => !isLikelyInternalControlLine(line));
     let cleaned = stripControlFragments(cleanedLines.join("\n")).trim();
     if (!cleaned) {
+      // If all lines were filtered as control/internal, check if it was /model leakage
+      const hadModelLeakage = rawLines.some((line) => {
+        const l = String(line || "").trim().toLowerCase();
+        return l.includes("连续输入了/model") || l.includes("输入了 /model") || /^\/?model\s+\S/.test(l);
+      });
+      if (hadModelLeakage) {
+        // All content was model-switch artifacts — return empty
+        return "";
+      }
       cleaned = stripControlFragments(
         original.replace(/【[^】]{0,480}(assistant to=final|reply tag|no tools|need respond|with tag|just output)[^】]{0,480}】/ig, ""),
       ).trim();

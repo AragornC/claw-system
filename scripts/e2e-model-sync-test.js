@@ -73,9 +73,9 @@ async function main() {
     },
   };
   const cleanedReply = extractAgentReply(mockPayloadWithModel);
-  checks.unitFilterModel = !containsModelLeakage(cleanedReply);
+  checks.unitFilterModel = !containsModelLeakage(cleanedReply) && !cleanedReply.includes("已切换到模型");
   log("UNIT", `Filtered /model from reply: ${checks.unitFilterModel}`);
-  log("UNIT", `Cleaned reply: "${cleanedReply.slice(0, 80)}..."`);
+  log("UNIT", `Cleaned reply: "${cleanedReply.slice(0, 80)}"`);
 
   const mockPayloadClean = {
     result: {
@@ -100,6 +100,18 @@ async function main() {
   const chineseReply = extractAgentReply(mockPayloadChinese);
   checks.unitFilterChinese = !containsModelLeakage(chineseReply);
   log("UNIT", `Filtered Chinese /model leakage: ${checks.unitFilterChinese}`);
+
+  // Test mixed content: useful text + model artifacts
+  const mockPayloadMixed = {
+    result: {
+      payloads: [
+        { text: "很高兴为你服务！\n/model deepseek/deepseek-chat\n让我帮你分析市场趋势。" },
+      ],
+    },
+  };
+  const mixedReply = extractAgentReply(mockPayloadMixed);
+  checks.unitMixedContent = mixedReply.includes("趋势") && !containsModelLeakage(mixedReply);
+  log("UNIT", `Mixed content preserved useful text: ${checks.unitMixedContent}`);
 
   // ━━━ Integration test: Normal chat has no /model leakage ━━━
   log("SETUP", "Starting ThunderClaw server...");
@@ -150,7 +162,7 @@ async function main() {
     log("SUMMARY", JSON.stringify(checks, null, 2));
 
     const allPassed = checks.unitFilterModel && checks.unitNormalPreserved
-      && checks.unitFilterChinese && checks.integrationNoLeakage;
+      && checks.unitFilterChinese && checks.unitMixedContent && checks.integrationNoLeakage;
     log("VERDICT", allPassed ? "✅ MODEL SYNC TEST PASSED" : "⚠️ SOME CHECKS FAILED");
     process.exit(allPassed ? 0 : 1);
 
