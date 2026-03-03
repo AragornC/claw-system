@@ -980,6 +980,10 @@ export function createStrategyLabStore(deps = {}) {
         description: toText(rawFeature.generatedCode.description, ""),
         validatedAt: toText(rawFeature.generatedCode.validatedAt, ""),
         featureName: toText(rawFeature.generatedCode.featureName, ""),
+        // User-facing config requirements (API keys, URLs, etc.) declared by LLM
+        requiredConfig: Array.isArray(rawFeature.generatedCode.requiredConfig)
+          ? rawFeature.generatedCode.requiredConfig.filter((c) => c && typeof c === "object" && toText(c.key, ""))
+          : [],
       }
       : null;
 
