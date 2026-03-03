@@ -327,6 +327,14 @@ export function createStrategyLabHandlers(deps = {}) {
           toText(applied?.feature?.featureId || applied?.strategy?.strategyId || nameText),
           nameText,
         );
+        // Track card event for context continuity
+        if (typeof conversationContext.addCardEvent === "function") {
+          conversationContext.addCardEvent("card_applied", {
+            success: true,
+            featureName: nameText,
+            kind: applied?.kind || "feature",
+          });
+        }
       }
       // L4: Write to OpenClaw memory for long-term retrieval
       const ml = deps.memoryLayer || null;
@@ -348,9 +356,20 @@ export function createStrategyLabHandlers(deps = {}) {
         state,
       });
     } catch (error) {
+      const errorMsg = String(error?.message || error || "apply candidate failed");
+      // Track failure in conversation context
+      if (conversationContext && typeof conversationContext.addCardEvent === "function") {
+        const candName = toText(candidate?.feature?.name || candidate?.title || "");
+        conversationContext.addCardEvent("card_applied", {
+          success: false,
+          featureName: candName,
+          kind: toText(candidate?.kind || "feature"),
+          error: errorMsg,
+        });
+      }
       sendJson(res, 400, {
         ok: false,
-        error: String(error?.message || error || "apply candidate failed"),
+        error: errorMsg,
       });
     }
   }
@@ -718,6 +737,10 @@ export function createStrategyLabHandlers(deps = {}) {
       // Build memory context for code generation
       const ml = deps.memoryLayer || null;
       const memoryContext = ml ? await ml.buildFullMemoryContext(toText(body.userMessage || "")).catch(() => "") : "";
+      // Track user choices in conversation context
+      if (conversationContext && typeof conversationContext.addCardEvent === "function") {
+        conversationContext.addCardEvent("card_choices", { userChoices });
+      }
       const result = await generateFromClarification({
         featureConcept,
         userChoices,
@@ -726,6 +749,15 @@ export function createStrategyLabHandlers(deps = {}) {
         memoryContext,
         conversationHistory: conversationContext ? conversationContext.getRecentHistory(10) : [],
       });
+      // Track generation result in conversation context
+      if (conversationContext && typeof conversationContext.addCardEvent === "function") {
+        conversationContext.addCardEvent("card_generated", {
+          success: Boolean(result.ok),
+          featureName: toText(result.feature?.name || featureConcept?.name || ""),
+          resultSummary: toText(result.resultSummary, ""),
+          error: result.ok ? "" : toText(result.error, ""),
+        });
+      }
       sendJson(res, 200, {
         ok: Boolean(result.ok),
         feature: result.feature || null,
@@ -735,6 +767,12 @@ export function createStrategyLabHandlers(deps = {}) {
         error: result.ok ? "" : toText(result.error, "feature generation failed"),
       });
     } catch (error) {
+      // Track error in conversation context
+      if (conversationContext && typeof conversationContext.addCardEvent === "function") {
+        conversationContext.addCardEvent("card_error", {
+          error: String(error?.message || error || "confirm failed"),
+        });
+      }
       sendJson(res, 200, { ok: false, error: String(error?.message || error || "confirm failed") });
     }
   }

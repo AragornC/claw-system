@@ -83,14 +83,21 @@ export function createConversationContextManager(deps = {}) {
 
   /**
    * Add a message to the active session's context.
+   * @param {string} role - "user" | "assistant" | "system"
+   * @param {string} content - message text
+   * @param {Object} [meta] - optional metadata (e.g. card data for history restore)
    */
-  function addMessage(role, content) {
+  function addMessage(role, content, meta) {
     const session = getActiveSession();
-    session.messages.push({
+    const msg = {
       role: toText(role, "user"),
       content: toText(content, ""),
       ts: nowIso(),
-    });
+    };
+    if (meta && typeof meta === "object") {
+      msg.meta = meta;
+    }
+    session.messages.push(msg);
     session.messageCount = (session.totalMessageCount || session.messages.length) + 1;
     session.totalMessageCount = session.messageCount;
     session.updatedAt = nowIso();
@@ -99,6 +106,78 @@ export function createConversationContextManager(deps = {}) {
       session.messages = session.messages.slice(-maxMessagesPerSession);
     }
     saveStore();
+  }
+
+  /**
+   * Add a structured card event to the active session.
+   * These events are injected into conversation history as system messages
+   * so the LLM can reference card interactions (feature creation, errors, etc.).
+   *
+   * @param {string} eventType - "card_shown" | "card_choices" | "card_generated" | "card_applied" | "card_error"
+   * @param {Object} data - event-specific payload
+   */
+  function addCardEvent(eventType, data) {
+    const session = getActiveSession();
+    if (!Array.isArray(session.cardEvents)) session.cardEvents = [];
+    const event = {
+      type: toText(eventType, "card_event"),
+      data: data && typeof data === "object" ? data : {},
+      ts: nowIso(),
+    };
+    session.cardEvents.push(event);
+    // Keep last 30 card events
+    if (session.cardEvents.length > 30) {
+      session.cardEvents = session.cardEvents.slice(-30);
+    }
+    session.updatedAt = nowIso();
+
+    // Also add as a system message so it appears in conversation context
+    const description = formatCardEventForContext(event);
+    if (description) {
+      session.messages.push({
+        role: "system",
+        content: description,
+        ts: event.ts,
+        meta: { cardEvent: event },
+      });
+      if (session.messages.length > maxMessagesPerSession) {
+        session.messages = session.messages.slice(-maxMessagesPerSession);
+      }
+    }
+    saveStore();
+  }
+
+  /**
+   * Format a card event as a human-readable system message for LLM context.
+   */
+  function formatCardEventForContext(event) {
+    const type = toText(event?.type, "");
+    const data = event?.data && typeof event.data === "object" ? event.data : {};
+    switch (type) {
+      case "card_shown":
+        return `[系统] 已向用户展示特征建议卡片：${toText(data.headline, "交易特征建议")}` +
+          (data.featureName ? `（特征：${data.featureName}）` : "");
+      case "card_choices":
+        return `[系统] 用户选择了特征偏好：${JSON.stringify(data.userChoices || {}).slice(0, 200)}`;
+      case "card_generated": {
+        const ok = Boolean(data.success);
+        const name = toText(data.featureName, "特征");
+        return ok
+          ? `[系统] 特征「${name}」代码已成功生成${data.resultSummary ? "：" + toText(data.resultSummary, "").slice(0, 150) : ""}`
+          : `[系统] 特征「${name}」代码生成失败：${toText(data.error, "未知错误").slice(0, 150)}`;
+      }
+      case "card_applied": {
+        const ok = Boolean(data.success);
+        const name = toText(data.featureName, "特征");
+        return ok
+          ? `[系统] 特征「${name}」已成功加入虾策特征库`
+          : `[系统] 特征「${name}」加入特征库失败：${toText(data.error, "未知错误").slice(0, 150)}`;
+      }
+      case "card_error":
+        return `[系统] 特征操作错误：${toText(data.error, "未知错误").slice(0, 200)}`;
+      default:
+        return "";
+    }
   }
 
   /**
@@ -127,6 +206,8 @@ export function createConversationContextManager(deps = {}) {
     if (prefix) {
       messages.unshift({ role: "system", content: `[对话历史摘要] ${prefix}` });
     }
+    // Note: card events are already embedded as system messages in session.messages
+    // via addCardEvent(), so they naturally appear in the history.
     return messages;
   }
 
@@ -258,8 +339,10 @@ export function createConversationContextManager(deps = {}) {
         role: m.role,
         content: m.content,
         ts: m.ts,
+        meta: m.meta || null,
       })),
       assets: session.assets || [],
+      cardEvents: session.cardEvents || [],
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       summary: session.summary || "",
@@ -269,6 +352,7 @@ export function createConversationContextManager(deps = {}) {
 
   return {
     addMessage,
+    addCardEvent,
     getRecentHistory,
     setCompressedPrefix,
     trackAsset,

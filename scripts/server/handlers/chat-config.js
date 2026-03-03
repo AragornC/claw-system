@@ -383,7 +383,20 @@ async function handleAiChat(req, res) {
       });
       if (clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
-        if (ctx) ctx.addMessage("assistant", shortReply);
+        if (ctx) {
+          ctx.addMessage("assistant", shortReply, {
+            type: "clarification_card",
+            cardData: {
+              headline: String(clarification.headline || ""),
+              featureConcept: clarification.featureConcept || null,
+              clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
+            },
+          });
+          ctx.addCardEvent("card_shown", {
+            headline: String(clarification.headline || ""),
+            featureName: String(clarification.featureConcept?.name || ""),
+          });
+        }
         appendChatEvent({ role: "bot", source: "dashboard", text: shortReply, cards: [] });
         // Reply is empty — the clarification card IS the response.
         // Frontend should render only the card, not an extra text bubble.
