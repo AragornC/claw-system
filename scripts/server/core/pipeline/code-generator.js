@@ -3,7 +3,7 @@
  *
  * Given a structured feature specification, generates real executable Python
  * code compatible with Freqtrade's IStrategy interface.
- * Uses DeepSeek API with structured prompts; falls back to template-based
+ * Uses LLM API with structured prompts; falls back to template-based
  * code generation for standard indicators.
  */
 
@@ -261,11 +261,11 @@ function normalizeCodeOutput(rawLike, featureName) {
 }
 
 /**
- * Create the code generator with a DeepSeek client dependency.
- * @param {{ deepseekClient: Object }} deps
+ * Create the code generator with an LLM client dependency.
+ * @param {{ llmClient: Object }} deps
  */
 export function createCodeGenerator(deps = {}) {
-  const deepseekClient = deps.deepseekClient;
+  const llmClient = deps.llmClient;
 
   /**
    * Generate Freqtrade-compatible Python code for a feature.
@@ -281,10 +281,10 @@ export function createCodeGenerator(deps = {}) {
       return { ok: true, code: templateResult, source: "template" };
     }
 
-    // Use DeepSeek API for custom/complex features
-    if (deepseekClient) {
+    // Use LLM API for custom/complex features
+    if (llmClient) {
       try {
-        const result = await deepseekClient.chatCompletionJson({
+        const result = await llmClient.chatCompletionJson({
           messages: [
             { role: "system", content: CODE_GENERATION_SYSTEM_PROMPT },
             { role: "user", content: buildCodeGenerationUserMessage({ feature }) },
@@ -296,7 +296,7 @@ export function createCodeGenerator(deps = {}) {
         if (result.ok && result.data) {
           const code = normalizeCodeOutput(result.data, featureName);
           if (code.indicatorCode) {
-            return { ok: true, code, source: "deepseek" };
+            return { ok: true, code, source: "llm" };
           }
         }
       } catch {
@@ -333,11 +333,11 @@ export function createCodeGenerator(deps = {}) {
    * @returns {Promise<Object>} Repaired code
    */
   async function repairCode(params = {}) {
-    if (!deepseekClient) {
-      return { ok: false, code: params.originalCode || {}, error: "No DeepSeek client for repair" };
+    if (!llmClient) {
+      return { ok: false, code: params.originalCode || {}, error: "No LLM client for repair" };
     }
     try {
-      const result = await deepseekClient.chatCompletionJson({
+      const result = await llmClient.chatCompletionJson({
         messages: [
           { role: "system", content: CODE_REPAIR_SYSTEM_PROMPT },
           { role: "user", content: buildCodeRepairUserMessage(params) },
@@ -349,7 +349,7 @@ export function createCodeGenerator(deps = {}) {
       if (result.ok && result.data) {
         const code = normalizeCodeOutput(result.data, params.featureSpec?.name || "custom");
         if (code.indicatorCode) {
-          return { ok: true, code, source: "deepseek_repair" };
+          return { ok: true, code, source: "llm_repair" };
         }
       }
       return { ok: false, code: params.originalCode || {}, error: "Repair failed to produce code" };

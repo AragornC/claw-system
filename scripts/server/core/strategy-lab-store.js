@@ -1136,8 +1136,7 @@ export function createStrategyLabStore(deps = {}) {
 
 
   const ACCEPTED_CODE_SOURCES = new Set([
-    "pipeline", "template", "deepseek", "deepseek_repair",
-    "llm", "llm_repair", "fallback", "model_generated",
+    "pipeline", "template", "llm", "llm_repair", "fallback", "model_generated",
   ]);
 
   function validateFeatureExecutionCodeForApply(featureLike = {}) {

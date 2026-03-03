@@ -58,7 +58,7 @@ export function inferProviderFromModelRef(modelRefRaw) {
   const provider = normalizeProviderKey(prefix);
   let modelId = rest.join("/");
   if (!modelId) {
-    const fallbackRef = PROVIDER_DEFAULT_MODEL_REFS[provider] || PROVIDER_DEFAULT_MODEL_REFS.deepseek;
+    const fallbackRef = PROVIDER_DEFAULT_MODEL_REFS[provider] || "";
     modelId = String(fallbackRef).split("/").slice(1).join("/");
   }
   return { provider, modelId, modelRef };
@@ -68,7 +68,7 @@ export function toModelRef(providerRaw, modelIdRaw) {
   const provider = normalizeProviderKey(providerRaw);
   const modelId = String(modelIdRaw ?? "").trim();
   if (!modelId) {
-    return PROVIDER_DEFAULT_MODEL_REFS[provider] || PROVIDER_DEFAULT_MODEL_REFS.deepseek;
+    return PROVIDER_DEFAULT_MODEL_REFS[provider] || "";
   }
   if (modelId.includes("/")) {
     return modelId;

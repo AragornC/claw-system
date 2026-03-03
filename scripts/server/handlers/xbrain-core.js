@@ -105,7 +105,7 @@ async function sanitizeRegistryInStore() {
   const sanitizedInfo = await sanitizeModelRefsForRegistry(current, xbrainStore.base.modelProvider);
   let nextRegistry = sanitizedInfo.modelRefs;
   if (!nextRegistry.length) {
-    nextRegistry = [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+    nextRegistry = [];
   }
   const changed = nextRegistry.length !== current.length
     || nextRegistry.some((ref, idx) => ref !== current[idx]);
@@ -138,7 +138,7 @@ async function handleXbrainUpdate(req, res) {
       droppedRegistryRefs = sanitizedInfo.dropped;
       xbrainStore.base.modelRegistry = sanitizedInfo.modelRefs.length
         ? sanitizedInfo.modelRefs
-        : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+        : [];
     }
     if (typeof values.deepseekApiKey === "string" && values.deepseekApiKey.trim()) {
       const key = String(values.deepseekApiKey).trim();
@@ -347,7 +347,7 @@ async function handleXbrainModelsCatalog(req, res) {
   if (prunedRegistry.length !== currentRegistry.length) {
     xbrainStore.base.modelRegistry = prunedRegistry.length
       ? prunedRegistry
-      : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+      : [];
     saveXbrainStore();
     if (refresh) {
       await syncXbrainFromOpenClaw().catch(() => null);
@@ -565,7 +565,7 @@ async function handleXbrainModelConnect(req, res) {
     droppedRegistryRefs = uniqStrings([...(droppedRegistryRefs || []), ...(sanitizedRegistryInfo.dropped || [])]);
     xbrainStore.base.modelRegistry = sanitizedRegistryInfo.modelRefs.length
       ? sanitizedRegistryInfo.modelRefs
-      : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+      : [];
   }
 
   let modelSet = { attempted: false, ok: null, error: null, modelRef: null, deferred: false };
@@ -759,14 +759,11 @@ async function handleXbrainModelDisconnect(req, res) {
   }
 
   let fallbackInserted = false;
-  if (!nextRegistry.length) {
-    nextRegistry.push(PROVIDER_DEFAULT_MODEL_REFS.deepseek);
-    fallbackInserted = true;
-  }
+  // No longer force a default model — user must configure via 虾脑
   const sanitizedNextRegistryInfo = await sanitizeModelRefsForRegistry(nextRegistry, xbrainStore.base.modelProvider);
   xbrainStore.base.modelRegistry = sanitizedNextRegistryInfo.modelRefs.length
     ? sanitizedNextRegistryInfo.modelRefs
-    : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+    : [];
 
   const currentModelRef = toModelRef(xbrainStore.base.modelProvider, xbrainStore.base.modelId);
   let switched = null;
@@ -948,7 +945,7 @@ async function handleXbrainProviderRemove(req, res) {
   const sanitizedProviderPruned = await sanitizeModelRefsForRegistry(providerPrunedRegistry, xbrainStore.base.modelProvider);
   xbrainStore.base.modelRegistry = sanitizedProviderPruned.modelRefs.length
     ? sanitizedProviderPruned.modelRefs
-    : [PROVIDER_DEFAULT_MODEL_REFS.deepseek];
+    : [];
   xbrainStore.base.providerAuth = xbrainStore.base.providerAuth || {};
   delete xbrainStore.base.providerAuth[provider];
   if (provider === "deepseek") {

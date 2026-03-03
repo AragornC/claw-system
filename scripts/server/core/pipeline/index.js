@@ -25,7 +25,7 @@ function isExternalFeature(featureLike) {
 const EXTERNAL_PROXY_HINT = "\n\n💡 此特征目前使用代理数据模式（基于价格和成交量模拟信号）。" +
   "代理模式能捕捉到与外部数据相同的市场动态特征。" +
   "如需接入真实数据源（新闻 RSS、社交媒体 API 等），可通过环境变量配置数据源 URL。";
-import { createLlmClient, createDeepSeekClient } from "../llm-client.js";
+import { createLlmClient } from "../llm-client.js";
 import { createIntentDetector } from "./intent-detector.js";
 import { createCodeGenerator } from "./code-generator.js";
 import { createCodeValidator } from "./code-validator.js";
@@ -45,20 +45,26 @@ const MAX_REPAIR_ATTEMPTS = 2;
  * @param {() => {provider:string, model:string, apiKey:string, apiBase?:string}} [deps.getModelConfig]
  *   Returns current model config from xbrainStore (follows model switching).
  * @param {() => string} [deps.getApiKey]
- *   Legacy: DeepSeek-only API key getter (backward compat).
+ *   Legacy: API key getter (backward compat, defaults to DEEPSEEK_API_KEY env var).
  */
 export function createFeaturePipeline(deps = {}) {
   let llmClient;
   if (typeof deps.getModelConfig === "function") {
     llmClient = createLlmClient({ getModelConfig: deps.getModelConfig });
   } else {
-    // Backward compat: getApiKey → DeepSeek-only client
-    llmClient = createDeepSeekClient({
-      getApiKey: deps.getApiKey || (() => toText(process.env.DEEPSEEK_API_KEY || "")),
+    // Backward compat: getApiKey → generic LLM client with default config
+    llmClient = createLlmClient({
+      getModelConfig: () => ({
+        provider: "deepseek",
+        model: "deepseek-chat",
+        apiKey: (typeof deps.getApiKey === "function" ? deps.getApiKey() : "")
+          || toText(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || ""),
+        apiBase: "",
+      }),
     });
   }
-  const intentDetector = createIntentDetector({ deepseekClient: llmClient });
-  const codeGenerator = createCodeGenerator({ deepseekClient: llmClient });
+  const intentDetector = createIntentDetector({ llmClient });
+  const codeGenerator = createCodeGenerator({ llmClient });
   const codeValidator = createCodeValidator();
 
   /**
@@ -124,7 +130,7 @@ export function createFeaturePipeline(deps = {}) {
           });
           if (!repairResult.ok) break;
           finalCode = repairResult.code;
-          codeSource = repairResult.source || "deepseek_repair";
+          codeSource = repairResult.source || "llm_repair";
           validation = codeValidator.validate(finalCode);
           if (validation.valid) break;
         }
@@ -187,7 +193,7 @@ export function createFeaturePipeline(deps = {}) {
         });
         if (!repairResult.ok) break;
         finalCode = repairResult.code;
-        codeSource = repairResult.source || "deepseek_repair";
+        codeSource = repairResult.source || "llm_repair";
         validation = codeValidator.validate(finalCode);
         if (validation.valid) break;
       }
