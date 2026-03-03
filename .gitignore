@@ -46,3 +46,4 @@ deploy/tencent-cvm/.env.https
 
 # local env
 .env.local
+.thunderclaw/
