@@ -11,20 +11,6 @@
 
 import { toText, clampNumber, nowIso, parseJsonLoose } from "../../lib/utils.js";
 
-const EXTERNAL_FEATURE_KINDS = new Set(["news_sentiment", "social_sentiment", "prediction_market"]);
-const EXTERNAL_NAME_KEYWORDS = ["news", "social", "twitter", "tweet", "prediction", "polymarket", "sentiment"];
-
-function isExternalFeature(featureLike) {
-  if (!featureLike || typeof featureLike !== "object") return false;
-  const kind = toText(featureLike.kind, "").toLowerCase();
-  if (EXTERNAL_FEATURE_KINDS.has(kind)) return true;
-  const name = toText(featureLike.name || featureLike.featureId || "", "").toLowerCase();
-  return EXTERNAL_NAME_KEYWORDS.some((kw) => name.includes(kw));
-}
-
-const EXTERNAL_PROXY_HINT = "\n\n💡 此特征目前使用代理数据模式（基于价格和成交量模拟信号）。" +
-  "代理模式能捕捉到与外部数据相同的市场动态特征。" +
-  "如需接入真实数据源（新闻 RSS、社交媒体 API 等），可通过环境变量配置数据源 URL。";
 import { createLlmClient } from "../llm-client.js";
 import { createIntentDetector } from "./intent-detector.js";
 import { createCodeGenerator } from "./code-generator.js";
@@ -146,7 +132,6 @@ export function createFeaturePipeline(deps = {}) {
             validatedAt: validation.valid ? nowIso() : null,
             validationErrors: validation.errors,
             validationWarnings: validation.warnings || [],
-            proxyMode: isExternalFeature(feature),
           },
           codegenStatus: validation.valid ? "validated" : "validation_failed",
           codegenError: validation.valid ? "" : validation.errors.join("; "),
@@ -361,10 +346,9 @@ export function createFeaturePipeline(deps = {}) {
         ok: result.ok,
         feature: { name, group: toText(featureConcept.category, "custom"), kind: "custom", description: toText(featureConcept.description, ""), params: userChoices },
         generatedCode: result.code || null,
-        resultSummary: (result.ok
+        resultSummary: result.ok
           ? `已生成特征「${name}」，基于你的偏好选择使用了模板代码。`
-          : `特征生成失败：${(result.errors || []).join("; ")}`)
-          + (isExternalFeature({ name, kind: toText(featureConcept.indicatorHint, "custom") }) ? EXTERNAL_PROXY_HINT : ""),
+          : `特征生成失败：${(result.errors || []).join("; ")}`,
         source: "template_fallback",
       };
     }
@@ -410,12 +394,11 @@ export function createFeaturePipeline(deps = {}) {
         codeSource = "llm_repair";
         const revalidation = codeValidator.validate(finalCode);
         if (revalidation.valid) {
-          const repairSummary = isExternalFeature(feature) ? (resultSummary + EXTERNAL_PROXY_HINT) : resultSummary;
           return {
             ok: true,
             feature,
             generatedCode: { ...finalCode, codeSource, validatedAt: nowIso(), validationErrors: [], validationWarnings: revalidation.warnings || [] },
-            resultSummary: repairSummary,
+            resultSummary,
             source: codeSource,
           };
         }
@@ -430,14 +413,11 @@ export function createFeaturePipeline(deps = {}) {
       };
     }
 
-    // Append proxy mode hint for external features
-    const finalSummary = isExternalFeature(feature) ? (resultSummary + EXTERNAL_PROXY_HINT) : resultSummary;
-
     return {
       ok: true,
       feature,
       generatedCode: { ...finalCode, codeSource, validatedAt: nowIso(), validationErrors: [], validationWarnings: validation.warnings || [] },
-      resultSummary: finalSummary,
+      resultSummary,
       source: codeSource,
     };
   }
