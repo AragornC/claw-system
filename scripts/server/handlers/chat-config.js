@@ -1,3 +1,5 @@
+import { runIntentGating, shouldCallLlmForIntent } from "../core/intent-gating.js";
+
 export function createChatConfigHandlers(deps = {}) {
   const {
     normalizeProviderKey,
@@ -364,7 +366,7 @@ async function handleAiChat(req, res) {
   const ctx = deps.conversationContext;
   if (ctx) ctx.addMessage("user", message);
 
-  // ═══ FAST PATH: Try clarification first (DeepSeek direct, ~10s) ═══
+  // ═══ FAST PATH: Try clarification first (LLM direct, ~10s) ═══
   // L2: Trigger evolution compression if needed (non-blocking)
   const ml = deps.memoryLayer;
   if (ml) void ml.maybeCompressContext().catch(() => {});
@@ -372,7 +374,23 @@ async function handleAiChat(req, res) {
   // Build memory context (L2+L3+L4) for injection into system prompt
   const memoryContext = ml ? await ml.buildFullMemoryContext(message).catch(() => "") : "";
 
-  if (typeof deps.detectAndClarify === "function") {
+  // ── Intent Gating: Layer 0 + Layer 1 (rule-based, <1ms) ──
+  // Collect existing feature names for reference detection
+  const existingFeatureNames = [];
+  try {
+    const strategyLabStore = deps.strategyLabStore || null;
+    if (strategyLabStore && typeof strategyLabStore.listFeatures === "function") {
+      const features = strategyLabStore.listFeatures({ limit: 100 }).features || [];
+      features.forEach((f) => {
+        if (f.name) existingFeatureNames.push(f.name);
+        if (f.description) existingFeatureNames.push(f.description.slice(0, 30));
+      });
+    }
+  } catch {}
+
+  const shouldCallLlm = shouldCallLlmForIntent(message, existingFeatureNames);
+
+  if (shouldCallLlm && typeof deps.detectAndClarify === "function") {
     try {
       const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
       const clarification = await deps.detectAndClarify({
@@ -381,7 +399,23 @@ async function handleAiChat(req, res) {
         conversationHistory,
         memoryContext,
       });
-      if (clarification.intentDetected) {
+
+      // ── Intent Gating: Layer 2 + Layer 3 (LLM result + calibration) ──
+      const gatingResult = runIntentGating({
+        message,
+        existingFeatureNames,
+        l2Result: clarification.intentDetected ? {
+          intentDetected: true,
+          confidence: Number(clarification.confidence || 0),
+          intent: "create",
+        } : {
+          intentDetected: false,
+          confidence: Number(clarification.confidence || 0),
+          intent: "non_create",
+        },
+      });
+
+      if (gatingResult.shouldTriggerClarification && clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
         if (ctx) {
           ctx.addMessage("assistant", shortReply, {

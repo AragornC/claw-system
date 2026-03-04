@@ -254,6 +254,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   extractTradingIntentCandidates, updateChatCardStatus,
   detectAndClarify,
   setOpenClawDefaultModel, applyRuntimeModelRefToStore,
+  strategyLabStore,
   conversationContext, memoryLayer,
   xbrainStore, chatHistory, gatewayState,
 });
