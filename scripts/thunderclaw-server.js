@@ -183,7 +183,7 @@ function getModelConfig() {
 }
 
 // ─── Trading Intent Skill ────────────────────────────────────────────
-const { extractTradingIntentCandidates, generateFeatureCodeForCandidate, detectAndClarify, generateFromClarification } = createTradingIntentSkill({
+const { extractTradingIntentCandidates, generateFeatureCodeForCandidate, detectAndClarify, generateFromClarification, generateWithAgentLoop } = createTradingIntentSkill({
   normalizeSessionId,
   getModelConfig,
 });
@@ -278,7 +278,7 @@ const { handleXbrainState, handleXbrainUpdate, handleXbrainModelSwitch, handleXb
 const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm } = createStrategyLabHandlers({
   readJsonBody, sendJson, strategyLabStore,
   extractTradingIntentCandidates, generateFeatureCodeForCandidate,
-  detectAndClarify, generateFromClarification,
+  detectAndClarify, generateFromClarification, generateWithAgentLoop,
   getCurrentRuntimeModelRefFromStore, updateChatCardStatus,
   backtestEngine: freqtradeBacktestAdapter,
   conversationContext, memoryLayer,
