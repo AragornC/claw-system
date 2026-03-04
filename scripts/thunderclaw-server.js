@@ -275,7 +275,7 @@ const { handleXbrainState, handleXbrainUpdate, handleXbrainModelSwitch, handleXb
   submitOauthPromptInput, xbrainStore,
 });
 
-const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm } = createStrategyLabHandlers({
+const { handleStrategyFeatures, handleStrategyFeatureDelete, handleStrategyVersions, handleStrategyVersionsPropose, handleStrategyVersionsEvaluate, handleStrategyArtifactReport, handleStrategyIntentCandidates, handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail, handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish, handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete, handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm, handleStrategyFeatureUpdateConfig } = createStrategyLabHandlers({
   readJsonBody, sendJson, strategyLabStore,
   extractTradingIntentCandidates, generateFeatureCodeForCandidate,
   detectAndClarify, generateFromClarification, generateWithAgentLoop,
@@ -305,7 +305,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStrategyIntentGenerateCode, handleStrategyIntentApply, handleStrategyEntities, handleStrategyEntityDetail,
   handleStrategyEntityDraftSave, handleStrategyEntityReplay, handleStrategyEntityPublish,
   handleStrategyEntityStatus, handleStrategyEntityAudits, handleStrategyEntityDelete,
-  handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm,
+  handleStrategyFeatureEvaluate, handleStrategyIntentClarify, handleStrategyIntentConfirm, handleStrategyFeatureUpdateConfig,
   handleSessionArchive, handleSessionList, handleSessionRestore, handleChat,
 }));
 

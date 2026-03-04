@@ -2502,6 +2502,27 @@ export function createStrategyLabStore(deps = {}) {
     runStrategyReplay,
     deleteFeature,
     deleteStrategy,
+    updateFeatureConfig,
     getStats,
   };
+
+  /**
+   * Update user-provided config values for a feature.
+   * Stores config in feature.params.userConfig for runtime use.
+   */
+  function updateFeatureConfig(featureIdOrName, configValues = {}) {
+    const feature = findFeatureByName(toText(featureIdOrName));
+    if (!feature) throw new Error(`特征 "${toText(featureIdOrName)}" 不存在`);
+    if (!feature.params) feature.params = {};
+    if (!feature.params.userConfig) feature.params.userConfig = {};
+    Object.entries(configValues).forEach(([key, value]) => {
+      if (key && typeof value === "string") {
+        feature.params.userConfig[key] = value;
+      }
+    });
+    feature.updatedAt = nowIso();
+    const store = loadStore();
+    saveStore();
+    return { ok: true, featureName: feature.name, userConfig: feature.params.userConfig };
+  }
 }

@@ -491,6 +491,37 @@
       + '</div>'
       + '</div></details>';
 
+    // Module 1.5: 配置参数 (requiredConfig — API keys, URLs, etc.)
+    var reqConfig = Array.isArray(generatedCode.requiredConfig) ? generatedCode.requiredConfig : [];
+    var userConfig = feature.params && feature.params.userConfig && typeof feature.params.userConfig === "object"
+      ? feature.params.userConfig : {};
+    var moduleConfig = "";
+    if (reqConfig.length > 0) {
+      var configItems = reqConfig.map(function(c) {
+        var key = sfText(c.key || "", "");
+        var label = sfText(c.label || key, "");
+        var desc = sfText(c.description || "", "");
+        var currentValue = sfText(userConfig[key] || "", "");
+        var maskedValue = currentValue ? (currentValue.slice(0, 4) + "****" + currentValue.slice(-4)) : "";
+        return '<div class="fd-config-item">'
+          + '<div class="fd-config-label">' + sfEscapeHtml(label) + '</div>'
+          + (desc ? '<div class="fd-config-desc">' + sfEscapeHtml(desc) + '</div>' : '')
+          + '<div class="fd-config-input-row">'
+          + '<input type="password" class="fd-config-input" data-config-key="' + sfEscapeHtml(key) + '" '
+          + 'placeholder="' + sfEscapeHtml(currentValue ? "已配置" : "请输入") + '" '
+          + 'value="" />'
+          + (currentValue ? '<span class="fd-config-status ok">✓ ' + sfEscapeHtml(maskedValue) + '</span>' : '<span class="fd-config-status warn">未配置</span>')
+          + '</div></div>';
+      }).join("");
+      moduleConfig = '<details class="fd-module" open>'
+        + '<summary class="fd-module-header">⚙️ 配置参数</summary>'
+        + '<div class="fd-module-body">'
+        + '<div class="fd-config-grid">' + configItems + '</div>'
+        + '<button type="button" class="fd-config-save" data-feature-name="' + sfEscapeHtml(sfText(feature.name || feature.featureId || "", "")) + '">保存配置</button>'
+        + '<div class="fd-config-hint">填写后点击保存，特征运行时将自动使用这些配置。</div>'
+        + '</div></details>';
+    }
+
     // Module 2: 特征说明 (K线可视化解释)
     var detailContext = { ...context, detailMode: true, previewWindow: 220 };
     var preview = renderFeatureVisualizationRuntime(feature, detailContext);
@@ -525,7 +556,7 @@
       + '<div class="fd-header-meta"><span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> ' + allTags + ' <span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + '</span></div>'
       + '</div>'
       + '<div class="fd-modules">'
-      + module1 + module2 + module3 + module4
+      + module1 + moduleConfig + module2 + module3 + module4
       + '</div>'
       + '</div>';
   }

@@ -821,6 +821,29 @@ export function createStrategyLabHandlers(deps = {}) {
     }
   }
 
+  /**
+   * Update user-provided config for a feature (API keys, URLs, etc.).
+   */
+  async function handleStrategyFeatureUpdateConfig(req, res) {
+    const body = await readJsonBody(req);
+    const featureName = toText(body.featureName || body.featureId || body.name || "");
+    const configValues = body.configValues && typeof body.configValues === "object" ? body.configValues : {};
+    if (!featureName) {
+      sendJson(res, 400, { ok: false, error: "featureName is required" });
+      return;
+    }
+    if (!Object.keys(configValues).length) {
+      sendJson(res, 400, { ok: false, error: "configValues is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.updateFeatureConfig(featureName, configValues);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "config update failed") });
+    }
+  }
+
   return {
     handleStrategyFeatures,
     handleStrategyFeatureDelete,
@@ -842,5 +865,6 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyFeatureEvaluate,
     handleStrategyIntentClarify,
     handleStrategyIntentConfirm,
+    handleStrategyFeatureUpdateConfig,
   };
 }

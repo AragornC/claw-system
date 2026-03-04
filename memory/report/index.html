@@ -736,6 +736,21 @@
       line-height: 1.5;
       max-height: 300px;
     }
+    .fd-config-grid { display: flex; flex-direction: column; gap: 10px; }
+    .fd-config-item { background: rgba(0,0,0,0.2); border: 1px solid rgba(139,148,158,0.15); border-radius: 8px; padding: 10px; }
+    .fd-config-label { font-weight: 600; font-size: 0.8rem; color: #e6edf3; margin-bottom: 4px; }
+    .fd-config-desc { font-size: 0.72rem; color: #8b949e; margin-bottom: 6px; }
+    .fd-config-input-row { display: flex; align-items: center; gap: 8px; }
+    .fd-config-input { flex: 1; padding: 6px 10px; border: 1px solid rgba(139,148,158,0.25); border-radius: 6px; background: rgba(0,0,0,0.3); color: #e6edf3; font-size: 0.76rem; font-family: ui-monospace, monospace; }
+    .fd-config-input:focus { border-color: rgba(88,166,255,0.5); outline: none; }
+    .fd-config-status { font-size: 0.7rem; white-space: nowrap; }
+    .fd-config-status.ok { color: #3fb950; }
+    .fd-config-status.warn { color: #d29922; }
+    .fd-config-save { margin-top: 8px; padding: 6px 16px; border: 1px solid rgba(63,185,80,0.3); border-radius: 6px; background: rgba(63,185,80,0.08); color: #3fb950; cursor: pointer; font-size: 0.76rem; }
+    .fd-config-save:hover { background: rgba(63,185,80,0.15); }
+    .fd-config-save:disabled { opacity: 0.5; cursor: default; }
+    .fd-config-hint { font-size: 0.68rem; color: #8b949e; margin-top: 6px; }
+
     .fd-explain {
       margin-bottom: 10px;
     }
