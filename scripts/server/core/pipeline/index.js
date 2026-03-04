@@ -226,8 +226,11 @@ export function createFeaturePipeline(deps = {}) {
         ],
         temperature: 0.3,
         maxTokens: 2048,
-        timeoutMs: 30_000,
+        timeoutMs: 45_000,
       });
+      if (!result.ok) {
+        console.warn("[detectAndClarify] LLM call failed:", result.error, "| raw:", (result.raw || "").slice(0, 200));
+      }
       if (result.ok && result.data) {
         const data = result.data;
         // Flexible question parsing — no rigid count/option limits
@@ -241,18 +244,45 @@ export function createFeaturePipeline(deps = {}) {
                 : [],
             })).filter((q) => q.question)
           : [];
-        const concept = data.featureConcept && typeof data.featureConcept === "object"
-          ? {
-              name: toText(data.featureConcept.name, "custom_feature"),
-              description: toText(data.featureConcept.description, ""),
-              category: toText(data.featureConcept.category, "custom"),
-              indicatorHint: toText(data.featureConcept.indicatorHint, ""),
-              technicalApproach: toText(data.featureConcept.technicalApproach, ""),
-            }
-          : null;
+        // Parse featureConcept flexibly — handle string or object
+        let concept = null;
+        if (data.featureConcept && typeof data.featureConcept === "object") {
+          concept = {
+            name: toText(data.featureConcept.name, "custom_feature"),
+            description: toText(data.featureConcept.description, ""),
+            category: toText(data.featureConcept.category, "custom"),
+            indicatorHint: toText(data.featureConcept.indicatorHint, ""),
+            technicalApproach: toText(data.featureConcept.technicalApproach, ""),
+          };
+        } else if (typeof data.featureConcept === "string" && data.featureConcept.trim()) {
+          // LLM returned a string name instead of object — construct concept from it
+          concept = {
+            name: toText(data.featureConcept, "custom_feature").toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+            description: toText(data.headline || data.featureConcept, ""),
+            category: "custom",
+            indicatorHint: "",
+            technicalApproach: "",
+          };
+        }
+        // intentDetected should be true even if featureConcept is minimal but headline exists
+        const hasIntent = Boolean(data.intentDetected);
+        const hasMinimalConcept = concept !== null || Boolean(toText(data.headline, ""));
+        if (!hasIntent && concept) {
+          console.warn("[detectAndClarify] LLM returned featureConcept but intentDetected=false. Headline:", toText(data.headline, "none"));
+        }
+        // If no concept but has headline, create a minimal concept from headline
+        if (hasIntent && !concept && toText(data.headline, "")) {
+          concept = {
+            name: "custom_feature",
+            description: toText(data.headline, ""),
+            category: "custom",
+            indicatorHint: "",
+            technicalApproach: "",
+          };
+        }
         return {
           ok: true,
-          intentDetected: Boolean(data.intentDetected) && concept !== null,
+          intentDetected: hasIntent && hasMinimalConcept,
           confidence: clampNumber(data.confidence, 0, 1, 0.7),
           headline: toText(data.headline, ""),
           featureConcept: concept,
@@ -260,7 +290,9 @@ export function createFeaturePipeline(deps = {}) {
           source: "llm",
         };
       }
-    } catch {}
+    } catch (err) {
+      console.warn("[detectAndClarify] exception:", String(err?.message || err).slice(0, 200));
+    }
 
     // Fallback: use heuristic intent detection without questions
     const heuristic = await intentDetector.detectIntent({ userMessage, assistantReply });
