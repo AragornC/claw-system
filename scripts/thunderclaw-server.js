@@ -170,19 +170,22 @@ const memoryLayer = createMemoryLayer({
   runOpenClawCommand,
 });
 
+// ─── Model Config (shared across trading skill + chat handlers) ─────
+function getModelConfig() {
+  const provider = String(xbrainStore?.base?.runtimeModelProvider || "deepseek").trim().toLowerCase();
+  const modelId = String(xbrainStore?.base?.runtimeModelId || "deepseek-chat").trim();
+  const providerAuth = xbrainStore?.base?.providerAuth || {};
+  const authEntry = providerAuth[provider] || {};
+  let apiKey = String(authEntry?.plain || "").trim();
+  if (!apiKey && provider === "deepseek") apiKey = String(xbrainStore?.base?.deepseekApiKey || "").trim();
+  if (!apiKey) apiKey = String(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "").trim();
+  return { provider, model: modelId, apiKey, apiBase: "" };
+}
+
 // ─── Trading Intent Skill ────────────────────────────────────────────
 const { extractTradingIntentCandidates, generateFeatureCodeForCandidate, detectAndClarify, generateFromClarification } = createTradingIntentSkill({
   normalizeSessionId,
-  getModelConfig: () => {
-    const provider = String(xbrainStore?.base?.runtimeModelProvider || "deepseek").trim().toLowerCase();
-    const modelId = String(xbrainStore?.base?.runtimeModelId || "deepseek-chat").trim();
-    const providerAuth = xbrainStore?.base?.providerAuth || {};
-    const authEntry = providerAuth[provider] || {};
-    let apiKey = String(authEntry?.plain || "").trim();
-    if (!apiKey && provider === "deepseek") apiKey = String(xbrainStore?.base?.deepseekApiKey || "").trim();
-    if (!apiKey) apiKey = String(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_KEY || "").trim();
-    return { provider, model: modelId, apiKey, apiBase: "" };
-  },
+  getModelConfig,
 });
 
 // ─── Model Switch Intent Skill ───────────────────────────────────────
@@ -254,7 +257,7 @@ const { handleSetup, handleQuickSetup, handleOAuthStart, handleOAuthStatus, hand
   extractTradingIntentCandidates, updateChatCardStatus,
   detectAndClarify,
   setOpenClawDefaultModel, applyRuntimeModelRefToStore,
-  strategyLabStore,
+  strategyLabStore, getModelConfig,
   conversationContext, memoryLayer,
   xbrainStore, chatHistory, gatewayState,
 });
