@@ -411,34 +411,52 @@ async function handleAiChat(req, res) {
     }
   } catch {}
 
+  // ── Intent Gating: pre-LLM check ──
+  const gatingPreCheck = runIntentGating({ message, existingFeatureNames });
   const shouldCallLlm = shouldCallLlmForIntent(message, existingFeatureNames);
+  let creationIntentDetectedByGating = gatingPreCheck.shouldTriggerClarification;
 
   if (shouldCallLlm && typeof deps.detectAndClarify === "function") {
-    try {
-      const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
-      const clarification = await deps.detectAndClarify({
-        userMessage: message,
-        assistantReply: "",
-        conversationHistory,
-        memoryContext,
-      });
+    // Clean conversation history: remove system card-event noise for clarification LLM
+    const rawHistory = ctx ? ctx.getRecentHistory(16) : [];
+    const cleanHistory = rawHistory.filter((m) => {
+      if (m.role === "system" && String(m.content || "").startsWith("[系统]")) return false;
+      return true;
+    });
 
+    // Attempt clarification (with retry on failure)
+    let clarification = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const historyForAttempt = attempt === 0
+          ? cleanHistory
+          : cleanHistory.filter((m) => m.role !== "system"); // Retry with even cleaner history
+        clarification = await deps.detectAndClarify({
+          userMessage: message,
+          assistantReply: "",
+          conversationHistory: historyForAttempt,
+          memoryContext: attempt === 0 ? memoryContext : "", // Drop memory context on retry for simplicity
+        });
+        if (clarification && (clarification.intentDetected || clarification.ok === false)) break;
+      } catch (err) {
+        console.warn(`[ThunderClaw] detectAndClarify attempt ${attempt + 1} failed:`, String(err?.message || err).slice(0, 120));
+        clarification = null;
+      }
+    }
+
+    if (clarification && clarification.intentDetected) {
       // ── Intent Gating: Layer 2 + Layer 3 (LLM result + calibration) ──
       const gatingResult = runIntentGating({
         message,
         existingFeatureNames,
-        l2Result: clarification.intentDetected ? {
+        l2Result: {
           intentDetected: true,
           confidence: Number(clarification.confidence || 0),
           intent: "create",
-        } : {
-          intentDetected: false,
-          confidence: Number(clarification.confidence || 0),
-          intent: "non_create",
         },
       });
 
-      if (gatingResult.shouldTriggerClarification && clarification.intentDetected) {
+      if (gatingResult.shouldTriggerClarification) {
         const shortReply = clarification.headline || "正在理解你的需求...";
         if (ctx) {
           ctx.addMessage("assistant", shortReply, {
@@ -455,8 +473,6 @@ async function handleAiChat(req, res) {
           });
         }
         appendChatEvent({ role: "bot", source: "dashboard", text: shortReply, cards: [] });
-        // Reply is empty — the clarification card IS the response.
-        // Frontend should render only the card, not an extra text bubble.
         sendJson(res, 200, {
           ok: true,
           reply: "",
@@ -482,16 +498,25 @@ async function handleAiChat(req, res) {
         });
         return;
       }
-    } catch {}
-    // If clarification didn't detect intent → fall through to normal chat
+    }
+    // Clarification didn't detect or was rejected by gating — continue to chat path
   }
 
   // ═══ CHAT PATH: LLM direct with full architecture context ═══
   const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
   const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
 
+  // If gating detected creation intent but clarification failed, guide user instead of generating code
+  const chatSystemPromptExtra = creationIntentDetectedByGating
+    ? "\n\n## 重要：当前用户似乎想创建交易特征\n"
+      + "用户的消息看起来有创建特征的意图，但意图澄清模块未能正常触发。\n"
+      + "请不要直接输出代码！而是用自然语言引导用户更清楚地描述他们想要的特征，"
+      + "比如使用什么指标、参数偏好、时间周期等，这样系统可以生成特征卡片。\n"
+      + "你可以说：「我理解你想创建一个特征，请更具体地描述你的需求，比如...」"
+    : "";
+
   // Build LLM messages with system context
-  const systemPrompt = THUNDERCLAW_SYSTEM_PROMPT + (memoryContext || "");
+  const systemPrompt = THUNDERCLAW_SYSTEM_PROMPT + chatSystemPromptExtra + (memoryContext || "");
   const llmMessages = [
     { role: "system", content: systemPrompt },
     ...conversationHistory,
