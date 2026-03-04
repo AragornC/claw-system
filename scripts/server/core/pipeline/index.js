@@ -423,6 +423,199 @@ export function createFeaturePipeline(deps = {}) {
   }
 
   /**
+   * Agent Loop: generate code with real feature evaluation verification.
+   *
+   * Loop:
+   * 1. Generate code (LLM or template)
+   * 2. Validate (syntax + runtime mock)
+   * 3. Run real feature evaluation on OHLCV data (if backtestEngine provided)
+   * 4. Check evaluation quality (all NaN? all zeros? runtime error?)
+   * 5. If issues → feed error context back to LLM → regenerate
+   * 6. Max N rounds (default 3)
+   *
+   * If the code needs user-provided config (API key etc.), returns
+   * { status: "needs_user_input", requiredConfig: [...] } without failing.
+   *
+   * @param {Object} params
+   * @param {Object} params.feature - Feature spec
+   * @param {Object} [params.backtestEngine] - Freqtrade backtest adapter
+   * @param {number} [params.maxRounds=3] - Max repair rounds
+   * @param {Object} [params.userConfig] - User-provided config values
+   * @returns {Promise<Object>} { ok, code, evalResult, rounds, errors }
+   */
+  async function generateWithAgentLoop(params = {}) {
+    const feature = params.feature;
+    if (!feature || !feature.name) {
+      return { ok: false, error: "Feature name is required", rounds: 0 };
+    }
+    const backtestEngine = params.backtestEngine || null;
+    const maxRounds = Math.max(1, Math.min(5, Number(params.maxRounds || 3) || 3));
+    const userConfig = params.userConfig && typeof params.userConfig === "object" ? params.userConfig : {};
+
+    const loopErrors = [];
+    let finalCode = null;
+    let finalEvalResult = null;
+    let codeSource = "";
+
+    for (let round = 0; round < maxRounds; round++) {
+      // Step 1: Generate (or repair) code
+      let codeResult;
+      if (round === 0) {
+        codeResult = await codeGenerator.generateCode(feature);
+      } else {
+        // Repair with accumulated error context
+        codeResult = await codeGenerator.repairCode({
+          originalCode: finalCode || {},
+          errors: loopErrors.slice(-3),
+          featureSpec: feature,
+        });
+      }
+      if (!codeResult.ok || !codeResult.code?.indicatorCode) {
+        loopErrors.push(`Round ${round + 1}: code generation failed`);
+        continue;
+      }
+      finalCode = codeResult.code;
+      codeSource = codeResult.source || (round === 0 ? "llm" : "llm_repair");
+
+      // Step 2: Validate (syntax + runtime mock)
+      const validation = codeValidator.validate(finalCode);
+      if (!validation.valid) {
+        loopErrors.push(`Round ${round + 1} validation: ${validation.errors.join("; ")}`);
+        // Try to repair in next round
+        continue;
+      }
+
+      // Step 3: Run real feature evaluation (if backtestEngine available)
+      if (backtestEngine && typeof backtestEngine.runFeatureEvaluation === "function") {
+        try {
+          // Inject user config as environment variables for the evaluation
+          const prevEnv = {};
+          if (userConfig) {
+            Object.entries(userConfig).forEach(([key, value]) => {
+              if (key && value) {
+                prevEnv[key] = process.env[key] || "";
+                process.env[key] = String(value);
+              }
+            });
+          }
+
+          const evalResult = backtestEngine.runFeatureEvaluation({
+            features: [{
+              name: feature.name,
+              generatedCode: finalCode,
+            }],
+            rangeDays: 14,
+            pair: "BTC/USDT",
+            timeframe: "1h",
+          });
+
+          // Restore env
+          Object.entries(prevEnv).forEach(([key, value]) => {
+            if (value) process.env[key] = value;
+            else delete process.env[key];
+          });
+
+          if (!evalResult.ok) {
+            loopErrors.push(`Round ${round + 1} evaluation: ${toText(evalResult.error, "evaluation failed")}`);
+            continue;
+          }
+
+          finalEvalResult = evalResult;
+
+          // Step 4: Check evaluation quality
+          const stats = evalResult.featureStats || {};
+          const featureCol = `tc_feat_${toText(feature.name).toLowerCase().replace(/[^a-z0-9_]/g, "_")}`;
+          const colStats = stats[featureCol] || null;
+
+          if (colStats) {
+            const allNaN = !Number.isFinite(colStats.mean);
+            const allZeros = Math.abs(colStats.mean || 0) < 1e-10 && Math.abs(colStats.std || 0) < 1e-10;
+            const noVariance = Number.isFinite(colStats.std) && colStats.std < 1e-8 && evalResult.barCount > 10;
+
+            if (allNaN) {
+              loopErrors.push(`Round ${round + 1}: feature column '${featureCol}' is all NaN — code may not be computing correctly`);
+              continue;
+            }
+            if (allZeros) {
+              loopErrors.push(`Round ${round + 1}: feature column '${featureCol}' is all zeros — code may be using a placeholder or failing silently`);
+              continue;
+            }
+            if (noVariance) {
+              loopErrors.push(`Round ${round + 1}: feature column '${featureCol}' has no variance (constant value ${colStats.mean}) — likely not computing a meaningful signal`);
+              continue;
+            }
+          }
+
+          // All checks passed!
+          return {
+            ok: true,
+            code: {
+              ...finalCode,
+              codeSource,
+              validatedAt: nowIso(),
+              validationErrors: [],
+              validationWarnings: validation.warnings || [],
+            },
+            evalResult: {
+              barCount: evalResult.barCount || 0,
+              stats: colStats || null,
+              columns: evalResult.featureColumns || [],
+            },
+            rounds: round + 1,
+            errors: loopErrors,
+          };
+        } catch (evalError) {
+          loopErrors.push(`Round ${round + 1} eval error: ${toText(evalError?.message || evalError)}`);
+          continue;
+        }
+      } else {
+        // No backtest engine — accept validation-only result
+        return {
+          ok: true,
+          code: {
+            ...finalCode,
+            codeSource,
+            validatedAt: nowIso(),
+            validationErrors: [],
+            validationWarnings: validation.warnings || [],
+          },
+          evalResult: null,
+          rounds: round + 1,
+          errors: loopErrors,
+        };
+      }
+    }
+
+    // Check if the code needs user config (API key etc.)
+    const reqConfig = finalCode?.requiredConfig || [];
+    const missingConfig = reqConfig.filter((c) => !userConfig[c.key]);
+    if (missingConfig.length > 0) {
+      return {
+        ok: false,
+        status: "needs_user_input",
+        requiredConfig: missingConfig,
+        code: finalCode ? {
+          ...finalCode,
+          codeSource,
+          validatedAt: null,
+        } : null,
+        rounds: maxRounds,
+        errors: loopErrors,
+        error: `需要用户提供配置：${missingConfig.map((c) => c.label || c.key).join("、")}`,
+      };
+    }
+
+    return {
+      ok: false,
+      code: finalCode ? { ...finalCode, codeSource, validatedAt: null } : null,
+      evalResult: null,
+      rounds: maxRounds,
+      errors: loopErrors,
+      error: `经过 ${maxRounds} 轮尝试后仍未通过验证：${loopErrors.slice(-2).join("; ")}`,
+    };
+  }
+
+  /**
    * Health check for the pipeline (tests current model connectivity).
    */
   async function healthCheck() {
@@ -432,6 +625,7 @@ export function createFeaturePipeline(deps = {}) {
   return {
     run,
     generateAndValidate,
+    generateWithAgentLoop,
     detectAndClarify,
     generateFromClarification,
     healthCheck,

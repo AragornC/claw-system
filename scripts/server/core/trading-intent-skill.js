@@ -279,10 +279,23 @@ export function createTradingIntentSkill(deps = {}) {
     }
   }
 
+  /**
+   * Agent Loop: generate + validate + evaluate in a multi-round loop.
+   * Used by handleStrategyIntentConfirm for production-quality code generation.
+   */
+  async function generateWithAgentLoop(params = {}) {
+    try {
+      return await getPipeline().generateWithAgentLoop(params);
+    } catch (error) {
+      return { ok: false, error: toText(error?.message || error), rounds: 0 };
+    }
+  }
+
   return {
     extractTradingIntentCandidates,
     generateFeatureCodeForCandidate,
     detectAndClarify,
     generateFromClarification,
+    generateWithAgentLoop,
   };
 }

@@ -19,6 +19,7 @@ export function createStrategyLabHandlers(deps = {}) {
   const generateFeatureCodeForCandidate = deps.generateFeatureCodeForCandidate;
   const detectAndClarify = typeof deps.detectAndClarify === "function" ? deps.detectAndClarify : null;
   const generateFromClarification = typeof deps.generateFromClarification === "function" ? deps.generateFromClarification : null;
+  const generateWithAgentLoop = typeof deps.generateWithAgentLoop === "function" ? deps.generateWithAgentLoop : null;
   const getCurrentRuntimeModelRefFromStore = deps.getCurrentRuntimeModelRefFromStore;
   const updateChatCardStatus = typeof deps.updateChatCardStatus === "function" ? deps.updateChatCardStatus : null;
   const backtestEngine = deps.backtestEngine || null;
@@ -749,22 +750,65 @@ export function createStrategyLabHandlers(deps = {}) {
         memoryContext,
         conversationHistory: conversationContext ? conversationContext.getRecentHistory(10) : [],
       });
+
+      // If initial generation succeeded AND agent loop is available,
+      // run the agent loop to verify code quality with real evaluation
+      let finalResult = result;
+      if (result.ok && result.generatedCode?.indicatorCode && generateWithAgentLoop && backtestEngine) {
+        try {
+          const loopResult = await generateWithAgentLoop({
+            feature: {
+              ...result.feature,
+              generatedCode: result.generatedCode,
+            },
+            backtestEngine,
+            maxRounds: 3,
+            userConfig: body.userConfig || {},
+          });
+          if (loopResult.ok) {
+            // Agent loop produced a verified version
+            finalResult = {
+              ...result,
+              generatedCode: loopResult.code,
+              resultSummary: toText(result.resultSummary, "") +
+                (loopResult.rounds > 1 ? `\n（经过 ${loopResult.rounds} 轮验证优化）` : "") +
+                (loopResult.evalResult?.stats ? `\n特征统计：均值=${loopResult.evalResult.stats.mean?.toFixed(4) || "-"}, 标准差=${loopResult.evalResult.stats.std?.toFixed(4) || "-"}` : ""),
+              source: toText(loopResult.code?.codeSource || result.source, ""),
+            };
+          } else if (loopResult.status === "needs_user_input") {
+            // Code needs user-provided config — return partial result with config prompt
+            finalResult = {
+              ok: false,
+              feature: result.feature,
+              generatedCode: loopResult.code,
+              resultSummary: toText(result.resultSummary, "") +
+                `\n\n⚠️ 此特征需要额外配置才能运行：${(loopResult.requiredConfig || []).map((c) => c.label || c.key).join("、")}`,
+              source: "needs_config",
+              error: loopResult.error || "",
+              requiredConfig: loopResult.requiredConfig || [],
+            };
+          }
+          // If loop failed but initial generation was ok, keep original result
+        } catch {}
+      }
+
       // Track generation result in conversation context
       if (conversationContext && typeof conversationContext.addCardEvent === "function") {
         conversationContext.addCardEvent("card_generated", {
-          success: Boolean(result.ok),
-          featureName: toText(result.feature?.name || featureConcept?.name || ""),
-          resultSummary: toText(result.resultSummary, ""),
-          error: result.ok ? "" : toText(result.error, ""),
+          success: Boolean(finalResult.ok),
+          featureName: toText(finalResult.feature?.name || featureConcept?.name || ""),
+          resultSummary: toText(finalResult.resultSummary, ""),
+          error: finalResult.ok ? "" : toText(finalResult.error, ""),
         });
       }
       sendJson(res, 200, {
-        ok: Boolean(result.ok),
-        feature: result.feature || null,
-        generatedCode: result.generatedCode || null,
-        resultSummary: toText(result.resultSummary, ""),
-        source: toText(result.source, ""),
-        error: result.ok ? "" : toText(result.error, "feature generation failed"),
+        ok: Boolean(finalResult.ok),
+        feature: finalResult.feature || null,
+        generatedCode: finalResult.generatedCode || null,
+        resultSummary: toText(finalResult.resultSummary, ""),
+        source: toText(finalResult.source, ""),
+        error: finalResult.ok ? "" : toText(finalResult.error, "feature generation failed"),
+        requiredConfig: finalResult.requiredConfig || [],
       });
     } catch (error) {
       // Track error in conversation context
@@ -774,6 +818,29 @@ export function createStrategyLabHandlers(deps = {}) {
         });
       }
       sendJson(res, 200, { ok: false, error: String(error?.message || error || "confirm failed") });
+    }
+  }
+
+  /**
+   * Update user-provided config for a feature (API keys, URLs, etc.).
+   */
+  async function handleStrategyFeatureUpdateConfig(req, res) {
+    const body = await readJsonBody(req);
+    const featureName = toText(body.featureName || body.featureId || body.name || "");
+    const configValues = body.configValues && typeof body.configValues === "object" ? body.configValues : {};
+    if (!featureName) {
+      sendJson(res, 400, { ok: false, error: "featureName is required" });
+      return;
+    }
+    if (!Object.keys(configValues).length) {
+      sendJson(res, 400, { ok: false, error: "configValues is required" });
+      return;
+    }
+    try {
+      const result = strategyLabStore.updateFeatureConfig(featureName, configValues);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error || "config update failed") });
     }
   }
 
@@ -798,5 +865,6 @@ export function createStrategyLabHandlers(deps = {}) {
     handleStrategyFeatureEvaluate,
     handleStrategyIntentClarify,
     handleStrategyIntentConfirm,
+    handleStrategyFeatureUpdateConfig,
   };
 }

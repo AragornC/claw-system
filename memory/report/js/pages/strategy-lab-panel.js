@@ -1508,6 +1508,65 @@
             return;
           }
           handleFeatureSampleAndJumpClick(ev);
+
+          // Handle config save button
+          const configSaveBtn = ev.target && ev.target.closest
+            ? ev.target.closest('.fd-config-save')
+            : null;
+          if (configSaveBtn) {
+            ev.preventDefault();
+            const featureName = String(configSaveBtn.getAttribute('data-feature-name') || '').trim();
+            if (!featureName) return;
+            const configInputs = featureDetailContentEl.querySelectorAll('.fd-config-input');
+            const configValues = {};
+            configInputs.forEach(function(input) {
+              const key = String(input.getAttribute('data-config-key') || '').trim();
+              const value = String(input.value || '').trim();
+              if (key && value) configValues[key] = value;
+            });
+            if (!Object.keys(configValues).length) {
+              configSaveBtn.textContent = '请先填写配置项';
+              setTimeout(function() { configSaveBtn.textContent = '保存配置'; }, 2000);
+              return;
+            }
+            configSaveBtn.disabled = true;
+            configSaveBtn.textContent = '保存中...';
+            fetch('/api/strategy/features/update-config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ featureName: featureName, configValues: configValues }),
+            })
+            .then(function(resp) { return resp.json(); })
+            .then(function(payload) {
+              if (payload && payload.ok) {
+                configSaveBtn.textContent = '✅ 已保存';
+                // Update status indicators
+                configInputs.forEach(function(input) {
+                  const key = String(input.getAttribute('data-config-key') || '').trim();
+                  if (configValues[key]) {
+                    const statusEl = input.parentElement && input.parentElement.querySelector('.fd-config-status');
+                    if (statusEl) {
+                      statusEl.className = 'fd-config-status ok';
+                      statusEl.textContent = '✓ 已配置';
+                    }
+                    input.value = '';
+                    input.placeholder = '已配置';
+                  }
+                });
+              } else {
+                configSaveBtn.textContent = '保存失败: ' + String(payload?.error || '');
+              }
+              setTimeout(function() {
+                configSaveBtn.disabled = false;
+                configSaveBtn.textContent = '保存配置';
+              }, 3000);
+            })
+            .catch(function(err) {
+              configSaveBtn.textContent = '保存失败';
+              configSaveBtn.disabled = false;
+              setTimeout(function() { configSaveBtn.textContent = '保存配置'; }, 2000);
+            });
+          }
         });
 
         if (strategyOpsListEl) {

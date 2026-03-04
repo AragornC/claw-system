@@ -1,3 +1,28 @@
+import { runIntentGating, shouldCallLlmForIntent } from "../core/intent-gating.js";
+import { createLlmClient } from "../core/llm-client.js";
+
+const THUNDERCLAW_SYSTEM_PROMPT = `你是 ThunderClaw（虾策），一个 AI Native 交易引擎助手。
+
+## 你的能力
+- 帮用户创建、评估、优化交易特征（通过特征卡片交互）
+- 解释交易概念、指标含义
+- 分析已有特征的效果和参数
+- 回答关于虾策架构和功能的问题
+- 提供交易策略建议
+
+## 虾策交易架构
+- 特征库（虾策）：存储用户创建的交易特征，每个特征是一段运行在 Freqtrade 框架中的 Python 代码
+- 策略库：由多个特征组合而成的交易策略
+- 四层架构：信号层（特征组合）→ 仓位层 → 风控层 → 执行层
+- 支持回测验证和特征级评估
+
+## 回复规则
+1. 用中文回复
+2. 如果用户询问已有特征，参考「当前系统状态」中的信息回答
+3. 如果用户想创建新特征，告知他们可以直接描述需求，系统会生成特征卡片
+4. 保持简洁，不要过度解释
+5. 如果涉及具体代码问题，可以给出技术建议`;
+
 export function createChatConfigHandlers(deps = {}) {
   const {
     normalizeProviderKey,
@@ -364,7 +389,7 @@ async function handleAiChat(req, res) {
   const ctx = deps.conversationContext;
   if (ctx) ctx.addMessage("user", message);
 
-  // ═══ FAST PATH: Try clarification first (DeepSeek direct, ~10s) ═══
+  // ═══ FAST PATH: Try clarification first (LLM direct, ~10s) ═══
   // L2: Trigger evolution compression if needed (non-blocking)
   const ml = deps.memoryLayer;
   if (ml) void ml.maybeCompressContext().catch(() => {});
@@ -372,7 +397,23 @@ async function handleAiChat(req, res) {
   // Build memory context (L2+L3+L4) for injection into system prompt
   const memoryContext = ml ? await ml.buildFullMemoryContext(message).catch(() => "") : "";
 
-  if (typeof deps.detectAndClarify === "function") {
+  // ── Intent Gating: Layer 0 + Layer 1 (rule-based, <1ms) ──
+  // Collect existing feature names for reference detection
+  const existingFeatureNames = [];
+  try {
+    const strategyLabStore = deps.strategyLabStore || null;
+    if (strategyLabStore && typeof strategyLabStore.listFeatures === "function") {
+      const features = strategyLabStore.listFeatures({ limit: 100 }).features || [];
+      features.forEach((f) => {
+        if (f.name) existingFeatureNames.push(f.name);
+        if (f.description) existingFeatureNames.push(f.description.slice(0, 30));
+      });
+    }
+  } catch {}
+
+  const shouldCallLlm = shouldCallLlmForIntent(message, existingFeatureNames);
+
+  if (shouldCallLlm && typeof deps.detectAndClarify === "function") {
     try {
       const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
       const clarification = await deps.detectAndClarify({
@@ -381,7 +422,23 @@ async function handleAiChat(req, res) {
         conversationHistory,
         memoryContext,
       });
-      if (clarification.intentDetected) {
+
+      // ── Intent Gating: Layer 2 + Layer 3 (LLM result + calibration) ──
+      const gatingResult = runIntentGating({
+        message,
+        existingFeatureNames,
+        l2Result: clarification.intentDetected ? {
+          intentDetected: true,
+          confidence: Number(clarification.confidence || 0),
+          intent: "create",
+        } : {
+          intentDetected: false,
+          confidence: Number(clarification.confidence || 0),
+          intent: "non_create",
+        },
+      });
+
+      if (gatingResult.shouldTriggerClarification && clarification.intentDetected) {
         const shortReply = clarification.headline || "正在理解你的需求...";
         if (ctx) {
           ctx.addMessage("assistant", shortReply, {
@@ -429,68 +486,72 @@ async function handleAiChat(req, res) {
     // If clarification didn't detect intent → fall through to normal chat
   }
 
-  // ═══ SLOW PATH: Regular chat via OpenClaw CLI ═══
+  // ═══ CHAT PATH: LLM direct with full architecture context ═══
   const runtimeModelRefBefore = getCurrentRuntimeModelRefFromStore();
-  let turnResult = await runAgentTurn({
-    message,
-    sessionId: "thunderclaw-main",
-    modelRef: runtimeModelRefBefore,
-    thinking: "medium",
-  });
-  if (!turnResult?.result?.ok) {
-    const errText = [turnResult?.result?.stderr, turnResult?.result?.stdout].filter(Boolean).join("\n");
-    if (looksLikeSessionModelMismatch(errText) && runtimeModelRefBefore && runtimeModelRefBefore.includes("/")) {
-      // Heal by setting default model via CLI (not agent message) to avoid /model leakage
-      let healed = { ok: false };
-      if (setOpenClawDefaultModel) {
-        healed = await setOpenClawDefaultModel(runtimeModelRefBefore, 40_000).catch(() => ({ ok: false }));
-        if (healed?.ok && applyRuntimeModelRefToStore) {
-          applyRuntimeModelRefToStore(runtimeModelRefBefore, { save: true, ensureRegistry: true });
-        }
-      }
-      if (healed?.ok) {
-        turnResult = await runAgentTurn({ message, sessionId: "thunderclaw-main", modelRef: runtimeModelRefBefore, thinking: "medium" });
-      }
+  const conversationHistory = ctx ? ctx.getRecentHistory(16) : [];
+
+  // Build LLM messages with system context
+  const systemPrompt = THUNDERCLAW_SYSTEM_PROMPT + (memoryContext || "");
+  const llmMessages = [
+    { role: "system", content: systemPrompt },
+    ...conversationHistory,
+    { role: "user", content: message },
+  ];
+
+  let reply = "";
+  let chatSource = "llm_direct";
+  try {
+    const getModelConfig = typeof deps.getModelConfig === "function" ? deps.getModelConfig : null;
+    if (!getModelConfig) throw new Error("model config not available");
+    const chatLlmClient = createLlmClient({ getModelConfig });
+    const llmResult = await chatLlmClient.chatCompletion({
+      messages: llmMessages,
+      temperature: 0.4,
+      maxTokens: 2048,
+      timeoutMs: 60_000,
+    });
+    if (llmResult.ok && llmResult.content) {
+      reply = String(llmResult.content).trim();
     }
+  } catch {}
+
+  // Fallback: try OpenClaw CLI if LLM direct failed
+  if (!reply) {
+    try {
+      const turnResult = await runAgentTurn({
+        message,
+        sessionId: "thunderclaw-main",
+        modelRef: runtimeModelRefBefore,
+        thinking: "medium",
+      });
+      if (turnResult?.result?.ok && turnResult?.reply) {
+        reply = String(turnResult.reply).trim();
+        chatSource = "openclaw";
+      }
+    } catch {}
   }
-  const { result, payload, reply, sessionId: sessionIdUsed } = turnResult;
+
+  // Final fallback: rule-based
+  if (!reply) {
+    reply = "收到，但当前模型暂不可用。请在虾脑中确认模型配置后重试。";
+    chatSource = "rule_fallback";
+  }
+
   const stateAfter = getXbrainStateSnapshot();
   const runtimeModelRefAfter = toModelRef(stateAfter?.base?.runtimeModelProvider, stateAfter?.base?.runtimeModelId);
-  let replyEvent = null;
-  if (reply) {
-    if (ctx) ctx.addMessage("assistant", reply);
-    replyEvent = appendChatEvent({ role: "bot", source: "dashboard", text: reply, cards: [] });
-  }
-  if (!result.ok) {
-    sendJson(res, 500, {
-      ok: false,
-      error: (result.stderr || result.stdout || "").trim() || "openclaw chat failed",
-      reply: "",
-      source: "openclaw",
-      actions: [],
-      executionTrace: [],
-      state: stateAfter,
-      modelRefUsed: runtimeModelRefBefore,
-      runtimeModelRef: runtimeModelRefAfter,
-      sessionIdUsed,
-      modelAutoSync: { detected: false },
-      modelSyncIntent: { ok: false, shouldProbeSessionModel: false, confidence: 0, reasoning: "", error: "" },
-      intentCandidates: [],
-      intentSkill: { ok: false, intentDetected: false, confidence: 0, reasoning: "", error: "" },
-      clarification: null,
-    });
-    return;
-  }
+  if (ctx) ctx.addMessage("assistant", reply);
+  const replyEvent = appendChatEvent({ role: "bot", source: "dashboard", text: reply, cards: [] });
+
   sendJson(res, 200, {
     ok: true,
-    reply: String(reply || "").trim(),
-    source: "openclaw",
+    reply,
+    source: chatSource,
     actions: [],
     executionTrace: [],
     state: stateAfter,
     modelRefUsed: runtimeModelRefBefore,
     runtimeModelRef: runtimeModelRefAfter,
-    sessionIdUsed,
+    sessionIdUsed: "thunderclaw-main",
     modelAutoSync: { detected: false },
     modelSyncIntent: { ok: false, shouldProbeSessionModel: false, confidence: 0, reasoning: "", error: "" },
     intentCandidates: [],
