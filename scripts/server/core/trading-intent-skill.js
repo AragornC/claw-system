@@ -5,8 +5,7 @@
  *   - extractTradingIntentCandidates(params) → { ok, intentDetected, confidence, reasoning, candidates }
  *   - generateFeatureCodeForCandidate(params) → { ok, candidate, sessionId, modelRef }
  *
- * Internal change: all AI calls now go through the LLM client
- * via the pipeline, instead of slow openclaw CLI invocations.
+ * Uses the LLM pipeline for all AI operations (no external CLI dependency).
  */
 
 import { createFeaturePipeline } from "./pipeline/index.js";

@@ -1,3 +1,7 @@
+/**
+ * API Route Table — maps HTTP method+path to handler functions.
+ */
+
 function expectHandler(handlers, key) {
   const fn = handlers?.[key];
   if (typeof fn !== "function") {
@@ -8,56 +12,44 @@ function expectHandler(handlers, key) {
 
 export function buildApiRouteTable(handlers = {}) {
   return [
+    // Status
     { method: "GET", path: "/api/status", handler: expectHandler(handlers, "handleStatus") },
-    { method: "POST", path: "/api/setup", handler: expectHandler(handlers, "handleSetup") },
-    { method: "POST", path: "/api/setup/quick", handler: expectHandler(handlers, "handleQuickSetup") },
-    { method: "POST", path: "/api/models/set", handler: expectHandler(handlers, "handleSetModel") },
-    { method: "POST", path: "/api/oauth/start", handler: expectHandler(handlers, "handleOAuthStart") },
-    { method: "GET", path: "/api/oauth/status", handler: expectHandler(handlers, "handleOAuthStatus") },
-    { method: "POST", path: "/api/gateway/start", handler: expectHandler(handlers, "handleGatewayStart") },
-    { method: "POST", path: "/api/gateway/stop", handler: expectHandler(handlers, "handleGatewayStop") },
-    { method: "GET", path: "/api/gateway/logs", handler: expectHandler(handlers, "handleGatewayLogs") },
-    { method: "GET", path: "/api/ai/health", handler: expectHandler(handlers, "handleAiHealth") },
+
+    // Chat
     { method: "POST", path: "/api/ai/chat", handler: expectHandler(handlers, "handleAiChat") },
-    { method: "POST", path: "/api/config/chat", handler: expectHandler(handlers, "handleConfigChat") },
     { method: "GET", path: "/api/chat/history", handler: expectHandler(handlers, "handleChatHistory") },
     { method: "POST", path: "/api/chat/cards/status", handler: expectHandler(handlers, "handleChatCardStatus") },
+
+    // Session
+    { method: "POST", path: "/api/session/archive", handler: expectHandler(handlers, "handleSessionArchive") },
+    { method: "GET", path: "/api/session/list", handler: expectHandler(handlers, "handleSessionList") },
+    { method: "POST", path: "/api/session/restore", handler: expectHandler(handlers, "handleSessionRestore") },
+
+    // Xbrain (model config)
     { method: "GET", path: "/api/xbrain/state", handler: expectHandler(handlers, "handleXbrainState") },
     { method: "POST", path: "/api/xbrain/update", handler: expectHandler(handlers, "handleXbrainUpdate") },
     { method: "POST", path: "/api/xbrain/model/switch", handler: expectHandler(handlers, "handleXbrainModelSwitch") },
-    { method: "GET", path: "/api/xbrain/models/catalog", handler: expectHandler(handlers, "handleXbrainModelsCatalog") },
-    { method: "POST", path: "/api/xbrain/models/connect", handler: expectHandler(handlers, "handleXbrainModelConnect") },
-    { method: "POST", path: "/api/xbrain/models/disconnect", handler: expectHandler(handlers, "handleXbrainModelDisconnect") },
-    { method: "GET", path: "/api/xbrain/auth/status", handler: expectHandler(handlers, "handleXbrainAuthStatus") },
-    { method: "POST", path: "/api/xbrain/auth/start", handler: expectHandler(handlers, "handleXbrainAuthStart") },
-    { method: "POST", path: "/api/xbrain/auth/input", handler: expectHandler(handlers, "handleXbrainAuthInput") },
-    { method: "POST", path: "/api/xbrain/auth/disconnect", handler: expectHandler(handlers, "handleXbrainAuthDisconnect") },
-    { method: "POST", path: "/api/xbrain/provider/remove", handler: expectHandler(handlers, "handleXbrainProviderRemove") },
-    { method: "POST", path: "/api/xbrain/lock", handler: expectHandler(handlers, "handleXbrainLock") },
-    { method: "GET", path: "/api/telegram/health", handler: expectHandler(handlers, "handleTelegramHealth") },
-    { method: "POST", path: "/api/telegram/test", handler: expectHandler(handlers, "handleTelegramTest") },
-    { method: "POST", path: "/api/telegram/handshake", handler: expectHandler(handlers, "handleTelegramHandshake") },
-    { method: "GET", path: "/api/openclaw/status", handler: expectHandler(handlers, "handleOpenClawConsoleStatus") },
-    { method: "GET", path: "/api/openclaw/cron/list", handler: expectHandler(handlers, "handleOpenClawCronList") },
-    { method: "POST", path: "/api/openclaw/cron/add", handler: expectHandler(handlers, "handleOpenClawCronAdd") },
-    { method: "POST", path: "/api/openclaw/cron/remove", handler: expectHandler(handlers, "handleOpenClawCronRemove") },
-    { method: "POST", path: "/api/openclaw/cron/toggle", handler: expectHandler(handlers, "handleOpenClawCronToggle") },
-    { method: "POST", path: "/api/openclaw/config/get", handler: expectHandler(handlers, "handleOpenClawConfigGet") },
-    { method: "POST", path: "/api/openclaw/config/set", handler: expectHandler(handlers, "handleOpenClawConfigSet") },
-    { method: "POST", path: "/api/openclaw/config/unset", handler: expectHandler(handlers, "handleOpenClawConfigUnset") },
+
+    // Strategy Lab — Features
     { method: "GET", path: "/api/strategy/features", handler: expectHandler(handlers, "handleStrategyFeatures") },
     { method: "POST", path: "/api/strategy/features/delete", handler: expectHandler(handlers, "handleStrategyFeatureDelete") },
     { method: "POST", path: "/api/strategy/features/evaluate", handler: expectHandler(handlers, "handleStrategyFeatureEvaluate") },
     { method: "POST", path: "/api/strategy/features/update-config", handler: expectHandler(handlers, "handleStrategyFeatureUpdateConfig") },
+
+    // Strategy Lab — Versions
     { method: "GET", path: "/api/strategy/versions", handler: expectHandler(handlers, "handleStrategyVersions") },
     { method: "POST", path: "/api/strategy/versions/propose", handler: expectHandler(handlers, "handleStrategyVersionsPropose") },
     { method: "POST", path: "/api/strategy/versions/evaluate", handler: expectHandler(handlers, "handleStrategyVersionsEvaluate") },
     { method: "POST", path: "/api/strategy/artifacts/report", handler: expectHandler(handlers, "handleStrategyArtifactReport") },
+
+    // Strategy Lab — Intent (feature generation flow)
     { method: "POST", path: "/api/strategy/intent-candidates", handler: expectHandler(handlers, "handleStrategyIntentCandidates") },
     { method: "POST", path: "/api/strategy/intent-candidates/generate-code", handler: expectHandler(handlers, "handleStrategyIntentGenerateCode") },
     { method: "POST", path: "/api/strategy/intent-candidates/apply", handler: expectHandler(handlers, "handleStrategyIntentApply") },
     { method: "POST", path: "/api/strategy/intent-clarify", handler: expectHandler(handlers, "handleStrategyIntentClarify") },
     { method: "POST", path: "/api/strategy/intent-confirm", handler: expectHandler(handlers, "handleStrategyIntentConfirm") },
+
+    // Strategy Lab — Entities (strategies)
     { method: "GET", path: "/api/strategy/entities", handler: expectHandler(handlers, "handleStrategyEntities") },
     { method: "GET", path: "/api/strategy/entities/detail", handler: expectHandler(handlers, "handleStrategyEntityDetail") },
     { method: "GET", path: "/api/strategy/entities/audits", handler: expectHandler(handlers, "handleStrategyEntityAudits") },
@@ -66,9 +58,5 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/strategy/entities/publish", handler: expectHandler(handlers, "handleStrategyEntityPublish") },
     { method: "POST", path: "/api/strategy/entities/status", handler: expectHandler(handlers, "handleStrategyEntityStatus") },
     { method: "POST", path: "/api/strategy/entities/delete", handler: expectHandler(handlers, "handleStrategyEntityDelete") },
-    { method: "POST", path: "/api/session/archive", handler: expectHandler(handlers, "handleSessionArchive") },
-    { method: "GET", path: "/api/session/list", handler: expectHandler(handlers, "handleSessionList") },
-    { method: "POST", path: "/api/session/restore", handler: expectHandler(handlers, "handleSessionRestore") },
-    { method: "POST", path: "/api/chat", handler: expectHandler(handlers, "handleChat") },
   ];
 }

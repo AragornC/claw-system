@@ -72,7 +72,7 @@ async function main() {
     const ready = await waitForServer(45000);
     if (!ready) throw new Error(`Server not ready: ${serverStderr.slice(-300)}`);
     log("SETUP", "✅ Server ready");
-    // Skip openclaw setup (slow) — API key is set via env var
+    // API key set via env var
 
     // ━━━━━ Step 1: Intent Clarification ━━━━━
     log("STEP1", "Sending non-professional message...");

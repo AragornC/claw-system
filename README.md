@@ -1,151 +1,74 @@
-# ThunderClaw（OpenClaw 启动版）
+# ThunderClaw — AI Native 交易引擎
 
-本仓库现在进入“从零重建”第一步：
+ThunderClaw 是一个 AI 驱动的量化交易特征工程平台，通过自然语言对话帮助用户创建、验证和管理交易特征。
 
-- 深度对照 OpenClaw 控制面架构（Gateway + config/chat/models methods）
-- 在 ThunderClaw 内提供最小可用“虾脑”：
-  - 页面内完成 OpenClaw 基础登录配置
-  - 页面内启动/停止 Gateway
-  - 页面内直接发起对话
+## 核心功能
 
----
+- **虾策（特征工程）**：通过对话生成 Freqtrade 兼容的交易特征代码
+- **虾脑（模型管理）**：多 LLM 提供商管理（DeepSeek、OpenAI、Anthropic、Gemini 等）
+- **交易对话**：AI 助手理解交易架构，引导用户创建和优化特征
+- **特征回测**：在历史 OHLCV 数据上验证特征有效性
 
-## 1. 快速启动
+## 架构
+
+```
+scripts/server/
+  app.js              — 服务器组合根（无外部 CLI 依赖）
+  config.js           — 配置常量
+  core/
+    llm-client.js     — 通用 LLM 客户端（支持多提供商）
+    pipeline/         — 特征生成流水线（意图检测 → 代码生成 → 代码验证）
+    intent-gating.js  — 4 层意图过滤（规则 → 分类 → LLM → 校准）
+    strategy-lab-store.js — 特征/策略存储
+    conversation-context.js — 对话上下文管理
+    memory-layer.js   — L1-L3 记忆系统
+    xbrain-store.js   — 模型配置存储
+  handlers/
+    chat.js           — 对话 API
+    session.js        — 会话管理
+    xbrain.js         — 模型配置 API
+    strategy-lab.js   — 策略实验室 API
+  domain/             — 领域模型（分类法、模型提供商）
+  http/               — HTTP 路由
+  lib/                — 工具函数
+```
+
+## 快速开始
 
 ```bash
+# 1. 安装依赖
 npm install
-npm run thunderclaw:start
+
+# 2. 安装 Freqtrade + TA-Lib
+bash scripts/setup-install-freqtrade.sh
+
+# 3. 启动服务
+DEEPSEEK_API_KEY=sk-xxx node scripts/thunderclaw-server.js
+
+# 4. 打开浏览器
+# http://127.0.0.1:3456
 ```
 
-> `thunderclaw:start` 现在会自动执行 `thunderclaw:setup:freqtrade`，确保首次启动不会因缺少 Freqtrade 而直接失败。
-
-默认访问：
-
-- `http://127.0.0.1:3456`
-
-如需让其他机器访问（局域网/端口转发），用：
-
-- `node scripts/thunderclaw-cli.js start --host 0.0.0.0 --port 3456`
-
-
-回测引擎默认使用 **Freqtrade**（无需手动设置环境变量）。
-
-- 首次部署请先执行：`npm run thunderclaw:setup:freqtrade`（或 `bash scripts/setup-install-freqtrade.sh`，会自动补齐 TA-Lib 系统依赖，并在项目内创建专用 venv 安装 freqtrade）。
-- 启动时只做可用性检查，不会在运行态自动安装依赖（避免把构建逻辑耦合到服务启动）。
-- 若需自定义二进制路径，可设置 `THUNDERCLAW_FREQTRADE_CMD=/path/to/freqtrade`。
-- Freqtrade 依赖版本由 `scripts/freqtrade-requirements.txt` 管理（更利于审计与升级）；默认会把 TA-Lib 安装到项目目录 `.thunderclaw/ta-lib`（避免 `/usr/local` 权限问题），如需自定义可设置 `THUNDERCLAW_TA_LIB_VERSION` / `THUNDERCLAW_TA_LIB_PREFIX` / `THUNDERCLAW_TA_LIB_URL`。
-- 安装脚本会在开始前检查 Python 版本（要求 >= 3.10），并优先选择 `python3.12/3.11/3.10`；若发现已有 venv 的 Python 版本偏旧，会自动重建 venv 以升级到更高版本。
-- 仅在临时排障时，可设置 `THUNDERCLAW_ALLOW_LOCAL_BACKTEST_FALLBACK=true` 启用本地回测兜底。
-- 使用 Freqtrade 真回测时，运行环境必须可访问交易所公网 API（例如 `api.binance.com` / `api.bitget.com`）；若出网受限（如代理 403）会导致回测失败。
-
-默认首页已恢复为 ThunderClaw 原功能页（虾脑 / 虾线 / 虾海 / 虾策）。  
-虾脑现已拆分为 3 个 Tab：
-
-1. 模型与沟通渠道（OpenClaw 登录、模型、channel）
-2. ThunderClaw 配置（交易所 API、运行策略）
-3. OpenClaw 配置台（cron 管理 + config 路径读写）
-
-如需快速配置 OpenClaw，直接进入「虾脑」第 1 个 Tab 的模型注册中心：
-
-1. 从 OpenClaw 全模型目录中选择模型（DeepSeek / ChatGPT / Anthropic / 其他 provider）  
-2. 按 provider 类型执行“连接并注册”或“仅注册”  
-3. 注册成功后即可在 ThunderClaw 顶部模型切换器中切换
-
----
-
-## 2. CLI 命令
+## 测试
 
 ```bash
-npm run thunderclaw:help
-npm run thunderclaw:status
-npm run thunderclaw:start
+# 单元测试
+THUNDERCLAW_FREQTRADE_CMD=.thunderclaw/freqtrade-venv/bin/freqtrade \
+  node --test scripts/server/core/*.test.js
+
+# E2E 测试（需要 API Key）
+DEEPSEEK_API_KEY=sk-xxx node scripts/e2e/realistic-flow.test.js
 ```
 
-> `thunderclaw:start` 现在会自动执行 `thunderclaw:setup:freqtrade`，确保首次启动不会因缺少 Freqtrade 而直接失败。
+## 模型配置
 
-等价地，也可以直接：
+通过虾脑 UI 或 API 配置 LLM 提供商：
 
 ```bash
-node scripts/thunderclaw-cli.js start --port 3456
-node scripts/thunderclaw-cli.js start --host 0.0.0.0 --port 3456
+# API 方式
+curl -X POST http://localhost:3456/api/xbrain/update \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"deepseek","apiKey":"sk-xxx"}'
 ```
 
----
-
-## 3. 当前功能（第一步）
-
-后端（已按功能域拆分）：
-
-- `scripts/thunderclaw-server.js`（主入口：状态编排 + 依赖注入 + 启动）
-- `scripts/server/http/router.js`（统一路由分发器）
-- `scripts/server/http/route-table.js`（API 路由表）
-- `scripts/server/domain/model-provider.js`（模型/provider 领域能力）
-- `scripts/server/domain/chat-intent.js`（显式命令与模型引用解析）
-- `scripts/server/core/openclaw-xbrain-runtime.js`（OpenClaw/Xbrain 运行时核心）
-- `scripts/server/core/strategy-lab-store.js`（虾策特征/策略/工件持久化）
-- `scripts/server/core/trading-intent-skill.js`（交易意图技能：模型结构化候选提取）
-- `scripts/server/handlers/chat-config.js`（聊天与配置域 handlers）
-- `scripts/server/handlers/xbrain-core.js`（虾脑主 handlers）
-- `scripts/server/handlers/openclaw-console.js`（OpenClaw 配置台 handlers）
-- `scripts/server/handlers/telegram.js`（Telegram handlers）
-- `scripts/server/handlers/strategy-lab.js`（虾策实验室与候选确认 handlers）
-
-前端：
-
-- `memory/report/index.html`（主页面入口）
-- `memory/report/js/modules/xsea-runtime.js`（虾海辅助运行时）
-- `memory/report/js/modules/xbrain-runtime.js`（虾脑辅助运行时）
-- `memory/report/js/modules/chat-runtime.js`（聊天运行时辅助模块）
-- `memory/report/js/modules/strategy-intent-runtime.js`（对话候选卡片与确认流）
-
-提供 API：
-
-- `GET /api/status`：OpenClaw 可用性、配置存在性、Gateway 健康状态
-- `POST /api/setup`：non-interactive onboarding（provider + apiKey）
-- `POST /api/setup/quick`：简化向导的一键基础配置（默认 DeepSeek）
-- `POST /api/models/set`：设置默认模型
-- `POST /api/oauth/start`：触发 OpenAI OAuth 登录（interactive）
-- `POST /api/gateway/start`：启动 Gateway
-- `POST /api/gateway/stop`：停止 Gateway
-- `POST /api/chat`：通过 `openclaw agent --json` 发起对话
-- `POST /api/ai/chat`：旧主页面聊天入口兼容
-- `GET /api/chat/history`：旧主页面聊天历史轮询
-- `GET /api/ai/health`：旧主页面 AI 链路健康检查
-- `GET/POST /api/xbrain/*`：旧主页面虾脑配置接口兼容
-- `GET /api/xbrain/models/catalog`：获取 OpenClaw 全模型目录（含 provider 能力）
-- `GET /api/strategy/features`：虾策特征列表查询
-- `GET /api/strategy/versions`：虾策策略版本列表查询
-- `POST /api/strategy/versions/propose`：根据目标生成候选策略版本
-- `POST /api/strategy/versions/evaluate`：写入策略评估并计算 score
-- `POST /api/strategy/artifacts/report`：回测工件上报
-- `POST /api/strategy/intent-candidates`：对话交易意图结构化提案
-- `POST /api/strategy/intent-candidates/apply`：确认候选并写入虾策列表
-- `POST /api/xbrain/models/connect`：连接并注册模型（支持 API Key / OAuth / 仅注册）
-- `POST /api/xbrain/models/disconnect`：从虾脑模型列表移除已注册模型
-- `GET /api/openclaw/status`：OpenClaw 配置台状态摘要
-- `GET /api/openclaw/cron/list`：Cron 列表
-- `POST /api/openclaw/cron/add|remove|toggle`：Cron 新增/删除/启停
-- `POST /api/openclaw/config/get|set|unset`：配置路径读写
-
-已支持认证路径：
-
-- OpenAI / Anthropic / OpenRouter / Gemini / ZAI / **DeepSeek**（API Key）
-- OpenAI Codex（OAuth 跳转登录，需在启动 thunderclaw 的终端内完成交互）
-
----
-
-## 4. OpenClaw 源码理解文档
-
-见：
-
-- `OPENCLAW_CORE_UNDERSTANDING.md`
-
-该文档记录了本次对 OpenClaw 核心代码（CLI、Gateway methods、config/onboard、UI 控制器）的结构化理解和 ThunderClaw 对齐策略。
-
----
-
-## 5. 保留资产
-
-- `THUNDERCLAW_PRODUCT_IDEA.md`
-- `memory/report/*`（原产品页与图片/数据资产）
-- `scripts/thunderclaw-cli.js`
+支持的提供商：DeepSeek、OpenAI、Anthropic、OpenRouter、Gemini、ZAI
