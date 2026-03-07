@@ -337,11 +337,7 @@ export function createStrategyLabHandlers(deps = {}) {
           });
         }
       }
-      // L4: Write to OpenClaw memory for long-term retrieval
-      const ml = deps.memoryLayer || null;
-      if (ml && applied?.kind === "feature" && applied?.feature) {
-        ml.recordFeatureCreation(applied.feature);
-      }
+      // Feature creation tracked in conversation context (above)
       const state = {
         features: strategyLabStore.listFeatures({ limit: 120 }).features,
         versions: strategyLabStore.listVersions({ limit: 120 }).versions,

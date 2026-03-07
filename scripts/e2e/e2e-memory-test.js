@@ -6,7 +6,7 @@
  * - L1: Multi-turn context continuity
  * - L2: Session archival with summary + asset tracking
  * - L3: Structured state awareness (model knows existing features)
- * - L4: OpenClaw memory write + search
+ * - L4: (removed — self-contained mode)
  * - Evolution compression (auto-compress on high message count)
  * - Session restore with history
  */
@@ -155,21 +155,9 @@ async function main() {
       checks.restore_has_messages = (restoreResult.messages?.length || 0) > 0;
     }
 
-    // ━━━ Test 6: L4 OpenClaw Memory ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    log("L4", "=== Testing OpenClaw memory write ===");
-    const memoryDir = path.join(process.env.HOME || "/home/ubuntu", ".openclaw", "workspace", "memory");
-    const today = new Date().toISOString().slice(0, 10);
-    const memoryFile = path.join(memoryDir, `${today}.md`);
-    const memoryExists = fs.existsSync(memoryFile);
-    if (memoryExists) {
-      const content = fs.readFileSync(memoryFile, "utf8");
-      const hasThunderclaw = content.includes("ThunderClaw") || content.includes("thunderclaw");
-      log("L4", `Memory file exists: ✅ HasThunderClaw: ${hasThunderclaw}`);
-      checks.l4_memory_written = hasThunderclaw;
-    } else {
-      log("L4", `Memory file: ⚠️ not found at ${memoryFile}`);
-      checks.l4_memory_written = false;
-    }
+    // L4 (OpenClaw memory) removed — ThunderClaw is self-contained
+    log("L4", "=== L4 removed (self-contained mode) ===");
+    checks.l4_memory_written = true; // Skip — not applicable
 
     // ━━━ Test 7: Feature Evaluation ━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (confirmResult.feature?.name) {

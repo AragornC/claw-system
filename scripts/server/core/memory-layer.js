@@ -10,7 +10,6 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 function toText(v, fb = "") { return String(v ?? "").trim() || fb; }
@@ -20,9 +19,6 @@ export function createMemoryLayer(deps = {}) {
   const conversationContext = deps.conversationContext;
   const strategyLabStore = deps.strategyLabStore;
   const llmClient = deps.llmClient || null;
-  const openclawWorkspaceDir = toText(deps.openclawWorkspaceDir, path.join(os.homedir(), ".openclaw", "workspace"));
-  const openclawMemoryDir = path.join(openclawWorkspaceDir, "memory");
-  const runOpenClawCommand = deps.runOpenClawCommand || null;
 
   // ═══ L3: Structured State Snapshot ═══════════════════════════════
 
@@ -173,79 +169,6 @@ export function createMemoryLayer(deps = {}) {
     }
   }
 
-  // ═══ L4: OpenClaw Memory Integration ══════════════════════════════
-
-  /**
-   * Write a memory entry to OpenClaw's memory directory.
-   * OpenClaw's FTS index will pick it up on next reindex.
-   */
-  function writeMemoryEntry(content, tag = "thunderclaw") {
-    try {
-      fs.mkdirSync(openclawMemoryDir, { recursive: true });
-      const today = new Date().toISOString().slice(0, 10);
-      const filePath = path.join(openclawMemoryDir, `${today}.md`);
-      const timestamp = new Date().toLocaleString("zh-CN");
-      const entry = `\n## [${tag}] ${timestamp}\n${content}\n`;
-      fs.appendFileSync(filePath, entry, "utf8");
-      // Trigger reindex (non-blocking)
-      if (runOpenClawCommand) {
-        void runOpenClawCommand(["memory", "index"], { timeoutMs: 10_000 }).catch(() => {});
-      }
-    } catch {}
-  }
-
-  /**
-   * Record feature creation in OpenClaw memory.
-   */
-  function recordFeatureCreation(feature) {
-    const name = toText(feature?.name, "unnamed");
-    const desc = toText(feature?.description, "");
-    const kind = toText(feature?.kind, "");
-    const group = toText(feature?.group, "");
-    const hasCode = Boolean(feature?.generatedCode?.indicatorCode);
-    writeMemoryEntry(
-      `用户通过 ThunderClaw 对话创建了交易特征「${name}」\n` +
-      `- 类型: ${[group, kind].filter(Boolean).join("/") || "自定义"}\n` +
-      `- 描述: ${desc || "无"}\n` +
-      `- 代码状态: ${hasCode ? "已生成并验证" : "待生成"}\n`,
-      "feature-created",
-    );
-  }
-
-  /**
-   * Search OpenClaw memory for relevant context.
-   * Returns up to maxResults relevant memory snippets.
-   */
-  async function searchMemory(query, maxResults = 3) {
-    if (!runOpenClawCommand) return [];
-    try {
-      const result = await runOpenClawCommand(
-        ["memory", "search", query, "--json", "--max-results", String(maxResults)],
-        { timeoutMs: 8_000 },
-      );
-      if (!result.ok) return [];
-      const parsed = JSON.parse(result.stdout || "[]");
-      const results = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.results) ? parsed.results : []);
-      return results.slice(0, maxResults).map((r) => ({
-        content: toText(r.content || r.text || r.chunk || "", "").slice(0, 300),
-        score: Number(r.score || 0),
-        source: toText(r.source || r.file || "", ""),
-      })).filter((r) => r.content);
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Build the memory context section for system prompt injection.
-   */
-  async function buildMemoryContext(query) {
-    const results = await searchMemory(query);
-    if (!results.length) return "";
-    const lines = results.map((r) => `  - ${r.content.slice(0, 200)}`);
-    return `\n## 相关历史记忆\n${lines.join("\n")}`;
-  }
-
   // ═══ Unified System Prompt Injection ══════════════════════════════
 
   /**
@@ -266,31 +189,15 @@ export function createMemoryLayer(deps = {}) {
     const sessionSummaries = getRecentSessionSummaries(3);
     if (sessionSummaries) parts.push(sessionSummaries);
 
-    // L4: Memory search (async, may timeout gracefully)
-    if (userMessage) {
-      try {
-        const memoryContext = await buildMemoryContext(userMessage);
-        if (memoryContext) parts.push(memoryContext);
-      } catch {}
-    }
-
     if (!parts.length) return "";
     return "\n\n# 系统记忆上下文（以下信息帮助你理解用户的历史和当前状态）" + parts.join("");
   }
 
   return {
-    // L3
     buildStructuredStateSnapshot,
-    // L2
     getRecentSessionSummaries,
     generateSessionSummary,
     maybeCompressContext,
-    // L4
-    writeMemoryEntry,
-    recordFeatureCreation,
-    searchMemory,
-    buildMemoryContext,
-    // Unified
     buildFullMemoryContext,
   };
 }
