@@ -533,7 +533,6 @@ function looksLikeConfigIntentRuntime(queryLike) {
   return new Set([
     '/model',
     '/models',
-    '/deepseek',
     '/telegram',
     '/oauth',
     '/openai',
@@ -554,7 +553,7 @@ function createChatApiClientRuntime(optionsLike = {}) {
   const buildClientContext = typeof options.buildClientContext === 'function' ? options.buildClientContext : () => ({});
   const setAiLinkStatus = typeof options.setAiLinkStatus === 'function' ? options.setAiLinkStatus : () => {};
 
-  async function askOpenClaw(queryLike) {
+  async function askThunderClaw(queryLike) {
     const query = String(queryLike || '').trim();
     const resp = await fetch(String(routes.aiChat || '/api/ai/chat'), {
       method: 'POST',
@@ -576,11 +575,11 @@ function createChatApiClientRuntime(optionsLike = {}) {
       const reason = payload && payload.error ? String(payload.error) : 'HTTP ' + resp.status;
       throw new Error(reason);
     }
-    setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
+    setAiLinkStatus('ok', 'ThunderClaw: 交易域已绑定');
     return {
       reply: String(payload.reply || '').trim(),
       actions: Array.isArray(payload.actions) ? payload.actions : [],
-      source: String(payload.source || 'openclaw'),
+      source: String(payload.source || 'llm_direct'),
       executionTrace: Array.isArray(payload.executionTrace) ? payload.executionTrace : [],
       state: payload && typeof payload.state === 'object' ? payload.state : null,
       modelRefUsed: String(payload?.modelRefUsed || '').trim(),
@@ -617,7 +616,7 @@ function createChatApiClientRuntime(optionsLike = {}) {
   }
 
   return {
-    askOpenClaw,
+    askThunderClaw,
     askConfigChannel,
   };
 }

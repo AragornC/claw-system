@@ -3236,125 +3236,6 @@
       color: #79c0ff;
     }
     .xbrain-advanced-box[open] > summary::before { content: '▾'; }
-    .xbrain-openclaw-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 8px;
-    }
-    .xbrain-openclaw-card {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: rgba(0,0,0,0.14);
-      padding: 9px;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-    .xbrain-openclaw-card h4 {
-      margin: 0;
-      font-size: 0.74rem;
-      color: var(--text);
-    }
-    .xbrain-openclaw-summary {
-      border: 1px dashed rgba(88,166,255,0.45);
-      border-radius: 8px;
-      background: rgba(0,0,0,0.12);
-      padding: 7px 8px;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 0.67rem;
-      color: var(--muted);
-      line-height: 1.42;
-      min-height: 62px;
-    }
-    .xbrain-openclaw-card input,
-    .xbrain-openclaw-card textarea,
-    .xbrain-openclaw-card select {
-      width: 100%;
-      background: rgba(0,0,0,0.22);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 7px 8px;
-      font-size: 0.7rem;
-      outline: none;
-    }
-    .xbrain-openclaw-card textarea {
-      min-height: 76px;
-      resize: vertical;
-    }
-    .xbrain-openclaw-card input:focus,
-    .xbrain-openclaw-card textarea:focus,
-    .xbrain-openclaw-card select:focus {
-      border-color: rgba(88,166,255,0.7);
-    }
-    .xbrain-openclaw-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .xbrain-openclaw-actions button {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: rgba(0,0,0,0.22);
-      color: var(--text);
-      font-size: 0.68rem;
-      padding: 4px 9px;
-      cursor: pointer;
-    }
-    .xbrain-openclaw-actions button.primary { border-color: rgba(88,166,255,0.66); color: #79c0ff; }
-    .xbrain-openclaw-actions button.warn { border-color: rgba(248,81,73,0.52); color: #ffaba8; }
-    .xbrain-openclaw-cron-list {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      max-height: 260px;
-      overflow: auto;
-    }
-    .xbrain-openclaw-cron-item {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px 7px;
-      background: rgba(0,0,0,0.16);
-      font-size: 0.66rem;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-    .xbrain-openclaw-cron-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 4px;
-      color: var(--text);
-      font-size: 0.69rem;
-    }
-    .xbrain-openclaw-cron-meta {
-      display: inline-flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
-    .xbrain-openclaw-cron-chip {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 1px 6px;
-      font-size: 0.62rem;
-      background: rgba(0,0,0,0.2);
-    }
-    .xbrain-openclaw-cron-chip.ok { border-color: rgba(63,185,80,0.55); color: #7ee787; }
-    .xbrain-openclaw-cron-chip.err { border-color: rgba(248,81,73,0.55); color: #ffaba8; }
-    .xbrain-openclaw-output {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(0,0,0,0.14);
-      padding: 7px;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 0.66rem;
-      color: var(--muted);
-      min-height: 48px;
-      max-height: 200px;
-      overflow: auto;
-    }
     .xbrain-probe-modal.hidden { display: none; }
     .xbrain-probe-modal {
       position: fixed;
@@ -3783,7 +3664,7 @@
           </div>
           <span id="telegram-link-status" class="ai-link-status toolbar-link-status">Telegram: 检测中</span>
         </div>
-        <span id="ai-link-status" class="ai-link-status toolbar-link-status">OpenClaw: 检测中</span>
+        <span id="ai-link-status" class="ai-link-status toolbar-link-status">ThunderClaw: 检测中</span>
       </div>
 
     <section id="view-dashboard" class="view-panel active">
@@ -4242,7 +4123,6 @@
         <div id="xbrain-tabs" class="xbrain-tabs">
           <button class="xbrain-tab-btn active" type="button" data-xbrain-tab="connect">模型与沟通渠道</button>
           <button class="xbrain-tab-btn" type="button" data-xbrain-tab="thunder">ThunderClaw 配置</button>
-          <button class="xbrain-tab-btn" type="button" data-xbrain-tab="openclaw">OpenClaw 配置台</button>
         </div>
         <div class="xbrain-stack">
           <div class="xbrain-tab-pane active" data-xbrain-pane="connect">
@@ -4261,7 +4141,7 @@
               <div class="xbrain-model-center-head">
                 <div>
                   <div class="title">模型注册中心</div>
-                  <div class="sub">从 OpenClaw 全模型目录中注册可用模型，注册后可在 ThunderClaw 顶部快速切换。</div>
+                  <div class="sub">从全模型目录中注册可用模型，注册后可在 ThunderClaw 顶部快速切换。</div>
                 </div>
                 <button id="xbrain-model-center-refresh-btn" class="xbrain-eye-btn" type="button">刷新模型目录</button>
               </div>
@@ -4326,7 +4206,7 @@
             <div class="xbrain-quick-guide" id="xbrain-quick-guide" style="display:none;">
               <div class="xbrain-quick-guide-head">
                 <div>
-                  <div class="xbrain-quick-guide-title">OpenClaw 快速登录引导</div>
+                  <div class="xbrain-quick-guide-title">ThunderClaw 快速登录引导</div>
                   <div class="xbrain-quick-guide-sub">先完成模型登录，再继续交易/策略配置。默认推荐 DeepSeek。</div>
                 </div>
                 <div id="xbrain-guide-provider-switch" class="xbrain-guide-provider-switch">
@@ -4533,51 +4413,6 @@
               <div id="xbrain-status-strategy" class="xbrain-status"></div>
             </form>
           </div>
-          </div>
-          <div class="xbrain-tab-pane" data-xbrain-pane="openclaw">
-            <div id="xbrain-section-openclaw" class="xbrain-section unlocked">
-              <div class="xbrain-card-head">
-                <div class="xbrain-head-title">
-                  <span class="main">OpenClaw 配置台</span>
-                  <span class="sub">cron 管理 + config 路径读写 + 网关状态</span>
-                </div>
-              </div>
-              <div class="xbrain-hint">这里承接 OpenClaw 原生配置能力（例如 cron 管理），作为第三块配置区。</div>
-              <div class="xbrain-openclaw-grid">
-                <div class="xbrain-openclaw-card">
-                  <h4>运行状态</h4>
-                  <div id="xbrain-openclaw-summary" class="xbrain-openclaw-summary">加载中...</div>
-                  <div class="xbrain-openclaw-actions">
-                    <button id="xbrain-openclaw-refresh-btn" class="primary" type="button">刷新状态</button>
-                    <button id="xbrain-openclaw-gateway-start-btn" type="button">拉起 Gateway</button>
-                    <button id="xbrain-openclaw-gateway-stop-btn" class="warn" type="button">停止 Gateway</button>
-                  </div>
-                </div>
-                <div class="xbrain-openclaw-card">
-                  <h4>Cron 管理</h4>
-                  <input id="xbrain-openclaw-cron-name" type="text" placeholder="任务名称（可选）" />
-                  <input id="xbrain-openclaw-cron-every" type="text" placeholder="执行间隔（示例：30m / 1h）" />
-                  <textarea id="xbrain-openclaw-cron-message" placeholder="任务内容（发送给 OpenClaw 的 message）"></textarea>
-                  <div class="xbrain-openclaw-actions">
-                    <button id="xbrain-openclaw-cron-add-btn" class="primary" type="button">新增 Cron 任务</button>
-                    <button id="xbrain-openclaw-cron-refresh-btn" type="button">刷新任务列表</button>
-                  </div>
-                  <div id="xbrain-openclaw-cron-list" class="xbrain-openclaw-cron-list"></div>
-                </div>
-                <div class="xbrain-openclaw-card">
-                  <h4>Config 路径读写</h4>
-                  <input id="xbrain-openclaw-config-path" type="text" placeholder="配置路径（示例：gateway.bind）" />
-                  <textarea id="xbrain-openclaw-config-value" placeholder='配置值（JSON），例如: "loopback" / 128000 / {"enabled":true}'></textarea>
-                  <div class="xbrain-openclaw-actions">
-                    <button id="xbrain-openclaw-config-get-btn" class="primary" type="button">读取</button>
-                    <button id="xbrain-openclaw-config-set-btn" type="button">写入</button>
-                    <button id="xbrain-openclaw-config-unset-btn" class="warn" type="button">删除</button>
-                  </div>
-                  <div id="xbrain-openclaw-config-output" class="xbrain-openclaw-output"></div>
-                </div>
-              </div>
-              <div id="xbrain-openclaw-status" class="xbrain-status"></div>
-            </div>
           </div>
         </div>
       </div>
@@ -5844,10 +5679,6 @@
       const xbrainOauthConnected = safeLocalJsonRead(XBRAIN_OAUTH_CONNECTED_KEY, {});
       let xbrainAuthMonitorRunning = false;
       const xbrainTabState = { active: 'connect' };
-      const xbrainOpenClawState = {
-        summary: null,
-        jobs: [],
-      };
       const xbrainModelCenterState = {
         catalog: [],
         configured: [],
@@ -6554,131 +6385,6 @@
           setXbrainTab(tab);
         });
         setXbrainTab('connect');
-      }
-
-      function setXbrainOpenClawStatus(text, type) {
-        const el = document.getElementById('xbrain-openclaw-status');
-        if (!el) return;
-        const msg = String(text || '').trim();
-        el.textContent = msg;
-        el.classList.remove('ok', 'err');
-        if (!msg) return;
-        if (type === 'ok') el.classList.add('ok');
-        if (type === 'err') el.classList.add('err');
-      }
-
-      function requestOpenClawConsoleJson(pathname, body) {
-        const opts = {
-          method: body == null ? 'GET' : 'POST',
-          cache: 'no-store',
-        };
-        if (body != null) {
-          opts.headers = { 'Content-Type': 'application/json' };
-          opts.body = JSON.stringify(body || {});
-        }
-        return fetch(pathname, opts)
-          .then(function(resp) {
-            return resp.json().catch(function() { return null; }).then(function(payload) {
-              if (!resp.ok || !payload || payload.ok !== true) {
-                const reason = payload && payload.error ? String(payload.error) : ('HTTP ' + resp.status);
-                throw new Error(reason);
-              }
-              return payload;
-            });
-          });
-      }
-
-      function fmtOpenClawCronSchedule(jobLike) {
-        const job = jobLike && typeof jobLike === 'object' ? jobLike : {};
-        const schedule = job.schedule && typeof job.schedule === 'object' ? job.schedule : {};
-        const kind = String(schedule.kind || '').trim();
-        if (kind === 'every' && Number.isFinite(Number(schedule.everyMs))) {
-          const ms = Number(schedule.everyMs);
-          if (ms % 3600000 === 0) return (ms / 3600000) + 'h';
-          if (ms % 60000 === 0) return (ms / 60000) + 'm';
-          return ms + 'ms';
-        }
-        if (kind === 'cron' && schedule.cronExpr) {
-          return String(schedule.cronExpr);
-        }
-        if (kind === 'at' && schedule.atMs) {
-          return 'at ' + fmtTsShort(new Date(Number(schedule.atMs)).toISOString());
-        }
-        return '-';
-      }
-
-      function renderXbrainOpenClawSummary() {
-        const summaryEl = document.getElementById('xbrain-openclaw-summary');
-        if (!summaryEl) return;
-        const payload = xbrainOpenClawState.summary && typeof xbrainOpenClawState.summary === 'object'
-          ? xbrainOpenClawState.summary
-          : {};
-        const openclaw = payload.openclaw && typeof payload.openclaw === 'object' ? payload.openclaw : {};
-        const gateway = payload.gateway && typeof payload.gateway === 'object' ? payload.gateway : {};
-        const cron = payload.cron && typeof payload.cron === 'object' ? payload.cron : {};
-        const version = String(openclaw.version || '-');
-        const gwText = gateway.healthy ? '健康' : '异常';
-        const jobs = Array.isArray(cron.jobs) ? cron.jobs.length : 0;
-        const cronText = cron.statusOk !== false ? '可用' : '异常';
-        summaryEl.textContent =
-          'OpenClaw 版本：' + version + '\n'
-          + 'Gateway：' + gwText + (gateway.error ? ('（' + String(gateway.error).slice(0, 90) + '）') : '') + '\n'
-          + 'Cron：' + cronText + '，任务数 ' + jobs + '\n'
-          + '提示：此面板用于 OpenClaw 原生配置管理。';
-      }
-
-      function renderXbrainOpenClawCronList() {
-        const box = document.getElementById('xbrain-openclaw-cron-list');
-        if (!box) return;
-        const jobs = Array.isArray(xbrainOpenClawState.jobs) ? xbrainOpenClawState.jobs : [];
-        if (!jobs.length) {
-          box.innerHTML = '<div class="xbrain-openclaw-cron-item">暂无 Cron 任务。</div>';
-          return;
-        }
-        box.innerHTML = jobs.map(function(job) {
-          const id = String(job?.id || '');
-          const name = String(job?.name || '(未命名任务)');
-          const enabled = job?.enabled !== false;
-          const everyText = fmtOpenClawCronSchedule(job);
-          const message = String(job?.payload?.message || '').trim();
-          const nextRunMs = Number(job?.state?.nextRunAtMs);
-          const nextRunText = Number.isFinite(nextRunMs) ? fmtTsShort(new Date(nextRunMs).toISOString()) : '-';
-          return '<div class="xbrain-openclaw-cron-item">'
-            + '<div class="xbrain-openclaw-cron-head">'
-            + '<span>' + escapeHtml(name) + '</span>'
-            + '<span class="xbrain-openclaw-cron-meta">'
-            + '<span class="xbrain-openclaw-cron-chip ' + (enabled ? 'ok' : 'err') + '">' + (enabled ? '启用' : '停用') + '</span>'
-            + '<span class="xbrain-openclaw-cron-chip">ID:' + escapeHtml(id.slice(0, 8)) + '</span>'
-            + '</span>'
-            + '</div>'
-            + '<div>调度：' + escapeHtml(everyText) + '</div>'
-            + '<div>下次执行：' + escapeHtml(nextRunText) + '</div>'
-            + '<div>消息：' + escapeHtml(message || '-') + '</div>'
-            + '<div class="xbrain-openclaw-actions" style="margin-top:5px;">'
-            + '<button type="button" data-cron-action="' + (enabled ? 'disable' : 'enable') + '" data-cron-id="' + escapeHtml(id) + '">'
-            + (enabled ? '停用' : '启用')
-            + '</button>'
-            + '<button type="button" class="warn" data-cron-action="remove" data-cron-id="' + escapeHtml(id) + '">删除</button>'
-            + '</div>'
-            + '</div>';
-        }).join('');
-      }
-
-      function setXbrainOpenClawConfigOutput(textLike) {
-        const out = document.getElementById('xbrain-openclaw-config-output');
-        if (!out) return;
-        out.textContent = String(textLike || '').trim();
-      }
-
-      async function refreshXbrainOpenClawConsole() {
-        const payload = await requestOpenClawConsoleJson('/api/openclaw/status', null);
-        const jobsPayload = await requestOpenClawConsoleJson('/api/openclaw/cron/list?all=1', null).catch(function() {
-          return { jobs: [] };
-        });
-        xbrainOpenClawState.summary = payload;
-        xbrainOpenClawState.jobs = Array.isArray(jobsPayload.jobs) ? jobsPayload.jobs : [];
-        renderXbrainOpenClawSummary();
-        renderXbrainOpenClawCronList();
       }
 
       function setXbrainGuideStatus(text, type) {
@@ -7423,7 +7129,7 @@
 
       function buildAnthropicTokenGuide() {
         return 'Anthropic 当前为 token 登录方式。\n'
-          + '请在终端执行：openclaw models auth setup-token --provider anthropic --yes\n'
+          + '请在终端执行：thunderclaw models auth setup-token --provider anthropic --yes\n'
           + '完成后回到页面点击“重新连接”或“检测当前模型”。';
       }
 
@@ -7477,9 +7183,6 @@
           setXbrainStatus('strategy', '加载虾脑配置失败：' + String(err?.message || err), 'err');
         });
         setupXbrainTabs();
-        const initialOpenClawLoadPromise = refreshXbrainOpenClawConsole().catch(function(err) {
-          setXbrainOpenClawStatus('OpenClaw 控制台加载失败：' + String(err?.message || err), 'err');
-        });
         const modelCenterRefreshBtn = document.getElementById('xbrain-model-center-refresh-btn');
         const modelCenterProviderEl = document.getElementById('xbrain-model-center-provider');
         const modelCenterAuthMethodEl = document.getElementById('xbrain-model-center-auth-method');
@@ -7978,7 +7681,7 @@
             const oldText = String(modelCenterRefreshBtn.textContent || '刷新模型目录');
             modelCenterRefreshBtn.disabled = true;
             modelCenterRefreshBtn.textContent = '刷新中...';
-            setXbrainModelCenterStatus('正在刷新 OpenClaw 模型目录...', 'ok');
+            setXbrainModelCenterStatus('正在刷新模型目录...', 'ok');
             void refreshXbrainModelCenterCatalog(true)
               .then(function() {
                 setXbrainModelCenterStatus('模型目录已刷新。', 'ok');
@@ -8177,304 +7880,6 @@
                   btn.disabled = false;
                 });
             }
-          });
-        }
-
-        const openclawRefreshBtn = document.getElementById('xbrain-openclaw-refresh-btn');
-        const openclawGatewayStartBtn = document.getElementById('xbrain-openclaw-gateway-start-btn');
-        const openclawGatewayStopBtn = document.getElementById('xbrain-openclaw-gateway-stop-btn');
-        const openclawCronAddBtn = document.getElementById('xbrain-openclaw-cron-add-btn');
-        const openclawCronRefreshBtn = document.getElementById('xbrain-openclaw-cron-refresh-btn');
-        const openclawCronList = document.getElementById('xbrain-openclaw-cron-list');
-        const openclawConfigGetBtn = document.getElementById('xbrain-openclaw-config-get-btn');
-        const openclawConfigSetBtn = document.getElementById('xbrain-openclaw-config-set-btn');
-        const openclawConfigUnsetBtn = document.getElementById('xbrain-openclaw-config-unset-btn');
-
-        function readOpenClawConfigPathInput() {
-          return String(document.getElementById('xbrain-openclaw-config-path')?.value || '').trim();
-        }
-
-        function readOpenClawConfigValueInput() {
-          const raw = String(document.getElementById('xbrain-openclaw-config-value')?.value || '').trim();
-          if (!raw) return '';
-          try {
-            return JSON.parse(raw);
-          } catch {
-            return raw;
-          }
-        }
-
-        if (openclawRefreshBtn) {
-          openclawRefreshBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            if (openclawRefreshBtn.disabled) return;
-            openclawRefreshBtn.disabled = true;
-            const oldText = String(openclawRefreshBtn.textContent || '刷新状态');
-            openclawRefreshBtn.textContent = '刷新中...';
-            setXbrainOpenClawStatus('正在刷新 OpenClaw 控制台状态...', 'ok');
-            void refreshXbrainOpenClawConsole()
-              .then(function() {
-                setXbrainOpenClawStatus('OpenClaw 控制台已刷新。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('刷新失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawRefreshBtn.disabled = false;
-                openclawRefreshBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawGatewayStartBtn) {
-          openclawGatewayStartBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            if (openclawGatewayStartBtn.disabled) return;
-            const oldText = String(openclawGatewayStartBtn.textContent || '拉起 Gateway');
-            openclawGatewayStartBtn.disabled = true;
-            openclawGatewayStartBtn.textContent = '执行中...';
-            setXbrainOpenClawStatus('正在拉起 Gateway...', 'ok');
-            void requestXbrainJson(fetch, '/api/gateway/start', {})
-              .then(function() {
-                return refreshXbrainOpenClawConsole();
-              })
-              .then(function() {
-                setXbrainOpenClawStatus('Gateway 拉起流程已执行。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('Gateway 拉起失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawGatewayStartBtn.disabled = false;
-                openclawGatewayStartBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawGatewayStopBtn) {
-          openclawGatewayStopBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            if (openclawGatewayStopBtn.disabled) return;
-            const oldText = String(openclawGatewayStopBtn.textContent || '停止 Gateway');
-            openclawGatewayStopBtn.disabled = true;
-            openclawGatewayStopBtn.textContent = '执行中...';
-            setXbrainOpenClawStatus('正在停止 Gateway...', 'ok');
-            void requestXbrainJson(fetch, '/api/gateway/stop', {})
-              .then(function() {
-                return refreshXbrainOpenClawConsole();
-              })
-              .then(function() {
-                setXbrainOpenClawStatus('Gateway 已发送停止指令。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('Gateway 停止失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawGatewayStopBtn.disabled = false;
-                openclawGatewayStopBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawCronRefreshBtn) {
-          openclawCronRefreshBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            if (openclawCronRefreshBtn.disabled) return;
-            const oldText = String(openclawCronRefreshBtn.textContent || '刷新任务列表');
-            openclawCronRefreshBtn.disabled = true;
-            openclawCronRefreshBtn.textContent = '刷新中...';
-            setXbrainOpenClawStatus('正在刷新 Cron 列表...', 'ok');
-            void requestOpenClawConsoleJson('/api/openclaw/cron/list?all=1', null)
-              .then(function(payload) {
-                xbrainOpenClawState.jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-                renderXbrainOpenClawCronList();
-                setXbrainOpenClawStatus('Cron 列表已刷新。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('Cron 刷新失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawCronRefreshBtn.disabled = false;
-                openclawCronRefreshBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawCronAddBtn) {
-          openclawCronAddBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            if (openclawCronAddBtn.disabled) return;
-            const name = String(document.getElementById('xbrain-openclaw-cron-name')?.value || '').trim();
-            const every = String(document.getElementById('xbrain-openclaw-cron-every')?.value || '').trim();
-            const message = String(document.getElementById('xbrain-openclaw-cron-message')?.value || '').trim();
-            if (!every || !message) {
-              setXbrainOpenClawStatus('新增 Cron 需要填写执行间隔和任务内容。', 'err');
-              return;
-            }
-            const oldText = String(openclawCronAddBtn.textContent || '新增 Cron 任务');
-            openclawCronAddBtn.disabled = true;
-            openclawCronAddBtn.textContent = '创建中...';
-            setXbrainOpenClawStatus('正在创建 Cron 任务...', 'ok');
-            void requestOpenClawConsoleJson('/api/openclaw/cron/add', {
-              name: name,
-              every: every,
-              message: message,
-            })
-              .then(function() {
-                return requestOpenClawConsoleJson('/api/openclaw/cron/list?all=1', null);
-              })
-              .then(function(payload) {
-                xbrainOpenClawState.jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-                renderXbrainOpenClawCronList();
-                setXbrainOpenClawStatus('Cron 任务创建成功。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('Cron 创建失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawCronAddBtn.disabled = false;
-                openclawCronAddBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawCronList) {
-          openclawCronList.addEventListener('click', function(ev) {
-            const btn = ev.target && ev.target.closest ? ev.target.closest('[data-cron-action][data-cron-id]') : null;
-            if (!btn || btn.disabled) return;
-            ev.preventDefault();
-            const action = String(btn.getAttribute('data-cron-action') || '').trim();
-            const id = String(btn.getAttribute('data-cron-id') || '').trim();
-            if (!id) return;
-            btn.disabled = true;
-            if (action === 'remove') {
-              setXbrainOpenClawStatus('正在删除 Cron 任务...', 'ok');
-              void requestOpenClawConsoleJson('/api/openclaw/cron/remove', { id: id })
-                .then(function() {
-                  return requestOpenClawConsoleJson('/api/openclaw/cron/list?all=1', null);
-                })
-                .then(function(payload) {
-                  xbrainOpenClawState.jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-                  renderXbrainOpenClawCronList();
-                  setXbrainOpenClawStatus('Cron 已删除。', 'ok');
-                })
-                .catch(function(err) {
-                  setXbrainOpenClawStatus('Cron 删除失败：' + String(err?.message || err), 'err');
-                })
-                .finally(function() {
-                  btn.disabled = false;
-                });
-              return;
-            }
-            if (action === 'enable' || action === 'disable') {
-              const enabled = action === 'enable';
-              setXbrainOpenClawStatus('正在' + (enabled ? '启用' : '停用') + ' Cron...', 'ok');
-              void requestOpenClawConsoleJson('/api/openclaw/cron/toggle', { id: id, enabled: enabled })
-                .then(function() {
-                  return requestOpenClawConsoleJson('/api/openclaw/cron/list?all=1', null);
-                })
-                .then(function(payload) {
-                  xbrainOpenClawState.jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-                  renderXbrainOpenClawCronList();
-                  setXbrainOpenClawStatus('Cron 状态已更新。', 'ok');
-                })
-                .catch(function(err) {
-                  setXbrainOpenClawStatus('Cron 状态更新失败：' + String(err?.message || err), 'err');
-                })
-                .finally(function() {
-                  btn.disabled = false;
-                });
-            }
-          });
-        }
-
-        if (openclawConfigGetBtn) {
-          openclawConfigGetBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            const configPath = readOpenClawConfigPathInput();
-            if (!configPath) {
-              setXbrainOpenClawStatus('请先填写配置路径。', 'err');
-              return;
-            }
-            const oldText = String(openclawConfigGetBtn.textContent || '读取');
-            openclawConfigGetBtn.disabled = true;
-            openclawConfigGetBtn.textContent = '读取中...';
-            setXbrainOpenClawStatus('正在读取配置路径：' + configPath, 'ok');
-            void requestOpenClawConsoleJson('/api/openclaw/config/get', { path: configPath })
-              .then(function(payload) {
-                const valueText = payload && Object.prototype.hasOwnProperty.call(payload, 'value')
-                  ? JSON.stringify(payload.value, null, 2)
-                  : String(payload?.raw || '');
-                const valueInput = document.getElementById('xbrain-openclaw-config-value');
-                if (valueInput) valueInput.value = valueText;
-                setXbrainOpenClawConfigOutput('读取成功：\n' + valueText);
-                setXbrainOpenClawStatus('配置读取成功。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('配置读取失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawConfigGetBtn.disabled = false;
-                openclawConfigGetBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawConfigSetBtn) {
-          openclawConfigSetBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            const configPath = readOpenClawConfigPathInput();
-            if (!configPath) {
-              setXbrainOpenClawStatus('请先填写配置路径。', 'err');
-              return;
-            }
-            const value = readOpenClawConfigValueInput();
-            const oldText = String(openclawConfigSetBtn.textContent || '写入');
-            openclawConfigSetBtn.disabled = true;
-            openclawConfigSetBtn.textContent = '写入中...';
-            setXbrainOpenClawStatus('正在写入配置路径：' + configPath, 'ok');
-            void requestOpenClawConsoleJson('/api/openclaw/config/set', {
-              path: configPath,
-              value: value,
-            })
-              .then(function(payload) {
-                setXbrainOpenClawConfigOutput('写入成功：\n' + String(payload?.output || 'ok'));
-                setXbrainOpenClawStatus('配置写入成功。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('配置写入失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawConfigSetBtn.disabled = false;
-                openclawConfigSetBtn.textContent = oldText;
-              });
-          });
-        }
-
-        if (openclawConfigUnsetBtn) {
-          openclawConfigUnsetBtn.addEventListener('click', function(ev) {
-            ev.preventDefault();
-            const configPath = readOpenClawConfigPathInput();
-            if (!configPath) {
-              setXbrainOpenClawStatus('请先填写配置路径。', 'err');
-              return;
-            }
-            const oldText = String(openclawConfigUnsetBtn.textContent || '删除');
-            openclawConfigUnsetBtn.disabled = true;
-            openclawConfigUnsetBtn.textContent = '删除中...';
-            setXbrainOpenClawStatus('正在删除配置路径：' + configPath, 'ok');
-            void requestOpenClawConsoleJson('/api/openclaw/config/unset', { path: configPath })
-              .then(function(payload) {
-                setXbrainOpenClawConfigOutput('删除成功：\n' + String(payload?.output || 'ok'));
-                setXbrainOpenClawStatus('配置删除成功。', 'ok');
-              })
-              .catch(function(err) {
-                setXbrainOpenClawStatus('配置删除失败：' + String(err?.message || err), 'err');
-              })
-              .finally(function() {
-                openclawConfigUnsetBtn.disabled = false;
-                openclawConfigUnsetBtn.textContent = oldText;
-              });
           });
         }
 
@@ -9205,7 +8610,7 @@
               });
           });
         }
-        return Promise.all([initialXbrainLoadPromise, initialOpenClawLoadPromise, initialModelCenterCatalogPromise]).then(function() {
+        return Promise.all([initialXbrainLoadPromise, initialModelCenterCatalogPromise]).then(function() {
           return xbrainClientState.data;
         });
       }
@@ -9394,14 +8799,9 @@
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
         }
-        function shouldRenderMarkdownForSource(roleClassLike, sourceLike) {
-          const roleClass = String(roleClassLike || '').trim().toLowerCase();
-          if (roleClass !== 'bot') return false;
-          const source = String(sourceLike || 'dashboard').trim().toLowerCase();
-          // Render markdown for all bot sources (LLM responses always use markdown)
-          return source === 'dashboard' || source === 'llm_direct'
-            || source === 'openclaw' || source === 'deepseek'
-            || source === 'clarification_fast_path';
+        function shouldRenderMarkdownForSource(roleClassLike) {
+          // All bot messages use markdown — no source-based filtering needed
+          return String(roleClassLike || '').trim().toLowerCase() === 'bot';
         }
         function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass, sourceLike) {
           return createChatMessageElementRuntime(
@@ -9556,33 +8956,7 @@
         function formatExecutionTraceLocal(traceLike) {
           return formatExecutionTrace(traceLike);
         }
-        const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
-        const DEEPSEEK_MODEL = 'deepseek-chat';
-        function readDeepSeekKey() {
-          try {
-            return String(localStorage.getItem(DEEPSEEK_STORAGE_KEY) || '').trim();
-          } catch {
-            return '';
-          }
-        }
-        function writeDeepSeekKey(key) {
-          const k = String(key || '').trim();
-          if (!k) return false;
-          try {
-            localStorage.setItem(DEEPSEEK_STORAGE_KEY, k);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-        function clearDeepSeekKey() {
-          safeLocalRemove(DEEPSEEK_STORAGE_KEY);
-        }
-        function maskKey(key) {
-          const k = String(key || '').trim();
-          if (k.length < 12) return '****';
-          return k.slice(0, 6) + '...' + k.slice(-4);
-        }
+        // (DeepSeek direct client removed — all LLM calls go through backend)
         function parseJsonLooseLocal(text) {
           const raw = String(text || '').trim();
           if (!raw) return null;
@@ -9767,59 +9141,8 @@
             xbrain: xbrainSnapshotForContext(),
           };
         }
-        function buildDeepSeekMessages(question) {
-          const context = buildDirectContext();
-          return [
-            {
-              role: 'system',
-              content: [
-                '你是交易看板中的AI交易助理。',
-                '请严格根据给出的上下文回答，不要编造。',
-                '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest/run_strategy_dsl。',
-                'run_strategy_dsl 示例：{"type":"run_strategy_dsl","tf":"1d","bars":1200,"dsl":{"name":"feature-strategy","features":[{"name":"ema_5","kind":"ema","source":"close","period":5}],"entryLong":"close > ema_5","entryShort":"close < ema_5","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8}}}',
-                '用户可能只会口语表达（如“我想挣钱”“帮我搞个能跑的策略”），你要主动翻译成可执行动作并补全默认参数，不要要求术语。',
-                '除非用户明确要求切页，否则不要使用 switch_view。',
-              ].join('\n'),
-            },
-            {
-              role: 'user',
-              content: [
-                '[上下文]',
-                JSON.stringify(context, null, 2),
-                '',
-                '[问题]',
-                String(question || '').trim(),
-              ].join('\n'),
-            },
-          ];
-        }
-        async function askDeepSeekDirect(q) {
-          const key = readDeepSeekKey();
-          if (!key) throw new Error('NO_DEEPSEEK_KEY');
-          const resp = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + key,
-            },
-            body: JSON.stringify({
-              model: DEEPSEEK_MODEL,
-              temperature: 0.2,
-              messages: buildDeepSeekMessages(q),
-            }),
-          });
-          const payload = await resp.json().catch(function() { return null; });
-          if (!resp.ok || !payload) {
-            const errMsg = payload?.error?.message || ('HTTP ' + resp.status);
-            throw new Error(String(errMsg));
-          }
-          const content = String(payload?.choices?.[0]?.message?.content || '').trim();
-          if (!content) throw new Error('DeepSeek 返回为空');
-          const parsed = parseStructuredReply(content);
-          setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-          return parsed;
-        }
+        // (removed: DeepSeek direct client)
+
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
@@ -9859,14 +9182,13 @@
               return (idx + 1) + '. ' + (o.tradeId || '-') + ' · ' + (o.side === 'short' ? '空' : '多') + ' · ' + fmtTsShort(o.openTs) + ' · ' + pnlTxt;
             }).join('\n');
           }
-          return 'OpenClaw 暂时不可用，已切换本地助手兜底。你可以问：当前仓位、当前交易进展、策略状态、风控拦截、最近订单。';
+          return 'ThunderClaw 暂时不可用，已切换本地助手兜底。你可以问：当前仓位、当前交易进展、策略状态、风控拦截、最近订单。';
         }
         function buildClientContext() {
           return {
             currentView: activeViewName || 'dashboard',
             activeTradeId: activeOrderTradeId || null,
             userIntentHint: 'trade_dashboard_assistant',
-            directModeBound: Boolean(readDeepSeekKey()),
             snapshot: aiSnapshot(),
             communityStrategy: selectedXseaStrategy
               ? {
@@ -9884,31 +9206,6 @@
           const text = String(q || '').trim();
           if (!text) return null;
           const lower = text.toLowerCase();
-          if (lower === '/deepseek') {
-            const key = readDeepSeekKey();
-            if (key) return { reply: '当前已绑定 DeepSeek Key：' + maskKey(key), actions: [] };
-            return { reply: '当前未绑定 DeepSeek Key。可发送：/deepseek sk-xxxxx', actions: [] };
-          }
-          if (lower === '/deepseek clear') {
-            clearDeepSeekKey();
-            setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
-            return { reply: '已清除本地 DeepSeek Key。', actions: [] };
-          }
-          if (lower.startsWith('/deepseek ')) {
-            const parts = text.split(' ').filter(Boolean);
-            const maybeKey = parts.length >= 2 ? parts[1] : '';
-            const key = String(maybeKey || '').trim();
-            const isSk = key.toLowerCase().startsWith('sk-');
-            if (!isSk || key.length < 20) {
-              return { reply: 'DeepSeek Key 格式看起来不对，请确认以 sk- 开头后重试。', actions: [] };
-            }
-            const ok = writeDeepSeekKey(key);
-            if (ok) {
-              setAiLinkStatus('ok', 'DeepSeek: 已绑定(' + maskKey(key) + ')');
-              return { reply: '已绑定 DeepSeek Key（本机存储）。在静态部署/手机访问时将自动直连 DeepSeek。', actions: [] };
-            }
-            return { reply: '绑定失败：浏览器不允许本地存储。', actions: [] };
-          }
           return null;
         }
 
@@ -11184,8 +10481,8 @@
           box.scrollTop = box.scrollHeight;
           return row;
         }
-        async function askOpenClaw(q) {
-          return chatApiClient.askOpenClaw(q);
+        async function askThunderClaw(q) {
+          return chatApiClient.askThunderClaw(q);
         }
         function looksLikeConfigIntentLocal(q) {
           return looksLikeConfigIntentRuntime(q);
@@ -11212,53 +10509,10 @@
             } catch (_) {}
           }
           try {
-            return await askOpenClaw(q);
-          } catch (openclawErr) {
-            const openclawMsg = String(openclawErr?.message || openclawErr || '').trim();
-            const currentRuntimeRef = getCurrentRuntimeModelRef(xbrainClientState.data || {});
-            const currentRuntimeProvider = inferProviderFromModelRef(currentRuntimeRef);
-            const allowDeepSeekFallback = currentRuntimeProvider === 'deepseek';
-            if (!allowDeepSeekFallback) {
-              setAiLinkStatus('warn', 'OpenClaw: 当前模型链路离线');
-              return {
-                reply:
-                  '当前选中模型为 ' + (currentRuntimeRef || '(未知)') + '。\n'
-                  + 'OpenClaw 请求失败：' + String(openclawMsg || 'unknown_error') + '\n'
-                  + '为避免误判，本次不会自动降级到 DeepSeek。请先修复当前模型连接后再重试。',
-                actions: [],
-                source: 'gateway_unavailable',
-                runtimeModelRef: currentRuntimeRef || '',
-              };
-            }
-            try {
-              const out = await askDeepSeekDirect(q);
-              return {
-                ...out,
-                source: 'deepseek',
-                runtimeModelRef: 'deepseek/deepseek-chat',
-              };
-            } catch (deepseekErr) {
-              const msg = String(deepseekErr?.message || deepseekErr || '');
-              if (msg === 'NO_DEEPSEEK_KEY') {
-                setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
-                return {
-                  reply:
-                    'OpenClaw 网关当前不可用，且未绑定 DeepSeek Key。\n' +
-                    '请先检查服务状态，或发送：/deepseek sk-你的key 绑定后再试。',
-                  actions: [],
-                  source: 'gateway_unavailable',
-                };
-              }
-              setAiLinkStatus('warn', 'OpenClaw/DeepSeek 均离线');
-              return {
-                reply:
-                  '模型链路不可用：' +
-                  String(openclawMsg || msg || 'unknown_error') +
-                  '\n请检查 OpenClaw 网关与 DeepSeek 配置。',
-                actions: [],
-                source: 'gateway_unavailable',
-              };
-            }
+            return await askThunderClaw(q);
+          } catch (chatErr) {
+            setAiLinkStatus('warn', 'ThunderClaw: 离线');
+            return { reply: '当前模型不可用，请在虾脑中配置 API Key 后重试。', actions: [], source: 'error' };
           }
         }
         const chatInputGuard = createChatInputGuardRuntime();
@@ -11330,7 +10584,7 @@
                 ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
                 : '';
               const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
-              const storeSource = (source === 'openclaw' || source === 'llm_direct')
+              const storeSource = (source === 'llm_direct')
                 ? 'dashboard'
                 : (source === 'config' ? 'system' : source);
               setRowTextWithTypewriter(thinking, finalText, {
@@ -11362,7 +10616,7 @@
                   persist: false,
                 });
               }
-              if (source === 'openclaw' || source === 'config') {
+              if (source === 'llm_direct' || source === 'config') {
                 chatHistoryState.pendingBotEchoes.push({
                   text: baseReply,
                   storeText: finalText,
@@ -11751,17 +11005,15 @@
           }, CHAT_HISTORY_POLL_MS);
         }
         startChatHistoryPolling();
-        setAiLinkStatus('warn', 'OpenClaw: 检测中');
+        setAiLinkStatus('warn', 'ThunderClaw: 检测中');
         void fetch(CHAT_ROUTES.aiHealth, { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
-            if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
-            else if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+            if (j && j.ok) setAiLinkStatus('ok', 'ThunderClaw: 在线');
+            else setAiLinkStatus('warn', 'ThunderClaw: 离线');
           })
           .catch(function() {
-            if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+            setAiLinkStatus('warn', 'ThunderClaw: 离线');
           });
         if (!chatHistoryState.bootRendered && box.children.length === 0) {
           chatHistoryState.bootRendered = true;

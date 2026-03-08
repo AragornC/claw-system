@@ -2,7 +2,7 @@
  * ThunderClaw Server — Composition Root
  *
  * Wires all modules together and starts the HTTP server.
- * No OpenClaw dependency — uses LLM client directly for all AI operations.
+ * Uses LLM client directly for all AI operations.
  */
 
 import { spawnSync } from "node:child_process";
@@ -113,7 +113,7 @@ const strategyLabStore = createStrategyLabStore({
   backtestEngine: freqtradeBacktestAdapter,
 });
 
-// ─── Memory Layer (L1-L3, no OpenClaw L4) ────────────────────────────
+// ─── Memory Layer (L1-L3) ────────────────────────────────────────────
 const memoryLayer = createMemoryLayer({
   conversationContext,
   strategyLabStore,

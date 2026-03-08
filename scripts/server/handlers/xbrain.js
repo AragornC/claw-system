@@ -2,7 +2,7 @@
  * Xbrain Handlers — Model configuration management (虾脑)
  *
  * Self-contained: stores API keys, manages model registry, switches models.
- * No OpenClaw dependency.
+ * Self-contained — stores config locally, no external CLI dependency.
  */
 
 export function createXbrainHandlers(deps = {}) {
