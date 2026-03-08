@@ -380,12 +380,8 @@ export function createXbrainHandlers(deps = {}) {
       ? xbrainStore.locks[section]
       : { locked: false, hasPassword: false };
 
-    // Support both {action: "lock"/"unlock"} and {lock: boolean} formats
-    const action = toText(body?.action, "");
-    let locked;
-    if (action === "lock") locked = true;
-    else if (action === "unlock") locked = false;
-    else locked = body?.lock !== false;
+    const action = toText(body?.action, "lock");
+    const locked = action !== "unlock";
 
     // Password handling
     const password = toText(body?.password, "");
