@@ -155,7 +155,7 @@ const sessionHandlers = createSessionHandlers({
 const xbrainHandlers = createXbrainHandlers({
   readJsonBody, sendJson, xbrainStore, saveXbrainStore,
   normalizeProviderKey, inferProviderFromModelRef,
-  PROVIDER_DEFAULT_MODEL_REFS, providerSupportsApiKey,
+  PROVIDER_DEFAULT_MODEL_REFS, providerSupportsApiKey, providerSupportsOAuth,
   ensureProviderAuthEntry, isProviderConfigured,
   maskSecret, uniqStrings, toModelRef,
 });

@@ -11,7 +11,7 @@ export function createXbrainHandlers(deps = {}) {
   const {
     readJsonBody, sendJson, xbrainStore, saveXbrainStore,
     normalizeProviderKey, inferProviderFromModelRef,
-    PROVIDER_DEFAULT_MODEL_REFS, providerSupportsApiKey,
+    PROVIDER_DEFAULT_MODEL_REFS, providerSupportsApiKey, providerSupportsOAuth,
     ensureProviderAuthEntry, isProviderConfigured,
     maskSecret, uniqStrings, toModelRef,
   } = deps;
@@ -190,8 +190,8 @@ export function createXbrainHandlers(deps = {}) {
     const authSupport = {};
     for (const provider of KNOWN_PROVIDERS) {
       authSupport[provider] = {
-        apiKey: true,  // All providers support API key
-        oauth: false,  // OAuth not available in standalone mode
+        apiKey: typeof providerSupportsApiKey === "function" ? providerSupportsApiKey(provider) : true,
+        oauth: typeof providerSupportsOAuth === "function" ? providerSupportsOAuth(provider) : false,
       };
     }
 
@@ -227,13 +227,40 @@ export function createXbrainHandlers(deps = {}) {
       : [];
     const apiKey = toText(body?.apiKey, "");
     const setAsCurrent = body?.setAsCurrent !== false;
+    const authMethod = toText(body?.authMethod, "api-key");
 
     if (!provider) {
       sendJson(res, 400, { ok: false, error: "provider required" });
       return;
     }
 
-    // Store API key if provided
+    // OAuth flow
+    if (authMethod === "oauth") {
+      const supportsOAuth = typeof providerSupportsOAuth === "function" && providerSupportsOAuth(provider);
+      if (!supportsOAuth) {
+        sendJson(res, 400, { ok: false, error: `${provider} 不支持 OAuth 连接，请使用 API Key。` });
+        return;
+      }
+      // Return OAuth initiation info — user needs to complete OAuth externally
+      // In standalone mode, provide the standard OAuth URLs
+      const oauthUrls = {
+        chatgpt: "https://platform.openai.com/api-keys",
+        anthropic: "https://console.anthropic.com/settings/keys",
+      };
+      sendJson(res, 200, {
+        ok: true,
+        provider,
+        oauthPending: true,
+        oauthUrl: oauthUrls[provider] || "",
+        message: `请在浏览器中完成 ${provider} 的授权，获取 API Key 后在此处输入。`,
+        commandHint: oauthUrls[provider] ? `打开 ${oauthUrls[provider]} 获取 Key` : "",
+        providerConfigured: false,
+        state: getStateSnapshot(),
+      });
+      return;
+    }
+
+    // API Key flow
     if (apiKey) {
       ensureProviderAuth(provider, apiKey, "model_center");
     }
@@ -258,6 +285,7 @@ export function createXbrainHandlers(deps = {}) {
       provider,
       registered: newRefs,
       registry: updatedRegistry,
+      providerConfigured: Boolean(apiKey),
       runtimeModelRef: toModelRef(xbrainStore.base.runtimeModelProvider, xbrainStore.base.runtimeModelId),
       state: getStateSnapshot(),
     });
@@ -312,12 +340,25 @@ export function createXbrainHandlers(deps = {}) {
       sendJson(res, 400, { ok: false, error: "provider required" });
       return;
     }
-    // For API key providers, just return instructions
+    const supportsOAuth = typeof providerSupportsOAuth === "function" && providerSupportsOAuth(provider);
+    const keyUrls = {
+      deepseek: "https://platform.deepseek.com/api_keys",
+      chatgpt: "https://platform.openai.com/api-keys",
+      anthropic: "https://console.anthropic.com/settings/keys",
+      openrouter: "https://openrouter.ai/keys",
+      gemini: "https://aistudio.google.com/apikey",
+      zai: "https://open.bigmodel.cn/usercenter/apikeys",
+    };
     sendJson(res, 200, {
       ok: true,
       provider,
-      method: "apiKey",
-      message: `请在「注册模型」面板中输入 ${provider} 的 API Key 完成连接。`,
+      method: supportsOAuth ? "oauth" : "apiKey",
+      supportsOAuth,
+      supportsApiKey: true,
+      keyUrl: keyUrls[provider] || "",
+      message: supportsOAuth
+        ? `${provider} 支持 OAuth 和 API Key 两种连接方式。`
+        : `请在「注册模型」面板中输入 ${provider} 的 API Key 完成连接。`,
     });
   }
 
