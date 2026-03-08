@@ -226,5 +226,134 @@ export function createChatHandler(deps = {}) {
     sendJson(res, updated?.ok ? 200 : 404, updated || { ok: false });
   }
 
-  return { handleAiChat, handleChatHistory, handleChatCardStatus };
+  // ─── /api/ai/chat/stream (SSE) ──────────────────────────────────────
+  async function handleAiChatStream(req, res) {
+    const body = await readJsonBody(req);
+    const message = String(body.message ?? "").trim();
+    if (!message) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "message is required" }));
+      return;
+    }
+
+    // SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    function sendSSE(event, data) {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    }
+
+    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    if (conversationContext) conversationContext.addMessage("user", message);
+
+    sendSSE("thinking", { step: "start", message: "收到消息，开始处理...", status: "running" });
+
+    // Build memory context
+    const ml = memoryLayer;
+    if (ml) void ml.maybeCompressContext().catch(() => {});
+    sendSSE("thinking", { step: "memory", message: "加载对话上下文和特征库...", status: "running" });
+    const memoryCtx = ml ? await ml.buildFullMemoryContext(message).catch(() => "") : "";
+    sendSSE("thinking", { step: "memory", message: "上下文加载完成", status: "done" });
+
+    // Intent gating
+    const existingFeatureNames = collectFeatureNames();
+    sendSSE("thinking", { step: "intent_gating", message: "分析对话意图...", status: "running" });
+    const shouldCallLlm = shouldCallLlmForIntent(message, existingFeatureNames);
+    const gatingPreCheck = runIntentGating({ message, existingFeatureNames });
+
+    if (gatingPreCheck.shouldTriggerClarification) {
+      sendSSE("thinking", { step: "intent_gating", message: `检测到特征创建意图 (${gatingPreCheck.reason})`, status: "done" });
+    } else {
+      sendSSE("thinking", { step: "intent_gating", message: `普通对话 (${gatingPreCheck.reason})`, status: "done" });
+    }
+
+    // Clarification fast path
+    if (shouldCallLlm && typeof detectAndClarify === "function") {
+      sendSSE("thinking", { step: "clarification", message: "正在理解特征需求...", status: "running" });
+      const card = await tryClarification(message, memoryCtx, existingFeatureNames);
+      if (card) {
+        sendSSE("thinking", { step: "clarification", message: `已识别：${card.headline || "特征概念"}`, status: "done" });
+        trackCardShown(card);
+        sendSSE("card", card);
+        sendSSE("done", { source: "clarification_fast_path", state: getXbrainStateSnapshot() });
+        res.end();
+        return;
+      }
+      sendSSE("thinking", { step: "clarification", message: "未触发特征生成，转入对话模式", status: "done" });
+    }
+
+    // Chat path: streaming LLM response
+    sendSSE("thinking", { step: "llm_call", message: "正在生成回复...", status: "running" });
+
+    const history = conversationContext ? conversationContext.getRecentHistory(16) : [];
+    const extra = gatingPreCheck.shouldTriggerClarification
+      ? "\n\n## 注意\n用户想创建特征，但特征卡片未能生成。请引导用户更具体地描述需求，不要直接输出代码。"
+      : "";
+    const systemPrompt = SYSTEM_PROMPT + extra + (memoryCtx || "");
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...history,
+      { role: "user", content: message },
+    ];
+
+    let fullReply = "";
+    try {
+      const cfg = typeof getModelConfig === "function" ? getModelConfig() : null;
+      if (!cfg?.apiKey) {
+        sendSSE("thinking", { step: "llm_call", message: "模型未配置 API Key", status: "error" });
+        sendSSE("token", { text: "请先在虾脑中配置模型 API Key 后再对话。" });
+        fullReply = "请先在虾脑中配置模型 API Key 后再对话。";
+      } else {
+        const llm = createLlmClient({ getModelConfig });
+        sendSSE("thinking", { step: "llm_call", message: `调用 ${cfg.provider}/${cfg.model}...`, status: "running" });
+
+        const stream = llm.chatCompletionStream({
+          messages,
+          temperature: 0.4,
+          maxTokens: 2048,
+          timeoutMs: 60_000,
+        });
+
+        for await (const chunk of stream) {
+          if (chunk.type === "token" && chunk.text) {
+            fullReply += chunk.text;
+            sendSSE("token", { text: chunk.text });
+          } else if (chunk.type === "error") {
+            sendSSE("thinking", { step: "llm_call", message: `错误: ${chunk.error}`, status: "error" });
+            if (!fullReply) {
+              fullReply = "模型调用失败，请稍后重试。";
+              sendSSE("token", { text: fullReply });
+            }
+            break;
+          } else if (chunk.type === "done") {
+            break;
+          }
+        }
+        sendSSE("thinking", { step: "llm_call", message: "回复生成完成", status: "done" });
+      }
+    } catch (err) {
+      if (!fullReply) {
+        fullReply = "模型调用失败，请稍后重试。";
+        sendSSE("token", { text: fullReply });
+      }
+    }
+
+    // Save to context
+    if (fullReply && conversationContext) conversationContext.addMessage("assistant", fullReply);
+    if (fullReply) appendChatEvent({ role: "bot", source: "dashboard", text: fullReply });
+
+    sendSSE("done", {
+      source: "llm_direct",
+      state: getXbrainStateSnapshot(),
+      runtimeModelRef: getCurrentRuntimeModelRef(),
+    });
+    res.end();
+  }
+
+  return { handleAiChat, handleAiChatStream, handleChatHistory, handleChatCardStatus };
 }

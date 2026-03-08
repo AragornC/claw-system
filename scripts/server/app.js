@@ -185,6 +185,7 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStatus,
   // Chat
   handleAiChat: chatHandler.handleAiChat,
+  handleAiChatStream: chatHandler.handleAiChatStream,
   handleChatHistory: chatHandler.handleChatHistory,
   handleChatCardStatus: chatHandler.handleChatCardStatus,
   // Session
