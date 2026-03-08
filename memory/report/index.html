@@ -9398,7 +9398,10 @@
           const roleClass = String(roleClassLike || '').trim().toLowerCase();
           if (roleClass !== 'bot') return false;
           const source = String(sourceLike || 'dashboard').trim().toLowerCase();
-          return source === 'dashboard' || source === 'openclaw' || source === 'deepseek';
+          // Render markdown for all bot sources (LLM responses always use markdown)
+          return source === 'dashboard' || source === 'llm_direct'
+            || source === 'openclaw' || source === 'deepseek'
+            || source === 'clarification_fast_path';
         }
         function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass, sourceLike) {
           return createChatMessageElementRuntime(
@@ -11327,7 +11330,7 @@
                 ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
                 : '';
               const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
-              const storeSource = source === 'openclaw'
+              const storeSource = (source === 'openclaw' || source === 'llm_direct')
                 ? 'dashboard'
                 : (source === 'config' ? 'system' : source);
               setRowTextWithTypewriter(thinking, finalText, {
