@@ -4,7 +4,7 @@
  * L1: Short-term window (from conversation-context.js)
  * L2: Session summaries + evolution compression
  * L3: Structured state (feature/strategy store snapshot)
- * L4: Long-term retrieval (OpenClaw memory integration)
+ * L4: (reserved for future long-term retrieval)
  *
  * This module composes all four layers into a unified system prompt injection.
  */

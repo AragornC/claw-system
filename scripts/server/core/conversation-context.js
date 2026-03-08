@@ -3,7 +3,7 @@
  *
  * Maintains per-session conversation history with a sliding window.
  * Persists to disk so context survives server restart.
- * Compatible with OpenClaw's session-id scheme.
+ * Supports multi-session with sliding window and archival.
  *
  * Features:
  * - Sliding window (configurable, default 20 messages)
