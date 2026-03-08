@@ -192,10 +192,19 @@ const apiRouter = createHttpRouter(buildApiRouteTable({
   handleSessionArchive: sessionHandlers.handleSessionArchive,
   handleSessionList: sessionHandlers.handleSessionList,
   handleSessionRestore: sessionHandlers.handleSessionRestore,
-  // Xbrain (model config)
+  // Xbrain (model config — 虾脑)
   handleXbrainState: xbrainHandlers.handleXbrainState,
   handleXbrainUpdate: xbrainHandlers.handleXbrainUpdate,
   handleXbrainModelSwitch: xbrainHandlers.handleXbrainModelSwitch,
+  handleXbrainModelsCatalog: xbrainHandlers.handleXbrainModelsCatalog,
+  handleXbrainModelConnect: xbrainHandlers.handleXbrainModelConnect,
+  handleXbrainModelDisconnect: xbrainHandlers.handleXbrainModelDisconnect,
+  handleXbrainAuthStart: xbrainHandlers.handleXbrainAuthStart,
+  handleXbrainAuthStatus: xbrainHandlers.handleXbrainAuthStatus,
+  handleXbrainAuthInput: xbrainHandlers.handleXbrainAuthInput,
+  handleXbrainAuthDisconnect: xbrainHandlers.handleXbrainAuthDisconnect,
+  handleXbrainProviderRemove: xbrainHandlers.handleXbrainProviderRemove,
+  handleXbrainLock: xbrainHandlers.handleXbrainLock,
   // Strategy Lab
   ...strategyLabHdl,
 }));

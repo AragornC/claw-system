@@ -26,10 +26,19 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "GET", path: "/api/session/list", handler: expectHandler(handlers, "handleSessionList") },
     { method: "POST", path: "/api/session/restore", handler: expectHandler(handlers, "handleSessionRestore") },
 
-    // Xbrain (model config)
+    // Xbrain (model config — 虾脑)
     { method: "GET", path: "/api/xbrain/state", handler: expectHandler(handlers, "handleXbrainState") },
     { method: "POST", path: "/api/xbrain/update", handler: expectHandler(handlers, "handleXbrainUpdate") },
     { method: "POST", path: "/api/xbrain/model/switch", handler: expectHandler(handlers, "handleXbrainModelSwitch") },
+    { method: "GET", path: "/api/xbrain/models/catalog", handler: expectHandler(handlers, "handleXbrainModelsCatalog") },
+    { method: "POST", path: "/api/xbrain/models/connect", handler: expectHandler(handlers, "handleXbrainModelConnect") },
+    { method: "POST", path: "/api/xbrain/models/disconnect", handler: expectHandler(handlers, "handleXbrainModelDisconnect") },
+    { method: "GET", path: "/api/xbrain/auth/status", handler: expectHandler(handlers, "handleXbrainAuthStatus") },
+    { method: "POST", path: "/api/xbrain/auth/start", handler: expectHandler(handlers, "handleXbrainAuthStart") },
+    { method: "POST", path: "/api/xbrain/auth/input", handler: expectHandler(handlers, "handleXbrainAuthInput") },
+    { method: "POST", path: "/api/xbrain/auth/disconnect", handler: expectHandler(handlers, "handleXbrainAuthDisconnect") },
+    { method: "POST", path: "/api/xbrain/provider/remove", handler: expectHandler(handlers, "handleXbrainProviderRemove") },
+    { method: "POST", path: "/api/xbrain/lock", handler: expectHandler(handlers, "handleXbrainLock") },
 
     // Strategy Lab — Features
     { method: "GET", path: "/api/strategy/features", handler: expectHandler(handlers, "handleStrategyFeatures") },
