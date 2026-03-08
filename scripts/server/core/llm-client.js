@@ -181,6 +181,156 @@ export function createLlmClient(deps = {}) {
   }
 
   /**
+   * Streaming chat completion — yields tokens as they arrive.
+   * Works with OpenAI-compatible SSE streaming endpoints.
+   *
+   * @param {Object} params - Same as chatCompletion, plus onToken callback
+   * @returns {AsyncGenerator<{type: string, text?: string, done?: boolean}>}
+   */
+  async function* chatCompletionStream(params = {}) {
+    const config = resolveConfig(params);
+    if (!config.apiKey) {
+      yield { type: "error", error: `No API key for provider: ${config.provider}` };
+      return;
+    }
+    if (!config.apiBase) {
+      yield { type: "error", error: `No API base URL for provider: ${config.provider}` };
+      return;
+    }
+
+    const timeoutMs = Number.isFinite(params.timeoutMs) ? params.timeoutMs : 90_000;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+
+    try {
+      const body = {
+        model: config.model,
+        messages: (params.messages || []).map((m) => ({
+          role: toText(m.role, "user"),
+          content: toText(m.content, ""),
+        })),
+        temperature: Number.isFinite(params.temperature) ? params.temperature : 0.3,
+        max_tokens: params.maxTokens || 4096,
+        stream: true,
+      };
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      };
+      if (config.provider === "openrouter") {
+        headers["HTTP-Referer"] = "https://thunderclaw.dev";
+        headers["X-Title"] = "ThunderClaw";
+      }
+      const endpoint = config.apiBase.endsWith("/chat/completions")
+        ? config.apiBase
+        : `${config.apiBase}/chat/completions`;
+      const url = endpoint.includes("/v1/") || endpoint.includes("/v1beta/")
+        ? endpoint
+        : endpoint.replace(/\/chat\/completions$/, "/v1/chat/completions");
+
+      // Anthropic native streaming uses different format
+      const isAnthropic = isAnthropicNative(config.provider, config.apiBase);
+      if (isAnthropic) {
+        const anthBody = {
+          model: config.model,
+          max_tokens: params.maxTokens || 4096,
+          stream: true,
+          messages: (params.messages || []).filter((m) => m.role !== "system").map((m) => ({
+            role: toText(m.role, "user"),
+            content: toText(m.content, ""),
+          })),
+        };
+        const sysMsg = (params.messages || []).find((m) => m.role === "system");
+        if (sysMsg) anthBody.system = toText(sysMsg.content, "");
+        if (Number.isFinite(params.temperature)) anthBody.temperature = params.temperature;
+
+        const resp = await fetch(`${config.apiBase}/v1/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(anthBody),
+          signal: ac.signal,
+        });
+        if (!resp.ok) {
+          const errJson = await resp.json().catch(() => ({}));
+          yield { type: "error", error: toText(errJson?.error?.message || `HTTP ${resp.status}`) };
+          return;
+        }
+        yield* parseSSEStream(resp.body, "anthropic");
+        return;
+      }
+
+      // OpenAI-compatible streaming
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+      if (!resp.ok) {
+        const errJson = await resp.json().catch(() => ({}));
+        yield { type: "error", error: toText(errJson?.error?.message || errJson?.error || `HTTP ${resp.status}`) };
+        return;
+      }
+      yield* parseSSEStream(resp.body, "openai");
+    } catch (err) {
+      const errMsg = err?.name === "AbortError"
+        ? `LLM API timeout (${timeoutMs}ms)`
+        : toText(err?.message || err || "stream failed");
+      yield { type: "error", error: errMsg };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Parse SSE stream from provider response body.
+   */
+  async function* parseSSEStream(body, format = "openai") {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
+        if (trimmed === "data: [DONE]") {
+          yield { type: "done" };
+          return;
+        }
+        if (trimmed.startsWith("data: ")) {
+          try {
+            const json = JSON.parse(trimmed.slice(6));
+            if (format === "openai") {
+              const delta = json.choices?.[0]?.delta;
+              const content = delta?.content || "";
+              if (content) yield { type: "token", text: content };
+              if (json.choices?.[0]?.finish_reason) {
+                yield { type: "done" };
+                return;
+              }
+            } else if (format === "anthropic") {
+              if (json.type === "content_block_delta" && json.delta?.text) {
+                yield { type: "token", text: json.delta.text };
+              }
+              if (json.type === "message_stop") {
+                yield { type: "done" };
+                return;
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+    yield { type: "done" };
+  }
+
+  /**
    * Send a chat completion request using the current model.
    */
   async function chatCompletion(params = {}) {
@@ -257,6 +407,7 @@ export function createLlmClient(deps = {}) {
 
   return {
     chatCompletion,
+    chatCompletionStream,
     chatCompletionJson,
     ping,
     getCurrentConfig,
