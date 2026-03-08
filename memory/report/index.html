@@ -10481,8 +10481,8 @@
           box.scrollTop = box.scrollHeight;
           return row;
         }
-        async function askOpenClaw(q) {
-          return chatApiClient.askOpenClaw(q);
+        async function askThunderClaw(q) {
+          return chatApiClient.askThunderClaw(q);
         }
         function looksLikeConfigIntentLocal(q) {
           return looksLikeConfigIntentRuntime(q);
@@ -10509,8 +10509,8 @@
             } catch (_) {}
           }
           try {
-            return await askOpenClaw(q);
-          } catch (openclawErr) {
+            return await askThunderClaw(q);
+          } catch (chatErr) {
             setAiLinkStatus('warn', 'ThunderClaw: 离线');
             return { reply: '当前模型不可用，请在虾脑中配置 API Key 后重试。', actions: [], source: 'error' };
           }
@@ -10584,7 +10584,7 @@
                 ? ('\n\n系统同步：当前会话模型已更新为 ' + syncModelRef)
                 : '';
               const finalText = baseReply + (actionNote ? ('\n\n执行结果：' + actionNote) : '') + syncNote + traceNote;
-              const storeSource = (source === 'openclaw' || source === 'llm_direct')
+              const storeSource = (source === 'llm_direct')
                 ? 'dashboard'
                 : (source === 'config' ? 'system' : source);
               setRowTextWithTypewriter(thinking, finalText, {
@@ -10616,7 +10616,7 @@
                   persist: false,
                 });
               }
-              if (source === 'openclaw' || source === 'config') {
+              if (source === 'llm_direct' || source === 'config') {
                 chatHistoryState.pendingBotEchoes.push({
                   text: baseReply,
                   storeText: finalText,

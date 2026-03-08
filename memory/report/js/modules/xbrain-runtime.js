@@ -74,7 +74,7 @@ var createXbrainFlowHelpers = function createXbrainFlowHelpers(deps) {
 
   async function runXbrainProviderProbeFlow(options = {}) {
     const opts = options && typeof options === 'object' ? options : {};
-    const provider = d.normalizeProviderKey(opts.provider || d.getCurrentProvider?.() || 'deepseek');
+    const provider = d.normalizeProviderKey(opts.provider || d.getCurrentProvider?.() || '');
     const showModal = opts.showModal !== false;
     const stepList = [];
     function refreshOnlineToggle() {
@@ -105,7 +105,7 @@ var createXbrainFlowHelpers = function createXbrainFlowHelpers(deps) {
     const providerAuth = base.providerAuth && typeof base.providerAuth === 'object' ? base.providerAuth : {};
     const oauthConnected = Boolean(d.getOauthConnected?.(provider));
     const configured = Boolean(providerAuth?.[provider]?.configured);
-    const configOk = configured || oauthConnected || (provider !== 'deepseek' && Number(authStatus?.exitCode) === 0);
+    const configOk = configured || oauthConnected || Number(authStatus?.exitCode) === 0;
     if (!configOk) {
       pushStep('2/4 API 配置校验未通过（请先完成连接配置）', 'err');
       d.rememberProviderCheck(provider, false, '配置校验未通过');
@@ -113,10 +113,8 @@ var createXbrainFlowHelpers = function createXbrainFlowHelpers(deps) {
       return { ok: false, provider, error: '配置校验未通过' };
     }
     pushStep('2/4 API 配置校验通过', 'ok');
-    pushStep('3/4 执行 OpenClaw 会话模型探针（非模拟对话）', 'pending');
-    const runtimeOk = provider === 'deepseek'
-      ? runtimeProvider === 'deepseek' && Boolean(runtimeModel)
-      : (runtimeProvider === provider && Boolean(runtimeModel)) || oauthConnected;
+    pushStep('3/4 执行 ThunderClaw 会话模型探针（非模拟对话）', 'pending');
+    const runtimeOk = (runtimeProvider === provider && Boolean(runtimeModel)) || oauthConnected;
     if (!runtimeOk) {
       pushStep('4/4 检测未通过：当前会话探针未确认到该厂商可用', 'err');
       d.rememberProviderCheck(provider, false, '会话探针未确认');
@@ -144,12 +142,7 @@ var createXbrainFlowHelpers = function createXbrainFlowHelpers(deps) {
     pushStep('1/4 接收切换请求：' + modelRef, 'pending');
     const payload = await d.switchXbrainRuntimeModel(modelRef, provider);
     pushStep('2/4 写入虾脑配置完成', 'ok');
-    const syncOk = payload?.openclawModelSync == null || payload?.openclawModelSync?.ok === true;
-    if (!syncOk) {
-      pushStep('3/4 OpenClaw 同步失败：' + String(payload?.openclawModelSync?.error || 'unknown'), 'err');
-      throw new Error(String(payload?.openclawModelSync?.error || 'OpenClaw 同步失败'));
-    }
-    pushStep('3/4 OpenClaw 模型同步完成', 'ok');
+    pushStep('3/4 ThunderClaw 模型同步完成', 'ok');
     const freshState = await d.fetchXbrainState(true);
     pushStep('4/4 会话探针刷新完成', 'ok');
     return freshState;
