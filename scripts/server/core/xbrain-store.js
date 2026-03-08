@@ -19,18 +19,14 @@ export function createXbrainStoreManager(optionsLike = {}) {
   function createInitialXbrainStore() {
     return {
       base: {
-        modelProvider: "deepseek",
-        modelId: "deepseek-chat",
-        runtimeModelProvider: "deepseek",
-        runtimeModelId: "deepseek-chat",
-        providerCatalog: ["deepseek", "chatgpt", "anthropic"],
-        modelRegistry: ["deepseek/deepseek-chat"],
+        modelProvider: "",
+        modelId: "",
+        runtimeModelProvider: "",
+        runtimeModelId: "",
+        providerCatalog: ["deepseek", "chatgpt", "anthropic", "openrouter", "gemini", "zai"],
+        modelRegistry: [],
         deepseekApiKey: "",
-        providerAuth: {
-          deepseek: { configured: false, type: "apiKey", source: "-", error: "" },
-          chatgpt: { configured: false, type: "oauth", source: "-", error: "" },
-          anthropic: { configured: false, type: "oauth", source: "-", error: "" },
-        },
+        providerAuth: {},
         telegramTokenValue: "",
         telegramRelayEnabled: false,
         chatChannel: "dashboard",
