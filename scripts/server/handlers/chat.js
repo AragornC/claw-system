@@ -355,5 +355,54 @@ export function createChatHandler(deps = {}) {
     res.end();
   }
 
-  return { handleAiChat, handleAiChatStream, handleChatHistory, handleChatCardStatus };
+  // ─── /api/config/chat (slash command handler) ───────────────────────
+  async function handleConfigChat(req, res) {
+    const body = await readJsonBody(req);
+    const message = String(body?.message ?? "").trim();
+    if (!message) {
+      sendJson(res, 200, { ok: true, handled: false, reply: "" });
+      return;
+    }
+    // Handle /model switch commands
+    if (message.startsWith("/model ")) {
+      const modelRef = message.slice(7).trim();
+      if (!modelRef || !modelRef.includes("/")) {
+        sendJson(res, 200, { ok: true, handled: true, reply: "请使用格式：/model provider/model" });
+        return;
+      }
+      // Switch model
+      const { provider } = deps.inferProviderFromModelRef ? deps.inferProviderFromModelRef(modelRef) : { provider: modelRef.split("/")[0] };
+      const xb = deps.xbrainStore || {};
+      const parts = modelRef.split("/");
+      xb.base.runtimeModelProvider = parts[0];
+      xb.base.runtimeModelId = parts.slice(1).join("/");
+      if (deps.saveXbrainStore) deps.saveXbrainStore();
+      sendJson(res, 200, {
+        ok: true,
+        handled: true,
+        reply: `模型已切换：${modelRef}`,
+        runtimeModelRef: modelRef,
+        state: getXbrainStateSnapshot(),
+      });
+      return;
+    }
+    // Not a recognized config command
+    sendJson(res, 200, { ok: true, handled: false, reply: "" });
+  }
+
+  // ─── /api/ai/health ─────────────────────────────────────────────────
+  async function handleAiHealth(req, res) {
+    const cfg = typeof getModelConfig === "function" ? getModelConfig() : {};
+    const hasKey = Boolean(cfg?.apiKey);
+    const provider = cfg?.provider || "";
+    sendJson(res, 200, {
+      ok: hasKey,
+      healthy: hasKey,
+      modelReady: hasKey,
+      provider,
+      model: cfg?.model || "",
+    });
+  }
+
+  return { handleAiChat, handleAiChatStream, handleAiHealth, handleConfigChat, handleChatHistory, handleChatCardStatus };
 }

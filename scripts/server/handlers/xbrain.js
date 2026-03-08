@@ -19,7 +19,20 @@ export function createXbrainHandlers(deps = {}) {
   if (!xbrainStore || typeof xbrainStore !== "object") throw new Error("xbrainStore is required");
 
   function getStateSnapshot() {
-    return { base: { ...xbrainStore.base }, exchange: xbrainStore.exchange, strategy: xbrainStore.strategy };
+    // Ensure locks exist with expected structure
+    const locks = xbrainStore.locks && typeof xbrainStore.locks === "object" ? xbrainStore.locks : {};
+    const defaultLock = { locked: false, hasPassword: false };
+    return {
+      base: { ...xbrainStore.base },
+      exchange: xbrainStore.exchange || {},
+      strategy: xbrainStore.strategy || {},
+      locks: {
+        base: locks.base && typeof locks.base === "object" ? locks.base : defaultLock,
+        channel: locks.channel && typeof locks.channel === "object" ? locks.channel : defaultLock,
+        exchange: locks.exchange && typeof locks.exchange === "object" ? locks.exchange : defaultLock,
+        strategy: locks.strategy && typeof locks.strategy === "object" ? locks.strategy : defaultLock,
+      },
+    };
   }
 
   /** All known provider keys with their default model refs */
@@ -358,16 +371,42 @@ export function createXbrainHandlers(deps = {}) {
   async function handleXbrainLock(req, res) {
     const body = await readJsonBody(req);
     const section = toText(body?.section, "");
-    const lock = body?.lock !== false;
     if (!section) {
       sendJson(res, 400, { ok: false, error: "section required" });
       return;
     }
-    // Store lock state
     if (!xbrainStore.locks) xbrainStore.locks = {};
-    xbrainStore.locks[section] = lock;
+    const current = xbrainStore.locks[section] && typeof xbrainStore.locks[section] === "object"
+      ? xbrainStore.locks[section]
+      : { locked: false, hasPassword: false };
+
+    // Support both {action: "lock"/"unlock"} and {lock: boolean} formats
+    const action = toText(body?.action, "");
+    let locked;
+    if (action === "lock") locked = true;
+    else if (action === "unlock") locked = false;
+    else locked = body?.lock !== false;
+
+    // Password handling
+    const password = toText(body?.password, "");
+    const currentPassword = toText(body?.currentPassword, "");
+    const hasPassword = Boolean(password) || Boolean(current.hasPassword);
+
+    // If unlocking with password required, verify
+    if (!locked && current.hasPassword && current.passwordHash) {
+      if (currentPassword !== current.passwordHash && password !== current.passwordHash) {
+        sendJson(res, 403, { ok: false, error: "密码不正确" });
+        return;
+      }
+    }
+
+    xbrainStore.locks[section] = {
+      locked,
+      hasPassword: locked ? (Boolean(password) || current.hasPassword) : false,
+      passwordHash: locked && password ? password : (locked ? current.passwordHash : ""),
+    };
     saveXbrainStore();
-    sendJson(res, 200, { ok: true, section, locked: lock, state: getStateSnapshot() });
+    sendJson(res, 200, { ok: true, section, locked, state: getStateSnapshot() });
   }
 
   /** Helper: configure provider auth with API key */
