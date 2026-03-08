@@ -9394,14 +9394,9 @@
         function fmtChatTs(tsLike) {
           return fmtChatTsRuntime(tsLike);
         }
-        function shouldRenderMarkdownForSource(roleClassLike, sourceLike) {
-          const roleClass = String(roleClassLike || '').trim().toLowerCase();
-          if (roleClass !== 'bot') return false;
-          const source = String(sourceLike || 'dashboard').trim().toLowerCase();
-          // Render markdown for all bot sources (LLM responses always use markdown)
-          return source === 'dashboard' || source === 'llm_direct'
-            || source === 'openclaw' || source === 'deepseek'
-            || source === 'clarification_fast_path';
+        function shouldRenderMarkdownForSource(roleClassLike) {
+          // All bot messages use markdown — no source-based filtering needed
+          return String(roleClassLike || '').trim().toLowerCase() === 'bot';
         }
         function createChatMessageElement(roleClass, text, tsLike, statusText, pendingKey, statusClass, sourceLike) {
           return createChatMessageElementRuntime(
@@ -9556,33 +9551,7 @@
         function formatExecutionTraceLocal(traceLike) {
           return formatExecutionTrace(traceLike);
         }
-        const DEEPSEEK_STORAGE_KEY = 'perpReport.deepseekApiKey';
-        const DEEPSEEK_MODEL = 'deepseek-chat';
-        function readDeepSeekKey() {
-          try {
-            return String(localStorage.getItem(DEEPSEEK_STORAGE_KEY) || '').trim();
-          } catch {
-            return '';
-          }
-        }
-        function writeDeepSeekKey(key) {
-          const k = String(key || '').trim();
-          if (!k) return false;
-          try {
-            localStorage.setItem(DEEPSEEK_STORAGE_KEY, k);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-        function clearDeepSeekKey() {
-          safeLocalRemove(DEEPSEEK_STORAGE_KEY);
-        }
-        function maskKey(key) {
-          const k = String(key || '').trim();
-          if (k.length < 12) return '****';
-          return k.slice(0, 6) + '...' + k.slice(-4);
-        }
+        // (DeepSeek direct client removed — all LLM calls go through backend)
         function parseJsonLooseLocal(text) {
           const raw = String(text || '').trim();
           if (!raw) return null;
@@ -9767,59 +9736,8 @@
             xbrain: xbrainSnapshotForContext(),
           };
         }
-        function buildDeepSeekMessages(question) {
-          const context = buildDirectContext();
-          return [
-            {
-              role: 'system',
-              content: [
-                '你是交易看板中的AI交易助理。',
-                '请严格根据给出的上下文回答，不要编造。',
-                '输出必须是JSON：{"reply":"中文回复","actions":[...]}',
-                'actions可选，支持：switch_view/focus_trade/run_backtest/run_backtest_compare/run_custom_backtest/run_strategy_dsl。',
-                'run_strategy_dsl 示例：{"type":"run_strategy_dsl","tf":"1d","bars":1200,"dsl":{"name":"feature-strategy","features":[{"name":"ema_5","kind":"ema","source":"close","period":5}],"entryLong":"close > ema_5","entryShort":"close < ema_5","exitLong":"close < ema_5","exitShort":"close > ema_5","risk":{"stopAtr":1.2,"tpAtr":2.8}}}',
-                '用户可能只会口语表达（如“我想挣钱”“帮我搞个能跑的策略”），你要主动翻译成可执行动作并补全默认参数，不要要求术语。',
-                '除非用户明确要求切页，否则不要使用 switch_view。',
-              ].join('\n'),
-            },
-            {
-              role: 'user',
-              content: [
-                '[上下文]',
-                JSON.stringify(context, null, 2),
-                '',
-                '[问题]',
-                String(question || '').trim(),
-              ].join('\n'),
-            },
-          ];
-        }
-        async function askDeepSeekDirect(q) {
-          const key = readDeepSeekKey();
-          if (!key) throw new Error('NO_DEEPSEEK_KEY');
-          const resp = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + key,
-            },
-            body: JSON.stringify({
-              model: DEEPSEEK_MODEL,
-              temperature: 0.2,
-              messages: buildDeepSeekMessages(q),
-            }),
-          });
-          const payload = await resp.json().catch(function() { return null; });
-          if (!resp.ok || !payload) {
-            const errMsg = payload?.error?.message || ('HTTP ' + resp.status);
-            throw new Error(String(errMsg));
-          }
-          const content = String(payload?.choices?.[0]?.message?.content || '').trim();
-          if (!content) throw new Error('DeepSeek 返回为空');
-          const parsed = parseStructuredReply(content);
-          setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-          return parsed;
-        }
+        // (removed: DeepSeek direct client)
+
         function localAnswer(q) {
           const s = aiSnapshot();
           const ql = String(q || '').toLowerCase();
@@ -9866,7 +9784,6 @@
             currentView: activeViewName || 'dashboard',
             activeTradeId: activeOrderTradeId || null,
             userIntentHint: 'trade_dashboard_assistant',
-            directModeBound: Boolean(readDeepSeekKey()),
             snapshot: aiSnapshot(),
             communityStrategy: selectedXseaStrategy
               ? {
@@ -9884,31 +9801,6 @@
           const text = String(q || '').trim();
           if (!text) return null;
           const lower = text.toLowerCase();
-          if (lower === '/deepseek') {
-            const key = readDeepSeekKey();
-            if (key) return { reply: '当前已绑定 DeepSeek Key：' + maskKey(key), actions: [] };
-            return { reply: '当前未绑定 DeepSeek Key。可发送：/deepseek sk-xxxxx', actions: [] };
-          }
-          if (lower === '/deepseek clear') {
-            clearDeepSeekKey();
-            setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
-            return { reply: '已清除本地 DeepSeek Key。', actions: [] };
-          }
-          if (lower.startsWith('/deepseek ')) {
-            const parts = text.split(' ').filter(Boolean);
-            const maybeKey = parts.length >= 2 ? parts[1] : '';
-            const key = String(maybeKey || '').trim();
-            const isSk = key.toLowerCase().startsWith('sk-');
-            if (!isSk || key.length < 20) {
-              return { reply: 'DeepSeek Key 格式看起来不对，请确认以 sk- 开头后重试。', actions: [] };
-            }
-            const ok = writeDeepSeekKey(key);
-            if (ok) {
-              setAiLinkStatus('ok', 'DeepSeek: 已绑定(' + maskKey(key) + ')');
-              return { reply: '已绑定 DeepSeek Key（本机存储）。在静态部署/手机访问时将自动直连 DeepSeek。', actions: [] };
-            }
-            return { reply: '绑定失败：浏览器不允许本地存储。', actions: [] };
-          }
           return null;
         }
 
@@ -11214,51 +11106,8 @@
           try {
             return await askOpenClaw(q);
           } catch (openclawErr) {
-            const openclawMsg = String(openclawErr?.message || openclawErr || '').trim();
-            const currentRuntimeRef = getCurrentRuntimeModelRef(xbrainClientState.data || {});
-            const currentRuntimeProvider = inferProviderFromModelRef(currentRuntimeRef);
-            const allowDeepSeekFallback = currentRuntimeProvider === 'deepseek';
-            if (!allowDeepSeekFallback) {
-              setAiLinkStatus('warn', 'OpenClaw: 当前模型链路离线');
-              return {
-                reply:
-                  '当前选中模型为 ' + (currentRuntimeRef || '(未知)') + '。\n'
-                  + 'OpenClaw 请求失败：' + String(openclawMsg || 'unknown_error') + '\n'
-                  + '为避免误判，本次不会自动降级到 DeepSeek。请先修复当前模型连接后再重试。',
-                actions: [],
-                source: 'gateway_unavailable',
-                runtimeModelRef: currentRuntimeRef || '',
-              };
-            }
-            try {
-              const out = await askDeepSeekDirect(q);
-              return {
-                ...out,
-                source: 'deepseek',
-                runtimeModelRef: 'deepseek/deepseek-chat',
-              };
-            } catch (deepseekErr) {
-              const msg = String(deepseekErr?.message || deepseekErr || '');
-              if (msg === 'NO_DEEPSEEK_KEY') {
-                setAiLinkStatus('warn', 'OpenClaw: 离线(需绑定DeepSeek)');
-                return {
-                  reply:
-                    'OpenClaw 网关当前不可用，且未绑定 DeepSeek Key。\n' +
-                    '请先检查服务状态，或发送：/deepseek sk-你的key 绑定后再试。',
-                  actions: [],
-                  source: 'gateway_unavailable',
-                };
-              }
-              setAiLinkStatus('warn', 'OpenClaw/DeepSeek 均离线');
-              return {
-                reply:
-                  '模型链路不可用：' +
-                  String(openclawMsg || msg || 'unknown_error') +
-                  '\n请检查 OpenClaw 网关与 DeepSeek 配置。',
-                actions: [],
-                source: 'gateway_unavailable',
-              };
-            }
+            setAiLinkStatus('warn', 'ThunderClaw: 离线');
+            return { reply: '当前模型不可用，请在虾脑中配置 API Key 后重试。', actions: [], source: 'error' };
           }
         }
         const chatInputGuard = createChatInputGuardRuntime();
@@ -11751,17 +11600,15 @@
           }, CHAT_HISTORY_POLL_MS);
         }
         startChatHistoryPolling();
-        setAiLinkStatus('warn', 'OpenClaw: 检测中');
+        setAiLinkStatus('warn', 'ThunderClaw: 检测中');
         void fetch(CHAT_ROUTES.aiHealth, { cache: 'no-store' })
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http')); })
           .then(function(j) {
-            if (j && j.ok) setAiLinkStatus('ok', 'OpenClaw: 交易域已绑定');
-            else if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+            if (j && j.ok) setAiLinkStatus('ok', 'ThunderClaw: 在线');
+            else setAiLinkStatus('warn', 'ThunderClaw: 离线');
           })
           .catch(function() {
-            if (readDeepSeekKey()) setAiLinkStatus('ok', 'DeepSeek: 直连模式');
-            else setAiLinkStatus('warn', 'OpenClaw: 离线(可绑DeepSeek)');
+            setAiLinkStatus('warn', 'ThunderClaw: 离线');
           });
         if (!chatHistoryState.bootRendered && box.children.length === 0) {
           chatHistoryState.bootRendered = true;
