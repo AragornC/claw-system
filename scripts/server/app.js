@@ -131,12 +131,21 @@ const {
 // ─── Handlers ────────────────────────────────────────────────────────
 const chatHandler = createChatHandler({
   readJsonBody, sendJson, appendChatEvent,
-  getXbrainStateSnapshot: () => ({ base: { ...xbrainStore.base } }),
+  getXbrainStateSnapshot: () => {
+    const locks = xbrainStore.locks && typeof xbrainStore.locks === "object" ? xbrainStore.locks : {};
+    const dl = { locked: false, hasPassword: false };
+    return {
+      base: { ...xbrainStore.base },
+      locks: { base: locks.base || dl, channel: locks.channel || dl, exchange: locks.exchange || dl, strategy: locks.strategy || dl },
+    };
+  },
   getCurrentRuntimeModelRef, getModelConfig,
   detectAndClarify, strategyLabStore,
   conversationContext, memoryLayer,
   updateChatCardStatus,
   chatHistory,
+  xbrainStore, saveXbrainStore,
+  inferProviderFromModelRef,
 });
 
 const sessionHandlers = createSessionHandlers({
@@ -184,6 +193,8 @@ const serveStatic = createStaticFileServer({ reportDir: REPORT_DIR, webDir: WEB_
 const apiRouter = createHttpRouter(buildApiRouteTable({
   handleStatus,
   // Chat
+  handleAiHealth: chatHandler.handleAiHealth,
+  handleConfigChat: chatHandler.handleConfigChat,
   handleAiChat: chatHandler.handleAiChat,
   handleAiChatStream: chatHandler.handleAiChatStream,
   handleChatHistory: chatHandler.handleChatHistory,
