@@ -8823,6 +8823,19 @@
         function appendLocalChatLog(rowLike) {
           chatLogStore.append(rowLike);
         }
+        function updateLocalChatCardMeta(sourceLike, updates) {
+          // Find the most recent card entry and update its meta
+          var rows = chatLogStore.load();
+          var source = String(sourceLike || '').trim();
+          for (var i = rows.length - 1; i >= 0; i--) {
+            var row = rows[i];
+            if (!row || !row.meta || row.meta.type !== 'clarification_card') continue;
+            if (source && String(row.source || '') !== source) continue;
+            Object.assign(row.meta.cardData || {}, updates || {});
+            break;
+          }
+          chatLogStore.save(rows);
+        }
         function ackLocalUserEcho(text, tsLike, idLike) {
           chatLogStore.ackUserEcho(text, tsLike, idLike);
         }
@@ -8864,13 +8877,39 @@
               chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
             }
             if (String(r?.source || '') === 'strategy_intent') return;
+
+            // Reconstruct clarification cards from stored meta
+            var meta = r?.meta && typeof r.meta === 'object' ? r.meta : null;
+            if (meta && meta.type === 'clarification_card' && meta.cardData && typeof createClarificationCardRuntime === 'function') {
+              var cardData = meta.cardData;
+              var card = createClarificationCardRuntime({
+                headline: String(cardData.headline || r.text || ''),
+                featureConcept: cardData.featureConcept || {},
+                clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                onSubmit: null,
+                onApply: null,
+              });
+              if (card) {
+                card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+                if (cardData.status === 'applied' || cardData.result) {
+                  var resultDiv = document.createElement('div');
+                  resultDiv.className = 'ai-clarify-result';
+                  resultDiv.style.display = 'block';
+                  resultDiv.innerHTML = '<div class="ai-clarify-result-success"><div class="ai-clarify-result-title">✅ 特征已生成</div></div>';
+                  var bubble = card.querySelector('.ai-clarify-bubble');
+                  if (bubble) bubble.appendChild(resultDiv);
+                }
+                box.appendChild(card);
+                return;
+              }
+            }
+
             const role = r.role === 'user' ? 'user' : 'bot';
             const div = createChatMessageElement(role, String(r.text || ''), r.ts || null, '', '', '', String(r.source || 'dashboard'));
             if (Number.isFinite(idNum) && idNum > 0) {
               div.setAttribute('data-event-id', String(idNum));
             }
             box.appendChild(div);
-            // (Old multi-candidate card rendering removed — clarification-only flow)
           });
           box.scrollTop = box.scrollHeight;
         }
@@ -10323,6 +10362,8 @@
                 .then(function(payload) {
                   if (payload && payload.ok) {
                     if (typeof emitStrategyLabUpdated === 'function') emitStrategyLabUpdated(payload);
+                    // Update localStorage card meta to reflect applied status
+                    updateLocalChatCardMeta('clarification_fast_path', { status: 'applied', result: { ok: true } });
                     return { ok: true, message: payload.reply || '已加入虾策特征库' };
                   }
                   return { ok: false, error: String(payload?.error || '加入失败') };
@@ -10568,6 +10609,14 @@
                   role: 'bot',
                   source: 'clarification_fast_path',
                   text: '[特征建议卡片] ' + headline,
+                  meta: {
+                    type: 'clarification_card',
+                    cardData: {
+                      headline: headline,
+                      featureConcept: responseClarification.featureConcept || null,
+                      clarifyingQuestions: responseClarification.clarifyingQuestions || [],
+                    },
+                  },
                 });
               }
             } else {
