@@ -136,6 +136,7 @@ const chatHandler = createChatHandler({
   detectAndClarify, strategyLabStore,
   conversationContext, memoryLayer,
   updateChatCardStatus,
+  chatHistory,
 });
 
 const sessionHandlers = createSessionHandlers({
