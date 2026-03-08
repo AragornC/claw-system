@@ -169,14 +169,52 @@ export function createXbrainHandlers(deps = {}) {
 
   // ─── GET /api/xbrain/models/catalog ────────────────────────────────
   async function handleXbrainModelsCatalog(req, res) {
-    const catalog = buildModelCatalog();
     const registry = uniqStrings(xbrainStore.base?.modelRegistry || []);
+
+    // Build flat catalog array (frontend expects [{key, provider, name, description}])
+    const catalogItems = [];
+    for (const provider of KNOWN_PROVIDERS) {
+      const models = getProviderModels(provider);
+      models.forEach((m) => {
+        catalogItems.push({
+          key: m.ref,
+          provider,
+          name: m.name || m.ref,
+          description: m.description || "",
+          modelRef: m.ref,
+        });
+      });
+    }
+
+    // Build authSupport (frontend expects {[provider]: {apiKey: bool, oauth: bool}})
+    const authSupport = {};
+    for (const provider of KNOWN_PROVIDERS) {
+      authSupport[provider] = {
+        apiKey: true,  // All providers support API key
+        oauth: false,  // OAuth not available in standalone mode
+      };
+    }
+
+    // Build providerState
+    const providerState = {};
+    const providerAuth = xbrainStore.base?.providerAuth || {};
+    for (const provider of KNOWN_PROVIDERS) {
+      const auth = providerAuth[provider] || {};
+      providerState[provider] = {
+        configured: Boolean(auth.configured),
+        source: toText(auth.source, ""),
+      };
+    }
+
     sendJson(res, 200, {
       ok: true,
-      catalog,
+      catalog: catalogItems,
       registry,
       runtimeModelRef: toModelRef(xbrainStore.base.runtimeModelProvider, xbrainStore.base.runtimeModelId),
       providers: KNOWN_PROVIDERS,
+      authSupport,
+      providerState,
+      state: getStateSnapshot(),
     });
   }
 
