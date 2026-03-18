@@ -1,186 +1,22 @@
 /**
  * Pipeline Stage 2: Code Generation
  *
- * Given a structured feature specification, generates real executable Python
- * code compatible with Freqtrade's IStrategy interface.
- * Uses LLM API with structured prompts; falls back to template-based
- * code generation for standard indicators.
+ * Given a structured feature specification, generates a standalone Python
+ * module that exposes compute_feature(df, ...) -> pd.Series.
  */
 
-import { toText } from "../../lib/utils.js";
+import { sleepMs, toText } from "../../lib/utils.js";
 import {
   CODE_GENERATION_SYSTEM_PROMPT,
+  CODE_GENERATION_STREAM_SYSTEM_PROMPT,
   buildCodeGenerationUserMessage,
   CODE_REPAIR_SYSTEM_PROMPT,
   buildCodeRepairUserMessage,
 } from "./prompts/code-generation.js";
-
-/**
- * Template-based code generation for well-known indicator types.
- * Returns null if the kind is not a known template.
- */
-function generateFromTemplate(feature) {
-  const name = toText(feature.name).toLowerCase();
-  const params = feature.params && typeof feature.params === "object" ? feature.params : {};
-  const kind = toText(feature.kind).toLowerCase();
-  const col = `tc_feat_${name}`;
-
-  if (kind === "ema" || name.includes("ema")) {
-    const fast = Number(params.fast_period || params.fast || 12) || 12;
-    const slow = Number(params.slow_period || params.slow || 26) || 26;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['ema_fast_${fast}'] = ta.EMA(dataframe, timeperiod=${fast})`,
-        `        dataframe['ema_slow_${slow}'] = ta.EMA(dataframe, timeperiod=${slow})`,
-        `        dataframe['${col}'] = ((dataframe['ema_fast_${fast}'] - dataframe['ema_slow_${slow}']) / dataframe['close'].replace(0, 1)).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['${col}'] > 0) & (dataframe['${col}'].shift(1) <= 0)`,
-      exitConditionCode: `(dataframe['${col}'] < 0) & (dataframe['${col}'].shift(1) >= 0)`,
-      requiredImports: [],
-      columnNames: [`ema_fast_${fast}`, `ema_slow_${slow}`, col],
-      description: `EMA ${fast}/${slow} crossover signal`,
-    };
-  }
-
-  if (kind === "rsi" || name.includes("rsi")) {
-    const period = Number(params.period || params.timeperiod || 14) || 14;
-    const oversold = Number(params.oversold || params.lower || 30) || 30;
-    const overbought = Number(params.overbought || params.upper || 70) || 70;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['rsi_${period}'] = ta.RSI(dataframe, timeperiod=${period})`,
-        `        dataframe['${col}'] = ((dataframe['rsi_${period}'] - 50.0) / 50.0).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['rsi_${period}'] < ${oversold}) & (dataframe['rsi_${period}'].shift(1) >= ${oversold})`,
-      exitConditionCode: `(dataframe['rsi_${period}'] > ${overbought})`,
-      requiredImports: [],
-      columnNames: [`rsi_${period}`, col],
-      description: `RSI(${period}) oversold=${oversold}/overbought=${overbought}`,
-    };
-  }
-
-  if (kind === "adx" || name.includes("adx")) {
-    const period = Number(params.period || params.timeperiod || 14) || 14;
-    const threshold = Number(params.threshold || 25) || 25;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['adx_${period}'] = ta.ADX(dataframe, timeperiod=${period})`,
-        `        dataframe['${col}'] = ((dataframe['adx_${period}'] - ${threshold}) / ${threshold}).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['adx_${period}'] > ${threshold})`,
-      exitConditionCode: `(dataframe['adx_${period}'] < ${Math.max(10, threshold - 10)})`,
-      requiredImports: [],
-      columnNames: [`adx_${period}`, col],
-      description: `ADX(${period}) strength filter threshold=${threshold}`,
-    };
-  }
-
-  if (kind === "atr" || name.includes("atr")) {
-    const period = Number(params.period || params.timeperiod || 14) || 14;
-    const multiplier = Number(params.multiplier || params.mult || 1.5) || 1.5;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['atr_${period}'] = ta.ATR(dataframe, timeperiod=${period})`,
-        `        dataframe['atr_pct_${period}'] = (dataframe['atr_${period}'] / dataframe['close'].replace(0, 1)).fillna(0)`,
-        `        dataframe['${col}'] = (0.7 - dataframe['atr_pct_${period}'] * ${(25 * multiplier).toFixed(1)}).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['${col}'] > 0)`,
-      exitConditionCode: `(dataframe['${col}'] < -0.5)`,
-      requiredImports: [],
-      columnNames: [`atr_${period}`, `atr_pct_${period}`, col],
-      description: `ATR(${period}) volatility filter multiplier=${multiplier}`,
-    };
-  }
-
-  if (kind === "macd" || name.includes("macd")) {
-    const fast = Number(params.fast_period || params.fast || 12) || 12;
-    const slow = Number(params.slow_period || params.slow || 26) || 26;
-    const signal = Number(params.signal_period || params.signal || 9) || 9;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        macd_result = ta.MACD(dataframe, fastperiod=${fast}, slowperiod=${slow}, signalperiod=${signal})`,
-        `        dataframe['macd_line'] = macd_result['macd']`,
-        `        dataframe['macd_signal'] = macd_result['macdsignal']`,
-        `        dataframe['macd_hist'] = macd_result['macdhist']`,
-        `        dataframe['${col}'] = (dataframe['macd_hist'] / dataframe['close'].replace(0, 1) * 100).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['macd_hist'] > 0) & (dataframe['macd_hist'].shift(1) <= 0)`,
-      exitConditionCode: `(dataframe['macd_hist'] < 0) & (dataframe['macd_hist'].shift(1) >= 0)`,
-      requiredImports: [],
-      columnNames: ["macd_line", "macd_signal", "macd_hist", col],
-      description: `MACD(${fast},${slow},${signal}) histogram crossover`,
-    };
-  }
-
-  if (kind === "bollinger" || name.includes("boll")) {
-    const period = Number(params.period || params.timeperiod || 20) || 20;
-    const nbdev = Number(params.nbdev || params.std || 2) || 2;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        bb_result = ta.BBANDS(dataframe, timeperiod=${period}, nbdevup=${nbdev}.0, nbdevdn=${nbdev}.0)`,
-        `        dataframe['bb_upper'] = bb_result['upperband']`,
-        `        dataframe['bb_middle'] = bb_result['middleband']`,
-        `        dataframe['bb_lower'] = bb_result['lowerband']`,
-        `        bb_width = (dataframe['bb_upper'] - dataframe['bb_lower']).replace(0, 1)`,
-        `        dataframe['${col}'] = ((dataframe['close'] - dataframe['bb_middle']) / (bb_width / 2)).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['close'] < dataframe['bb_lower'])`,
-      exitConditionCode: `(dataframe['close'] > dataframe['bb_upper'])`,
-      requiredImports: [],
-      columnNames: ["bb_upper", "bb_middle", "bb_lower", col],
-      description: `Bollinger Bands(${period}, ${nbdev}σ) mean reversion`,
-    };
-  }
-
-  if (kind === "volume" || name.includes("volume")) {
-    const period = Number(params.period || params.timeperiod || 20) || 20;
-    const threshold = Number(params.threshold || params.ratio || 2.0) || 2.0;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['vol_sma_${period}'] = dataframe['volume'].rolling(${period}).mean()`,
-        `        dataframe['vol_ratio'] = (dataframe['volume'] / dataframe['vol_sma_${period}'].replace(0, 1)).fillna(1)`,
-        `        dataframe['${col}'] = ((dataframe['vol_ratio'] - 1.0) / ${threshold.toFixed(1)}).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['vol_ratio'] > ${threshold.toFixed(1)})`,
-      exitConditionCode: `(dataframe['vol_ratio'] < 0.5)`,
-      requiredImports: [],
-      columnNames: [`vol_sma_${period}`, "vol_ratio", col],
-      description: `Volume spike detector (${period}MA, threshold=${threshold}x)`,
-    };
-  }
-
-  if (kind === "sma" || name.includes("sma")) {
-    const fast = Number(params.fast_period || params.fast || 10) || 10;
-    const slow = Number(params.slow_period || params.slow || 30) || 30;
-    return {
-      featureName: name,
-      indicatorCode: [
-        `        dataframe['sma_fast_${fast}'] = ta.SMA(dataframe, timeperiod=${fast})`,
-        `        dataframe['sma_slow_${slow}'] = ta.SMA(dataframe, timeperiod=${slow})`,
-        `        dataframe['${col}'] = ((dataframe['sma_fast_${fast}'] - dataframe['sma_slow_${slow}']) / dataframe['close'].replace(0, 1)).clip(-1, 1)`,
-      ].join("\n"),
-      entryConditionCode: `(dataframe['${col}'] > 0) & (dataframe['${col}'].shift(1) <= 0)`,
-      exitConditionCode: `(dataframe['${col}'] < 0) & (dataframe['${col}'].shift(1) >= 0)`,
-      requiredImports: [],
-      columnNames: [`sma_fast_${fast}`, `sma_slow_${slow}`, col],
-      description: `SMA ${fast}/${slow} crossover signal`,
-    };
-  }
-
-  // External feature types (news, social, prediction) — no templates.
-  // These are generated by the LLM with real data-fetching code (requests, etc.)
-  // The LLM prompt instructs proper try/except with graceful fallback.
-
-  // No template available for this kind
-  return null;
-}
+import {
+  detectTemplateRoute,
+  generateTemplateCode,
+} from "./feature-workbench.js";
 
 /**
  * Normalize code generation output from model.
@@ -190,13 +26,26 @@ function normalizeCodeOutput(rawLike, featureName) {
   const name = toText(raw.featureName || featureName).toLowerCase().replace(/[^a-z0-9_]/g, "_");
   const result = {
     featureName: name,
-    indicatorCode: toText(raw.indicatorCode, ""),
-    entryConditionCode: toText(raw.entryConditionCode, ""),
-    exitConditionCode: toText(raw.exitConditionCode, ""),
-    requiredImports: Array.isArray(raw.requiredImports) ? raw.requiredImports.map(String) : [],
-    columnNames: Array.isArray(raw.columnNames) ? raw.columnNames.map(String) : [],
+    featureCode: toText(raw.featureCode, ""),
     description: toText(raw.description, ""),
+    route: toText(raw.route, ""),
+    templateId: toText(raw.templateId, ""),
   };
+  if (raw.repairSummary && typeof raw.repairSummary === "object") {
+    result.repairSummary = {
+      failureType: toText(raw.repairSummary.failureType, ""),
+      repairGoal: toText(raw.repairSummary.repairGoal, ""),
+      changes: Array.isArray(raw.repairSummary.changes)
+        ? raw.repairSummary.changes.map((item) => toText(item, "")).filter(Boolean).slice(0, 8)
+        : [],
+      preservedConstraints: Array.isArray(raw.repairSummary.preservedConstraints)
+        ? raw.repairSummary.preservedConstraints.map((item) => toText(item, "")).filter(Boolean).slice(0, 10)
+        : [],
+    };
+  }
+  if (raw.specOverride !== undefined) {
+    result.specOverride = Boolean(raw.specOverride);
+  }
   // Optional: requiredConfig for features that need user-provided configuration (API keys, URLs, etc.)
   if (Array.isArray(raw.requiredConfig) && raw.requiredConfig.length) {
     result.requiredConfig = raw.requiredConfig
@@ -210,6 +59,14 @@ function normalizeCodeOutput(rawLike, featureName) {
   return result;
 }
 
+function stripMarkdownCodeFence(textLike) {
+  const text = toText(textLike, "");
+  if (!text) return "";
+  const fenced = text.match(/```(?:python)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return String(fenced[1]).trim();
+  return text.trim();
+}
+
 /**
  * Create the code generator with an LLM client dependency.
  * @param {{ llmClient: Object }} deps
@@ -218,26 +75,31 @@ export function createCodeGenerator(deps = {}) {
   const llmClient = deps.llmClient;
 
   /**
-   * Generate Freqtrade-compatible Python code for a feature.
+   * Generate standalone Python feature code for a feature.
    * @param {Object} feature - Feature specification from intent detection
    * @returns {Promise<Object>} Generated code object
    */
   async function generateCode(feature) {
     const featureName = toText(feature?.name, "custom_feature");
-
-    // Try template first for known indicator types
-    const templateResult = generateFromTemplate(feature);
+    const specArtifact = feature?.specArtifact && typeof feature.specArtifact === "object"
+      ? feature.specArtifact
+      : null;
+    const route = detectTemplateRoute(feature, specArtifact);
+    const templateResult = generateTemplateCode(feature, specArtifact);
     if (templateResult) {
-      return { ok: true, code: templateResult, source: "template" };
+      return {
+        ok: true,
+        code: normalizeCodeOutput(templateResult, featureName),
+        source: "template",
+      };
     }
 
-    // Use LLM API for custom/complex features
     if (llmClient) {
       try {
         const result = await llmClient.chatCompletionJson({
           messages: [
             { role: "system", content: CODE_GENERATION_SYSTEM_PROMPT },
-            { role: "user", content: buildCodeGenerationUserMessage({ feature }) },
+            { role: "user", content: buildCodeGenerationUserMessage({ feature, specArtifact, route }) },
           ],
           temperature: 0.2,
           maxTokens: 3072,
@@ -245,33 +107,96 @@ export function createCodeGenerator(deps = {}) {
         });
         if (result.ok && result.data) {
           const code = normalizeCodeOutput(result.data, featureName);
-          if (code.indicatorCode) {
+          if (code.featureCode) {
             return { ok: true, code, source: "llm" };
           }
         }
-      } catch {
-        // Fall through to default
+        return { ok: false, error: "Code generation did not return featureCode", code: null };
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err), code: null };
       }
     }
+    return { ok: false, error: "No LLM client available for code generation", code: null };
+  }
 
-    // Final fallback: generic momentum indicator
-    const col = `tc_feat_${featureName}`;
-    return {
-      ok: true,
-      code: {
-        featureName,
-        indicatorCode: [
-          `        dataframe['ret_1'] = dataframe['close'].pct_change().fillna(0)`,
-          `        dataframe['${col}'] = (dataframe['ret_1'] * 12.0).clip(-1, 1)`,
-        ].join("\n"),
-        entryConditionCode: `(dataframe['${col}'] > 0.15)`,
-        exitConditionCode: `(dataframe['${col}'] < -0.1)`,
-        requiredImports: [],
-        columnNames: ["ret_1", col],
-        description: "Fallback momentum signal based on 1-bar return",
-      },
-      source: "fallback",
-    };
+  async function generateCodeStream(feature, options = {}) {
+    const onChunk = typeof options.onChunk === "function" ? options.onChunk : null;
+    const featureName = toText(feature?.name, "custom_feature");
+    const specArtifact = feature?.specArtifact && typeof feature.specArtifact === "object"
+      ? feature.specArtifact
+      : null;
+    const route = detectTemplateRoute(feature, specArtifact);
+    const templateResult = generateTemplateCode(feature, specArtifact);
+    if (templateResult) {
+      const code = normalizeCodeOutput(templateResult, featureName);
+      if (onChunk) {
+        const lines = String(code.featureCode || "").split("\n");
+        let buffer = "";
+        for (let i = 0; i < lines.length; i += 2) {
+          const chunk = lines.slice(i, i + 2).join("\n");
+          buffer += (buffer ? "\n" : "") + chunk;
+          await Promise.resolve(onChunk({
+            codeSnippet: buffer,
+            delta: chunk,
+            source: "template",
+            done: i + 2 >= lines.length,
+          }));
+          if (i + 2 < lines.length) await sleepMs(35);
+        }
+      }
+      return { ok: true, code, source: "template" };
+    }
+
+    if (!llmClient || typeof llmClient.chatCompletionStream !== "function") {
+      return generateCode(feature);
+    }
+
+    let rawText = "";
+    let lastEmission = "";
+    try {
+      for await (const event of llmClient.chatCompletionStream({
+        messages: [
+          { role: "system", content: CODE_GENERATION_STREAM_SYSTEM_PROMPT },
+          { role: "user", content: buildCodeGenerationUserMessage({ feature, specArtifact, route }) },
+        ],
+        temperature: 0.2,
+        maxTokens: 3072,
+        timeoutMs: 90_000,
+      })) {
+        if (event?.type === "error") {
+          return { ok: false, error: toText(event.error, "stream generation failed"), code: null };
+        }
+        if (event?.type !== "token") continue;
+        rawText += toText(event.text, "");
+        const codeSnippet = stripMarkdownCodeFence(rawText);
+        if (onChunk && codeSnippet && codeSnippet !== lastEmission) {
+          lastEmission = codeSnippet;
+          await Promise.resolve(onChunk({
+            codeSnippet,
+            delta: toText(event.text, ""),
+            source: "llm_stream",
+            done: false,
+          }));
+        }
+      }
+      const featureCode = stripMarkdownCodeFence(rawText);
+      if (!featureCode) {
+        return { ok: false, error: "Stream generation did not return code", code: null };
+      }
+      return {
+        ok: true,
+        code: normalizeCodeOutput({
+          featureName,
+          featureCode,
+          description: toText(feature?.description, ""),
+          route: route.route,
+          templateId: route.templateId,
+        }, featureName),
+        source: "llm_stream",
+      };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err), code: null };
+    }
   }
 
   /**
@@ -287,18 +212,21 @@ export function createCodeGenerator(deps = {}) {
       return { ok: false, code: params.originalCode || {}, error: "No LLM client for repair" };
     }
     try {
+      const messages = Array.isArray(params.messages) && params.messages.length
+        ? params.messages
+        : [
+            { role: "system", content: CODE_REPAIR_SYSTEM_PROMPT },
+            { role: "user", content: buildCodeRepairUserMessage(params) },
+          ];
       const result = await llmClient.chatCompletionJson({
-        messages: [
-          { role: "system", content: CODE_REPAIR_SYSTEM_PROMPT },
-          { role: "user", content: buildCodeRepairUserMessage(params) },
-        ],
+        messages,
         temperature: 0.1,
         maxTokens: 3072,
         timeoutMs: 90_000,
       });
       if (result.ok && result.data) {
         const code = normalizeCodeOutput(result.data, params.featureSpec?.name || "custom");
-        if (code.indicatorCode) {
+        if (code.featureCode) {
           return { ok: true, code, source: "llm_repair" };
         }
       }
@@ -308,5 +236,5 @@ export function createCodeGenerator(deps = {}) {
     }
   }
 
-  return { generateCode, repairCode };
+  return { generateCode, generateCodeStream, repairCode };
 }

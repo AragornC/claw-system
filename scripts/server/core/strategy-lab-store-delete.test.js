@@ -43,7 +43,7 @@ test('deleteFeature removes feature and updates strategy references', () => {
       kind: 'news_sentiment',
       params: {
         sourceType: 'news',
-        pythonIndicator: "dataframe['{col}']=dataframe['{col}'].rolling(3).mean()",
+        featureCode: "def compute_feature(df):\n    return df['close'].rolling(3).mean().fillna(0.0)",
         codeSource: 'model_generated',
       },
     },
@@ -122,7 +122,7 @@ test('strategy detail includes generatedFeatureCode preview from dynamic specs',
             sourceType: 'news',
             provider: 'blockbeats',
             url: 'https://www.theblockbeats.info/rss.xml',
-            pythonIndicator: "dataframe['{col}']=dataframe['{col}'].rolling(3).mean()",
+            featureCode: "def compute_feature(df):\n    return df['close'].rolling(3).mean().fillna(0.0)",
           },
         ],
       },
@@ -170,7 +170,7 @@ test('applyIntentCandidate preserves camelCase params for execution code in pers
       kind: 'news_sentiment',
       params: {
         sourceType: 'news',
-        pythonIndicator: "dataframe['{col}']=dataframe['{col}'].rolling(3).mean()",
+        featureCode: "def compute_feature(df):\n    return df['close'].rolling(3).mean().fillna(0.0)",
         codeSource: 'model_generated',
       },
     },
@@ -178,7 +178,7 @@ test('applyIntentCandidate preserves camelCase params for execution code in pers
   const listed = store.listFeatures({ page: 1, pageSize: 20 }).features;
   const target = listed.find((row) => String(row.name || '').includes('news') && String(row.group || '') === 'signal_external');
   assert.ok(target);
-  assert.match(String(target.params.pythonIndicator || ''), /rolling\(3\)/);
+  assert.match(String(target.params.featureCode || ''), /rolling\(3\)/);
   assert.equal(target.params.codeSource, 'model_generated');
 });
 test('applyIntentCandidate rejects external feature confirmation without generated execution code', () => {
@@ -193,15 +193,15 @@ test('applyIntentCandidate rejects external feature confirmation without generat
         params: { sourceType: 'social' },
       },
     });
-  }, /pythonIndicator/);
+  }, /featureCode/);
 });
 
 
-test('applyIntentCandidate keeps pythonIndicator/pipelineCode even with many params', () => {
+test('applyIntentCandidate keeps featureCode/pipelineCode even with many params', () => {
   const { store } = createTestStore();
   const noisyParams = {};
   for (let i = 0; i < 80; i += 1) noisyParams['noise' + String(i)] = String(i);
-  noisyParams.pythonIndicator = "dataframe['{col}']=dataframe['close'].rolling(5).mean()";
+  noisyParams.featureCode = "def compute_feature(df):\n    return df['close'].rolling(5).mean().fillna(0.0)";
   noisyParams.pipelineCode = "def compute_signal(payload):\n    return 0.1";
   noisyParams.codeSource = 'model_generated';
   noisyParams.sourceType = 'news';
@@ -226,11 +226,11 @@ test('applyIntentCandidate keeps pythonIndicator/pipelineCode even with many par
   const listed = store.listFeatures({ limit: 200 }).features;
   const target = listed.find((item) => item.featureId === out.feature.featureId);
   assert.ok(target);
-  assert.match(String(target.params.pythonIndicator || ''), /rolling\(5\)/);
+  assert.match(String(target.params.featureCode || ''), /rolling\(5\)/);
   assert.match(String(target.params.pipelineCode || ''), /compute_signal/);
   assert.equal(String(target.params.codeSource || ''), 'model_generated');
   assert.ok(Array.isArray(target.params.requiredInputs));
-  assert.equal(String(target.params.runtime?.pythonIndicator || ''), String(target.params.pythonIndicator || ''));
+  assert.equal(String(target.params.runtime?.featureCode || ''), String(target.params.featureCode || ''));
   assert.equal(String(target.params.runtime?.pipelineCode || ''), String(target.params.pipelineCode || ''));
   assert.equal(String(target.params.source?.sourceType || ''), 'news');
   assert.equal(String(target.params.codegen?.codeSource || ''), 'model_generated');

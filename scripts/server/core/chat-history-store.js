@@ -5,6 +5,50 @@ export function createChatHistoryStore(optionsLike = {}) {
   const chatHistoryPath = String(options.chatHistoryPath || "");
   const maxChatEvents = Math.max(100, Number(options.maxChatEvents || 2000) || 2000);
 
+  function cloneStructured(valueLike) {
+    if (valueLike == null) return null;
+    try {
+      return JSON.parse(JSON.stringify(valueLike));
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeEventMeta(metaLike) {
+    const meta = cloneStructured(metaLike);
+    return meta && typeof meta === "object" ? meta : null;
+  }
+
+  function normalizeTraceStep(stepLike) {
+    const raw = stepLike && typeof stepLike === "object" ? stepLike : null;
+    if (!raw) return null;
+    const phase = String(raw.phase || raw.step || "").trim();
+    const message = String(raw.message || raw.summary || "").trim();
+    if (!phase && !message) return null;
+    const normalized = {
+      taskId: String(raw.taskId || "").trim(),
+      taskType: String(raw.taskType || "").trim(),
+      phase: phase || "step",
+      status: String(raw.status || "done").trim().toLowerCase(),
+      message: message || phase || "处理中",
+      ts: String(raw.ts || new Date().toISOString()),
+      attempt: Number.isFinite(Number(raw.attempt)) ? Number(raw.attempt) : undefined,
+      kind: String(raw.kind || "").trim() || undefined,
+    };
+    const title = String(raw.title || "").trim();
+    if (title) normalized.title = title;
+    const details = cloneStructured(raw.details);
+    if (details && typeof details === "object" && Object.keys(details).length) {
+      normalized.details = details;
+    }
+    return normalized;
+  }
+
+  function normalizeTraceSteps(stepsLike) {
+    const steps = Array.isArray(stepsLike) ? stepsLike : [];
+    return steps.map(normalizeTraceStep).filter(Boolean).slice(-80);
+  }
+
   function createInitialChatHistory() {
     return { nextId: 1, events: [] };
   }
@@ -67,7 +111,10 @@ export function createChatHistoryStore(optionsLike = {}) {
               text: String(ev.text || ""),
               from: typeof ev.from === "string" ? ev.from : undefined,
               chatId: ev.chatId != null ? String(ev.chatId) : undefined,
+              sessionId: ev.sessionId != null ? String(ev.sessionId) : undefined,
               cards: normalizeChatCards(ev.cards, Number(ev.id) || 0),
+              meta: normalizeEventMeta(ev.meta),
+              traces: normalizeTraceSteps(ev.traces),
             }))
         : [];
       const maxId = events.reduce((m, ev) => Math.max(m, Number(ev.id) || 0), 0);
@@ -102,10 +149,15 @@ export function createChatHistoryStore(optionsLike = {}) {
     if (!event.text) return null;
     if (item.from != null) event.from = String(item.from);
     if (item.chatId != null) event.chatId = String(item.chatId);
+    if (item.sessionId != null) event.sessionId = String(item.sessionId);
     const normalizedCards = normalizeChatCards(item.cards, event.id);
     if (normalizedCards.length) {
       event.cards = normalizedCards;
     }
+    const meta = normalizeEventMeta(item.meta);
+    if (meta) event.meta = meta;
+    const traces = normalizeTraceSteps(item.traces);
+    if (traces.length) event.traces = traces;
     chatHistory.nextId += 1;
     chatHistory.events.push(event);
     if (chatHistory.events.length > maxChatEvents) {
@@ -151,9 +203,44 @@ export function createChatHistoryStore(optionsLike = {}) {
     return { ok: true, event, card };
   }
 
+  function updateChatEvent(eventIdLike, patchLike) {
+    const eventId = Number(eventIdLike);
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      return { ok: false, error: "eventId is required" };
+    }
+    const event = (chatHistory.events || []).find((ev) => Number(ev?.id) === eventId);
+    if (!event) {
+      return { ok: false, error: "event not found" };
+    }
+    const patch = typeof patchLike === "function" ? patchLike(cloneStructured(event) || {}) : patchLike;
+    const next = patch && typeof patch === "object" ? patch : {};
+    if (next.text != null) {
+      event.text = String(next.text || "").trim() || event.text;
+    }
+    if (next.source != null) {
+      event.source = String(next.source || "").trim() || event.source;
+    }
+    if (next.meta && typeof next.meta === "object") {
+      event.meta = {
+        ...(event.meta && typeof event.meta === "object" ? event.meta : {}),
+        ...(normalizeEventMeta(next.meta) || {}),
+      };
+    }
+    if (Array.isArray(next.traces)) {
+      event.traces = normalizeTraceSteps(next.traces);
+    }
+    if (Array.isArray(next.cards)) {
+      const normalizedCards = normalizeChatCards(next.cards, event.id);
+      if (normalizedCards.length) event.cards = normalizedCards;
+    }
+    saveChatHistory();
+    return { ok: true, event };
+  }
+
   return {
     chatHistory,
     appendChatEvent,
     updateChatCardStatus,
+    updateChatEvent,
   };
 }

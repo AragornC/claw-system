@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>理解需求现代风 Demo</title>
+  <style>
+    :root {
+      --bg: #070d18;
+      --panel: #0f1728;
+      --panel-soft: #111d32;
+      --text: #e8eef8;
+      --muted: #9fb1cc;
+      --line: #273654;
+      --accent: #60a5fa;
+      --chip-bg: #16253f;
+      --chip-line: #2e4f7d;
+    }
+    html, body {
+      margin: 0;
+      background: radial-gradient(1200px 420px at 20% -10%, #162845 0%, var(--bg) 55%);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px 14px 28px;
+      display: grid;
+      gap: 12px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #11203a;
+      color: #dce8fb;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .toolbar button.active {
+      border-color: #4d74a7;
+      background: #1a2f4f;
+    }
+    .toolbar .mode-style-btn.active {
+      border-color: #4d8f6d;
+      background: #17362b;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(16,29,50,.96) 0%, rgba(12,22,38,.96) 100%);
+      box-shadow: 0 18px 45px rgba(1, 7, 18, 0.45);
+      overflow: hidden;
+    }
+    .head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      letter-spacing: 0.1px;
+    }
+    .status {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .body {
+      padding: 12px 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .task {
+      border: 1px solid #2b3f63;
+      border-radius: 12px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .task-title {
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--line);
+    }
+    .step {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+    }
+    .step:last-child { border-bottom: 0; }
+    .step-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .badge {
+      font-size: 11px;
+      color: #d4e7ff;
+      background: #183357;
+      border: 1px solid #315787;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+    .md-block {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-soft);
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .md-line {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #d5e3f8;
+      white-space: normal;
+    }
+    .inline-code {
+      display: inline-block;
+      border: 1px solid #365a89;
+      background: #13263f;
+      color: #e8f1ff;
+      border-radius: 8px;
+      padding: 1px 7px;
+      margin: 0 2px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      vertical-align: baseline;
+    }
+    /* 任务卡片 5 种 md 风格 */
+    .task-token.v1 {
+      border-radius: 8px;
+    }
+    .task-token.v2 {
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-weight: 600;
+    }
+    .task-token.v3 {
+      background: transparent;
+      border-color: #456c9c;
+      color: #d6e8ff;
+      border-radius: 6px;
+    }
+    .task-token.v4 {
+      background: transparent;
+      border: 0;
+      color: #e6f0ff;
+      padding: 0 2px;
+      margin: 0 2px;
+      border-bottom: 1px solid #4d74a7;
+      border-radius: 0;
+    }
+    .task-token.v5 {
+      border-radius: 8px;
+      font-weight: 600;
+      background: #10233b;
+      border-color: #3b618f;
+    }
+    .plan-box {
+      border: 1px dashed #355683;
+      border-radius: 10px;
+      padding: 10px;
+      color: #c2d5ef;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .is-typing::after {
+      content: "▋";
+      margin-left: 2px;
+      color: #9ac4ff;
+      animation: blink 0.9s steps(1, end) infinite;
+    }
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="playBtn" type="button">播放</button>
+      <button id="resetBtn" type="button">重置</button>
+      <button class="token-style-btn active" data-variant="v1" type="button">1 Inline</button>
+      <button class="token-style-btn" data-variant="v2" type="button">2 Pill</button>
+      <button class="token-style-btn" data-variant="v3" type="button">3 Ghost</button>
+      <button class="token-style-btn" data-variant="v4" type="button">4 Underline</button>
+      <button class="token-style-btn" data-variant="v5" type="button">5 Prefix</button>
+      <button class="mode-style-btn active" data-mode="instant" type="button">理解输出: 秒出</button>
+      <button class="mode-style-btn" data-mode="typewriter" type="button">理解输出: 全打字机</button>
+      <button class="mode-style-btn" data-mode="mixed" type="button">理解输出: 混合流式</button>
+      <button class="mode-style-btn" data-mode="staged" type="button">理解输出: 字段回填</button>
+      <button class="mode-style-btn" data-mode="cards" type="button">理解输出: 卡片逐个填入</button>
+      <span class="hint">输出方式只作用于“理解需求”，计划区固定展示。</span>
+    </div>
+
+    <div class="panel">
+      <div class="head">
+        <span>特征生成任务（新 UI 风格）</span>
+        <span class="status" id="status">等待中</span>
+      </div>
+      <div class="body">
+        <div class="task">
+          <div class="task-title">理解需求</div>
+          <div class="step">
+            <div class="step-head">
+              <span>本轮输入确认</span>
+              <span class="badge" id="s1">等待中</span>
+            </div>
+            <div class="md-block hidden" id="understandBlock">
+              <div class="md-line" id="taskLine">- 任务分配：<span id="taskToken" class="inline-code task-token v1">📝 特征生成任务</span></div>
+              <div class="md-line" id="optionLine">- 选项加载：<span class="inline-code">✅ 输出: 连续值</span><span class="inline-code">✅ 时间: 短中期</span><span class="inline-code">✅ 风格: 稳健</span></div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-head">
+              <span>生成计划</span>
+              <span class="badge" id="s2">等待中</span>
+            </div>
+            <div class="plan-box" id="planText">等待进入计划阶段...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const s1 = document.getElementById("s1");
+    const s2 = document.getElementById("s2");
+    const planText = document.getElementById("planText");
+    const playBtn = document.getElementById("playBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const tokenStyleBtns = Array.from(document.querySelectorAll(".token-style-btn"));
+    const modeStyleBtns = Array.from(document.querySelectorAll(".mode-style-btn"));
+    const optionLine = document.getElementById("optionLine");
+    const understandBlock = document.getElementById("understandBlock");
+
+    let tokenVariant = "v1";
+    let outputMode = "instant";
+    let playRunId = 0;
+    const demoSpeed = 1.9;
+    const optionLineFull = '- 选项加载：<span class="inline-code">✅ 输出: 连续值</span><span class="inline-code">✅ 时间: 短中期</span><span class="inline-code">✅ 风格: 稳健</span>';
+    const optionCards = ["✅ 输出: 连续值", "✅ 时间: 短中期", "✅ 风格: 稳健"];
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+    function waitDemo(ms) {
+      return sleep(Math.max(0, Math.floor(ms * demoSpeed)));
+    }
+
+    async function typeInto(node, text, runId, delay = 16, chunk = 2) {
+      node.textContent = "";
+      node.classList.add("is-typing");
+      let cursor = 0;
+      while (cursor < text.length) {
+        if (runId !== playRunId) return;
+        const next = Math.min(text.length, cursor + chunk);
+        node.textContent = text.slice(0, next);
+        cursor = next;
+        if (cursor < text.length) await sleep(delay);
+      }
+      node.classList.remove("is-typing");
+    }
+    async function typeIntoHtml(node, html, runId, delay = 14, chunk = 2) {
+      node.textContent = "";
+      node.classList.add("is-typing");
+      const plain = html.replace(/<[^>]+>/g, "");
+      let cursor = 0;
+      while (cursor < plain.length) {
+        if (runId !== playRunId) return;
+        const next = Math.min(plain.length, cursor + chunk);
+        node.textContent = plain.slice(0, next);
+        cursor = next;
+        if (cursor < plain.length) await sleep(delay);
+      }
+      node.classList.remove("is-typing");
+      node.innerHTML = html;
+    }
+
+    function reset() {
+      playRunId += 1;
+      statusEl.textContent = "等待中";
+      s1.textContent = "等待中";
+      s2.textContent = "等待中";
+      planText.textContent = "等待进入计划阶段...";
+      if (understandBlock) understandBlock.classList.add("hidden");
+      const taskLine = document.getElementById("taskLine");
+      if (taskLine) taskLine.textContent = "";
+      if (optionLine) optionLine.textContent = "";
+      playBtn.disabled = false;
+      planText.classList.remove("is-typing");
+    }
+
+    async function runUnderstandOutput(runId) {
+      const taskLine = document.getElementById("taskLine");
+      const taskHtml = tokenVariant === "v5"
+        ? '- 任务分配：<span id="taskToken" class="inline-code task-token v5">task: 📝 特征生成任务</span>'
+        : '- 任务分配：<span id="taskToken" class="inline-code task-token ' + tokenVariant + '">📝 特征生成任务</span>';
+      if (!taskLine || !optionLine) return;
+      if (understandBlock) understandBlock.classList.remove("hidden");
+      if (outputMode === "instant") {
+        taskLine.innerHTML = taskHtml;
+        optionLine.innerHTML = optionLineFull;
+        return;
+      }
+      if (outputMode === "typewriter") {
+        await typeIntoHtml(taskLine, taskHtml, runId, 14, 2);
+        if (runId !== playRunId) return;
+        await typeIntoHtml(optionLine, optionLineFull, runId, 14, 2);
+        return;
+      }
+      if (outputMode === "staged") {
+        taskLine.innerHTML = taskHtml;
+        optionLine.textContent = "";
+        await waitDemo(260);
+        if (runId !== playRunId) return;
+        optionLine.innerHTML = optionLineFull;
+        return;
+      }
+      if (outputMode === "cards") {
+        taskLine.textContent = "- 任务分配：";
+        await waitDemo(180);
+        if (runId !== playRunId) return;
+        taskLine.innerHTML = taskHtml;
+        optionLine.innerHTML = "- 选项加载：";
+        for (let i = 0; i < optionCards.length; i += 1) {
+          if (runId !== playRunId) return;
+          optionLine.innerHTML += '<span class="inline-code">' + optionCards[i] + "</span>";
+          await waitDemo(320);
+        }
+        return;
+      }
+      // mixed
+      taskLine.innerHTML = taskHtml;
+      optionLine.textContent = "";
+      await waitDemo(180);
+      if (runId !== playRunId) return;
+      await typeIntoHtml(optionLine, optionLineFull, runId, 13, 3);
+    }
+
+    async function play() {
+      playBtn.disabled = true;
+      const runId = playRunId + 1;
+      playRunId = runId;
+      statusEl.textContent = "理解需求中";
+      s1.textContent = "进行中";
+      s2.textContent = "等待中";
+      planText.textContent = "等待进入计划阶段...";
+      await runUnderstandOutput(runId);
+      if (runId !== playRunId) return;
+      s1.textContent = "已完成";
+      await waitDemo(520);
+      if (runId !== playRunId) return;
+      statusEl.textContent = "生成计划中";
+      s2.textContent = "进行中";
+      planText.textContent = "AI 思考过程：\n先收敛目标，再生成可执行计划。\n\n本次任务计划：\n- 需求\n- 方法\n- 验证\n- 修复";
+      if (runId !== playRunId) return;
+      s2.textContent = "已完成";
+      statusEl.textContent = "已完成";
+      playBtn.disabled = false;
+    }
+    function renderTaskTokenVariant() {
+      const taskLine = document.getElementById("taskLine");
+      if (!taskLine) return;
+      if (tokenVariant === "v5") {
+        taskLine.innerHTML = '- 任务分配：<span id="taskToken" class="inline-code task-token v5">task: 📝 特征生成任务</span>';
+      } else {
+        taskLine.innerHTML = '- 任务分配：<span id="taskToken" class="inline-code task-token ' + tokenVariant + '">📝 特征生成任务</span>';
+      }
+      if (optionLine) optionLine.innerHTML = optionLineFull;
+      tokenStyleBtns.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.variant === tokenVariant);
+      });
+    }
+    function renderOutputMode() {
+      modeStyleBtns.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mode === outputMode);
+      });
+    }
+
+    playBtn.addEventListener("click", play);
+    resetBtn.addEventListener("click", reset);
+    tokenStyleBtns.forEach((btn) => {
+      btn.addEventListener("click", function() {
+        tokenVariant = String(btn.dataset.variant || "v1");
+        renderTaskTokenVariant();
+      });
+    });
+    modeStyleBtns.forEach((btn) => {
+      btn.addEventListener("click", function() {
+        outputMode = String(btn.dataset.mode || "instant");
+        renderOutputMode();
+      });
+    });
+    renderTaskTokenVariant();
+    renderOutputMode();
+  </script>
+</body>
+</html>

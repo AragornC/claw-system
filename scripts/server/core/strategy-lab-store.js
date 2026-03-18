@@ -972,10 +972,7 @@ export function createStrategyLabStore(deps = {}) {
     const rawFeature = featureLike && typeof featureLike === "object" ? featureLike : {};
     const generatedCode = rawFeature.generatedCode && typeof rawFeature.generatedCode === "object"
       ? {
-        indicatorCode: toText(rawFeature.generatedCode.indicatorCode, ""),
-        entryConditionCode: toText(rawFeature.generatedCode.entryConditionCode, ""),
-        exitConditionCode: toText(rawFeature.generatedCode.exitConditionCode, ""),
-        columnNames: Array.isArray(rawFeature.generatedCode.columnNames) ? rawFeature.generatedCode.columnNames : [],
+        featureCode: toText(rawFeature.generatedCode.featureCode, ""),
         codeSource: toText(rawFeature.generatedCode.codeSource, "pipeline"),
         description: toText(rawFeature.generatedCode.description, ""),
         validatedAt: toText(rawFeature.generatedCode.validatedAt, ""),
@@ -1013,7 +1010,7 @@ export function createStrategyLabStore(deps = {}) {
       existing.createdBy = normalized.createdBy || existing.createdBy;
       existing.enabled = normalized.enabled !== false;
       // Persist generated code
-      if (generatedCode && generatedCode.indicatorCode) {
+      if (generatedCode && generatedCode.featureCode) {
         existing.generatedCode = generatedCode;
       }
       applyProvenanceMeta(existing, metaLike, now, toText(existing.source || "chat_intent", "chat_intent"));
@@ -1054,7 +1051,7 @@ export function createStrategyLabStore(deps = {}) {
       createdAt: now,
       updatedAt: now,
       // Store generated code for this feature
-      ...(generatedCode && generatedCode.indicatorCode ? { generatedCode } : {}),
+      ...(generatedCode && generatedCode.featureCode ? { generatedCode } : {}),
     };
     applyProvenanceMeta(item, metaLike, now, "chat_intent");
     applyFeatureProductMeta(item, {
@@ -1150,14 +1147,15 @@ export function createStrategyLabStore(deps = {}) {
     // If feature has pipeline-generated code, accept it directly
     const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object"
       ? feature.generatedCode : null;
-    if (generatedCode && toText(generatedCode.indicatorCode)) {
-      const codeSource = toText(generatedCode.codeSource || params.codeSource || "").toLowerCase();
+    const inlineFeatureCode = toText(generatedCode?.featureCode || params.featureCode || params.runtime?.featureCode || "");
+    if (inlineFeatureCode) {
+      const codeSource = toText(generatedCode?.codeSource || params.codeSource || "").toLowerCase();
       // Accept any known code source from the pipeline
       if (ACCEPTED_CODE_SOURCES.has(codeSource)) {
         return; // Accepted
       }
       // Also accept if the code was validated by the pipeline (has validatedAt timestamp)
-      if (generatedCode.validatedAt) {
+      if (generatedCode?.validatedAt) {
         return; // Pipeline-validated code, any source accepted
       }
     }
@@ -1179,14 +1177,8 @@ export function createStrategyLabStore(deps = {}) {
       || name.includes("polymarket");
     if (!isExternal) return;
 
-    // For external features: accept if pythonIndicator exists with a valid code source
-    const pythonIndicator = toText(params.pythonIndicator || "");
-    if (!pythonIndicator) {
-      // If we have generatedCode with indicatorCode (any source), construct pythonIndicator
-      if (generatedCode && toText(generatedCode.indicatorCode)) {
-        return; // Code exists even if source is unrecognized — allow it
-      }
-      throw new Error("外部特征必须先由模型产出 pythonIndicator 执行代码，才能确认加入");
+    if (!inlineFeatureCode) {
+      throw new Error("外部特征必须先由模型产出 featureCode 执行代码，才能确认加入");
     }
     const codeSource = toText(params.codeSource || "").toLowerCase();
     if (!ACCEPTED_CODE_SOURCES.has(codeSource)) {
@@ -1981,7 +1973,7 @@ export function createStrategyLabStore(deps = {}) {
         social: "dataframe['{col}'] = dataframe['{col}'].ewm(span=5, adjust=False).mean().clip(-1, 1)",
         prediction: "dataframe['{col}'] = dataframe['{col}'].fillna(0.0).clip(-1, 1)",
       }[inferredSourceType] || "map(external_series_by_ref[feature_ref], candle_time)";
-      const expression = toText(dyn.pythonIndicator || "") || ({
+      const expression = toText(dyn.featureCode || dyn.pipelineCode || "") || ({
         trend_ema: "((ema_fast - ema_slow) / close).clip(-1, 1)",
         adx_strength: "((adx - 20.0) / 25.0).clip(0, 1)",
         rsi_bias: "((rsi - 50.0) / 50.0).clip(-1, 1)",
@@ -2155,9 +2147,7 @@ export function createStrategyLabStore(deps = {}) {
       // Include generated code from stored feature if available
       const storedCode = featureMeta?.generatedCode && typeof featureMeta.generatedCode === "object"
         ? {
-          indicatorCode: toText(featureMeta.generatedCode.indicatorCode, ""),
-          entryConditionCode: toText(featureMeta.generatedCode.entryConditionCode, ""),
-          exitConditionCode: toText(featureMeta.generatedCode.exitConditionCode, ""),
+          featureCode: toText(featureMeta.generatedCode.featureCode, ""),
           codeSource: toText(featureMeta.generatedCode.codeSource, ""),
           description: toText(featureMeta.generatedCode.description, ""),
           validatedAt: toText(featureMeta.generatedCode.validatedAt, ""),

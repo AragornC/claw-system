@@ -338,6 +338,10 @@
       originTrail: Array.isArray(raw.originTrail) ? raw.originTrail.slice(-16) : [],
       // Preserve pipeline-generated code
       generatedCode: raw.generatedCode && typeof raw.generatedCode === "object" ? raw.generatedCode : null,
+      planArtifact: raw.planArtifact && typeof raw.planArtifact === "object" ? raw.planArtifact : null,
+      specArtifact: raw.specArtifact && typeof raw.specArtifact === "object" ? raw.specArtifact : null,
+      generationTask: raw.generationTask && typeof raw.generationTask === "object" ? raw.generationTask : null,
+      generationTraces: Array.isArray(raw.generationTraces) ? raw.generationTraces.slice(-40) : [],
     };
     return normalized;
   }
@@ -459,6 +463,92 @@
       + "</div>";
   }
 
+  function buildFeatureProcessTracesRuntime(featureLike) {
+    const feature = normalizeStrategyFeatureRuntime(featureLike);
+    const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object" ? feature.generatedCode : {};
+    const traces = Array.isArray(feature.generationTraces) ? feature.generationTraces.slice() : [];
+    if (traces.length) return traces;
+    const built = [];
+    const planArtifact = feature.planArtifact && typeof feature.planArtifact === "object" ? feature.planArtifact : null;
+    const specArtifact = feature.specArtifact && typeof feature.specArtifact === "object"
+      ? feature.specArtifact
+      : (generatedCode.specArtifact && typeof generatedCode.specArtifact === "object" ? generatedCode.specArtifact : null);
+    if (planArtifact) {
+      built.push({
+        phase: "plan",
+        status: "done",
+        message: "已产出特征加工计划。",
+        details: { planArtifact: planArtifact },
+      });
+    }
+    if (specArtifact) {
+      built.push({
+        phase: "spec_lock",
+        status: "done",
+        message: "已锁定结构化 Spec。",
+        details: { specArtifact: specArtifact },
+      });
+    }
+    if (sfText(generatedCode.featureCode, "")) {
+      built.push({
+        phase: "write",
+        status: "done",
+        message: "已生成最终代码。",
+        details: {
+          codeSnippet: sfText(generatedCode.featureCode, ""),
+          codeSource: sfText(generatedCode.codeSource || "", ""),
+        },
+      });
+    }
+    if (generatedCode.runArtifacts && typeof generatedCode.runArtifacts === "object") {
+      built.push({
+        phase: "run",
+        status: "done",
+        message: "已记录运行结果。",
+        details: {
+          runArtifacts: generatedCode.runArtifacts,
+        },
+      });
+    }
+    if ((generatedCode.repairSummary && typeof generatedCode.repairSummary === "object")
+      || (generatedCode.codeDiff && typeof generatedCode.codeDiff === "object")) {
+      built.push({
+        phase: "repair",
+        status: "done",
+        message: "已记录最后一轮修复。",
+        details: {
+          repairSummary: generatedCode.repairSummary || null,
+          codeDiff: generatedCode.codeDiff || null,
+          codeSnippet: sfText(generatedCode.featureCode, ""),
+        },
+      });
+    }
+    if (feature.description || specArtifact || generatedCode.runArtifacts) {
+      built.push({
+        phase: "summarize",
+        status: "done",
+        message: "最终结果已保存。",
+        details: {
+          resultSummary: sfText(feature.description || feature.usageSummary || "", ""),
+          specArtifact: specArtifact,
+          generatedCode: generatedCode,
+          runArtifacts: generatedCode.runArtifacts || null,
+        },
+      });
+    }
+    return built;
+  }
+
+  function renderFeatureProcessModuleRuntime(featureLike) {
+    const traces = buildFeatureProcessTracesRuntime(featureLike);
+    if (!traces.length || typeof renderStaticStrategyIntentWorkbenchRuntime !== "function") return "";
+    const markup = renderStaticStrategyIntentWorkbenchRuntime({ traces: traces });
+    if (!markup) return "";
+    return '<details class="fd-module">'
+      + '<summary class="fd-module-header">🧠 生成过程</summary>'
+      + '<div class="fd-module-body">' + markup + "</div></details>";
+  }
+
   function renderStrategyFeatureDetailModalRuntime(featureLike, contextLike) {
     const feature = normalizeStrategyFeatureRuntime(featureLike);
     const context = contextLike && typeof contextLike === "object" ? contextLike : {};
@@ -486,7 +576,7 @@
       + (codeSource ? '<div class="fd-info-item"><span class="fd-info-label">代码来源</span><span class="fd-info-value">' + sfEscapeHtml(codeSource) + '</span></div>' : '')
       + '</div>'
       + '<div class="fd-code-section">'
-      + '<div class="fd-code-title">执行代码（populate_indicators）</div>'
+      + '<div class="fd-code-title">执行代码（compute_feature）</div>'
       + '<pre class="fd-code-block">' + sfEscapeHtml(executionCode || "# 暂无执行代码") + '</pre>'
       + '</div>'
       + '</div></details>';
@@ -521,6 +611,7 @@
         + '<div class="fd-config-hint">填写后点击保存，特征运行时将自动使用这些配置。</div>'
         + '</div></details>';
     }
+    var moduleProcess = renderFeatureProcessModuleRuntime(feature);
 
     // Module 2: 特征说明 (K线可视化解释)
     var detailContext = { ...context, detailMode: true, previewWindow: 220 };
@@ -535,6 +626,8 @@
       + '<div class="fd-kline-preview">' + preview.html + '</div>'
       + '</div></details>';
 
+    if (featureId) rememberFeatureEvalContextRuntime(featureId, context, feature);
+
     // Module 3: 特征回测 (K线 + 周期选择 + 运行评估)
     var module3 = '<details class="fd-module">'
       + '<summary class="fd-module-header">🔬 特征回测</summary>'
@@ -542,12 +635,12 @@
       + renderFeatureEvalButtonRuntime(feature)
       + '</div></details>';
 
-    // Module 4: 回测历史
+    // Module 4: 计算历史
     var module4 = '<details class="fd-module">'
-      + '<summary class="fd-module-header">📜 回测历史</summary>'
+      + '<summary class="fd-module-header">📜 计算历史</summary>'
       + '<div class="fd-module-body">'
-      + '<div class="feature-eval-history" data-feature-eval-history="' + sfEscapeHtml(featureId) + '"></div>'
-      + '<div class="meta" style="color:#8b949e;font-size:0.72rem;">运行回测后，结果将保存在此列表中。</div>'
+      + '<div class="feature-eval-history" data-feature-eval-history="' + sfEscapeHtml(featureId) + '">' + renderEvalHistoryMarkupRuntime(featureId) + '</div>'
+      + '<div class="meta" style="color:#8b949e;font-size:0.72rem;">运行计算后，结果将保存在此列表中。</div>'
       + '</div></details>';
 
     return '<div class="feature-detail-view fd-new-layout">'
@@ -556,7 +649,7 @@
       + '<div class="fd-header-meta"><span class="tag">' + sfEscapeHtml(feature.mainCategoryLabel) + '</span> ' + allTags + ' <span class="tag">' + sfEscapeHtml(feature.outputTypeLabel) + '</span></div>'
       + '</div>'
       + '<div class="fd-modules">'
-      + module1 + moduleConfig + module2 + module3 + module4
+      + module1 + moduleConfig + moduleProcess + module2 + module3 + module4
       + '</div>'
       + '</div>';
   }
@@ -586,17 +679,735 @@
     const runtime = params.runtime && typeof params.runtime === "object" ? params.runtime : {};
     // Priority: generatedCode (pipeline) → runtime → params → feature
     const generatedCode = feature.generatedCode && typeof feature.generatedCode === "object" ? feature.generatedCode : {};
-    if (sfText(generatedCode.indicatorCode, "")) return sfText(generatedCode.indicatorCode, "");
+    if (sfText(generatedCode.featureCode, "")) return sfText(generatedCode.featureCode, "");
     const candidates = [
-      runtime.pythonIndicator, runtime.pythonCode, runtime.code, runtime.expression,
-      params.pythonIndicator, params.pythonindicator, params.pythonCode, params.code, params.expression,
-      feature.pythonIndicator, feature.pythonCode, feature.code, feature.expression,
+      runtime.featureCode, runtime.pipelineCode, runtime.pythonCode, runtime.code, runtime.expression,
+      params.featureCode, params.pipelineCode, params.pythonCode, params.code, params.expression,
+      feature.featureCode, feature.pipelineCode, feature.pythonCode, feature.code, feature.expression,
     ];
     for (var i = 0; i < candidates.length; i += 1) {
       const text = sfText(candidates[i], "");
       if (text) return text;
     }
     return "";
+  }
+
+  var featureEvalRuntimeContext = {};
+  var featureEvalChartRuntime = {};
+
+  function normalizeFeatureEvalBarsRuntime(barsLike) {
+    var rows = Array.isArray(barsLike) ? barsLike : [];
+    return rows.map(function(itemLike) {
+      var row = itemLike && typeof itemLike === "object" ? itemLike : {};
+      var rawTime = Math.floor(sfNum(row.time || row.ts || row.t, 0));
+      var time = rawTime > 9999999999 ? Math.floor(rawTime / 1000) : rawTime;
+      var open = sfNum(row.open, Number.NaN);
+      var high = sfNum(row.high, Number.NaN);
+      var low = sfNum(row.low, Number.NaN);
+      var close = sfNum(row.close, Number.NaN);
+      var volume = sfNum(row.volume, Number.NaN);
+      if (!Number.isFinite(time) || time <= 0) return null;
+      if (![open, high, low, close].every(Number.isFinite)) return null;
+      return {
+        time: time,
+        open: open,
+        high: high,
+        low: low,
+        close: close,
+        volume: Number.isFinite(volume) ? Math.max(0, volume) : null,
+      };
+    }).filter(Boolean).sort(function(a, b) { return sfNum(a.time, 0) - sfNum(b.time, 0); });
+  }
+
+  function chooseFeatureEvalBarsRuntime(contextLike) {
+    var context = contextLike && typeof contextLike === "object" ? contextLike : {};
+    var ohlcvByTf = context.ohlcvByTf && typeof context.ohlcvByTf === "object" ? context.ohlcvByTf : {};
+    var tfPrefer = sfText(context.previewTf || "auto", "auto");
+    if (tfPrefer !== "auto") {
+      var directBars = normalizeFeatureEvalBarsRuntime(ohlcvByTf[tfPrefer]);
+      if (directBars.length >= 16) return { bars: directBars, timeframe: tfPrefer };
+    }
+    var priority = ["1h", "15m", "5m", "1m", "4h", "1d"];
+    for (var i = 0; i < priority.length; i += 1) {
+      var tf = priority[i];
+      var rows = normalizeFeatureEvalBarsRuntime(ohlcvByTf[tf]);
+      if (rows.length >= 24) return { bars: rows, timeframe: tf };
+    }
+    var keys = Object.keys(ohlcvByTf || {});
+    for (var j = 0; j < keys.length; j += 1) {
+      var key = keys[j];
+      var fallbackBars = normalizeFeatureEvalBarsRuntime(ohlcvByTf[key]);
+      if (fallbackBars.length >= 16) return { bars: fallbackBars, timeframe: key };
+    }
+    return { bars: [], timeframe: tfPrefer === "auto" ? "-" : tfPrefer };
+  }
+
+  function sliceFeatureEvalBarsByRangeRuntime(barsLike, rangeDaysLike) {
+    var bars = Array.isArray(barsLike) ? barsLike : [];
+    var rangeDays = Math.max(1, Math.min(365, Math.floor(sfNum(rangeDaysLike, 30))));
+    if (!bars.length) return [];
+    var latestTime = sfNum(bars[bars.length - 1] && bars[bars.length - 1].time, 0);
+    if (!Number.isFinite(latestTime) || latestTime <= 0) return [];
+    var threshold = latestTime - (rangeDays * 86400);
+    var filtered = bars.filter(function(rowLike) {
+      return sfNum(rowLike && rowLike.time, 0) >= threshold;
+    });
+    return filtered.length ? filtered : bars.slice(-Math.max(24, Math.min(400, rangeDays * 24)));
+  }
+
+  function rememberFeatureEvalContextRuntime(featureIdLike, contextLike, featureLike) {
+    var featureId = sfText(featureIdLike, "");
+    if (!featureId) return;
+    var context = contextLike && typeof contextLike === "object" ? contextLike : {};
+    var feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    featureEvalRuntimeContext[featureId] = {
+      previewTf: sfText(context.previewTf || "auto", "auto"),
+      ohlcvByTf: context.ohlcvByTf && typeof context.ohlcvByTf === "object" ? context.ohlcvByTf : {},
+      pair: sfText(context.pair || context.symbol || "BTC/USDT", "BTC/USDT"),
+      feature: feature,
+    };
+  }
+
+  function resolveFeatureEvalRequestRuntime(featureIdLike, rangeDaysLike) {
+    var featureId = sfText(featureIdLike, "");
+    var cached = featureEvalRuntimeContext[featureId] && typeof featureEvalRuntimeContext[featureId] === "object"
+      ? featureEvalRuntimeContext[featureId]
+      : null;
+    if (!cached) {
+      return { ok: false, error: "缺少特征详情上下文，请关闭详情后重试。" };
+    }
+    var selected = chooseFeatureEvalBarsRuntime(cached);
+    var timeframe = sfText(selected.timeframe || cached.previewTf || "1h", "1h");
+    if (!timeframe || timeframe === "-") timeframe = "1h";
+    return {
+      ok: true,
+      timeframe: timeframe,
+      pair: sfText(cached.pair || "BTC/USDT", "BTC/USDT"),
+    };
+  }
+
+  function renderFeatureEvalErrorRuntime(messageLike) {
+    var message = sfText(messageLike, "未知错误");
+    return '<div class="feature-eval-error-card">'
+      + '<div class="feature-eval-error-title">特征图渲染失败</div>'
+      + '<div class="feature-eval-error-text">' + sfEscapeHtml(message) + '</div>'
+      + '</div>';
+  }
+
+  function formatFeatureEvalValueRuntime(valueLike, digitsLike) {
+    var digits = Math.max(0, Math.min(8, Math.floor(sfNum(digitsLike, 4))));
+    var parsed = parseFeatureEvalMaybeNumberRuntime(valueLike);
+    if (parsed == null) return "-";
+    return Number(parsed).toFixed(digits);
+  }
+
+  function parseFeatureEvalMaybeNumberRuntime(valueLike) {
+    if (valueLike == null || valueLike === "") return null;
+    var value = Number(valueLike);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function normalizeFeatureEvalPointRuntime(rowLike, featureColLike) {
+    var row = rowLike && typeof rowLike === "object" ? rowLike : {};
+    var featureCol = sfText(featureColLike, "");
+    var timeSec = Math.floor(sfNum(row.time, 0));
+    if (!Number.isFinite(timeSec) || timeSec <= 0) return null;
+    var open = parseFeatureEvalMaybeNumberRuntime(row.open);
+    var high = parseFeatureEvalMaybeNumberRuntime(row.high);
+    var low = parseFeatureEvalMaybeNumberRuntime(row.low);
+    var close = parseFeatureEvalMaybeNumberRuntime(row.close);
+    var volume = parseFeatureEvalMaybeNumberRuntime(row.volume);
+    var featureValue = parseFeatureEvalMaybeNumberRuntime(row[featureCol]);
+    return {
+      time: timeSec,
+      open: open,
+      high: high,
+      low: low,
+      close: close,
+      volume: volume,
+      featureValue: featureValue,
+    };
+  }
+
+  function buildFeatureEvalChartModelRuntime(featureIdLike, timeSeriesLike, columnsLike, optionsLike) {
+    var featureId = sfText(featureIdLike, "");
+    var options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    var columns = Array.isArray(columnsLike) ? columnsLike.filter(function(colLike) {
+      return sfText(colLike, "").indexOf("tc_feat_") === 0;
+    }) : [];
+    var featureCol = columns[0] || "";
+    if (!featureCol) {
+      return { ok: false, error: "未找到可展示的特征列。" };
+    }
+    var points = (Array.isArray(timeSeriesLike) ? timeSeriesLike : []).map(function mapPoint(itemLike) {
+      return normalizeFeatureEvalPointRuntime(itemLike, featureCol);
+    }).filter(Boolean).sort(function(a, b) {
+      return sfNum(a.time, 0) - sfNum(b.time, 0);
+    });
+    if (!points.length) {
+      return { ok: false, error: "缺少可展示的时序数据。" };
+    }
+    var requestedWindow = Math.floor(sfNum(options.chartWindow, points.length));
+    if (!Number.isFinite(requestedWindow) || requestedWindow <= 0) requestedWindow = points.length;
+    var minWindow = Math.min(24, points.length);
+    var chartWindow = Math.max(minWindow, Math.min(points.length, requestedWindow));
+    var recent = points.slice(-chartWindow);
+    var candleData = [];
+    var lineData = [];
+    var pointMap = {};
+    var skippedBars = 0;
+    var skippedFeaturePoints = 0;
+    recent.forEach(function eachPoint(pointLike) {
+      var point = pointLike && typeof pointLike === "object" ? pointLike : {};
+      var time = Math.floor(sfNum(point.time, 0));
+      if (!Number.isFinite(time) || time <= 0) return;
+      pointMap[time] = point;
+      var hasBar = [point.open, point.high, point.low, point.close].every(function(vLike) {
+        return Number.isFinite(vLike);
+      });
+      if (hasBar) {
+        candleData.push({
+          time: time,
+          open: Number(point.open),
+          high: Number(point.high),
+          low: Number(point.low),
+          close: Number(point.close),
+        });
+      } else {
+        skippedBars += 1;
+      }
+      if (Number.isFinite(point.featureValue)) {
+        lineData.push({ time: time, value: point.featureValue });
+      } else {
+        lineData.push({ time: time });
+        skippedFeaturePoints += 1;
+      }
+    });
+    var validFeatureValues = lineData.map(function(itemLike) {
+      return itemLike && Number.isFinite(itemLike.value) ? itemLike.value : Number.NaN;
+    }).filter(Number.isFinite);
+    if (candleData.length < 8) {
+      return { ok: false, error: "有效 K 线数量不足，无法绘制特征图。" };
+    }
+    if (validFeatureValues.length < 3) {
+      return { ok: false, error: "有效特征点数量不足，无法绘制特征图。" };
+    }
+    return {
+      ok: true,
+      featureId: featureId,
+      featureCol: featureCol,
+      featureLabel: featureCol.replace(/^tc_feat_/, ""),
+      timeframe: sfText(options.timeframe || "-", "-"),
+      candleData: candleData,
+      lineData: lineData,
+      pointMap: pointMap,
+      skippedBars: skippedBars,
+      skippedFeaturePoints: skippedFeaturePoints,
+      windowSize: recent.length,
+    };
+  }
+
+  function renderFeatureEvalChartShellRuntime(featureIdLike, modelLike) {
+    var featureId = sfText(featureIdLike, "");
+    var model = modelLike && typeof modelLike === "object" ? modelLike : {};
+    var metaParts = [
+      "TF=" + sfEscapeHtml(sfText(model.timeframe, "-")),
+      "窗口=" + sfEscapeHtml(String(Math.max(0, Math.floor(sfNum(model.windowSize, 0))))) + "根",
+    ];
+    if (sfNum(model.skippedBars, 0) > 0) metaParts.push("跳过坏K线 " + sfEscapeHtml(String(Math.floor(sfNum(model.skippedBars, 0)))));
+    if (sfNum(model.skippedFeaturePoints, 0) > 0) metaParts.push("忽略坏点 " + sfEscapeHtml(String(Math.floor(sfNum(model.skippedFeaturePoints, 0)))));
+    return '<div class="feature-eval-chart-card" data-feature-chart-host="' + sfEscapeHtml(featureId) + '">'
+      + '<div class="feature-eval-chart-head">'
+      + '<div class="feature-eval-chart-head-top">'
+      + '<div class="feature-eval-chart-title">特征曲线 + K线辅助</div>'
+      + '<button type="button" class="feature-eval-reset-btn" data-action="reset-feature-chart" data-feature-id="' + sfEscapeHtml(featureId) + '" disabled>重置视图</button>'
+      + '</div>'
+      + '<div class="feature-eval-chart-meta">' + metaParts.join(' · ') + '</div>'
+      + '</div>'
+      + '<div class="feature-eval-interactive-wrap">'
+      + '<div class="feature-eval-chart-canvas" data-feature-chart-canvas="' + sfEscapeHtml(featureId) + '"></div>'
+      + '<div class="feature-eval-selection-box" data-feature-chart-selection="' + sfEscapeHtml(featureId) + '" style="display:none;"></div>'
+      + '<div class="feature-eval-hover-card" data-feature-chart-hover="' + sfEscapeHtml(featureId) + '" style="display:none;"></div>'
+      + '<div class="feature-eval-point-card" data-feature-chart-point="' + sfEscapeHtml(featureId) + '" style="display:none;"></div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function isStandardFeatureKindRuntime(kindLike) {
+    var kind = sfText(kindLike, "").toLowerCase();
+    return kind === "ema" || kind === "sma" || kind === "rsi" || kind === "adx" || kind === "atr";
+  }
+
+  function buildFeaturePointExplainRuntime(featureLike, pointLike) {
+    var feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    var point = pointLike && typeof pointLike === "object" ? pointLike : {};
+    var kind = sfText(feature.kind, "custom").toLowerCase();
+    var period = Math.max(2, Math.floor(sfNum(feature.params && feature.params.period, 14)));
+    var valueText = formatFeatureEvalValueRuntime(point.featureValue, 4);
+    if (kind === "ema") return "EMA(" + period + ") 平滑 close 序列，当前值 " + valueText + "。";
+    if (kind === "sma") return "SMA(" + period + ") 取最近 " + period + " 根 close 均值，当前值 " + valueText + "。";
+    if (kind === "rsi") return "RSI(" + period + ") 基于涨跌强弱，当前值 " + valueText + "。";
+    if (kind === "adx") return "ADX(" + period + ") 衡量趋势强度，当前值 " + valueText + "。";
+    if (kind === "atr") return "ATR(" + period + ") 衡量波动强度，当前值 " + valueText + "。";
+    return "该值来自 compute_feature 的真实输出。";
+  }
+
+  function renderFeatureHoverRuntime(featureLike, pointLike, featureLabelLike) {
+    var feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    var point = pointLike && typeof pointLike === "object" ? pointLike : {};
+    var featureLabel = sfText(featureLabelLike || feature.title || feature.name || "feature", "feature");
+    return '<div class="feature-eval-hover-title">' + sfEscapeHtml(featureLabel) + '</div>'
+      + '<div class="feature-eval-hover-row"><span>时间</span><strong>' + sfEscapeHtml(sfFormatBarTs(point.time)) + '</strong></div>'
+      + '<div class="feature-eval-hover-row"><span>特征值</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.featureValue, 4)) + '</strong></div>'
+      + '<div class="feature-eval-hover-row"><span>收盘价</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.close, 2)) + '</strong></div>';
+  }
+
+  function renderFeaturePointCardRuntime(featureIdLike, featureLike, pointLike, featureLabelLike, timeframeLike) {
+    var featureId = sfText(featureIdLike, "");
+    var feature = featureLike && typeof featureLike === "object" ? featureLike : {};
+    var point = pointLike && typeof pointLike === "object" ? pointLike : {};
+    var featureLabel = sfText(featureLabelLike || feature.title || feature.name || "feature", "feature");
+    var explain = buildFeaturePointExplainRuntime(feature, point);
+    var pointValue = formatFeatureEvalValueRuntime(point.featureValue, 4);
+    return '<button type="button" class="feature-eval-point-close" data-action="close-feature-point" data-feature-id="' + sfEscapeHtml(featureId) + '">关闭</button>'
+      + '<div class="feature-eval-point-title">' + sfEscapeHtml(featureLabel) + '</div>'
+      + '<div class="feature-eval-point-time">' + sfEscapeHtml(sfFormatBarTs(point.time)) + ' · TF=' + sfEscapeHtml(sfText(timeframeLike, "-")) + '</div>'
+      + '<div class="feature-eval-point-grid">'
+      + '<div><span>Open</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.open, 2)) + '</strong></div>'
+      + '<div><span>High</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.high, 2)) + '</strong></div>'
+      + '<div><span>Low</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.low, 2)) + '</strong></div>'
+      + '<div><span>Close</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.close, 2)) + '</strong></div>'
+      + '<div><span>特征值</span><strong>' + sfEscapeHtml(pointValue) + '</strong></div>'
+      + '<div><span>Volume</span><strong>' + sfEscapeHtml(formatFeatureEvalValueRuntime(point.volume, 2)) + '</strong></div>'
+      + '</div>'
+      + '<div class="feature-eval-point-explain">' + sfEscapeHtml(explain) + '</div>';
+  }
+
+  function positionFeatureEvalFloatingCardRuntime(cardLike, wrapLike, pointLike) {
+    var card = cardLike;
+    var wrap = wrapLike;
+    var point = pointLike && typeof pointLike === "object" ? pointLike : null;
+    if (!card || !wrap || !point) return;
+    var wrapRect = wrap.getBoundingClientRect();
+    var cardWidth = card.offsetWidth || 260;
+    var cardHeight = card.offsetHeight || 170;
+    var left = Math.max(8, Math.min((wrap.clientWidth || wrapRect.width) - cardWidth - 8, point.x + 12));
+    var top = Math.max(8, Math.min((wrap.clientHeight || wrapRect.height) - cardHeight - 8, point.y + 12));
+    card.style.left = String(left) + "px";
+    card.style.top = String(top) + "px";
+  }
+
+  function normalizeFeatureEvalSelectionRuntime(startXLike, endXLike, maxWidthLike, minWidthLike) {
+    var maxWidth = Math.max(0, Math.floor(sfNum(maxWidthLike, 0)));
+    if (maxWidth <= 0) return null;
+    var minWidth = Math.max(8, Math.floor(sfNum(minWidthLike, 12)));
+    var startX = Math.max(0, Math.min(maxWidth, sfNum(startXLike, 0)));
+    var endX = Math.max(0, Math.min(maxWidth, sfNum(endXLike, 0)));
+    var left = Math.min(startX, endX);
+    var right = Math.max(startX, endX);
+    var width = right - left;
+    if (!Number.isFinite(width) || width < minWidth) return null;
+    return {
+      left: left,
+      right: right,
+      width: width,
+    };
+  }
+
+  function shouldActivateFeatureEvalSelectionRuntime(startXLike, currentXLike, thresholdLike) {
+    var threshold = Math.max(4, Math.floor(sfNum(thresholdLike, 12)));
+    var startX = sfNum(startXLike, 0);
+    var currentX = sfNum(currentXLike, 0);
+    return Math.abs(currentX - startX) >= threshold;
+  }
+
+  function shouldOpenFeatureEvalPointCardRuntime(selectionStateLike) {
+    var selectionState = selectionStateLike && typeof selectionStateLike === "object" ? selectionStateLike : {};
+    if (selectionState.active) return false;
+    if (selectionState.suppressNextClick) {
+      selectionState.suppressNextClick = false;
+      return false;
+    }
+    return true;
+  }
+
+  function parseFeatureEvalChartTimeRuntime(timeLike) {
+    if (Number.isFinite(timeLike)) return Math.floor(timeLike);
+    if (!timeLike || typeof timeLike !== "object") return 0;
+    if (Number.isFinite(timeLike.timestamp)) return Math.floor(timeLike.timestamp);
+    if (Number.isFinite(timeLike.year) && Number.isFinite(timeLike.month) && Number.isFinite(timeLike.day)) {
+      var utcMs = Date.UTC(
+        Math.floor(timeLike.year),
+        Math.max(0, Math.floor(timeLike.month) - 1),
+        Math.max(1, Math.floor(timeLike.day)),
+      );
+      return Math.floor(utcMs / 1000);
+    }
+    return 0;
+  }
+
+  function resolveFeatureEvalSelectionIndexRuntime(candleDataLike, xLike, wrapWidthLike, coordinateToTimeLike) {
+    var candleData = Array.isArray(candleDataLike) ? candleDataLike : [];
+    if (!candleData.length) return -1;
+    var wrapWidth = Math.max(1, Math.floor(sfNum(wrapWidthLike, 1)));
+    var x = Math.max(0, Math.min(wrapWidth, sfNum(xLike, 0)));
+    var time = 0;
+    try {
+      time = parseFeatureEvalChartTimeRuntime(typeof coordinateToTimeLike === "function" ? coordinateToTimeLike(x) : null);
+    } catch (_) {
+      time = 0;
+    }
+    if (Number.isFinite(time) && time > 0) {
+      var bestIndex = 0;
+      var bestDiff = Number.POSITIVE_INFINITY;
+      candleData.forEach(function eachBar(barLike, idx) {
+        var barTime = Math.floor(sfNum(barLike && barLike.time, 0));
+        var diff = Math.abs(barTime - time);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIndex = idx;
+        }
+      });
+      return bestIndex;
+    }
+    var ratio = wrapWidth > 0 ? (x / wrapWidth) : 0;
+    return Math.max(0, Math.min(candleData.length - 1, Math.round(ratio * Math.max(0, candleData.length - 1))));
+  }
+
+  function buildFeatureEvalLogicalRangeRuntime(candleDataLike, startXLike, endXLike, wrapWidthLike, coordinateToTimeLike) {
+    var candleData = Array.isArray(candleDataLike) ? candleDataLike : [];
+    if (candleData.length < 2) return null;
+    var normalized = normalizeFeatureEvalSelectionRuntime(startXLike, endXLike, wrapWidthLike, 12);
+    if (!normalized) return null;
+    var startIndex = resolveFeatureEvalSelectionIndexRuntime(candleData, normalized.left, wrapWidthLike, coordinateToTimeLike);
+    var endIndex = resolveFeatureEvalSelectionIndexRuntime(candleData, normalized.right, wrapWidthLike, coordinateToTimeLike);
+    if (startIndex < 0 || endIndex < 0) return null;
+    var from = Math.max(0, Math.min(startIndex, endIndex));
+    var to = Math.min(candleData.length - 1, Math.max(startIndex, endIndex));
+    if (to <= from) {
+      if (to < candleData.length - 1) to += 1;
+      else from = Math.max(0, from - 1);
+    }
+    return { from: from, to: to };
+  }
+
+  function setFeatureEvalSelectionBoxRuntime(selectionBoxLike, rangeLike) {
+    var selectionBox = selectionBoxLike;
+    var range = rangeLike && typeof rangeLike === "object" ? rangeLike : null;
+    if (!selectionBox) return;
+    if (!range) {
+      selectionBox.style.display = "none";
+      selectionBox.style.left = "";
+      selectionBox.style.width = "";
+      return;
+    }
+    selectionBox.style.display = "block";
+    selectionBox.style.left = String(Math.max(0, Math.floor(sfNum(range.left, 0)))) + "px";
+    selectionBox.style.width = String(Math.max(0, Math.floor(sfNum(range.width, 0)))) + "px";
+  }
+
+  function syncFeatureEvalResetButtonRuntime(resetBtnLike, isZoomedLike) {
+    var resetBtn = resetBtnLike;
+    var isZoomed = Boolean(isZoomedLike);
+    if (!resetBtn) return;
+    resetBtn.disabled = !isZoomed;
+    if (isZoomed) resetBtn.classList.add("active");
+    else resetBtn.classList.remove("active");
+  }
+
+  function resetFeatureEvalChartViewRuntime(featureIdLike) {
+    var featureId = sfText(featureIdLike, "");
+    var runtime = featureEvalChartRuntime[featureId] && typeof featureEvalChartRuntime[featureId] === "object"
+      ? featureEvalChartRuntime[featureId]
+      : null;
+    if (!runtime || !runtime.chart || !runtime.chart.timeScale) return;
+    try {
+      runtime.chart.timeScale().fitContent();
+    } catch (_) {}
+    runtime.isZoomed = false;
+    runtime.suppressNextClick = false;
+    if (runtime.selectionState) {
+      runtime.selectionState.pointerDown = false;
+      runtime.selectionState.active = false;
+      runtime.selectionState.startX = 0;
+      runtime.selectionState.currentX = 0;
+      runtime.selectionState.didDrag = false;
+      runtime.selectionState.suppressNextClick = false;
+    }
+    if (runtime.wrap) runtime.wrap.classList.remove("is-selecting");
+    setFeatureEvalSelectionBoxRuntime(runtime.selectionBox, null);
+    syncFeatureEvalResetButtonRuntime(runtime.resetBtn, false);
+  }
+
+  function destroyFeatureEvalChartRuntime(featureIdLike) {
+    var featureId = sfText(featureIdLike, "");
+    var runtime = featureEvalChartRuntime[featureId] && typeof featureEvalChartRuntime[featureId] === "object"
+      ? featureEvalChartRuntime[featureId]
+      : null;
+    if (!runtime) return;
+    try {
+      if (typeof runtime.cleanupSelection === "function") runtime.cleanupSelection();
+    } catch (_) {}
+    try {
+      if (runtime.resizeObserver && typeof runtime.resizeObserver.disconnect === "function") runtime.resizeObserver.disconnect();
+    } catch (_) {}
+    try {
+      if (runtime.chart && typeof runtime.chart.remove === "function") runtime.chart.remove();
+    } catch (_) {}
+    delete featureEvalChartRuntime[featureId];
+  }
+
+  function mountFeatureEvalChartRuntime(featureIdLike, hostLike, modelLike) {
+    var featureId = sfText(featureIdLike, "");
+    var host = hostLike;
+    var model = modelLike && typeof modelLike === "object" ? modelLike : {};
+    if (!featureId || !host || model.ok !== true) return;
+    var canvas = host.querySelector('[data-feature-chart-canvas="' + featureId + '"]');
+    var hoverCard = host.querySelector('[data-feature-chart-hover="' + featureId + '"]');
+    var pointCard = host.querySelector('[data-feature-chart-point="' + featureId + '"]');
+    var selectionBox = host.querySelector('[data-feature-chart-selection="' + featureId + '"]');
+    var resetBtn = host.querySelector('[data-action="reset-feature-chart"][data-feature-id="' + featureId + '"]');
+    var wrap = host.querySelector('.feature-eval-interactive-wrap');
+    if (!canvas || !wrap) return;
+    var chartLib = typeof LightweightCharts !== "undefined" && LightweightCharts && typeof LightweightCharts.createChart === "function"
+      ? LightweightCharts
+      : null;
+    if (!chartLib) {
+      host.innerHTML = renderFeatureEvalErrorRuntime("图表库 lightweight-charts 未加载。");
+      return;
+    }
+    destroyFeatureEvalChartRuntime(featureId);
+    var width = Math.max(280, Math.floor(canvas.clientWidth || wrap.clientWidth || 760));
+    var height = Math.max(360, Math.floor(sfNum(wrap.getAttribute('data-height'), 420)));
+    var chart = chartLib.createChart(canvas, {
+      width: width,
+      height: height,
+      layout: {
+        background: { type: 'solid', color: '#0f1419' },
+        textColor: '#8b949e',
+      },
+      grid: {
+        vertLines: { color: '#1a2332' },
+        horzLines: { color: '#1a2332' },
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: false,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        axisPressedMouseMove: false,
+        mouseWheel: true,
+        pinch: true,
+      },
+      crosshair: {
+        mode: 0,
+      },
+      rightPriceScale: {
+        borderColor: '#2d3a4f',
+        scaleMargins: { top: 0.1, bottom: 0.14 },
+      },
+      leftPriceScale: {
+        visible: true,
+        borderColor: '#2d3a4f',
+        scaleMargins: { top: 0.08, bottom: 0.14 },
+      },
+      timeScale: {
+        borderColor: '#2d3a4f',
+        timeVisible: true,
+        secondsVisible: false,
+        barSpacing: 8,
+        rightOffset: 8,
+      },
+    });
+    var candleSeries = chart.addCandlestickSeries({
+      priceScaleId: 'right',
+      upColor: 'rgba(63,185,80,0.45)',
+      downColor: 'rgba(248,81,73,0.45)',
+      wickUpColor: 'rgba(63,185,80,0.55)',
+      wickDownColor: 'rgba(248,81,73,0.55)',
+      borderUpColor: 'rgba(63,185,80,0.35)',
+      borderDownColor: 'rgba(248,81,73,0.35)',
+      borderVisible: true,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    var featureSeries = chart.addLineSeries({
+      priceScaleId: 'left',
+      color: '#79c0ff',
+      lineWidth: 3,
+      priceLineVisible: true,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: '#79c0ff',
+      crosshairMarkerBackgroundColor: '#0f1419',
+    });
+    candleSeries.setData(model.candleData || []);
+    featureSeries.setData(model.lineData || []);
+    try {
+      chart.timeScale().fitContent();
+    } catch (_) {}
+    syncFeatureEvalResetButtonRuntime(resetBtn, false);
+    var featureContext = featureEvalRuntimeContext[featureId] && typeof featureEvalRuntimeContext[featureId] === "object"
+      ? featureEvalRuntimeContext[featureId]
+      : {};
+    var feature = featureContext.feature && typeof featureContext.feature === "object" ? featureContext.feature : {};
+    var selectionState = {
+      pointerDown: false,
+      active: false,
+      startX: 0,
+      currentX: 0,
+      didDrag: false,
+      suppressNextClick: false,
+    };
+    function resolvePointDetail(timeLike) {
+      var time = Math.floor(sfNum(timeLike, 0));
+      if (!Number.isFinite(time) || time <= 0) return null;
+      return model.pointMap && typeof model.pointMap === "object" ? model.pointMap[time] || null : null;
+    }
+    function hideFloatingCards() {
+      if (hoverCard) hoverCard.style.display = 'none';
+      if (pointCard) {
+        pointCard.style.display = 'none';
+        pointCard.innerHTML = '';
+      }
+    }
+    function updateSelectionPreview() {
+      if (!selectionState.active) {
+        wrap.classList.remove("is-selecting");
+        setFeatureEvalSelectionBoxRuntime(selectionBox, null);
+        return;
+      }
+      wrap.classList.add("is-selecting");
+      setFeatureEvalSelectionBoxRuntime(
+        selectionBox,
+        normalizeFeatureEvalSelectionRuntime(selectionState.startX, selectionState.currentX, wrap.clientWidth || wrap.getBoundingClientRect().width || width, 12),
+      );
+    }
+    function cleanupSelectionListeners() {
+      if (typeof window === "undefined") return;
+      window.removeEventListener("mousemove", handleSelectionMove);
+      window.removeEventListener("mouseup", handleSelectionEnd);
+    }
+    function handleSelectionMove(evt) {
+      if (!selectionState.pointerDown) return;
+      var rect = wrap.getBoundingClientRect();
+      selectionState.currentX = sfNum(evt && evt.clientX, rect.left) - rect.left;
+      if (!selectionState.active && !shouldActivateFeatureEvalSelectionRuntime(selectionState.startX, selectionState.currentX, 12)) {
+        return;
+      }
+      if (!selectionState.active) {
+        selectionState.active = true;
+        hideFloatingCards();
+      }
+      selectionState.didDrag = true;
+      updateSelectionPreview();
+    }
+    function handleSelectionEnd(evt) {
+      if (!selectionState.pointerDown) return;
+      cleanupSelectionListeners();
+      var rect = wrap.getBoundingClientRect();
+      selectionState.currentX = sfNum(evt && evt.clientX, rect.left) - rect.left;
+      var wasActive = selectionState.active;
+      var logicalRange = buildFeatureEvalLogicalRangeRuntime(
+        model.candleData || [],
+        selectionState.startX,
+        selectionState.currentX,
+        wrap.clientWidth || rect.width || width,
+        function coordinateToTimeSafe(xLike) {
+          try {
+            return chart.timeScale().coordinateToTime(xLike);
+          } catch (_) {
+            return null;
+          }
+        },
+      );
+      var shouldZoom = Boolean(wasActive && logicalRange && selectionState.didDrag);
+      selectionState.pointerDown = false;
+      selectionState.active = false;
+      selectionState.didDrag = false;
+      updateSelectionPreview();
+      if (!shouldZoom) return;
+      selectionState.suppressNextClick = true;
+      try {
+        chart.timeScale().setVisibleLogicalRange(logicalRange);
+      } catch (_) {}
+      syncFeatureEvalResetButtonRuntime(resetBtn, true);
+      if (featureEvalChartRuntime[featureId]) featureEvalChartRuntime[featureId].isZoomed = true;
+    }
+    function handleSelectionStart(evt) {
+      if (!evt || evt.button !== 0) return;
+      if (evt.target && typeof evt.target.closest === "function" && evt.target.closest('.feature-eval-point-card')) return;
+      var rect = wrap.getBoundingClientRect();
+      selectionState.pointerDown = true;
+      selectionState.active = false;
+      selectionState.didDrag = false;
+      selectionState.startX = sfNum(evt.clientX, rect.left) - rect.left;
+      selectionState.currentX = selectionState.startX;
+      updateSelectionPreview();
+      if (typeof window !== "undefined") {
+        window.addEventListener("mousemove", handleSelectionMove);
+        window.addEventListener("mouseup", handleSelectionEnd);
+      }
+    }
+    wrap.addEventListener("mousedown", handleSelectionStart);
+    chart.subscribeCrosshairMove(function(param) {
+      if (!hoverCard) return;
+      if (selectionState.active) {
+        hoverCard.style.display = 'none';
+        return;
+      }
+      var point = param && param.point && typeof param.point === "object" ? param.point : null;
+      var time = param && param.time != null ? Math.floor(sfNum(param.time, 0)) : 0;
+      var detail = resolvePointDetail(time);
+      if (!point || !detail || point.x < 0 || point.y < 0) {
+        hoverCard.style.display = 'none';
+        return;
+      }
+      hoverCard.innerHTML = renderFeatureHoverRuntime(feature, detail, feature.title || feature.name || model.featureLabel);
+      hoverCard.style.display = 'block';
+      positionFeatureEvalFloatingCardRuntime(hoverCard, wrap, point);
+    });
+    chart.subscribeClick(function(param) {
+      if (!pointCard) return;
+      if (!shouldOpenFeatureEvalPointCardRuntime(selectionState)) return;
+      var point = param && param.point && typeof param.point === "object" ? param.point : null;
+      var time = param && param.time != null ? Math.floor(sfNum(param.time, 0)) : 0;
+      var detail = resolvePointDetail(time);
+      if (!point || !detail || point.x < 0 || point.y < 0) {
+        pointCard.style.display = 'none';
+        pointCard.innerHTML = '';
+        return;
+      }
+      pointCard.innerHTML = renderFeaturePointCardRuntime(featureId, feature, detail, feature.title || feature.name || model.featureLabel, model.timeframe);
+      pointCard.style.display = 'block';
+      positionFeatureEvalFloatingCardRuntime(pointCard, wrap, point);
+    });
+    var resizeObserver = null;
+    if (typeof ResizeObserver === "function") {
+      resizeObserver = new ResizeObserver(function() {
+        try {
+          chart.applyOptions({ width: Math.max(280, Math.floor(canvas.clientWidth || wrap.clientWidth || width)) });
+        } catch (_) {}
+      });
+      try { resizeObserver.observe(wrap); } catch (_) {}
+    }
+    featureEvalChartRuntime[featureId] = {
+      chart: chart,
+      resizeObserver: resizeObserver,
+      wrap: wrap,
+      selectionBox: selectionBox,
+      resetBtn: resetBtn,
+      isZoomed: false,
+      suppressNextClick: false,
+      selectionState: selectionState,
+      cleanupSelection: function cleanupSelectionRuntime() {
+        cleanupSelectionListeners();
+        try { wrap.removeEventListener("mousedown", handleSelectionStart); } catch (_) {}
+      },
+    };
   }
 
   /**
@@ -624,7 +1435,6 @@
       + '<div class="feature-eval-stats"></div>'
       + '<div class="feature-eval-chart"></div>'
       + '</div>'
-      + '<div class="feature-eval-history" data-feature-eval-history="' + sfEscapeHtml(featureId) + '"></div>'
       + '</div>';
   }
 
@@ -654,33 +1464,19 @@
   }
 
   /**
-   * Render a simple text-based feature time series chart (last N bars).
+   * Render real feature evaluation output from backend time series.
    */
-  function renderFeatureEvalTimeSeriesRuntime(timeSeriesLike, columnsLike) {
-    var ts = Array.isArray(timeSeriesLike) ? timeSeriesLike : [];
-    var columns = Array.isArray(columnsLike) ? columnsLike.filter(function(c) { return c.indexOf("tc_feat_") === 0; }) : [];
-    if (!ts.length || !columns.length) return '<div class="meta">暂无时序数据。</div>';
-    // Show last 50 bars as a mini-table
-    var recent = ts.slice(-50);
-    var html = '<div class="feature-eval-ts-wrap"><div class="feature-eval-ts-title">最近 ' + recent.length + ' 根K线特征值</div>'
-      + '<table class="feature-eval-ts-table"><thead><tr><th>时间</th><th>收盘价</th>';
-    columns.forEach(function(col) { html += '<th>' + sfEscapeHtml(col.replace("tc_feat_", "")) + '</th>'; });
-    html += '</tr></thead><tbody>';
-    recent.forEach(function(row) {
-      var r = row && typeof row === "object" ? row : {};
-      var timeStr = r.time ? new Date(r.time * 1000).toISOString().slice(0, 16).replace("T", " ") : "-";
-      html += '<tr><td>' + sfEscapeHtml(timeStr) + '</td>';
-      html += '<td>' + sfEscapeHtml(String(sfNum(r.close, 0).toFixed(2))) + '</td>';
-      columns.forEach(function(col) {
-        var v = r[col];
-        var display = v !== null && v !== undefined ? Number(v).toFixed(4) : "-";
-        var color = v > 0 ? "color:#22c55e" : (v < 0 ? "color:#ef4444" : "");
-        html += '<td style="' + color + '">' + sfEscapeHtml(display) + '</td>';
-      });
-      html += '</tr>';
+  function renderFeatureEvalTimeSeriesRuntime(featureIdLike, timeSeriesLike, columnsLike, optionsLike) {
+    var featureId = sfText(featureIdLike, "");
+    var options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+    var defaultWindow = Array.isArray(timeSeriesLike) ? timeSeriesLike.length : 0;
+    var chartWindow = Math.max(0, Math.floor(sfNum(options.chartWindow, sfNum(options.barCount, defaultWindow))));
+    var model = buildFeatureEvalChartModelRuntime(featureId, timeSeriesLike, columnsLike, {
+      timeframe: sfText(options.timeframe || "-", "-"),
+      chartWindow: chartWindow,
     });
-    html += '</tbody></table></div>';
-    return html;
+    if (!model.ok) return { html: renderFeatureEvalErrorRuntime(model.error || "无法绘制特征图。"), model: null };
+    return { html: renderFeatureEvalChartShellRuntime(featureId, model), model: model };
   }
 
   function getStrategyFeatureConfigRuntime() {
@@ -724,25 +1520,46 @@
     var loadingDiv = section.querySelector('.feature-eval-loading');
     var statsDiv = section.querySelector('.feature-eval-stats');
     var chartDiv = section.querySelector('.feature-eval-chart');
-    var historyDiv = section.querySelector('[data-feature-eval-history]');
+    var historyDiv = document.querySelector('[data-feature-eval-history="' + featureId + '"]');
+    destroyFeatureEvalChartRuntime(featureId);
     if (resultDiv) resultDiv.style.display = 'block';
     if (loadingDiv) loadingDiv.style.display = 'block';
     if (statsDiv) statsDiv.innerHTML = '';
     if (chartDiv) chartDiv.innerHTML = '';
     try {
+      var evalRequest = resolveFeatureEvalRequestRuntime(featureId, rangeDays);
+      if (!evalRequest.ok) {
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (chartDiv) chartDiv.innerHTML = renderFeatureEvalErrorRuntime(evalRequest.error || '缺少评估上下文。');
+        return;
+      }
       var resp = await fetch('/api/strategy/features/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ featureIds: [featureId], rangeDays: rangeDays }),
+        body: JSON.stringify({
+          featureIds: [featureId],
+          rangeDays: rangeDays,
+          pair: evalRequest.pair,
+          timeframe: evalRequest.timeframe,
+        }),
       });
       var body = await resp.json();
       if (loadingDiv) loadingDiv.style.display = 'none';
       if (!body.ok) {
-        if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">特征计算失败：' + sfEscapeHtml(body.error || '未知错误') + '</div>';
+        if (chartDiv) chartDiv.innerHTML = renderFeatureEvalErrorRuntime(body.error || '未知错误');
         return;
       }
       if (statsDiv) statsDiv.innerHTML = '<div class="feature-eval-stats-title">📊 特征统计摘要（' + (body.barCount || 0) + ' 根K线 · 近' + rangeDays + '天）</div>' + renderFeatureEvalStatsRuntime(body.featureStats, body.featureColumns);
-      if (chartDiv) chartDiv.innerHTML = renderFeatureEvalTimeSeriesRuntime(body.featureTimeSeries, body.featureColumns);
+      var chartRender = renderFeatureEvalTimeSeriesRuntime(featureId, body.featureTimeSeries, body.featureColumns, {
+        timeframe: body.timeframe || evalRequest.timeframe || '-',
+        barCount: body.barCount || 0,
+      });
+      if (chartDiv) {
+        chartDiv.innerHTML = chartRender && chartRender.html ? chartRender.html : renderFeatureEvalErrorRuntime("无法绘制特征图。");
+        if (chartRender && chartRender.model) {
+          mountFeatureEvalChartRuntime(featureId, chartDiv, chartRender.model);
+        }
+      }
       // Save to evaluation history
       if (!featureEvalHistory[featureId]) featureEvalHistory[featureId] = [];
       featureEvalHistory[featureId].unshift({
@@ -750,6 +1567,7 @@
         barCount: body.barCount || 0,
         columns: body.featureColumns || [],
         stats: body.featureStats || {},
+        timeframe: body.timeframe || evalRequest.timeframe || '-',
         timestamp: new Date().toISOString(),
       });
       if (featureEvalHistory[featureId].length > 10) featureEvalHistory[featureId] = featureEvalHistory[featureId].slice(0, 10);
@@ -757,13 +1575,13 @@
       if (historyDiv) renderEvalHistory(historyDiv, featureId);
     } catch (err) {
       if (loadingDiv) loadingDiv.style.display = 'none';
-      if (statsDiv) statsDiv.innerHTML = '<div class="meta" style="color:#ef4444;">请求失败：' + sfEscapeHtml(String(err.message || err)) + '</div>';
+      if (chartDiv) chartDiv.innerHTML = renderFeatureEvalErrorRuntime(String(err.message || err));
     }
   }
 
-  function renderEvalHistory(container, featureId) {
+  function renderEvalHistoryMarkupRuntime(featureId) {
     var history = featureEvalHistory[featureId] || [];
-    if (!history.length) { container.innerHTML = ''; return; }
+    if (!history.length) return '';
     var html = '<div class="feature-eval-history-title">计算历史（最近' + history.length + '次）</div>';
     html += '<div class="feature-eval-history-list">';
     history.forEach(function(item, idx) {
@@ -775,18 +1593,43 @@
       }).join(' ');
       html += '<div class="feature-eval-history-item' + (idx === 0 ? ' latest' : '') + '">'
         + '<span class="time">' + sfEscapeHtml(timeStr) + '</span>'
+        + '<span class="tf">' + sfEscapeHtml(sfText(item.timeframe, '-')) + '</span>'
         + '<span class="range">近' + item.rangeDays + '天</span>'
         + '<span class="bars">' + item.barCount + '根K线</span>'
         + '<span class="summary">' + sfEscapeHtml(statsSummary || '-') + '</span>'
         + '</div>';
     });
     html += '</div>';
-    container.innerHTML = html;
+    return html;
+  }
+
+  function renderEvalHistory(container, featureId) {
+    if (!container) return;
+    container.innerHTML = renderEvalHistoryMarkupRuntime(featureId);
   }
 
   // Global click handler for evaluate buttons
   if (typeof document !== "undefined") {
     document.addEventListener('click', function(e) {
+      var closeBtn = e.target.closest('[data-action="close-feature-point"]');
+      if (closeBtn) {
+        var closeFeatureId = closeBtn.getAttribute('data-feature-id');
+        if (closeFeatureId) {
+          var section = document.querySelector('[data-feature-eval-id="' + closeFeatureId + '"]');
+          var pointCard = section ? section.querySelector('[data-feature-chart-point="' + closeFeatureId + '"]') : document.querySelector('[data-feature-chart-point="' + closeFeatureId + '"]');
+          if (pointCard) {
+            pointCard.style.display = 'none';
+            pointCard.innerHTML = '';
+          }
+        }
+        return;
+      }
+      var resetBtn = e.target.closest('[data-action="reset-feature-chart"]');
+      if (resetBtn) {
+        var resetFeatureId = resetBtn.getAttribute('data-feature-id');
+        if (resetFeatureId) resetFeatureEvalChartViewRuntime(resetFeatureId);
+        return;
+      }
       var btn = e.target.closest('[data-action="evaluate-feature"]');
       if (!btn) return;
       var featureId = btn.getAttribute('data-feature-id');
@@ -802,4 +1645,16 @@
   globalObj.renderFeatureEvalStatsRuntime = renderFeatureEvalStatsRuntime;
   globalObj.renderFeatureEvalTimeSeriesRuntime = renderFeatureEvalTimeSeriesRuntime;
   globalObj.handleFeatureEvalClickRuntime = handleFeatureEvalClickRuntime;
+  globalObj.__featureEvalTest__ = {
+    buildFeatureEvalChartModelRuntime: buildFeatureEvalChartModelRuntime,
+    buildFeaturePointExplainRuntime: buildFeaturePointExplainRuntime,
+    buildFeatureEvalLogicalRangeRuntime: buildFeatureEvalLogicalRangeRuntime,
+    isStandardFeatureKindRuntime: isStandardFeatureKindRuntime,
+    normalizeFeatureEvalSelectionRuntime: normalizeFeatureEvalSelectionRuntime,
+    shouldOpenFeatureEvalPointCardRuntime: shouldOpenFeatureEvalPointCardRuntime,
+    shouldActivateFeatureEvalSelectionRuntime: shouldActivateFeatureEvalSelectionRuntime,
+    renderFeaturePointCardRuntime: renderFeaturePointCardRuntime,
+    resolveFeatureEvalSelectionIndexRuntime: resolveFeatureEvalSelectionIndexRuntime,
+    formatFeatureEvalValueRuntime: formatFeatureEvalValueRuntime,
+  };
 })(typeof window !== "undefined" ? window : this);

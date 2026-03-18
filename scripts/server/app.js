@@ -20,6 +20,7 @@ import { createXbrainStoreManager } from "./core/xbrain-store.js";
 import { createChatHistoryStore } from "./core/chat-history-store.js";
 import { createConversationContextManager } from "./core/conversation-context.js";
 import { createMemoryLayer } from "./core/memory-layer.js";
+import { createTaskRuntime } from "./core/task-runtime.js";
 import { createStrategyLabStore } from "./core/strategy-lab-store.js";
 import { createFreqtradeBacktestAdapter } from "./core/freqtrade-backtest-adapter.js";
 import { createTradingIntentSkill } from "./core/trading-intent-skill.js";
@@ -55,13 +56,14 @@ const {
 });
 
 // ─── Chat History ────────────────────────────────────────────────────
-const { chatHistory, appendChatEvent, updateChatCardStatus } = createChatHistoryStore({
+const { chatHistory, appendChatEvent, updateChatCardStatus, updateChatEvent } = createChatHistoryStore({
   fsModule: fs, memoryDir: MEMORY_DIR, chatHistoryPath: CHAT_HISTORY_PATH,
   maxChatEvents: MAX_CHAT_EVENTS,
 });
 
 // ─── Conversation Context ────────────────────────────────────────────
 const conversationContext = createConversationContextManager({ memoryDir: MEMORY_DIR });
+const taskRuntime = createTaskRuntime();
 
 // ─── Model Config (reads from xbrainStore, follows model switching) ──
 function getModelConfig() {
@@ -124,6 +126,8 @@ const {
   extractTradingIntentCandidates,
   generateFeatureCodeForCandidate,
   detectAndClarify,
+  reasonFromClarification,
+  planFromReasoning,
   generateFromClarification,
   generateWithAgentLoop,
 } = createTradingIntentSkill({ getModelConfig });
@@ -143,7 +147,9 @@ const chatHandler = createChatHandler({
   detectAndClarify, strategyLabStore,
   conversationContext, memoryLayer,
   updateChatCardStatus,
+  updateChatEvent,
   chatHistory,
+  taskRuntime,
   xbrainStore, saveXbrainStore,
   inferProviderFromModelRef,
 });
@@ -163,11 +169,13 @@ const xbrainHandlers = createXbrainHandlers({
 const strategyLabHdl = createStrategyLabHandlers({
   readJsonBody, sendJson, strategyLabStore,
   extractTradingIntentCandidates, generateFeatureCodeForCandidate,
-  detectAndClarify, generateFromClarification, generateWithAgentLoop,
+  detectAndClarify, reasonFromClarification, planFromReasoning, generateFromClarification, generateWithAgentLoop,
   getCurrentRuntimeModelRefFromStore: getCurrentRuntimeModelRef,
   updateChatCardStatus,
+  updateChatEvent,
   backtestEngine: freqtradeBacktestAdapter,
   conversationContext, memoryLayer,
+  taskRuntime,
 });
 
 // ─── Status ──────────────────────────────────────────────────────────

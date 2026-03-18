@@ -633,11 +633,12 @@
       color: #c9d1d9;
     }
     .feature-eval-history-item .time { min-width: 110px; }
+    .feature-eval-history-item .tf { min-width: 40px; color: #a5d6ff; }
     .feature-eval-history-item .range { min-width: 50px; color: #79c0ff; }
     .feature-eval-history-item .bars { min-width: 60px; }
     .feature-eval-history-item .summary { flex: 1; color: #8b949e; }
     /* Feature detail 4-module layout */
-    .fd-new-layout { max-width: 680px; }
+    .fd-new-layout { max-width: 920px; }
     .fd-header {
       margin-bottom: 14px;
       padding-bottom: 10px;
@@ -789,38 +790,183 @@
       font-weight: 600;
     }
     .feature-eval-stats-table td:first-child { text-align: left; }
-    .feature-eval-ts-wrap { margin-top: 8px; }
-    .feature-eval-ts-title {
-      font-size: 0.78rem;
+    .feature-eval-chart-card,
+    .feature-eval-error-card {
+      margin-top: 10px;
+      border: 1px solid rgba(139,148,158,0.15);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.18);
+      overflow: hidden;
+    }
+    .feature-eval-chart-head,
+    .feature-eval-error-title {
+      padding: 10px 12px 6px;
+      font-size: 0.8rem;
       font-weight: 600;
+      color: #c9d1d9;
+    }
+    .feature-eval-chart-head-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .feature-eval-chart-meta {
+      padding: 0 12px 10px;
+      font-size: 0.72rem;
       color: #8b949e;
+    }
+    .feature-eval-reset-btn {
+      border: 1px solid rgba(88,166,255,0.28);
+      border-radius: 8px;
+      background: rgba(88,166,255,0.08);
+      color: #79c0ff;
+      font-size: 0.68rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease, opacity 120ms ease;
+    }
+    .feature-eval-reset-btn:disabled {
+      cursor: default;
+      opacity: 0.46;
+      color: #8b949e;
+      border-color: rgba(139,148,158,0.18);
+      background: rgba(139,148,158,0.06);
+    }
+    .feature-eval-reset-btn.active:not(:disabled),
+    .feature-eval-reset-btn:hover:not(:disabled) {
+      border-color: rgba(88,166,255,0.62);
+      background: rgba(88,166,255,0.16);
+      color: #c9e5ff;
+    }
+    .feature-eval-interactive-wrap {
+      position: relative;
+      min-height: 420px;
+      padding: 0;
+      background: linear-gradient(180deg, rgba(13,17,23,0.24), rgba(13,17,23,0.06));
+      user-select: none;
+    }
+    .feature-eval-interactive-wrap.is-selecting { cursor: crosshair; }
+    .feature-eval-chart-canvas {
+      width: 100%;
+      height: 420px;
+    }
+    .feature-eval-selection-box {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      z-index: 2;
+      border: 1px solid rgba(121,192,255,0.72);
+      background: rgba(121,192,255,0.14);
+      box-shadow: inset 0 0 0 1px rgba(121,192,255,0.14);
+      pointer-events: none;
+    }
+    .feature-eval-hover-card,
+    .feature-eval-point-card {
+      position: absolute;
+      z-index: 4;
+      min-width: 180px;
+      max-width: min(320px, calc(100% - 16px));
+      border: 1px solid rgba(88,166,255,0.28);
+      border-radius: 10px;
+      background: rgba(9,12,16,0.96);
+      box-shadow: 0 14px 30px rgba(1,4,9,0.45);
+      backdrop-filter: blur(6px);
+    }
+    .feature-eval-hover-card {
+      pointer-events: none;
+      padding: 10px 12px;
+    }
+    .feature-eval-point-card {
+      padding: 12px;
+    }
+    .feature-eval-hover-title,
+    .feature-eval-point-title {
+      color: #c9e5ff;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .feature-eval-hover-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #8b949e;
+      font-size: 0.72rem;
+      line-height: 1.6;
+    }
+    .feature-eval-hover-row strong {
+      color: #e6edf3;
+      font-weight: 650;
+    }
+    .feature-eval-point-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      border: 1px solid rgba(139,148,158,0.24);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.18);
+      color: #8b949e;
+      font-size: 0.68rem;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+    .feature-eval-point-close:hover {
+      border-color: rgba(88,166,255,0.45);
+      color: #c9e5ff;
+    }
+    .feature-eval-point-time {
+      color: #8b949e;
+      font-size: 0.7rem;
+      margin-bottom: 8px;
+      padding-right: 52px;
+    }
+    .feature-eval-point-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .feature-eval-point-grid div {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(139,148,158,0.12);
+      border-radius: 8px;
+      padding: 7px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .feature-eval-point-grid span {
+      color: #8b949e;
+      font-size: 0.66rem;
+    }
+    .feature-eval-point-grid strong {
+      color: #e6edf3;
+      font-size: 0.76rem;
+      font-weight: 650;
+    }
+    .feature-eval-point-explain-label {
+      color: #79c0ff;
+      font-size: 0.7rem;
+      font-weight: 650;
       margin-bottom: 4px;
     }
-    .feature-eval-ts-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.68rem;
-      max-height: 400px;
-      overflow-y: auto;
-      display: block;
+    .feature-eval-point-explain {
+      color: #c9d1d9;
+      font-size: 0.72rem;
+      line-height: 1.6;
+      margin-bottom: 10px;
     }
-    .feature-eval-ts-table th,
-    .feature-eval-ts-table td {
-      border: 1px solid rgba(139,148,158,0.15);
-      padding: 2px 5px;
-      text-align: right;
-      white-space: nowrap;
+    .feature-eval-point-jump {
+      margin-left: 0;
     }
-    .feature-eval-ts-table th {
-      text-align: center;
-      color: #79c0ff;
-      background: rgba(88,166,255,0.06);
-      font-weight: 600;
-      position: sticky;
-      top: 0;
+    .feature-eval-error-title { color: #f85149; }
+    .feature-eval-error-text {
+      padding: 0 12px 12px;
+      color: #f0b6b6;
+      font-size: 0.74rem;
+      line-height: 1.6;
     }
-    .feature-eval-ts-table td:first-child,
-    .feature-eval-ts-table td:nth-child(2) { text-align: left; }
     .strategy-feature-item .feature-sample-table tr[data-feature-bar-time],
     .feature-detail-card .feature-sample-table tr[data-feature-bar-time] { cursor: pointer; }
     .strategy-feature-item .feature-sample-table tr[data-feature-bar-time]:hover,
@@ -1719,6 +1865,29 @@
     .ai-msg-row { max-width: min(52%, 760px); display: flex; flex-direction: column; gap: 3px; }
     .ai-msg-row.user { align-self: flex-end; align-items: flex-end; }
     .ai-msg-row.bot { align-self: flex-start; align-items: flex-start; }
+    .ai-feature-task-row {
+      width: min(92%, 1040px);
+      max-width: none;
+      gap: 5px;
+      margin-top: 2px;
+    }
+    .ai-feature-task-row.bot { align-items: stretch; }
+    .ai-feature-task-row .ai-thinking-panel {
+      width: 100%;
+      margin: 0;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(17,24,37,0.96), rgba(13,18,28,0.98));
+      box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+    }
+    .ai-feature-task-row .ai-thinking-header {
+      padding: 9px 12px;
+    }
+    .ai-feature-task-row .ai-thinking-body {
+      padding: 0 12px 10px;
+    }
+    .ai-feature-task-row .ai-msg-meta {
+      padding-left: 2px;
+    }
     .ai-msg { border-radius: 10px; padding: 7px 9px; font-size: 0.74rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
     .ai-msg.user { background: rgba(88,166,255,0.16); border: 1px solid rgba(88,166,255,0.5); }
     .ai-msg.bot { background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.45); }
@@ -1797,23 +1966,26 @@
     }
     /* ─── Thinking Panel (Cursor-style collapsible) ─── */
     .ai-thinking-panel {
-      border: 1px solid rgba(139,148,158,0.15);
-      border-radius: 8px;
-      margin-bottom: 6px;
-      background: rgba(13,17,23,0.4);
+      border: 1px solid #294f79;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      background: #101a2a;
       overflow: hidden;
-      font-size: 0.72rem;
+      font-size: 0.8rem;
+      box-shadow: 0 10px 26px rgba(3, 8, 18, 0.34);
     }
     .ai-thinking-panel.collapsed .ai-thinking-body { display: none; }
     .ai-thinking-panel.collapsed .ai-thinking-header::after { content: '▶'; }
     .ai-thinking-header {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
+      gap: 8px;
+      padding: 10px 12px;
       cursor: pointer;
-      color: #8b949e;
+      color: #cfe2ff;
       user-select: none;
+      border-bottom: 1px solid #20324b;
+      font-weight: 600;
     }
     .ai-thinking-header::after {
       content: '▼';
@@ -1824,7 +1996,7 @@
     .ai-thinking-header .thinking-icon {
       width: 14px;
       height: 14px;
-      border: 2px solid rgba(139,148,158,0.4);
+      border: 2px solid rgba(139,148,158,0.35);
       border-top-color: #79c0ff;
       border-radius: 50%;
       animation: ai-think-spin 0.8s linear infinite;
@@ -1857,6 +2029,345 @@
     .ai-thinking-step.error .step-icon { color: #ffaba8; }
     .ai-thinking-step .step-text { flex: 1; }
     .ai-thinking-step .step-time { color: #6e7681; font-size: 0.64rem; margin-left: 6px; }
+    .ai-workbench .ai-thinking-body {
+      display: grid;
+      gap: 10px;
+      padding: 10px 12px 12px;
+    }
+    .ai-workbench-process {
+      display: grid;
+      gap: 10px;
+    }
+    .ai-workbench-process.collapsed {
+      display: none;
+    }
+    .ai-workbench-progress {
+      margin-top: 2px;
+      margin-bottom: 0;
+    }
+    .ai-workbench-steps {
+      display: grid;
+      gap: 8px;
+    }
+    .ai-workbench-step {
+      display: block;
+      padding: 0;
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0f1828;
+      overflow: hidden;
+    }
+    .ai-workbench-step.running {
+      border-color: #355e8d;
+      background: #0f1828;
+    }
+    .ai-workbench-step.error {
+      border-color: rgba(248,81,73,0.5);
+      background: rgba(58, 18, 20, 0.45);
+    }
+    .ai-workbench-step.done {
+      border-color: #2a3a52;
+    }
+    .ai-workbench-step-toggle {
+      width: 100%;
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      list-style: none;
+      padding: 8px 10px;
+      display: grid;
+      grid-template-columns: 16px minmax(0, auto) 1fr auto;
+      align-items: start;
+      gap: 8px;
+      text-align: left;
+    }
+    .ai-workbench-step-toggle::-webkit-details-marker { display: none; }
+    .ai-workbench-step-toggle .step-text {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #d4e5ff;
+      min-width: 0;
+    }
+    .ai-workbench-step-summary {
+      font-size: 0.74rem;
+      color: #9cb0ce;
+      line-height: 1.4;
+      min-width: 0;
+      justify-self: end;
+      white-space: nowrap;
+    }
+    .ai-workbench-step-chevron {
+      font-size: 0.62rem;
+      color: #8b949e;
+      transform: rotate(0deg);
+      transition: transform 0.18s ease;
+      margin-top: 2px;
+    }
+    .ai-workbench-step:not(.collapsed) .ai-workbench-step-chevron {
+      transform: rotate(180deg);
+    }
+    .ai-workbench-step-panel {
+      border-top: 1px solid #24324a;
+      padding: 8px 10px 10px;
+      background: #0f1828;
+      display: grid;
+      gap: 6px;
+    }
+    .ai-workbench-step.collapsed .ai-workbench-step-panel {
+      display: none;
+    }
+    .ai-workbench-step:not(.collapsed) .ai-workbench-step-panel {
+      display: grid;
+    }
+    .ai-workbench-trace-event-wrap {
+      display: grid;
+      gap: 8px;
+    }
+    .ai-workbench-trace-event {
+      display: grid;
+      gap: 8px;
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0d1625;
+    }
+    .ai-workbench-trace-event.running {
+      border-color: #355e8d;
+      background: #0f1c2d;
+    }
+    .ai-workbench-trace-event.error {
+      border-color: rgba(248,81,73,0.42);
+      background: rgba(58, 18, 20, 0.52);
+    }
+    .ai-workbench-trace-summary {
+      font-size: 0.78rem;
+      color: #c5d6ee;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ai-workbench-phase-title {
+      font-size: 0.72rem;
+      color: #9db3d5;
+      letter-spacing: 0.2px;
+      font-weight: 600;
+    }
+    .ai-workbench-understand-progressive {
+      border: 1px solid #273654;
+      border-radius: 10px;
+      background: #111d32;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .ai-workbench-understand-line {
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: #d5e3f8;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .ai-workbench-understand-prefix {
+      color: #d5e3f8;
+    }
+    .ai-workbench-understand-inline {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .ai-workbench-understand-token {
+      display: inline-block;
+      border: 1px solid #365a89;
+      background: #13263f;
+      color: #e8f1ff;
+      border-radius: 8px;
+      padding: 1px 7px;
+      font-size: 0.76rem;
+      line-height: 1.45;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      vertical-align: baseline;
+    }
+    .ai-workbench-understand-token.task {
+      font-weight: 600;
+    }
+    .ai-workbench-understand-token.option {
+      margin-right: 2px;
+    }
+    .ai-workbench-phase-stream {
+      border: 1px solid #355e8d;
+      border-radius: 7px;
+      background: #0f1c2d;
+      padding: 8px 10px;
+      font-size: 0.76rem;
+      color: #c5d6ee;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 22px;
+    }
+    .ai-workbench-phase-stream.is-streaming::after,
+    .ai-workbench-plan-text.is-streaming::after,
+    .ai-trace-code code.is-streaming::after {
+      content: "▋";
+      margin-left: 2px;
+      color: #8ec2ff;
+      animation: blink 0.9s steps(1, end) infinite;
+    }
+    @keyframes blink {
+      0%, 45% { opacity: 1; }
+      46%, 100% { opacity: 0; }
+    }
+    .ai-workbench-plan-progressive {
+      display: grid;
+      gap: 8px;
+    }
+    .ai-workbench-plan-progress-line {
+      font-size: 0.76rem;
+    }
+    .ai-workbench-plan-thinking {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0d1625;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .ai-workbench-plan-card {
+      border: 1px solid #2d6e4d;
+      border-radius: 10px;
+      background: #12281f;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .ai-workbench-plan-card-title {
+      font-weight: 700;
+      color: #9ff5bd;
+    }
+    .ai-workbench-plan-card-title span {
+      margin-left: 8px;
+      font-size: 0.74rem;
+      color: #9fcfb0;
+      font-weight: 500;
+    }
+    .ai-workbench-plan-section {
+      border: 1px solid #29503b;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0f211a;
+      display: grid;
+      gap: 4px;
+    }
+    .ai-workbench-plan-label {
+      color: #b9f7ce;
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+    .ai-workbench-plan-text {
+      font-size: 0.78rem;
+      color: #d6f5e1;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 18px;
+    }
+    .ai-trace-block {
+      border: 1px solid rgba(139,148,158,0.16);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.16);
+      padding: 8px 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .ai-trace-label {
+      font-size: 0.68rem;
+      color: #79c0ff;
+      font-weight: 600;
+    }
+    .ai-trace-text {
+      font-size: 0.74rem;
+      color: #c9d1d9;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ai-trace-list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 4px;
+      color: #c9d1d9;
+      font-size: 0.73rem;
+      line-height: 1.5;
+    }
+    .ai-trace-code {
+      margin: 0;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(1,4,9,0.72);
+      border: 1px solid rgba(139,148,158,0.16);
+      color: #c9d1d9;
+      font-size: 0.69rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+    }
+    .ai-workbench-result .ai-clarify-result-success,
+    .ai-workbench-result .ai-clarify-result-error {
+      margin-top: 0;
+    }
+    .ai-workbench-result-blocks {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .ai-workbench-static {
+      display: grid;
+      gap: 8px;
+    }
+    .ai-workbench-static-step {
+      border: 1px solid rgba(139,148,158,0.16);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.12);
+      overflow: hidden;
+    }
+    .ai-workbench-static-step summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: 16px minmax(0, auto) 1fr;
+      gap: 8px;
+      align-items: start;
+      color: #e6edf3;
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+    .ai-workbench-static-step summary::-webkit-details-marker { display: none; }
+    .ai-workbench-static-step .status {
+      color: #8b949e;
+      text-align: center;
+    }
+    .ai-workbench-static-step .status.done { color: #7ee787; }
+    .ai-workbench-static-step .status.error { color: #ffaba8; }
+    .ai-workbench-static-step .status.running { color: #79c0ff; }
+    .ai-workbench-static-step .summary {
+      color: #8b949e;
+      font-size: 0.7rem;
+      font-weight: 400;
+    }
+    .ai-workbench-static-step .body {
+      border-top: 1px solid rgba(139,148,158,0.12);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
     .ai-strategy-intent-row { max-width: min(76%, 980px); }
     .ai-strategy-intent-bubble {
       width: 100%;
@@ -3587,14 +4098,74 @@
     .nav-btn.state-pos { border-color: rgba(63,185,80,0.55); color: var(--green); }
     .nav-btn.state-neg { border-color: rgba(248,81,73,0.55); color: var(--red); }
     .view-panel.active { flex: 1; min-height: 0; }
-    #view-dashboard.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
-    #view-dashboard .ai-chat-wrap { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #view-dashboard.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; padding: 10px 12px 12px; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
+      flex: 1;
+      min-height: 0;
+    }
+    #view-dashboard .ai-chat-wrap { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
     #view-dashboard .card-title-row { margin-bottom: 6px; }
     #view-dashboard .ai-quick { margin-bottom: 6px; }
-    #view-dashboard .ai-chat-box { flex: 1; min-height: 260px; max-height: none; }
+    #view-dashboard .ai-chat-box { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
+    #view-dashboard .ai-input-row { margin-top: 0; padding-top: 8px; flex-shrink: 0; }
+    #feature-workbench-card { display: none; }
+    .feature-workbench-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .feature-workbench-head .title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .feature-workbench-head .sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.45;
+      margin-top: 2px;
+    }
+    .feature-workbench-status {
+      font-size: 0.7rem;
+      color: #79c0ff;
+      white-space: nowrap;
+      border: 1px solid rgba(88,166,255,0.22);
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: rgba(88,166,255,0.06);
+    }
+    .feature-workbench-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+      flex: 1;
+    }
+    .feature-workbench-empty {
+      border: 1px dashed rgba(139,148,158,0.22);
+      border-radius: 12px;
+      padding: 16px;
+      background: rgba(0,0,0,0.12);
+      color: #8b949e;
+      font-size: 0.76rem;
+      line-height: 1.6;
+    }
+    .feature-workbench-host {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+    .feature-workbench-host .ai-workbench {
+      margin: 0;
+    }
     #view-kline.active, #view-history.active, #view-runtime.active, #view-backtest.active, #view-xsea.active, #view-xbrain.active { display: block; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px; }
     #view-runtime .timeline-list { max-height: none; }
-    .dashboard-grid { display: none !important; }
     @media (max-width: 768px) {
       :root { --sidebar-width: 228px; }
       body { padding: 0; }
@@ -3603,9 +4174,12 @@
       .nav-btn { font-size: 0.72rem; padding: 6px 10px; }
       .ai-quick-btn { font-size: 0.66rem; padding: 4px 8px; }
       .panel-card { padding: 9px; border-radius: 10px; }
+      .dashboard-grid { grid-template-columns: 1fr; min-height: 0; height: auto; }
       #view-dashboard .ai-chat-wrap { padding: 8px; }
       #view-dashboard .ai-chat-box { min-height: 52vh; }
+      #feature-workbench-card { padding: 8px; min-height: 0; }
       .ai-msg-row { max-width: 88%; }
+      .ai-feature-task-row { width: 100%; }
       .timeline-list { max-height: 280px; }
       .global-back-btn { right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); padding: 9px 12px; }
       .hero-title-row { margin-bottom: 0; }
@@ -3730,25 +4304,40 @@
       </div>
 
     <section id="view-dashboard" class="view-panel active">
-      <div class="panel-card ai-chat-wrap">
-        <div class="ai-chat-session-bar">
-          <span class="ai-chat-session-label" id="session-label">当前会话</span>
-          <div class="ai-chat-session-actions">
-            <button id="session-archive-btn" class="session-btn" type="button" title="归档当前会话">📦 归档</button>
-            <button id="session-history-btn" class="session-btn" type="button" title="查看历史会话">📋 历史</button>
+      <div class="dashboard-grid">
+        <div class="panel-card ai-chat-wrap">
+          <div class="ai-chat-session-bar">
+            <span class="ai-chat-session-label" id="session-label">当前会话</span>
+            <div class="ai-chat-session-actions">
+              <button id="session-archive-btn" class="session-btn" type="button" title="归档当前会话">📦 归档</button>
+              <button id="session-history-btn" class="session-btn" type="button" title="查看历史会话">📋 历史</button>
+            </div>
+          </div>
+          <div id="session-history-panel" class="session-history-panel" style="display:none;">
+            <div class="session-history-title">历史会话</div>
+            <div id="session-history-list" class="session-history-list"></div>
+            <button id="session-history-close" class="session-btn" type="button">关闭</button>
+          </div>
+          <div id="ai-chat-box" class="ai-chat-box">
+            <div class="ai-msg bot">聊天加载中...</div>
+          </div>
+          <div class="ai-input-row">
+            <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
+            <button id="ai-chat-send" class="send-btn" type="button">发送</button>
           </div>
         </div>
-        <div id="session-history-panel" class="session-history-panel" style="display:none;">
-          <div class="session-history-title">历史会话</div>
-          <div id="session-history-list" class="session-history-list"></div>
-          <button id="session-history-close" class="session-btn" type="button">关闭</button>
-        </div>
-        <div id="ai-chat-box" class="ai-chat-box">
-          <div class="ai-msg bot">聊天加载中...</div>
-        </div>
-        <div class="ai-input-row">
-          <input id="ai-chat-input" type="text" placeholder="例如：当前仓位是什么？策略状态如何？" />
-          <button id="ai-chat-send" class="send-btn" type="button">发送</button>
+        <div class="panel-card" id="feature-workbench-card">
+          <div class="feature-workbench-head">
+            <div>
+              <div class="title">特征生成工作区</div>
+              <div class="sub">计划、代码、运行、检测和修复过程会单独展示在这里，不再挤在聊天卡片里。</div>
+            </div>
+            <div id="feature-workbench-status" class="feature-workbench-status">等待任务</div>
+          </div>
+          <div class="feature-workbench-body">
+            <div id="feature-workbench-empty" class="feature-workbench-empty">左侧完成澄清并点击“开始生成特征”后，这里会按顺序展示完整的特征生成过程。</div>
+            <div id="feature-workbench-host" class="feature-workbench-host" style="display:none;"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -4498,6 +5087,7 @@
   <script src="./js/modules/chat-runtime.js"></script>
   <script src="./js/ui/render/strategy-feature-visuals-runtime.js"></script>
   <script src="./js/modules/strategy-feature-runtime.js"></script>
+  <script src="./js/modules/strategy-intent-workbench-runtime.js"></script>
   <script src="./js/modules/strategy-intent-runtime.js"></script>
   <script src="./js/modules/strategy-ops-runtime.js"></script>
   <script src="./js/constants/strategy-lab-constants.js"></script>
@@ -8703,16 +9293,284 @@
         const CHAT_LOG_KEY = 'thunderclaw.chat.log.v2';
         const CHAT_LOG_MAX = 800;
         const chatHistoryState = createChatHistoryStateRuntime('__thunderclawChatHistoryState');
+        const featureWorkbenchHostEl = document.getElementById('feature-workbench-host');
+        const featureWorkbenchEmptyEl = document.getElementById('feature-workbench-empty');
+        const featureWorkbenchStatusEl = document.getElementById('feature-workbench-status');
+        const autoFollowState = {
+          autoFollowEnabled: true,
+          manualPaused: false,
+          resumeThresholdPx: 120,
+          rafId: 0,
+          pending: false,
+          programmaticUntil: 0,
+          lastScrollTop: 0,
+        };
+        const dashboardWorkbenchState = {
+          cardEventId: 0,
+          runtime: null,
+          onApply: null,
+          featureConcept: null,
+          instanceKey: '',
+          seq: 0,
+          runtimeMap: new Map(),
+          latestKeyByCard: new Map(),
+        };
         if (!Array.isArray(chatHistoryState.pendingBotEchoes)) chatHistoryState.pendingBotEchoes = [];
         if (!(chatHistoryState.renderedCardEventIds instanceof Set)) {
           chatHistoryState.renderedCardEventIds = new Set();
         }
         const chatLogStore = createChatLogStoreRuntime(CHAT_LOG_KEY, CHAT_LOG_MAX);
+        function isChatNearBottom() {
+          if (!box) return true;
+          const distance = Math.max(0, box.scrollHeight - box.clientHeight - box.scrollTop);
+          return distance <= autoFollowState.resumeThresholdPx;
+        }
+        function syncAutoFollowDataset() {
+          if (!box || !box.dataset) return;
+          box.dataset.autofollowPaused = autoFollowState.manualPaused ? '1' : '0';
+        }
+        function pauseAutoFollowByUser() {
+          if (!box) return;
+          autoFollowState.manualPaused = true;
+          autoFollowState.programmaticUntil = 0;
+          syncAutoFollowDataset();
+        }
+        function updateAutoFollowPauseState(forceLike) {
+          if (!box) return;
+          const force = forceLike === true;
+          if (force) {
+            autoFollowState.manualPaused = false;
+          } else if (isChatNearBottom()) {
+            autoFollowState.manualPaused = false;
+          }
+          autoFollowState.lastScrollTop = Math.max(0, Number(box.scrollTop || 0));
+          syncAutoFollowDataset();
+        }
+        function requestAutoFollow(optionsLike) {
+          const options = optionsLike && typeof optionsLike === 'object' ? optionsLike : {};
+          if (!box || !autoFollowState.autoFollowEnabled) return;
+          if (autoFollowState.manualPaused && !options.force) return;
+          if (autoFollowState.pending) return;
+          autoFollowState.pending = true;
+          if (autoFollowState.rafId) {
+            window.cancelAnimationFrame(autoFollowState.rafId);
+            autoFollowState.rafId = 0;
+          }
+          autoFollowState.rafId = window.requestAnimationFrame(function() {
+            autoFollowState.rafId = 0;
+            autoFollowState.pending = false;
+            autoFollowState.programmaticUntil = Date.now() + 140;
+            try {
+              box.scrollTo({ top: box.scrollHeight, behavior: 'auto' });
+            } catch (_) {
+              box.scrollTop = box.scrollHeight;
+            }
+            window.requestAnimationFrame(function() {
+              box.scrollTop = box.scrollHeight;
+              autoFollowState.lastScrollTop = Math.max(0, Number(box.scrollTop || 0));
+            });
+          });
+        }
+        box.addEventListener('scroll', function() {
+          if (Date.now() < Number(autoFollowState.programmaticUntil || 0)) return;
+          const currentTop = Math.max(0, Number(box.scrollTop || 0));
+          if (currentTop < Number(autoFollowState.lastScrollTop || 0) - 24) {
+            autoFollowState.manualPaused = true;
+          } else if (isChatNearBottom()) {
+            autoFollowState.manualPaused = false;
+          }
+          autoFollowState.lastScrollTop = currentTop;
+          syncAutoFollowDataset();
+        }, { passive: true });
+        box.addEventListener('wheel', function(event) {
+          if (event && Number(event.deltaY) < 0) pauseAutoFollowByUser();
+        }, { passive: true });
+        box.addEventListener('touchmove', function() {
+          pauseAutoFollowByUser();
+        }, { passive: true });
+        syncAutoFollowDataset();
+        try {
+          window.__thunderclawAutoFollowState = autoFollowState;
+        } catch (_) {}
+        function setFeatureWorkbenchStatus(textLike) {
+          if (!featureWorkbenchStatusEl) return;
+          featureWorkbenchStatusEl.textContent = String(textLike || '等待任务').trim() || '等待任务';
+        }
+        function scheduleWorkbenchCollapse(runtimeLike, delayMsLike) {
+          const runtime = runtimeLike && typeof runtimeLike === 'object' ? runtimeLike : null;
+          if (!runtime || !runtime.root) return;
+          if (runtime.__collapseTimer) {
+            clearTimeout(runtime.__collapseTimer);
+            runtime.__collapseTimer = 0;
+          }
+          requestAutoFollow({ behavior: 'auto' });
+        }
+        function resetEmbeddedFeatureWorkbenchState() {
+          dashboardWorkbenchState.cardEventId = 0;
+          dashboardWorkbenchState.runtime = null;
+          dashboardWorkbenchState.onApply = null;
+          dashboardWorkbenchState.featureConcept = null;
+          dashboardWorkbenchState.instanceKey = '';
+          if (dashboardWorkbenchState.runtimeMap instanceof Map) dashboardWorkbenchState.runtimeMap.clear();
+          if (dashboardWorkbenchState.latestKeyByCard instanceof Map) dashboardWorkbenchState.latestKeyByCard.clear();
+        }
+        function showFeatureWorkbenchEmpty(textLike) {
+          if (featureWorkbenchHostEl) {
+            featureWorkbenchHostEl.style.display = 'none';
+            featureWorkbenchHostEl.innerHTML = '';
+          }
+          if (featureWorkbenchEmptyEl) {
+            featureWorkbenchEmptyEl.style.display = '';
+            if (textLike) featureWorkbenchEmptyEl.textContent = String(textLike);
+          }
+          setFeatureWorkbenchStatus('等待任务');
+        }
+        function buildEmbeddedWorkbenchInstanceKey(cardEventIdLike) {
+          const cardEventId = Number(cardEventIdLike || 0);
+          dashboardWorkbenchState.seq += 1;
+          return 'task:' + String(Number.isFinite(cardEventId) && cardEventId > 0 ? cardEventId : 'adhoc') + ':' + String(dashboardWorkbenchState.seq);
+        }
+        function findClarificationCardRow(cardEventIdLike) {
+          const cardEventId = Number(cardEventIdLike || 0);
+          if (Number.isFinite(cardEventId) && cardEventId > 0) {
+            return box.querySelector('.ai-clarify-row[data-card-event-id="' + String(cardEventId) + '"]');
+          }
+          const rows = box.querySelectorAll('.ai-clarify-row');
+          return rows.length ? rows[rows.length - 1] : null;
+        }
+        function insertEmbeddedWorkbenchRow(rowEl, cardEventIdLike) {
+          if (!rowEl || !box) return;
+          const cardEventIdText = String(Number(cardEventIdLike || 0) || '');
+          const cardRow = findClarificationCardRow(cardEventIdLike);
+          if (!cardRow || !cardRow.parentNode) {
+            box.appendChild(rowEl);
+            return;
+          }
+          let anchor = cardRow;
+          while (
+            anchor.nextElementSibling
+            && anchor.nextElementSibling.classList.contains('ai-feature-task-row')
+            && String(anchor.nextElementSibling.getAttribute('data-parent-card-event-id') || '') === cardEventIdText
+          ) {
+            anchor = anchor.nextElementSibling;
+          }
+          anchor.insertAdjacentElement('afterend', rowEl);
+        }
+        function ensureStandaloneFeatureWorkbench(paramsLike) {
+          if (typeof createStrategyIntentWorkbenchRuntime !== 'function') return null;
+          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+          const cardEventId = Number(params.cardEventId || 0);
+          const onApply = typeof params.onApply === 'function' ? params.onApply : null;
+          const featureConcept = params.featureConcept && typeof params.featureConcept === 'object' ? params.featureConcept : {};
+          let instanceKey = String(params.instanceKey || '').trim();
+          if (!instanceKey && !Boolean(params.forceNew) && Number.isFinite(cardEventId) && cardEventId > 0) {
+            instanceKey = String(dashboardWorkbenchState.latestKeyByCard.get(cardEventId) || '');
+          }
+          if (!instanceKey && !Boolean(params.forceNew) && dashboardWorkbenchState.instanceKey) {
+            instanceKey = dashboardWorkbenchState.instanceKey;
+          }
+          if (!instanceKey) instanceKey = buildEmbeddedWorkbenchInstanceKey(cardEventId);
+          let entry = dashboardWorkbenchState.runtimeMap.get(instanceKey) || null;
+          if (!entry || Boolean(params.forceNew)) {
+            const row = document.createElement('div');
+            row.className = 'ai-msg-row bot ai-feature-task-row';
+            row.setAttribute('data-workbench-instance-key', instanceKey);
+            row.setAttribute('data-parent-card-event-id', String(Number.isFinite(cardEventId) && cardEventId > 0 ? cardEventId : ''));
+
+            const meta = document.createElement('div');
+            meta.className = 'ai-msg-meta';
+            meta.textContent = 'ThunderClaw · 特征生成任务';
+            row.appendChild(meta);
+
+            const runtime = createStrategyIntentWorkbenchRuntime({
+              title: '特征生成任务',
+              featureConcept: featureConcept,
+              onApply: onApply,
+              onViewportChange: function(reason) {
+                requestAutoFollow({ behavior: reason === 'result' ? 'smooth' : 'auto' });
+              },
+            });
+            runtime.root.classList.remove('collapsed');
+            runtime.root.style.display = '';
+            row.appendChild(runtime.root);
+            insertEmbeddedWorkbenchRow(row, cardEventId);
+            entry = {
+              key: instanceKey,
+              row: row,
+              runtime: runtime,
+              cardEventId: Number.isFinite(cardEventId) && cardEventId > 0 ? cardEventId : 0,
+              onApply: onApply,
+            };
+            dashboardWorkbenchState.runtimeMap.set(instanceKey, entry);
+          }
+          if (entry.cardEventId > 0) {
+            dashboardWorkbenchState.latestKeyByCard.set(entry.cardEventId, instanceKey);
+          }
+          dashboardWorkbenchState.cardEventId = entry.cardEventId;
+          dashboardWorkbenchState.runtime = entry.runtime;
+          dashboardWorkbenchState.onApply = entry.onApply;
+          dashboardWorkbenchState.featureConcept = featureConcept;
+          dashboardWorkbenchState.instanceKey = instanceKey;
+          return entry.runtime;
+        }
+        function mountStandaloneFeatureWorkbenchSnapshot(paramsLike) {
+          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+          const traces = Array.isArray(params.traces) ? params.traces : [];
+          const task = params.task && typeof params.task === 'object' ? params.task : null;
+          const result = params.result && typeof params.result === 'object' ? params.result : null;
+          if (!traces.length && !task && !result) return false;
+          const runtime = ensureStandaloneFeatureWorkbench(params);
+          if (!runtime) return false;
+          Promise.resolve(runtime.load(traces, task, result)).catch(function() {});
+          const finalStatus = String(task && task.finalStatus || '').trim().toLowerCase();
+          if (result || finalStatus === 'completed' || finalStatus === 'failed') {
+            scheduleWorkbenchCollapse(runtime, 900);
+          }
+          setFeatureWorkbenchStatus(result && result.ok ? '结果已生成' : (task ? '历史回放' : '已加载'));
+          return true;
+        }
+        function beginStandaloneFeatureWorkbench(paramsLike) {
+          const params = paramsLike && typeof paramsLike === 'object' ? paramsLike : {};
+          const runtime = ensureStandaloneFeatureWorkbench({
+            ...params,
+            forceNew: true,
+            instanceKey: buildEmbeddedWorkbenchInstanceKey(params.cardEventId),
+          });
+          if (!runtime) return null;
+          runtime.setProgress('⏳ 正在启动任务...');
+          runtime.root.classList.remove('collapsed');
+          setFeatureWorkbenchStatus('进行中');
+          requestAutoFollow({ force: true, behavior: 'auto' });
+          return runtime;
+        }
+        async function applyStandaloneFeatureWorkbenchTrace(paramsLike, traceLike, taskLike) {
+          const runtime = ensureStandaloneFeatureWorkbench(paramsLike);
+          if (!runtime) return;
+          runtime.setProgress('');
+          await Promise.resolve(runtime.applyTrace(traceLike));
+          if (taskLike) runtime.setTask(taskLike);
+          runtime.root.classList.remove('collapsed');
+          setFeatureWorkbenchStatus('进行中');
+        }
+        function showStandaloneFeatureWorkbenchResult(paramsLike, resultLike) {
+          const result = resultLike && typeof resultLike === 'object' ? resultLike : { ok: false, error: '生成失败' };
+          const runtime = ensureStandaloneFeatureWorkbench(paramsLike);
+          if (!runtime) return;
+          if (result.task) runtime.setTask(result.task);
+          runtime.showResult(result);
+          runtime.root.classList.remove('collapsed');
+          scheduleWorkbenchCollapse(runtime, 900);
+          setFeatureWorkbenchStatus(result.ok ? '结果已生成' : '生成失败');
+          requestAutoFollow({ behavior: 'smooth' });
+        }
         function loadLocalChatLog() {
           return chatLogStore.load();
         }
         function saveLocalChatLog(rows) {
           chatLogStore.save(rows);
+        }
+        function scrollChatToLatest() {
+          requestAutoFollow({ behavior: 'auto' });
         }
         function parseRowTsMs(rowLike) {
           const ts = String(rowLike?.ts || '');
@@ -8885,6 +9743,12 @@
         function appendLocalChatLog(rowLike) {
           chatLogStore.append(rowLike);
         }
+        function rememberSeenEventId(idLike) {
+          const idNum = Number(idLike);
+          if (!Number.isFinite(idNum) || idNum <= 0) return;
+          rememberSeenEventIdRuntime(chatHistoryState, idNum, 3000, 1800);
+          chatHistoryState.afterId = Math.max(Number(chatHistoryState.afterId || 0), idNum);
+        }
         function updateLocalChatCardMeta(sourceLike, updates) {
           // Find the most recent card entry and update its meta
           var rows = chatLogStore.load();
@@ -8897,6 +9761,57 @@
             break;
           }
           chatLogStore.save(rows);
+        }
+        function updateLocalChatCardMetaByEventId(eventIdLike, updatesLike) {
+          const eventId = Number(eventIdLike);
+          const updates = updatesLike && typeof updatesLike === 'object' ? updatesLike : {};
+          if (!Number.isFinite(eventId) || eventId <= 0) return false;
+          const rows = chatLogStore.load();
+          let changed = false;
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
+            if (!row || Number(row.id) !== eventId) continue;
+            const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+            if (meta.type !== 'clarification_card') continue;
+            const cardData = meta.cardData && typeof meta.cardData === 'object' ? meta.cardData : {};
+            row.meta = {
+              ...meta,
+              cardData: {
+                ...cardData,
+                ...updates,
+              },
+            };
+            changed = true;
+            break;
+          }
+          if (changed) chatLogStore.save(rows);
+          return changed;
+        }
+        function mergeLocalChatCardSnapshotByEventId(eventIdLike, snapshotLike) {
+          const eventId = Number(eventIdLike);
+          const snapshot = snapshotLike && typeof snapshotLike === 'object' ? snapshotLike : {};
+          if (!Number.isFinite(eventId) || eventId <= 0) return false;
+          return updateLocalRowMetaById(eventId, function(meta) {
+            const next = meta && typeof meta === 'object' ? { ...meta } : {};
+            next.type = 'clarification_card';
+            const cardData = next.cardData && typeof next.cardData === 'object' ? { ...next.cardData } : {};
+            if (snapshot.headline != null) cardData.headline = snapshot.headline;
+            if (snapshot.featureConcept && typeof snapshot.featureConcept === 'object') cardData.featureConcept = snapshot.featureConcept;
+            if (Array.isArray(snapshot.clarifyingQuestions)) cardData.clarifyingQuestions = snapshot.clarifyingQuestions;
+            if (snapshot.task && typeof snapshot.task === 'object') cardData.task = snapshot.task;
+            if (Array.isArray(snapshot.traces) && snapshot.traces.length) cardData.traces = snapshot.traces;
+            if (snapshot.result && typeof snapshot.result === 'object') cardData.result = snapshot.result;
+            next.cardData = cardData;
+            return next;
+          });
+        }
+        function resetChatDedupeState() {
+          chatHistoryState.afterId = 0;
+          chatHistoryState.seenIds.clear();
+          chatHistoryState.pendingBotEchoes = [];
+          if (chatHistoryState.renderedCardEventIds instanceof Set) {
+            chatHistoryState.renderedCardEventIds.clear();
+          }
         }
         function ackLocalUserEcho(text, tsLike, idLike) {
           chatLogStore.ackUserEcho(text, tsLike, idLike);
@@ -8924,19 +9839,78 @@
             })
             .slice(-30);
         }
+        function extractRowTracePayload(rowLike) {
+          const row = rowLike && typeof rowLike === 'object' ? rowLike : {};
+          const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+          if (meta.type === 'clarification_card') {
+            const cardData = meta.cardData && typeof meta.cardData === 'object' ? meta.cardData : {};
+            return {
+              task: cardData.task && typeof cardData.task === 'object' ? cardData.task : null,
+              traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+            };
+          }
+          return {
+            task: meta.task && typeof meta.task === 'object' ? meta.task : null,
+            traces: Array.isArray(row.traces) ? row.traces : (Array.isArray(meta.traces) ? meta.traces : []),
+          };
+        }
+        function attachTracePanelToRow(rowLike, tracesLike, taskLike) {
+          const row = rowLike || null;
+          const traces = Array.isArray(tracesLike) ? tracesLike : [];
+          const task = taskLike && typeof taskLike === 'object' ? taskLike : null;
+          if (!row || (!traces.length && !task)) return false;
+          const host = row.querySelector('.ai-msg') || row;
+          if (!host) return false;
+          const old = host.querySelector('.ai-thinking-panel.trace-replay');
+          if (old && old.parentNode) old.parentNode.removeChild(old);
+          const panel = document.createElement('div');
+          panel.className = 'ai-thinking-panel trace-replay collapsed done';
+          panel.style.marginTop = '8px';
+          const header = document.createElement('div');
+          header.className = 'ai-thinking-header';
+          header.innerHTML = '<div class="thinking-icon"></div><span>思考过程</span>';
+          const body = document.createElement('div');
+          body.className = 'ai-thinking-body';
+          panel.appendChild(header);
+          panel.appendChild(body);
+          header.addEventListener('click', function() {
+            panel.classList.toggle('collapsed');
+          });
+          traces.forEach(function(traceLike) {
+            const trace = traceLike && typeof traceLike === 'object' ? traceLike : {};
+            const status = String(trace.status || 'done').trim().toLowerCase();
+            const phase = String(trace.phase || trace.step || 'step').trim();
+            const message = String(trace.message || phase || '').trim();
+            if (!message) return;
+            const stepEl = document.createElement('div');
+            stepEl.className = 'ai-thinking-step ' + status;
+            const icon = status === 'done' ? '✓' : status === 'error' ? '✗' : '◦';
+            stepEl.innerHTML = '<span class="step-icon">' + icon + '</span><span class="step-text">' + escapeHtmlRuntime(message) + '</span>';
+            body.appendChild(stepEl);
+          });
+          const titleEl = header.querySelector('span');
+          if (titleEl) {
+            const count = traces.length;
+            const label = task && String(task.finalStatus || '').trim()
+              ? (String(task.finalStatus) === 'completed' ? '已完成' : (String(task.finalStatus) === 'failed' ? '失败' : '进行中'))
+              : '';
+            titleEl.textContent = '思考过程' + (count ? (' (' + count + ' 步' + (label ? (', ' + label) : '') + ')') : '');
+          }
+          host.appendChild(panel);
+          return true;
+        }
         function renderStoredChatLog() {
           const rows = dedupeStoredChatRows(loadLocalChatLog());
           if (rows.length) saveLocalChatLog(rows);
+          resetEmbeddedFeatureWorkbenchState();
           box.innerHTML = '';
-          if (chatHistoryState.renderedCardEventIds instanceof Set) {
-            chatHistoryState.renderedCardEventIds.clear();
-          }
+          showFeatureWorkbenchEmpty('左侧完成澄清并点击“开始生成特征”后，这里会独立展示完整过程。');
+          resetChatDedupeState();
           if (!rows.length) return;
           rows.slice(-CHAT_LOG_MAX).forEach(function(r) {
             const idNum = Number(r?.id);
             if (Number.isFinite(idNum) && idNum > 0) {
-              chatHistoryState.seenIds.add(idNum);
-              chatHistoryState.afterId = Math.max(chatHistoryState.afterId, idNum);
+              rememberSeenEventId(idNum);
             }
             if (String(r?.source || '') === 'strategy_intent') return;
 
@@ -8948,20 +9922,28 @@
                 headline: String(cardData.headline || r.text || ''),
                 featureConcept: cardData.featureConcept || {},
                 clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                task: cardData.task || null,
+                traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                result: cardData.result || null,
                 onSubmit: null,
                 onApply: null,
               });
               if (card) {
-                card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
-                if (cardData.status === 'applied' || cardData.result) {
-                  var resultDiv = document.createElement('div');
-                  resultDiv.className = 'ai-clarify-result';
-                  resultDiv.style.display = 'block';
-                  resultDiv.innerHTML = '<div class="ai-clarify-result-success"><div class="ai-clarify-result-title">✅ 特征已生成</div></div>';
-                  var bubble = card.querySelector('.ai-clarify-bubble');
-                  if (bubble) bubble.appendChild(resultDiv);
+                if (Number.isFinite(idNum) && idNum > 0) {
+                  card.setAttribute('data-card-event-id', String(idNum));
+                  if (chatHistoryState.renderedCardEventIds instanceof Set) {
+                    chatHistoryState.renderedCardEventIds.add(idNum);
+                  }
                 }
+                card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
                 box.appendChild(card);
+                mountStandaloneFeatureWorkbenchSnapshot({
+                  cardEventId: idNum,
+                  featureConcept: cardData.featureConcept || {},
+                  task: cardData.task || null,
+                  traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                  result: cardData.result || null,
+                });
                 return;
               }
             }
@@ -8972,8 +9954,10 @@
               div.setAttribute('data-event-id', String(idNum));
             }
             box.appendChild(div);
+            const tracePayload = extractRowTracePayload(r);
+            attachTracePanelToRow(div, tracePayload.traces, tracePayload.task);
           });
-          box.scrollTop = box.scrollHeight;
+          scrollChatToLatest();
         }
         function pushMsg(role, text, opts) {
           const options = opts && typeof opts === 'object' ? opts : {};
@@ -9009,7 +9993,7 @@
               },
             });
           }
-          box.scrollTop = box.scrollHeight;
+          scrollChatToLatest();
           if (!options.skipStore) {
             appendLocalChatLog({
               id: Number.isFinite(Number(options.id)) ? Number(options.id) : null,
@@ -9018,7 +10002,11 @@
               source: source,
               text: t,
               meta: options.meta && typeof options.meta === 'object' ? options.meta : undefined,
+              traces: Array.isArray(options.traces) ? options.traces : undefined,
             });
+          }
+          if (Array.isArray(options.traces) && options.traces.length) {
+            attachTracePanelToRow(div, options.traces, options.meta && typeof options.meta === 'object' ? options.meta.task : null);
           }
           return div;
         }
@@ -10378,27 +11366,74 @@
           // NEW: If clarification data exists, render the interactive clarification card
           const clarification = params.clarification && typeof params.clarification === 'object' ? params.clarification : null;
           if (clarification && clarification.intentDetected && typeof createClarificationCardRuntime === 'function') {
+            const clarificationEventId = Number(clarification.eventId || clarification.cardEventId || 0);
+            if (Number.isFinite(clarificationEventId) && clarificationEventId > 0) {
+              const existingCard = box.querySelector('.ai-clarify-row[data-card-event-id="' + String(clarificationEventId) + '"]');
+              if (existingCard) {
+                mountStandaloneFeatureWorkbenchSnapshot({
+                  cardEventId: clarificationEventId,
+                  featureConcept: clarification.featureConcept || {},
+                  task: clarification.task || null,
+                  traces: Array.isArray(clarification.traces) ? clarification.traces : [],
+                  result: clarification.result || null,
+                });
+                return existingCard;
+              }
+            }
             const card = createClarificationCardRuntime({
               headline: String(clarification.headline || ''),
               featureConcept: clarification.featureConcept || {},
               clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
-              onSubmit: async function(submitData) {
-                // Call /api/strategy/intent-confirm with user's choices
-                try {
-                  const resp = await fetch('/api/strategy/intent-confirm', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      featureConcept: submitData.featureConcept || clarification.featureConcept,
-                      userChoices: submitData.userChoices || {},
-                      userMessage: userText,
-                      assistantReply: assistantText,
-                    }),
-                  });
-                  return await resp.json();
-                } catch (err) {
-                  return { ok: false, error: String(err?.message || err) };
-                }
+              task: clarification.task || null,
+              traces: Array.isArray(clarification.traces) ? clarification.traces : [],
+              result: clarification.result || null,
+              onSubmitStream: async function(submitData) {
+                const payload = {
+                  featureConcept: submitData.featureConcept || clarification.featureConcept,
+                  userChoices: submitData.userChoices || {},
+                  clarifyingQuestions: Array.isArray(clarification.clarifyingQuestions) ? clarification.clarifyingQuestions : [],
+                  userMessage: userText,
+                  assistantReply: assistantText,
+                  cardEventId: Number(clarification.eventId || clarification.cardEventId || 0) || null,
+                };
+                beginStandaloneFeatureWorkbench({
+                  cardEventId: clarificationEventId,
+                  featureConcept: submitData.featureConcept || clarification.featureConcept || {},
+                  onApply: submitData.onApply,
+                });
+                var result = await runStrategyIntentConfirmStreamRuntime({
+                  payload: payload,
+                  onTrace: async function(data, task) {
+                    const traceTask = task || data.task || null;
+                    await applyStandaloneFeatureWorkbenchTrace({
+                      cardEventId: clarificationEventId,
+                      featureConcept: submitData.featureConcept || clarification.featureConcept || {},
+                      onApply: submitData.onApply,
+                    }, data, traceTask);
+                    updateLocalChatCardMetaByEventId(clarificationEventId, {
+                      task: traceTask,
+                      traces: Array.isArray(traceTask?.traces) ? traceTask.traces : [],
+                      planArtifact: traceTask?.planArtifact || null,
+                    });
+                    if (typeof submitData.onTrace === 'function') {
+                      await Promise.resolve(submitData.onTrace(data, traceTask));
+                    }
+                  },
+                });
+                updateLocalChatCardMetaByEventId(clarificationEventId, {
+                  status: result.ok ? 'generated' : (Array.isArray(result.requiredConfig) && result.requiredConfig.length ? 'needs_config' : 'failed'),
+                  result: result,
+                  task: result.task || null,
+                  traces: Array.isArray(result.traces) ? result.traces : [],
+                  planArtifact: result.planArtifact || null,
+                });
+                showStandaloneFeatureWorkbenchResult({
+                  cardEventId: clarificationEventId,
+                  featureConcept: submitData.featureConcept || clarification.featureConcept || {},
+                  onApply: submitData.onApply,
+                }, result);
+                if (typeof submitData.onResult === 'function') submitData.onResult(result);
+                return result;
               },
               onApply: function(result) {
                 // Apply the generated feature to the store
@@ -10412,6 +11447,10 @@
                   feature: {
                     ...result.feature,
                     generatedCode: result.generatedCode || null,
+                    planArtifact: result.planArtifact || null,
+                    specArtifact: result.specArtifact || result.feature?.specArtifact || null,
+                    generationTask: result.task || null,
+                    generationTraces: Array.isArray(result.traces) ? result.traces : [],
                     params: result.feature.params || {},
                   },
                 };
@@ -10425,7 +11464,7 @@
                   if (payload && payload.ok) {
                     if (typeof emitStrategyLabUpdated === 'function') emitStrategyLabUpdated(payload);
                     // Update localStorage card meta to reflect applied status
-                    updateLocalChatCardMeta('clarification_fast_path', { status: 'applied', result: { ok: true } });
+                    updateLocalChatCardMetaByEventId(clarificationEventId, { status: 'applied', result: { ok: true } });
                     return { ok: true, message: payload.reply || '已加入虾策特征库' };
                   }
                   return { ok: false, error: String(payload?.error || '加入失败') };
@@ -10434,6 +11473,13 @@
               },
             });
             if (card) {
+              if (Number.isFinite(clarificationEventId) && clarificationEventId > 0) {
+                card.setAttribute('data-card-event-id', String(clarificationEventId));
+                rememberSeenEventId(clarificationEventId);
+                if (chatHistoryState.renderedCardEventIds instanceof Set) {
+                  chatHistoryState.renderedCardEventIds.add(clarificationEventId);
+                }
+              }
               // If replaceElement is provided, replace it instead of appending
               const replaceEl = params.replaceElement || null;
               if (replaceEl && replaceEl.parentNode) {
@@ -10441,7 +11487,16 @@
               } else {
                 box.appendChild(card);
               }
-              box.scrollTop = box.scrollHeight;
+              if (!mountStandaloneFeatureWorkbenchSnapshot({
+                cardEventId: clarificationEventId,
+                featureConcept: clarification.featureConcept || {},
+                task: clarification.task || null,
+                traces: Array.isArray(clarification.traces) ? clarification.traces : [],
+                result: clarification.result || null,
+              })) {
+                showFeatureWorkbenchEmpty('左侧完成澄清并点击“开始生成特征”后，这里会独立展示完整过程。');
+              }
+              scrollChatToLatest();
               return card;
             }
           }
@@ -10581,7 +11636,7 @@
           } else {
             box.appendChild(row);
           }
-          box.scrollTop = box.scrollHeight;
+          scrollChatToLatest();
           return row;
         }
         async function askThunderClaw(q) {
@@ -10646,12 +11701,25 @@
           msgRow.appendChild(thinkPanel);
           msgRow.appendChild(msgBubble);
           box.appendChild(msgRow);
-          box.scrollTop = box.scrollHeight;
+          scrollChatToLatest();
           
           const startTime = Date.now();
           let fullReply = '';
           let thinkStepCount = 0;
           let cardRendered = false;
+          let cardEventId = 0;
+          let replyEventId = 0;
+          let finalTask = null;
+          let finalTraces = [];
+          const pendingBot = {
+            createdAt: startTime,
+            source: 'dashboard',
+            text: '',
+            storeText: '',
+            rowEl: msgRow,
+          };
+          chatHistoryState.pendingBotEchoes.push(pendingBot);
+          prunePendingBotEchoes();
           
           function addThinkStep(step, message, status) {
             thinkStepCount++;
@@ -10667,7 +11735,7 @@
             } else if (!existing) {
               thinkBody.appendChild(stepEl);
             }
-            box.scrollTop = box.scrollHeight;
+            scrollChatToLatest();
           }
           
           function finishThinking() {
@@ -10710,13 +11778,23 @@
                     
                     if (currentEvent === 'thinking') {
                       addThinkStep(data.step || 'step', data.message || '', data.status || 'running');
+                      if (Array.isArray(data.task?.traces)) {
+                        finalTask = data.task;
+                        finalTraces = data.task.traces.slice();
+                      }
                     } else if (currentEvent === 'token') {
                       fullReply += (data.text || '');
+                      pendingBot.text = fullReply;
+                      pendingBot.storeText = fullReply;
                       msgText.textContent = fullReply;
-                      box.scrollTop = box.scrollHeight;
+                      scrollChatToLatest();
                     } else if (currentEvent === 'card') {
                       // Render clarification card
                       cardRendered = true;
+                      cardEventId = Number(data.eventId || 0);
+                      if (Number.isFinite(cardEventId) && cardEventId > 0) {
+                        rememberSeenEventId(cardEventId);
+                      }
                       finishThinking();
                       msgBubble.style.display = 'none';
                       void maybeRenderStrategyIntentSuggestions({
@@ -10733,13 +11811,25 @@
                       });
                       // Store card in local log
                       appendLocalChatLog({
+                        id: Number.isFinite(cardEventId) && cardEventId > 0 ? cardEventId : null,
                         ts: new Date().toISOString(),
                         role: 'bot',
                         source: 'clarification_fast_path',
-                        text: '[特征建议卡片] ' + (data.headline || ''),
+                        text: data.headline || '交易特征建议',
                         meta: { type: 'clarification_card', cardData: data },
                       });
                     } else if (currentEvent === 'done') {
+                      finalTask = data.task || finalTask;
+                      finalTraces = Array.isArray(data.traces) ? data.traces : finalTraces;
+                      replyEventId = Number(data.replyEventId || replyEventId || 0);
+                      cardEventId = Number(data.cardEventId || cardEventId || 0);
+                      if (Number.isFinite(replyEventId) && replyEventId > 0) {
+                        msgRow.setAttribute('data-event-id', String(replyEventId));
+                        rememberSeenEventId(replyEventId);
+                      }
+                      if (Number.isFinite(cardEventId) && cardEventId > 0) {
+                        rememberSeenEventId(cardEventId);
+                      }
                       if (!cardRendered) {
                         finishThinking();
                         // Render final markdown
@@ -10761,12 +11851,17 @@
             // Save non-card replies to local log
             if (!cardRendered && fullReply) {
               appendLocalChatLog({
+                id: Number.isFinite(replyEventId) && replyEventId > 0 ? replyEventId : null,
                 ts: new Date().toISOString(),
                 role: 'bot',
                 source: 'dashboard',
                 text: fullReply,
+                meta: finalTask ? { task: finalTask } : undefined,
+                traces: finalTraces,
               });
             }
+            chatHistoryState.pendingBotEchoes = (Array.isArray(chatHistoryState.pendingBotEchoes) ? chatHistoryState.pendingBotEchoes : [])
+              .filter(function(item) { return item !== pendingBot; });
             
           } catch (err) {
             finishThinking();
@@ -10777,7 +11872,11 @@
               role: 'bot',
               source: 'dashboard',
               text: fullReply,
+              meta: finalTask ? { task: finalTask } : undefined,
+              traces: finalTraces,
             });
+            chatHistoryState.pendingBotEchoes = (Array.isArray(chatHistoryState.pendingBotEchoes) ? chatHistoryState.pendingBotEchoes : [])
+              .filter(function(item) { return item !== pendingBot; });
           }
           
           if (!cardRendered && !fullReply) {
@@ -10786,7 +11885,7 @@
             setChatMessageTextRuntime(msgText, fullReply, { useMarkdown: false });
           }
           
-          box.scrollTop = box.scrollHeight;
+          scrollChatToLatest();
         }
         async function send() {
           const text = input.value.trim();
@@ -10835,13 +11934,24 @@
             sessionArchiveBtn.textContent = '归档中...';
             try {
               const resp = await fetch('/api/session/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-              const body = await resp.json();
-              if (body.ok && body.archived) {
-                // Clear chat box and start fresh
-                box.innerHTML = '<div class="ai-msg bot">新会话已开始。之前的对话已归档。</div>';
+              const body = await resp.json().catch(function() { return null; });
+              if (resp.ok && body && body.ok) {
+                // Clear chat box and start fresh even when current session is already empty
+                resetEmbeddedFeatureWorkbenchState();
+                resetChatDedupeState();
+                saveLocalChatLog([]);
+                const msg = body.archived
+                  ? '新会话已开始。之前的对话已归档。'
+                  : '当前会话为空，已就绪可直接开始新对话。';
+                box.innerHTML = '<div class="ai-msg bot">' + msg + '</div>';
+                showFeatureWorkbenchEmpty('左侧完成澄清并点击“开始生成特征”后，这里会独立展示完整过程。');
                 if (sessionLabel) sessionLabel.textContent = '新会话';
+              } else {
+                box.innerHTML = '<div class="ai-msg bot">归档失败：' + escapeHtmlRuntime(String(body?.error || ('HTTP ' + String(resp.status)))) + '</div>';
               }
-            } catch {}
+            } catch (err) {
+              box.innerHTML = '<div class="ai-msg bot">归档失败：' + escapeHtmlRuntime(String(err?.message || err || '未知错误')) + '</div>';
+            }
             sessionArchiveBtn.disabled = false;
             sessionArchiveBtn.textContent = '📦 归档';
           });
@@ -10889,7 +11999,10 @@
                   const body = await resp.json();
                   if (body.ok && Array.isArray(body.messages)) {
                     // Re-render chat with restored messages, including card reconstructions
+                    resetEmbeddedFeatureWorkbenchState();
                     box.innerHTML = '';
+                    showFeatureWorkbenchEmpty('正在恢复会话中的特征生成过程...');
+                    resetChatDedupeState();
                     body.messages.forEach(function(msg) {
                       // Skip system messages from card events (they're internal context)
                       if (msg.role === 'system' && msg.meta && msg.meta.cardEvent) return;
@@ -10901,35 +12014,50 @@
                       var meta = msg.meta && typeof msg.meta === 'object' ? msg.meta : null;
                       if (meta && meta.type === 'clarification_card' && meta.cardData && typeof createClarificationCardRuntime === 'function') {
                         var cardData = meta.cardData;
+                        var cardEventId = Number(cardData.eventId || msg.id || 0);
                         // Render a read-only version of the card (buttons disabled)
                         var card = createClarificationCardRuntime({
                           headline: String(cardData.headline || msg.content || ''),
                           featureConcept: cardData.featureConcept || {},
                           clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                          task: cardData.task || null,
+                          traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                          result: cardData.result || null,
                           onSubmit: null,  // Read-only: no submit
                           onApply: null,   // Read-only: no apply
                         });
                         if (card) {
+                          if (Number.isFinite(cardEventId) && cardEventId > 0) {
+                            card.setAttribute('data-card-event-id', String(cardEventId));
+                            rememberSeenEventId(cardEventId);
+                            if (chatHistoryState.renderedCardEventIds instanceof Set) {
+                              chatHistoryState.renderedCardEventIds.add(cardEventId);
+                            }
+                          }
                           // Mark card as read-only (disable all buttons)
                           card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
-                          var statusEl = card.querySelector('.ai-clarify-result') || card.querySelector('.ai-clarify-progress');
-                          if (cardData.status === 'applied' || cardData.result) {
-                            var resultDiv = document.createElement('div');
-                            resultDiv.className = 'ai-clarify-result';
-                            resultDiv.style.display = 'block';
-                            resultDiv.innerHTML = '<div class="ai-clarify-result-success"><div class="ai-clarify-result-title">✅ 已恢复 — 特征已生成</div></div>';
-                            card.querySelector('.ai-clarify-bubble')?.appendChild(resultDiv);
-                          }
                           box.appendChild(card);
+                          mountStandaloneFeatureWorkbenchSnapshot({
+                            cardEventId: cardEventId,
+                            featureConcept: cardData.featureConcept || {},
+                            task: cardData.task || null,
+                            traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                            result: cardData.result || null,
+                          });
                           return;
                         }
                       }
 
                       // Normal text message rendering
                       var div = createChatMessageElement(role, msg.content || '', msg.ts || null, '', '', '', source);
+                      if (Number.isFinite(Number(msg?.id)) && Number(msg.id) > 0) {
+                        div.setAttribute('data-event-id', String(Number(msg.id)));
+                        rememberSeenEventId(Number(msg.id));
+                      }
                       box.appendChild(div);
+                      attachTracePanelToRow(div, Array.isArray(msg?.meta?.traces) ? msg.meta.traces : [], msg?.meta?.task || null);
                     });
-                    box.scrollTop = box.scrollHeight;
+                    scrollChatToLatest();
                     if (sessionLabel) sessionLabel.textContent = '已恢复的会话';
                     if (sessionHistoryPanel) sessionHistoryPanel.style.display = 'none';
                   }
@@ -10982,18 +12110,81 @@
         }
         function appendHistoryEvent(ev) {
           const idNum = Number(ev?.id);
+          const eventMeta = ev?.meta && typeof ev.meta === 'object' ? ev.meta : null;
+          const eventTraces = Array.isArray(ev?.traces) ? ev.traces : [];
+          const isClarificationCard = Boolean(eventMeta && eventMeta.type === 'clarification_card' && eventMeta.cardData && typeof createClarificationCardRuntime === 'function');
           if (Number.isFinite(idNum) && chatHistoryState.seenIds.has(idNum)) {
+            // If server has updated task/traces for a clarification card, backfill the workbench
+            if (isClarificationCard) {
+              const cd = eventMeta.cardData;
+              if (cd.task || cd.result || (Array.isArray(cd.traces) && cd.traces.length)) {
+                mountStandaloneFeatureWorkbenchSnapshot({
+                  cardEventId: idNum,
+                  featureConcept: cd.featureConcept || {},
+                  task: cd.task || null,
+                  traces: Array.isArray(cd.traces) ? cd.traces : [],
+                  result: cd.result || null,
+                });
+                mergeLocalChatCardSnapshotByEventId(idNum, {
+                  headline: cd.headline,
+                  featureConcept: cd.featureConcept,
+                  clarifyingQuestions: Array.isArray(cd.clarifyingQuestions) ? cd.clarifyingQuestions : undefined,
+                  task: cd.task || null,
+                  traces: Array.isArray(cd.traces) ? cd.traces : [],
+                  result: cd.result || null,
+                });
+              }
+            }
             renderStrategyIntentCardsFromEvent(ev, String(ev?.text || ''), idNum);
             return;
           }
           rememberSeenEventIdRuntime(chatHistoryState, idNum, 3000, 1800);
           const text = String(ev?.text || '').trim();
-          if (!text) return;
+          if (!text && !isClarificationCard) return;
           const role = ev?.role === 'user' ? 'user' : 'bot';
           const source = String(ev?.source || 'dashboard');
           const from = String(ev?.from || '').trim();
           const chatId = ev?.chatId != null ? String(ev.chatId) : '';
           let finalText = text;
+          if (isClarificationCard) {
+            const cardData = eventMeta.cardData;
+            const card = createClarificationCardRuntime({
+              headline: String(cardData.headline || text || ''),
+              featureConcept: cardData.featureConcept || {},
+              clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+              task: cardData.task || null,
+              traces: Array.isArray(cardData.traces) ? cardData.traces : eventTraces,
+              result: cardData.result || null,
+              onSubmit: null,
+              onApply: null,
+            });
+            if (card) {
+              mergeLocalChatCardSnapshotByEventId(idNum, {
+                headline: cardData.headline || text || '',
+                featureConcept: cardData.featureConcept || {},
+                clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                task: cardData.task || null,
+                traces: Array.isArray(cardData.traces) ? cardData.traces : eventTraces,
+                result: cardData.result || null,
+              });
+              if (Number.isFinite(idNum) && idNum > 0) {
+                card.setAttribute('data-card-event-id', String(idNum));
+                if (chatHistoryState.renderedCardEventIds instanceof Set) {
+                  chatHistoryState.renderedCardEventIds.add(idNum);
+                }
+              }
+              card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+              box.appendChild(card);
+              mountStandaloneFeatureWorkbenchSnapshot({
+                cardEventId: idNum,
+                featureConcept: cardData.featureConcept || {},
+                task: cardData.task || null,
+                traces: Array.isArray(cardData.traces) ? cardData.traces : eventTraces,
+                result: cardData.result || null,
+              });
+              return;
+            }
+          }
           if (source === 'telegram') {
             if (role === 'bot') clearTelegramThinking(chatId);
             finalText = role === 'user'
@@ -11071,6 +12262,8 @@
             source: source,
             ts: ev?.ts || null,
             id: Number.isFinite(idNum) ? idNum : null,
+            meta: eventMeta,
+            traces: eventTraces,
             typewriter: source === 'dashboard' && role === 'bot',
             statusText: source === 'dashboard' && role === 'bot' ? '输出中' : '',
             statusClass: source === 'dashboard' && role === 'bot' ? 'thinking' : '',
@@ -11120,6 +12313,57 @@
             const events = Array.isArray(payload.events) ? payload.events : [];
             events.forEach(function(ev) {
               const idNum = Number(ev?.id);
+              const eventMeta = ev?.meta && typeof ev.meta === 'object' ? ev.meta : null;
+              if (Number.isFinite(idNum) && idNum > 0 && eventMeta && eventMeta.type === 'clarification_card' && eventMeta.cardData) {
+                const cardData = eventMeta.cardData;
+                mergeLocalChatCardSnapshotByEventId(idNum, {
+                  headline: cardData.headline || ev?.text || '',
+                  featureConcept: cardData.featureConcept || {},
+                  clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                  task: cardData.task || null,
+                  traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                  result: cardData.result || null,
+                });
+                const alreadyRendered = chatHistoryState.renderedCardEventIds instanceof Set
+                  ? chatHistoryState.renderedCardEventIds.has(idNum)
+                  : false;
+                if (!alreadyRendered && typeof createClarificationCardRuntime === 'function') {
+                  const card = createClarificationCardRuntime({
+                    headline: String(cardData.headline || ev?.text || ''),
+                    featureConcept: cardData.featureConcept || {},
+                    clarifyingQuestions: Array.isArray(cardData.clarifyingQuestions) ? cardData.clarifyingQuestions : [],
+                    task: cardData.task || null,
+                    traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                    result: cardData.result || null,
+                    onSubmit: null,
+                    onApply: null,
+                  });
+                  if (card) {
+                    card.setAttribute('data-card-event-id', String(idNum));
+                    card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+                    box.appendChild(card);
+                    if (chatHistoryState.renderedCardEventIds instanceof Set) {
+                      chatHistoryState.renderedCardEventIds.add(idNum);
+                    }
+                    mountStandaloneFeatureWorkbenchSnapshot({
+                      cardEventId: idNum,
+                      featureConcept: cardData.featureConcept || {},
+                      task: cardData.task || null,
+                      traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                      result: cardData.result || null,
+                    });
+                  }
+                }
+                if (cardData.task || cardData.result || (Array.isArray(cardData.traces) && cardData.traces.length)) {
+                  mountStandaloneFeatureWorkbenchSnapshot({
+                    cardEventId: idNum,
+                    featureConcept: cardData.featureConcept || {},
+                    task: cardData.task || null,
+                    traces: Array.isArray(cardData.traces) ? cardData.traces : [],
+                    result: cardData.result || null,
+                  });
+                }
+              }
               const cards = Array.isArray(ev?.cards) ? ev.cards : [];
               if (!Number.isFinite(idNum) || idNum <= 0 || !cards.length) return;
               upsertLocalIntentCardsMeta(idNum, cards, String(ev?.text || '').trim());
@@ -11651,11 +12895,19 @@
             const h = Number(b?.high);
             const l = Number(b?.low);
             const c = Number(b?.close);
+            const v = Number(b?.volume);
             if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) return null;
-            return { time: t, open: o, high: h, low: l, close: c };
+            return { time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(v) ? Math.max(0, v) : null };
           })
           .filter(Boolean)
           .sort(function(a, b) { return a.time - b.time; });
+      }
+
+      function mergeBarsByTime(baseBars, patchBars) {
+        const merged = new Map();
+        normalizeBars(baseBars).forEach(function(bar) { merged.set(Number(bar.time), bar); });
+        normalizeBars(patchBars).forEach(function(bar) { merged.set(Number(bar.time), bar); });
+        return Array.from(merged.values()).sort(function(a, b) { return a.time - b.time; });
       }
 
       function barsFingerprint(bars) {
@@ -11713,8 +12965,16 @@
             const high = Number(c && c[2]);
             const low = Number(c && c[3]);
             const close = Number(c && c[4]);
+            const volume = Number(c && c[5]);
             if (!Number.isFinite(ts) || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
-            return { time: Math.floor(ts / 1000), open, high, low, close };
+            return {
+              time: Math.floor(ts / 1000),
+              open,
+              high,
+              low,
+              close,
+              volume: Number.isFinite(volume) ? Math.max(0, volume) : null,
+            };
           })
           .filter(Boolean)
           .sort(function(a, b) { return a.time - b.time; });

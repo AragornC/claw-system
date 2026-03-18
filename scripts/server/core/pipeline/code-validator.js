@@ -2,13 +2,152 @@
  * Pipeline Stage 3: Code Validation
  *
  * Validates generated Python code for:
- * 1. Syntax correctness (Python AST parse)
- * 2. Runtime execution in a sandbox DataFrame context
- * 3. Entry/exit condition compilation
+ * 1. Syntax correctness
+ * 2. Runtime execution against a mock OHLCV DataFrame
+ * 3. Contract correctness: compute_feature returns a Series aligned with df
  */
 
 import { spawnSync } from "node:child_process";
 import { toText } from "../../lib/utils.js";
+
+function sanitizeFeatureName(valueLike, fallback = "custom_feature") {
+  const value = toText(valueLike, fallback).toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  return value || fallback;
+}
+
+function buildFeatureColumnName(featureNameLike) {
+  return `tc_feat_${sanitizeFeatureName(featureNameLike, "custom_feature")}`;
+}
+
+function safeFiniteValues(valuesLike) {
+  return (Array.isArray(valuesLike) ? valuesLike : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+}
+
+function toOptionalFiniteNumber(valueLike) {
+  if (valueLike === null || valueLike === undefined || valueLike === "") return null;
+  const value = Number(valueLike);
+  return Number.isFinite(value) ? value : null;
+}
+
+function summarizeNumericSeries(valuesLike = []) {
+  const values = safeFiniteValues(valuesLike);
+  if (!values.length) {
+    return {
+      mean: null,
+      std: 0,
+      min: null,
+      max: null,
+      nonNull: 0,
+      uniqueFinite: 0,
+      zeroRatio: 0,
+      signChanges: 0,
+    };
+  }
+  const mean = values.reduce((acc, value) => acc + value, 0) / values.length;
+  const variance = values.reduce((acc, value) => acc + ((value - mean) ** 2), 0) / Math.max(1, values.length);
+  let signChanges = 0;
+  for (let i = 1; i < values.length; i += 1) {
+    const prev = Math.sign(values[i - 1]);
+    const current = Math.sign(values[i]);
+    if (prev !== 0 && current !== 0 && prev !== current) signChanges += 1;
+  }
+  return {
+    mean,
+    std: Math.sqrt(Math.max(0, variance)),
+    min: Math.min(...values),
+    max: Math.max(...values),
+    nonNull: values.length,
+    uniqueFinite: new Set(values.map((value) => value.toFixed(6))).size,
+    zeroRatio: values.filter((value) => Math.abs(value) < 1e-10).length / Math.max(1, values.length),
+    signChanges,
+  };
+}
+
+function pearsonCorrelation(xsLike = [], ysLike = []) {
+  const pairs = [];
+  const xs = Array.isArray(xsLike) ? xsLike : [];
+  const ys = Array.isArray(ysLike) ? ysLike : [];
+  for (let i = 0; i < Math.min(xs.length, ys.length); i += 1) {
+    const x = Number(xs[i]);
+    const y = Number(ys[i]);
+    if (Number.isFinite(x) && Number.isFinite(y)) pairs.push([x, y]);
+  }
+  if (pairs.length < 5) return null;
+  const meanX = pairs.reduce((acc, [x]) => acc + x, 0) / pairs.length;
+  const meanY = pairs.reduce((acc, [, y]) => acc + y, 0) / pairs.length;
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+  pairs.forEach(([x, y]) => {
+    const dx = x - meanX;
+    const dy = y - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  });
+  if (denomX <= 0 || denomY <= 0) return null;
+  return numerator / Math.sqrt(denomX * denomY);
+}
+
+function extractReferencedColumns(featureCodeLike) {
+  const featureCode = toText(featureCodeLike, "");
+  const refs = new Set();
+  const ignoredMembers = new Set([
+    "copy",
+    "columns",
+    "index",
+    "loc",
+    "iloc",
+    "shape",
+    "values",
+    "dtype",
+    "dtypes",
+    "sort_values",
+    "fillna",
+    "replace",
+    "dropna",
+    "rolling",
+    "mean",
+    "std",
+    "min",
+    "max",
+    "clip",
+    "reindex",
+    "astype",
+    "shift",
+    "pct_change",
+  ]);
+  const patterns = [
+    /df\[['"]([a-zA-Z0-9_]+)['"]\]/g,
+    /df\.([a-zA-Z0-9_]+)/g,
+  ];
+  patterns.forEach((pattern) => {
+    let match;
+    while ((match = pattern.exec(featureCode))) {
+      const column = toText(match[1], "");
+      if (column && !ignoredMembers.has(column)) refs.add(column);
+    }
+  });
+  return Array.from(refs);
+}
+
+function classifyFailureTypeFromErrors(errorsLike = [], stage = "engineering") {
+  const textBlob = (Array.isArray(errorsLike) ? errorsLike : []).join(" ").toLowerCase();
+  if (stage === "semantic") return "semantics_mismatch";
+  if (stage === "numeric") {
+    if (textBlob.includes("nan")) return "all_nan";
+    if (textBlob.includes("全零") || textBlob.includes("zero")) return "all_zero";
+    if (textBlob.includes("波动") || textBlob.includes("variance")) return "low_variance";
+  }
+  if (textBlob.includes("syntax")) return "syntax_error";
+  if (textBlob.includes("length") || textBlob.includes("shape")) return "shape_mismatch";
+  if (textBlob.includes("timeout") || textBlob.includes("network") || textBlob.includes("api") || textBlob.includes("unavailable")) {
+    return "external_data_unavailable";
+  }
+  return "runtime_contract_error";
+}
 
 function resolvePython() {
   const envPy = toText(process.env.THUNDERCLAW_FREQTRADE_PYTHON || "").trim();
@@ -39,60 +178,26 @@ function resolvePython() {
 }
 
 /**
- * Validate that the indicator code is syntactically valid Python.
+ * Validate that the feature module code is syntactically valid Python.
  */
 function validateSyntax(code) {
   const errors = [];
-  const indicatorCode = toText(code.indicatorCode);
-  const entryCode = toText(code.entryConditionCode);
-  const exitCode = toText(code.exitConditionCode);
+  const featureCode = toText(code.featureCode);
 
-  if (!indicatorCode) {
-    errors.push("indicatorCode is empty");
+  if (!featureCode) {
+    errors.push("featureCode is empty");
     return { valid: false, errors };
   }
-
-  // Normalize indicator code indentation:
-  // The code may have 8-space indent (for class method body) or 4-space or none.
-  // We need to strip the leading indent and re-indent to 4-space for a plain function body.
-  const codeLines = indicatorCode.split("\n");
-  const normalizedLines = codeLines.map(line => {
-    // Strip leading whitespace up to 8 spaces, then re-indent with 4
-    const stripped = line.replace(/^\s{0,8}/, "");
-    return stripped ? `    ${stripped}` : "";
-  });
-
-  // Build a Python script that parses all code fragments
-  const wrappedCode = [
-    "def _test_indicator(dataframe):",
-    ...normalizedLines,
-    "    return dataframe",
-  ].join("\n");
 
   const pyScript = [
     "import ast, sys",
     "errors = []",
     "",
-    "# Validate indicator code (statements in method body)",
-    `indicator_code = ${JSON.stringify(wrappedCode)}`,
+    `feature_code = ${JSON.stringify(featureCode)}`,
     "try:",
-    "    ast.parse(indicator_code)",
+    "    ast.parse(feature_code)",
     "except SyntaxError as e:",
-    "    errors.append(f'indicatorCode syntax error: {e}')",
-    "",
-    "# Validate entry condition (expression)",
-    `entry_code = ${JSON.stringify(entryCode || "True")}`,
-    "try:",
-    "    ast.parse(entry_code, mode='eval')",
-    "except SyntaxError as e:",
-    "    errors.append(f'entryConditionCode syntax error: {e}')",
-    "",
-    "# Validate exit condition (expression)",
-    `exit_code = ${JSON.stringify(exitCode || "True")}`,
-    "try:",
-    "    ast.parse(exit_code, mode='eval')",
-    "except SyntaxError as e:",
-    "    errors.append(f'exitConditionCode syntax error: {e}')",
+    "    errors.append(f'featureCode syntax error: {e}')",
     "",
     "if errors:",
     "    print('ERRORS:' + '|||'.join(errors))",
@@ -118,26 +223,18 @@ function validateSyntax(code) {
 
 /**
  * Validate that the code runs correctly against a mock DataFrame.
- * Creates a minimal OHLCV DataFrame, executes the indicator code,
- * and checks that the expected columns are produced with valid values.
+ * Creates a minimal OHLCV DataFrame, executes the module, invokes
+ * compute_feature(df), and checks the returned object contract.
  */
 function validateRuntime(code) {
   const errors = [];
   const warnings = [];
-  const indicatorCode = toText(code.indicatorCode);
-  const featureName = toText(code.featureName, "test");
-  const expectedCol = `tc_feat_${featureName}`;
+  const featureCode = toText(code.featureCode);
 
-  if (!indicatorCode) {
-    errors.push("indicatorCode is empty");
+  if (!featureCode) {
+    errors.push("featureCode is empty");
     return { valid: false, errors, warnings };
   }
-
-  // Normalize indentation: strip any leading whitespace and re-indent with 8 spaces (class method body)
-  const codeLines = indicatorCode.split("\n").map(line => {
-    const stripped = line.replace(/^\s{0,8}/, "");
-    return stripped ? `        ${stripped}` : "";
-  });
 
   const pyScript = [
     "import sys, json, os",
@@ -148,37 +245,6 @@ function validateRuntime(code) {
     "except ImportError as e:",
     "    print(json.dumps({'ok': False, 'error': f'Missing dependency: {e}'}))",
     "    sys.exit(0)",
-    "",
-    "# Mock network libraries so validation doesn't fail on HTTP calls",
-    "# The purpose of validation is to check code structure, not external data availability",
-    "import unittest.mock as _mock",
-    "",
-    "class _MockResponse:",
-    "    status_code = 200",
-    "    text = '{}'",
-    "    content = b'{}'",
-    "    def json(self): return {}",
-    "    def raise_for_status(self): pass",
-    "",
-    "class _MockSession:",
-    "    def get(self, *a, **kw): return _MockResponse()",
-    "    def post(self, *a, **kw): return _MockResponse()",
-    "    def __enter__(self): return self",
-    "    def __exit__(self, *a): pass",
-    "",
-    "try:",
-    "    import requests as _real_requests",
-    "    _real_requests.get = lambda *a, **kw: _MockResponse()",
-    "    _real_requests.post = lambda *a, **kw: _MockResponse()",
-    "    _real_requests.Session = _MockSession",
-    "except ImportError:",
-    "    pass",
-    "",
-    "try:",
-    "    import urllib.request as _ur",
-    "    _ur.urlopen = lambda *a, **kw: type('R', (), {'read': lambda s: b'{}', 'status': 200, '__enter__': lambda s: s, '__exit__': lambda s,*a: None})()",
-    "except Exception:",
-    "    pass",
     "",
     "# Create mock OHLCV DataFrame with 100 bars",
     "np.random.seed(42)",
@@ -197,34 +263,56 @@ function validateRuntime(code) {
     "df['high'] = df[['open', 'close', 'high']].max(axis=1)",
     "df['low'] = df[['open', 'close', 'low']].min(axis=1)",
     "",
-    "# Run indicator code inside a mock method",
-    "class MockStrategy:",
-    "    def populate_indicators(self, dataframe, metadata):",
-    ...codeLines,
-    "        return dataframe",
+    "namespace = {}",
+    `feature_code = ${JSON.stringify(featureCode)}`,
     "",
     "try:",
-    "    strategy = MockStrategy()",
-    "    result = strategy.populate_indicators(df.copy(), {'pair': 'BTC/USDT'})",
+    "    exec(feature_code, namespace)",
     "except Exception as e:",
-    "    print(json.dumps({'ok': False, 'error': f'Runtime error: {e}'}))",
+    "    print(json.dumps({'ok': False, 'error': f'Feature module exec error: {e}'}))",
     "    sys.exit(0)",
     "",
-    "# Check results",
-    "columns_added = [c for c in result.columns if c not in df.columns]",
-    `expected_col = '${expectedCol}'`,
-    "has_expected = expected_col in result.columns",
-    "nan_counts = {}",
-    "for col in columns_added:",
-    "    nan_count = int(result[col].isna().sum())",
-    "    nan_counts[col] = nan_count",
+    "compute_feature = namespace.get('compute_feature')",
+    "if not callable(compute_feature):",
+    "    print(json.dumps({'ok': False, 'error': 'compute_feature is missing or not callable'}))",
+    "    sys.exit(0)",
+    "",
+    "df_local = df.copy()",
+    "baseline_cols = list(df_local.columns)",
+    "try:",
+    "    result = compute_feature(df_local)",
+    "except Exception as e:",
+    "    print(json.dumps({'ok': False, 'error': f'compute_feature runtime error: {e}'}))",
+    "    sys.exit(0)",
+    "",
+    "if not isinstance(result, pd.Series):",
+    "    print(json.dumps({'ok': False, 'error': f'compute_feature must return pandas.Series, got {type(result).__name__}'}))",
+    "    sys.exit(0)",
+    "",
+    "if len(result) != len(df):",
+    "    print(json.dumps({'ok': False, 'error': f'compute_feature returned length {len(result)} for df length {len(df)}'}))",
+    "    sys.exit(0)",
+    "",
+    "mutated_cols = [c for c in df_local.columns if c not in baseline_cols]",
+    "non_null = result.dropna()",
+    "finite = non_null[np.isfinite(non_null)] if len(non_null) else non_null",
     "",
     "print(json.dumps({",
     "    'ok': True,",
-    "    'columns_added': columns_added,",
-    "    'has_expected_column': has_expected,",
     "    'row_count': len(result),",
-    "    'nan_counts': nan_counts,",
+    "    'non_null_count': int(len(non_null)),",
+    "    'finite_count': int(len(finite)),",
+    "    'null_count': int(result.isna().sum()),",
+    "    'mutated_columns': mutated_cols,",
+    "    'used_columns': baseline_cols,",
+    "    'sample_values': [float(v) if pd.notna(v) and np.isfinite(v) else None for v in result.head(24).tolist()],",
+    "    'stats': {",
+    "        'mean': float(finite.mean()) if len(finite) else None,",
+    "        'std': float(finite.std()) if len(finite) else 0.0,",
+    "        'min': float(finite.min()) if len(finite) else None,",
+    "        'max': float(finite.max()) if len(finite) else None,",
+    "        'uniqueFinite': int(len(set([round(float(v), 8) for v in finite.tolist()]))) if len(finite) else 0,",
+    "    },",
     "}))",
   ].join("\n");
 
@@ -245,57 +333,223 @@ function validateRuntime(code) {
     const output = JSON.parse(toText(run.stdout));
     if (!output.ok) {
       errors.push(toText(output.error, "Runtime error"));
-      return { valid: false, errors, warnings };
+      return { valid: false, errors, warnings, runtimeArtifacts: null };
     }
-    if (!output.has_expected_column) {
-      warnings.push(`Expected column '${expectedCol}' not found. Columns added: ${(output.columns_added || []).join(", ")}`);
+    const total = output.row_count || 100;
+    const nullCount = Number(output.null_count || 0);
+    if (nullCount > total * 0.8) {
+      warnings.push(`Returned series has ${nullCount}/${total} null values`);
     }
-    // Check for excessive NaN counts
-    const nanCounts = output.nan_counts || {};
-    for (const [col, count] of Object.entries(nanCounts)) {
-      const total = output.row_count || 100;
-      if (count > total * 0.5) {
-        warnings.push(`Column '${col}' has ${count}/${total} NaN values`);
-      }
+    if (Array.isArray(output.mutated_columns) && output.mutated_columns.length) {
+      errors.push(`compute_feature mutated df columns: ${output.mutated_columns.join(", ")}`);
     }
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      runtimeArtifacts: {
+        rowCount: total,
+        nullCount,
+        finiteCount: Number(output.finite_count || 0),
+        nonNullCount: Number(output.non_null_count || 0),
+        sampleValues: Array.isArray(output.sample_values) ? output.sample_values : [],
+        stats: output.stats && typeof output.stats === "object" ? output.stats : {},
+        referencedColumns: extractReferencedColumns(featureCode),
+        mutatedColumns: Array.isArray(output.mutated_columns) ? output.mutated_columns : [],
+      },
+    };
   } catch {
     errors.push("Failed to parse runtime validation output");
   }
 
-  return { valid: errors.length === 0, errors, warnings };
+  return { valid: errors.length === 0, errors, warnings, runtimeArtifacts: null };
+}
+
+function resolveSeriesContext(options = {}, code = {}) {
+  const featureName = toText(options.featureName || code.featureName || "", "custom_feature");
+  const evaluationResult = options.evaluationResult && typeof options.evaluationResult === "object"
+    ? options.evaluationResult
+    : null;
+  if (!evaluationResult || !Array.isArray(evaluationResult.featureTimeSeries)) {
+    return { values: [], volume: [], featureColumn: buildFeatureColumnName(featureName), stats: null };
+  }
+  const featureColumn = Array.isArray(evaluationResult.featureColumns) && evaluationResult.featureColumns.length
+    ? toText(evaluationResult.featureColumns[0], buildFeatureColumnName(featureName))
+    : buildFeatureColumnName(featureName);
+  const values = evaluationResult.featureTimeSeries.map((row) => row?.[featureColumn]);
+  const volume = evaluationResult.featureTimeSeries.map((row) => row?.volume);
+  const stats = evaluationResult.featureStats && typeof evaluationResult.featureStats === "object"
+    ? (evaluationResult.featureStats[featureColumn] || null)
+    : null;
+  return { values, volume, featureColumn, stats };
+}
+
+function validateNumericQuality(code, runtimeArtifacts, options = {}) {
+  const errors = [];
+  const warnings = [];
+  const seriesContext = resolveSeriesContext(options, code);
+  const stats = seriesContext.stats || summarizeNumericSeries(
+    Array.isArray(seriesContext.values) && seriesContext.values.length
+      ? seriesContext.values
+      : runtimeArtifacts?.sampleValues || [],
+  );
+  const nonNull = Number(stats.nonNull ?? runtimeArtifacts?.nonNullCount ?? 0);
+  if (!nonNull) {
+    errors.push("特征输出全为空或全 NaN");
+  }
+  if (Number(stats.zeroRatio || 0) >= 0.999) {
+    errors.push("特征输出几乎全零");
+  }
+  if (Number.isFinite(Number(stats.std)) && Number(stats.std) < 1e-8 && nonNull > 10) {
+    errors.push("特征输出几乎没有波动");
+  }
+  if (Number.isFinite(Number(stats.std)) && Number(stats.std) > 0 && Number.isFinite(Number(stats.mean)) && Math.abs(Number(stats.mean)) > Math.abs(Number(stats.std)) * 50) {
+    warnings.push("特征均值相对波动过大，可能存在异常尺度");
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    stats,
+    featureColumn: seriesContext.featureColumn,
+  };
+}
+
+function validateSemanticQuality(code, runtimeArtifacts, options = {}) {
+  const errors = [];
+  const warnings = [];
+  const specArtifact = options.specArtifact && typeof options.specArtifact === "object" ? options.specArtifact : null;
+  const routeFamily = toText(specArtifact?.family, "");
+  const outputType = toText(specArtifact?.outputType, "");
+  const outputRange = specArtifact?.outputRange && typeof specArtifact.outputRange === "object" ? specArtifact.outputRange : {};
+  const seriesContext = resolveSeriesContext(options, code);
+  const values = safeFiniteValues(
+    Array.isArray(seriesContext.values) && seriesContext.values.length
+      ? seriesContext.values
+      : runtimeArtifacts?.sampleValues || [],
+  );
+  const stats = summarizeNumericSeries(values);
+  const uniqueFinite = Number(stats.uniqueFinite || 0);
+  const referencedColumns = Array.isArray(runtimeArtifacts?.referencedColumns) ? runtimeArtifacts.referencedColumns : [];
+  const allowedColumns = Array.isArray(specArtifact?.inputColumns) ? specArtifact.inputColumns : [];
+
+  if (allowedColumns.length) {
+    const disallowed = referencedColumns.filter((column) => !allowedColumns.includes(column) && column !== "index");
+    if (disallowed.length) {
+      errors.push(`代码使用了未在 spec 中声明的输入列：${disallowed.join(", ")}`);
+    }
+  }
+  const rangeMin = toOptionalFiniteNumber(outputRange.min);
+  const rangeMax = toOptionalFiniteNumber(outputRange.max);
+  if (rangeMin != null && Number.isFinite(Number(stats.min)) && Number(stats.min) < rangeMin - 1e-6) {
+    errors.push(`输出低于 spec 约束下界 ${rangeMin}`);
+  }
+  if (rangeMax != null && Number.isFinite(Number(stats.max)) && Number(stats.max) > rangeMax + 1e-6) {
+    errors.push(`输出高于 spec 约束上界 ${rangeMax}`);
+  }
+  if (outputType === "categorical" || routeFamily === "trend") {
+    if (uniqueFinite > 5) {
+      errors.push("趋势/离散类特征输出值过于连续，不像过滤信号");
+    }
+    if (stats.signChanges < 1 && values.length > 20) {
+      warnings.push("趋势过滤类特征几乎没有状态切换");
+    }
+  }
+  if (outputType === "bounded_oscillator") {
+    if (Number(stats.min) < -1e-6 || Number(stats.max) > 100.000001) {
+      errors.push("振荡器类特征未保持在合理区间 0-100 内");
+    }
+  }
+  if (outputType === "continuous_non_negative" || routeFamily === "volatility") {
+    if (Number(stats.min) < -1e-8) {
+      errors.push("波动率类特征出现负值，违反非负约束");
+    }
+  }
+  if (routeFamily === "volume") {
+    const corr = pearsonCorrelation(seriesContext.volume, seriesContext.values);
+    if (corr != null && Math.abs(corr) < 0.05) {
+      warnings.push("成交量类特征与 volume 的相关性较弱，可能不符合原始语义");
+    }
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    stats,
+  };
 }
 
 /**
  * Create the code validator.
  */
 export function createCodeValidator() {
+  function validateEngineering(code) {
+    const syntax = validateSyntax(code);
+    if (!syntax.valid) {
+      return {
+        valid: false,
+        errors: syntax.errors,
+        warnings: [],
+        runtimeArtifacts: null,
+      };
+    }
+    return validateRuntime(code);
+  }
+
+  function validateNumeric(code, runtimeArtifacts, options = {}) {
+    return validateNumericQuality(code, runtimeArtifacts, options);
+  }
+
+  function validateSemantic(code, runtimeArtifacts, options = {}) {
+    return validateSemanticQuality(code, runtimeArtifacts, options);
+  }
+
   /**
    * Validate generated code.
    * @param {Object} code - Generated code from code-generator
+   * @param {Object} [options]
    * @returns {{ valid: boolean, errors: string[], warnings: string[] }}
    */
-  function validate(code) {
+  function validate(code, options = {}) {
     const allErrors = [];
     const allWarnings = [];
-
-    // Step 1: Syntax check
-    const syntax = validateSyntax(code);
-    if (!syntax.valid) {
-      allErrors.push(...syntax.errors);
-      return { valid: false, errors: allErrors, warnings: allWarnings };
-    }
-
-    // Step 2: Runtime check
-    const runtime = validateRuntime(code);
-    allErrors.push(...runtime.errors);
-    allWarnings.push(...(runtime.warnings || []));
+    const engineering = validateEngineering(code);
+    allErrors.push(...engineering.errors);
+    allWarnings.push(...(engineering.warnings || []));
+    const numeric = engineering.valid
+      ? validateNumeric(code, engineering.runtimeArtifacts, options)
+      : { valid: true, errors: [], warnings: [], stats: null };
+    const semantic = engineering.valid
+      ? validateSemantic(code, engineering.runtimeArtifacts, options)
+      : { valid: true, errors: [], warnings: [], stats: null };
+    allErrors.push(...numeric.errors, ...semantic.errors);
+    allWarnings.push(...(numeric.warnings || []), ...(semantic.warnings || []));
+    const failureType = allErrors.length
+      ? (
+        engineering.errors.length
+          ? classifyFailureTypeFromErrors(engineering.errors, "engineering")
+          : (numeric.errors.length
+            ? classifyFailureTypeFromErrors(numeric.errors, "numeric")
+            : classifyFailureTypeFromErrors(semantic.errors, "semantic"))
+      )
+      : "";
 
     return {
       valid: allErrors.length === 0,
       errors: allErrors,
       warnings: allWarnings,
+      engineering,
+      numeric,
+      semantic,
+      failureType,
+      runtimeArtifacts: engineering.runtimeArtifacts || null,
     };
   }
 
-  return { validate };
+  return {
+    validate,
+    validateEngineering,
+    validateNumeric,
+    validateSemantic,
+  };
 }

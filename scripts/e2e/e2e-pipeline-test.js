@@ -6,18 +6,18 @@
  * 1. Intent detection from conversation
  * 2. Code generation for detected features
  * 3. Code validation
- * 4. Differential backtest verification (different conversations → different results)
+ * 4. Feature evaluation verification (different conversations → different code/value series)
  *
  * Usage: DEEPSEEK_API_KEY=sk-xxx node scripts/e2e-pipeline-test.js
  */
 
-import { createFeaturePipeline } from "./server/core/pipeline/index.js";
-import { createFreqtradeBacktestAdapter } from "./server/core/freqtrade-backtest-adapter.js";
+import { createFeaturePipeline } from "../server/core/pipeline/index.js";
+import { createFreqtradeBacktestAdapter } from "../server/core/freqtrade-backtest-adapter.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
 
 const apiKey = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
 process.env.DEEPSEEK_API_KEY = apiKey;
@@ -54,10 +54,9 @@ async function testPipeline(conversationId, userMessage, assistantReply) {
     const code = cand.feature?.generatedCode;
     const status = cand.feature?.codegenStatus || "unknown";
     log(conversationId, `  Feature: ${cand.feature?.name} (${cand.feature?.kind}) → codegen: ${status}`);
-    if (code?.indicatorCode) {
-      log(conversationId, `    Code lines: ${code.indicatorCode.split("\n").length}`);
-      log(conversationId, `    Entry: ${code.entryConditionCode?.slice(0, 80) || "none"}`);
-      log(conversationId, `    Exit: ${code.exitConditionCode?.slice(0, 80) || "none"}`);
+    if (code?.featureCode) {
+      log(conversationId, `    Code lines: ${code.featureCode.split("\n").length}`);
+      log(conversationId, `    Has compute_feature: ${code.featureCode.includes("def compute_feature")}`);
       log(conversationId, `    Source: ${code.codeSource}`);
     }
     if (cand.feature?.codegenError) {
@@ -65,43 +64,37 @@ async function testPipeline(conversationId, userMessage, assistantReply) {
     }
   }
 
-  // Run backtest with generated features
-  log(conversationId, "Running Freqtrade backtest with generated code...");
+  // Run feature evaluation with generated features
+  log(conversationId, "Running feature evaluation with generated code...");
   const adapter = createFreqtradeBacktestAdapter({ command: ftCmd });
-  const availability = adapter.checkAvailability();
-  if (!availability.ok) {
-    log(conversationId, `⚠️ Freqtrade unavailable: ${availability.error}`);
-    return { conversationId, result, backtest: null };
-  }
-  log(conversationId, `Freqtrade: ${availability.version?.trim()}`);
-
   try {
-    const backtest = adapter.runBacktest({
+    const evaluation = await adapter.runFeatureEvaluation({
       features: result.candidates.map(c => c.feature),
       rangeDays: 14,
       pair: "BTC/USDT",
       timeframe: "1h",
     });
-    const summary = backtest?.summary || {};
-    log(conversationId, `Backtest results:`);
-    log(conversationId, `  Trades: ${summary.tradeCount}`);
-    log(conversationId, `  Win rate: ${summary.winRate?.toFixed(1)}%`);
-    log(conversationId, `  Return: ${summary.latestReturnPct?.toFixed(2)}%`);
-    log(conversationId, `  Max drawdown: ${summary.maxDrawdownPct?.toFixed(2)}%`);
-    log(conversationId, `  Runtime: ${backtest?.executionReport?.engine?.mode || "unknown"}`);
-    const meta = backtest?.executionReport?.backtestMeta || {};
-    log(conversationId, `  Used pipeline code: ${meta.usedPipelineCode || false}`);
-    log(conversationId, `  Result source: ${meta.runtime || "unknown"}`);
-    return { conversationId, result, backtest };
+    log(conversationId, `Evaluation results:`);
+    log(conversationId, `  Bars: ${evaluation?.barCount || 0}`);
+    log(conversationId, `  Columns: ${(evaluation?.featureColumns || []).join(", ") || "(none)"}`);
+    return { conversationId, result, evaluation };
   } catch (error) {
-    log(conversationId, `⚠️ Backtest error: ${error.message}`);
-    return { conversationId, result, backtest: null };
+    log(conversationId, `⚠️ Evaluation error: ${error.message}`);
+    return { conversationId, result, evaluation: null };
   }
+}
+
+async function testNonFeatureConversation(conversationId, userMessage, assistantReply) {
+  log(conversationId, `Checking non-feature conversation: "${userMessage}"`);
+  const pipeline = createFeaturePipeline({ getApiKey: () => apiKey });
+  const result = await pipeline.run({ userMessage, assistantReply });
+  log(conversationId, `Intent detected: ${result.intentDetected}`);
+  return result;
 }
 
 async function main() {
   log("SETUP", `DeepSeek API key: ${apiKey.slice(0, 8)}...`);
-  log("SETUP", `Freqtrade: ${ftCmd}`);
+  log("SETUP", `Freqtrade/Python bridge: ${ftCmd}`);
 
   // Test 1: DeepSeek connectivity
   log("HEALTH", "Testing DeepSeek API connectivity...");
@@ -134,19 +127,14 @@ async function main() {
   log("DIFF", `Conv A features: ${aFeatures || "(none)"}`);
   log("DIFF", `Conv B features: ${bFeatures || "(none)"}`);
 
-  const aTrades = resultA.backtest?.summary?.tradeCount ?? "N/A";
-  const bTrades = resultB.backtest?.summary?.tradeCount ?? "N/A";
-  log("DIFF", `Conv A trades: ${aTrades}`);
-  log("DIFF", `Conv B trades: ${bTrades}`);
-
-  const aReturn = resultA.backtest?.summary?.latestReturnPct ?? "N/A";
-  const bReturn = resultB.backtest?.summary?.latestReturnPct ?? "N/A";
-  log("DIFF", `Conv A return: ${typeof aReturn === "number" ? aReturn.toFixed(2) + "%" : aReturn}`);
-  log("DIFF", `Conv B return: ${typeof bReturn === "number" ? bReturn.toFixed(2) + "%" : bReturn}`);
+  const aColumns = (resultA.evaluation?.featureColumns || []).join(", ");
+  const bColumns = (resultB.evaluation?.featureColumns || []).join(", ");
+  log("DIFF", `Conv A columns: ${aColumns || "(none)"}`);
+  log("DIFF", `Conv B columns: ${bColumns || "(none)"}`);
 
   // Check code is different
-  const aCode = (resultA.result?.candidates || [])[0]?.feature?.generatedCode?.indicatorCode || "";
-  const bCode = (resultB.result?.candidates || [])[0]?.feature?.generatedCode?.indicatorCode || "";
+  const aCode = (resultA.result?.candidates || [])[0]?.feature?.generatedCode?.featureCode || "";
+  const bCode = (resultB.result?.candidates || [])[0]?.feature?.generatedCode?.featureCode || "";
   const codeDiff = aCode !== bCode;
   log("DIFF", `Generated code differs: ${codeDiff ? "✅ YES" : "❌ NO (same code!)"}`);
 
@@ -160,17 +148,33 @@ async function main() {
   log("DIFF", `Conv A has validated code: ${aValidated ? "✅ YES" : "❌ NO"}`);
   log("DIFF", `Conv B has validated code: ${bValidated ? "✅ YES" : "❌ NO"}`);
 
+  const nonFeatureA = await testNonFeatureConversation(
+    "NON_FEATURE_A",
+    "今天比特币行情怎么样",
+    "给我简单讲讲。",
+  );
+  const nonFeatureB = await testNonFeatureConversation(
+    "NON_FEATURE_B",
+    "解释一下 RSI 指标是什么",
+    "我想先了解概念。",
+  );
+
   // Final verdict
   console.log("\n" + "=".repeat(60));
-  const allPassed = bothProducedCandidates && (aValidated || bValidated) && codeDiff;
+  const allPassed = bothProducedCandidates
+    && aValidated
+    && bValidated
+    && codeDiff
+    && nonFeatureA.intentDetected === false
+    && nonFeatureB.intentDetected === false;
   log("VERDICT", allPassed ? "✅ ALL CHECKS PASSED" : "⚠️ SOME CHECKS FAILED");
   log("VERDICT", JSON.stringify({
     bothProducedCandidates,
     aValidated,
     bValidated,
     codeDiff,
-    aTrades,
-    bTrades,
+    nonFeatureA: nonFeatureA.intentDetected,
+    nonFeatureB: nonFeatureB.intentDetected,
   }));
 
   process.exit(allPassed ? 0 : 1);

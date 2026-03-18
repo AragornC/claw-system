@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const PORT = 13465;
 const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
@@ -57,6 +57,26 @@ async function waitForServer(maxMs = 45000) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
+}
+
+function buildEvalBars(count = 240, stepSec = 3600) {
+  const out = [];
+  let price = 65000;
+  for (let i = 0; i < count; i += 1) {
+    const time = 1700000000 + i * stepSec;
+    const drift = Math.sin(i / 9) * 0.006 + Math.cos(i / 15) * 0.003;
+    const next = price * (1 + drift);
+    out.push({
+      time,
+      open: price,
+      high: Math.max(price, next) * 1.002,
+      low: Math.min(price, next) * 0.998,
+      close: next,
+      volume: 1000 + i,
+    });
+    price = next;
+  }
+  return out;
 }
 
 function hasClarification(chatResult) {
@@ -188,7 +208,7 @@ async function main() {
       userMessage: "帮我做一个MACD柱状图的趋势判断特征",
     }, 120000);
     check("flow: feature generated", Boolean(fullConfirm?.ok), `error=${fullConfirm?.error || ""}`);
-    check("flow: has code", Boolean(fullConfirm?.generatedCode?.indicatorCode));
+    check("flow: has code", Boolean(fullConfirm?.generatedCode?.featureCode));
 
     if (fullConfirm?.ok && fullConfirm?.feature) {
       const fullApply = await post("/api/strategy/intent-candidates/apply", {
@@ -208,6 +228,9 @@ async function main() {
         const evalResult = await post("/api/strategy/features/evaluate", {
           featureIds: [evalName],
           rangeDays: 7,
+          pair: "BTC/USDT",
+          timeframe: "1h",
+          bars: buildEvalBars(240),
         });
         check("flow: evaluate ok", Boolean(evalResult?.ok), `error=${evalResult?.error || ""}`);
         if (evalResult?.ok) {

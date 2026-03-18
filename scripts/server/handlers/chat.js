@@ -38,7 +38,82 @@ export function createChatHandler(deps = {}) {
     getModelConfig, detectAndClarify,
     strategyLabStore, conversationContext, memoryLayer,
     updateChatCardStatus,
+    taskRuntime,
   } = deps;
+
+  function getActiveChatSessionId() {
+    return conversationContext && typeof conversationContext.getActiveSessionId === "function"
+      ? String(conversationContext.getActiveSessionId() || "").trim()
+      : "";
+  }
+
+  function createTaskTracker(params = {}) {
+    const runtime = taskRuntime && typeof taskRuntime.createTask === "function" ? taskRuntime : null;
+    const fallbackTask = {
+      taskId: `${String(params.taskType || "task")}-${Date.now()}`,
+      taskType: String(params.taskType || "task"),
+      sessionId: String(params.sessionId || ""),
+      plan: String(params.plan || ""),
+      currentStage: "created",
+      attempts: 0,
+      finalStatus: "running",
+      resultRef: null,
+      planArtifact: null,
+      traces: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const task = runtime ? runtime.createTask(params) : fallbackTask;
+    const traces = [];
+    return {
+      task,
+      emit(sendLike, phase, message, status = "running", extra = {}) {
+        const trace = runtime
+          ? runtime.addTrace(task, { phase, message, status, ...extra })
+          : {
+              taskId: task.taskId,
+              taskType: task.taskType,
+              phase,
+              status,
+              message,
+              ts: new Date().toISOString(),
+            };
+        if (trace) traces.push({ ...trace });
+        if (typeof sendLike === "function") {
+          sendLike("thinking", {
+            ...trace,
+            step: trace?.phase || phase,
+            task: runtime ? runtime.snapshotTask(task) : { ...task, traces: traces.slice() },
+          });
+        }
+        return trace;
+      },
+      finalize(status, resultRef) {
+        if (runtime) runtime.updateTask(task, { finalStatus: status, resultRef, currentStage: status });
+        else {
+          task.finalStatus = status;
+          task.resultRef = resultRef || null;
+          task.currentStage = status;
+        }
+      },
+      update(fields = {}) {
+        if (runtime) runtime.updateTask(task, fields);
+        else {
+          if (fields.plan != null) task.plan = String(fields.plan || "");
+          if (fields.currentStage != null) task.currentStage = String(fields.currentStage || "");
+          if (fields.finalStatus != null) task.finalStatus = String(fields.finalStatus || "");
+          if (fields.planArtifact !== undefined) task.planArtifact = fields.planArtifact || null;
+          if (fields.resultRef && typeof fields.resultRef === "object") task.resultRef = { ...fields.resultRef };
+        }
+      },
+      snapshot() {
+        return runtime ? runtime.snapshotTask(task) : { ...task, traces: traces.slice() };
+      },
+      getTraces() {
+        return traces.slice();
+      },
+    };
+  }
 
   // ─── /api/ai/chat ──────────────────────────────────────────────────
   async function handleAiChat(req, res) {
@@ -48,7 +123,7 @@ export function createChatHandler(deps = {}) {
       sendJson(res, 400, { ok: false, error: "message is required" });
       return;
     }
-    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    appendChatEvent({ role: "user", source: "dashboard", text: message, sessionId: getActiveChatSessionId() });
     if (conversationContext) conversationContext.addMessage("user", message);
 
     // Build memory context (L1-L3)
@@ -82,7 +157,7 @@ export function createChatHandler(deps = {}) {
     const reply = await generateChatReply(message, memoryCtx, gatingPreCheck.shouldTriggerClarification);
 
     if (conversationContext) conversationContext.addMessage("assistant", reply);
-    appendChatEvent({ role: "bot", source: "dashboard", text: reply });
+    appendChatEvent({ role: "bot", source: "dashboard", text: reply, sessionId: getActiveChatSessionId() });
 
     sendJson(res, 200, {
       ok: true,
@@ -180,7 +255,7 @@ export function createChatHandler(deps = {}) {
     return names;
   }
 
-  function trackCardShown(card) {
+  function trackCardShown(card, options = {}) {
     if (!conversationContext) return;
     conversationContext.addMessage("assistant", card.headline || "", {
       type: "clarification_card",
@@ -192,6 +267,25 @@ export function createChatHandler(deps = {}) {
         featureName: card.featureConcept?.name || "",
       });
     }
+    const cardEvent = appendChatEvent ? appendChatEvent({
+      role: "bot",
+      source: "clarification_fast_path",
+      text: card.headline || "交易特征建议",
+      sessionId: getActiveChatSessionId(),
+      meta: {
+        type: "clarification_card",
+        cardData: {
+          ...card,
+          task: options.task && typeof options.task === "object" ? options.task : undefined,
+          traces: Array.isArray(options.traces) ? options.traces : undefined,
+        },
+      },
+      traces: Array.isArray(options.traces) ? options.traces : undefined,
+    }) : null;
+    if (cardEvent && typeof conversationContext.updateLatestClarificationCard === "function") {
+      conversationContext.updateLatestClarificationCard({ eventId: cardEvent.id });
+    }
+    return cardEvent;
   }
 
   // ─── /api/chat/history ──────────────────────────────────────────────
@@ -199,8 +293,15 @@ export function createChatHandler(deps = {}) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const afterId = Math.max(0, Number.parseInt(url.searchParams.get("afterId") || "0", 10) || 0);
     const limit = Math.min(1000, Math.max(1, Number.parseInt(url.searchParams.get("limit") || "220", 10) || 220));
+    const targetSessionId = String(url.searchParams.get("sessionId") || getActiveChatSessionId() || "").trim();
     const chatHist = deps.chatHistory || { events: [] };
-    const events = (chatHist.events || []).filter((ev) => Number(ev.id) > afterId).slice(0, limit);
+    const events = (chatHist.events || [])
+      .filter((ev) => {
+        if (!(Number(ev?.id) > afterId)) return false;
+        if (!targetSessionId) return true;
+        return String(ev?.sessionId || "").trim() === targetSessionId;
+      })
+      .slice(0, limit);
     sendJson(res, 200, { ok: true, events });
   }
 
@@ -248,47 +349,70 @@ export function createChatHandler(deps = {}) {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     }
 
-    appendChatEvent({ role: "user", source: "dashboard", text: message });
+    appendChatEvent({ role: "user", source: "dashboard", text: message, sessionId: getActiveChatSessionId() });
     if (conversationContext) conversationContext.addMessage("user", message);
 
-    sendSSE("thinking", { step: "start", message: "收到消息，开始处理...", status: "running" });
+    const tracker = createTaskTracker({
+      taskType: "chat_reply",
+      sessionId: conversationContext && typeof conversationContext.getActiveSessionId === "function"
+        ? conversationContext.getActiveSessionId()
+        : "",
+      plan: "先理解用户意图，再决定是进入澄清卡片还是直接生成回复，最后输出结果总结。",
+    });
+
+    tracker.emit(sendSSE, "understand", "收到消息，开始理解用户需求...", "running");
 
     // Build memory context
     const ml = memoryLayer;
     if (ml) void ml.maybeCompressContext().catch(() => {});
-    sendSSE("thinking", { step: "memory", message: "加载对话上下文和特征库...", status: "running" });
+    tracker.emit(sendSSE, "understand", "加载对话上下文和特征库...", "running");
     const memoryCtx = ml ? await ml.buildFullMemoryContext(message).catch(() => "") : "";
-    sendSSE("thinking", { step: "memory", message: "上下文加载完成", status: "done" });
+    tracker.emit(sendSSE, "understand", "上下文加载完成", "done");
 
     // Intent gating
     const existingFeatureNames = collectFeatureNames();
-    sendSSE("thinking", { step: "intent_gating", message: "分析对话意图...", status: "running" });
+    tracker.emit(sendSSE, "plan", "分析用户意图并制定执行计划...", "running");
     const shouldCallLlm = shouldCallLlmForIntent(message, existingFeatureNames);
     const gatingPreCheck = runIntentGating({ message, existingFeatureNames });
 
     if (gatingPreCheck.shouldTriggerClarification) {
-      sendSSE("thinking", { step: "intent_gating", message: `检测到特征创建意图 (${gatingPreCheck.reason})`, status: "done" });
+      tracker.emit(sendSSE, "plan", `检测到特征创建意图，优先尝试生成澄清卡片（${gatingPreCheck.reason}）`, "done");
     } else {
-      sendSSE("thinking", { step: "intent_gating", message: `普通对话 (${gatingPreCheck.reason})`, status: "done" });
+      tracker.emit(sendSSE, "plan", `判断为普通对话，直接生成回复（${gatingPreCheck.reason}）`, "done");
     }
 
     // Clarification fast path
     if (shouldCallLlm && typeof detectAndClarify === "function") {
-      sendSSE("thinking", { step: "clarification", message: "正在理解特征需求...", status: "running" });
+      tracker.emit(sendSSE, "execute", "正在梳理特征需求并生成澄清卡片...", "running");
       const card = await tryClarification(message, memoryCtx, existingFeatureNames);
       if (card) {
-        sendSSE("thinking", { step: "clarification", message: `已识别：${card.headline || "特征概念"}`, status: "done" });
-        trackCardShown(card);
-        sendSSE("card", card);
-        sendSSE("done", { source: "clarification_fast_path", state: getXbrainStateSnapshot() });
+        tracker.emit(sendSSE, "execute", `已识别特征方向：${card.headline || "特征概念"}`, "done");
+        tracker.emit(sendSSE, "summarize", "已生成澄清卡片，等待用户确认后进入特征生成。", "done");
+        tracker.finalize("completed", { type: "clarification_card", headline: card.headline || "" });
+        const taskSnapshot = tracker.snapshot();
+        const traceList = tracker.getTraces();
+        const cardEvent = trackCardShown(card, { task: taskSnapshot, traces: traceList });
+        sendSSE("card", {
+          ...card,
+          eventId: Number(cardEvent?.id) || 0,
+          task: taskSnapshot,
+          traces: traceList,
+        });
+        sendSSE("done", {
+          source: "clarification_fast_path",
+          cardEventId: Number(cardEvent?.id) || 0,
+          state: getXbrainStateSnapshot(),
+          task: taskSnapshot,
+          traces: traceList,
+        });
         res.end();
         return;
       }
-      sendSSE("thinking", { step: "clarification", message: "未触发特征生成，转入对话模式", status: "done" });
+      tracker.emit(sendSSE, "execute", "当前不适合直接给出卡片，转入普通对话回复。", "done");
     }
 
     // Chat path: streaming LLM response
-    sendSSE("thinking", { step: "llm_call", message: "正在生成回复...", status: "running" });
+    tracker.emit(sendSSE, "execute", "正在生成回复...", "running");
 
     const history = conversationContext ? conversationContext.getRecentHistory(16) : [];
     const extra = gatingPreCheck.shouldTriggerClarification
@@ -305,12 +429,12 @@ export function createChatHandler(deps = {}) {
     try {
       const cfg = typeof getModelConfig === "function" ? getModelConfig() : null;
       if (!cfg?.apiKey) {
-        sendSSE("thinking", { step: "llm_call", message: "模型未配置 API Key", status: "error" });
+        tracker.emit(sendSSE, "execute", "模型未配置 API Key", "error");
         sendSSE("token", { text: "请先在虾脑中配置模型 API Key 后再对话。" });
         fullReply = "请先在虾脑中配置模型 API Key 后再对话。";
       } else {
         const llm = createLlmClient({ getModelConfig });
-        sendSSE("thinking", { step: "llm_call", message: `调用 ${cfg.provider}/${cfg.model}...`, status: "running" });
+        tracker.emit(sendSSE, "execute", `调用 ${cfg.provider}/${cfg.model} 生成回复...`, "running");
 
         const stream = llm.chatCompletionStream({
           messages,
@@ -324,7 +448,7 @@ export function createChatHandler(deps = {}) {
             fullReply += chunk.text;
             sendSSE("token", { text: chunk.text });
           } else if (chunk.type === "error") {
-            sendSSE("thinking", { step: "llm_call", message: `错误: ${chunk.error}`, status: "error" });
+            tracker.emit(sendSSE, "validate", `回复生成阶段出现错误：${chunk.error}`, "error");
             if (!fullReply) {
               fullReply = "模型调用失败，请稍后重试。";
               sendSSE("token", { text: fullReply });
@@ -334,23 +458,58 @@ export function createChatHandler(deps = {}) {
             break;
           }
         }
-        sendSSE("thinking", { step: "llm_call", message: "回复生成完成", status: "done" });
+        tracker.emit(sendSSE, "execute", "回复生成完成", "done");
       }
     } catch (err) {
       if (!fullReply) {
         fullReply = "模型调用失败，请稍后重试。";
         sendSSE("token", { text: fullReply });
       }
+      tracker.emit(sendSSE, "validate", `执行失败：${String(err?.message || err || "unknown error")}`, "error");
     }
 
     // Save to context
-    if (fullReply && conversationContext) conversationContext.addMessage("assistant", fullReply);
-    if (fullReply) appendChatEvent({ role: "bot", source: "dashboard", text: fullReply });
+    if (fullReply && conversationContext) {
+      conversationContext.addMessage("assistant", fullReply, {
+        task: tracker.snapshot(),
+        traces: tracker.getTraces(),
+      });
+    }
+    tracker.emit(sendSSE, "summarize", fullReply ? "已完成本轮回复并写入历史。" : "本轮没有生成有效内容。", "done");
+    tracker.finalize(fullReply ? "completed" : "empty", {
+      type: "chat_reply",
+      hasReply: Boolean(fullReply),
+    });
+    if (fullReply) {
+      const replyEvent = appendChatEvent({
+        role: "bot",
+        source: "dashboard",
+        text: fullReply,
+        sessionId: getActiveChatSessionId(),
+        meta: {
+          task: tracker.snapshot(),
+        },
+        traces: tracker.getTraces(),
+      });
+      sendSSE("done", {
+        source: "llm_direct",
+        replyEventId: Number(replyEvent?.id) || 0,
+        state: getXbrainStateSnapshot(),
+        runtimeModelRef: getCurrentRuntimeModelRef(),
+        task: tracker.snapshot(),
+        traces: tracker.getTraces(),
+      });
+      res.end();
+      return;
+    }
 
     sendSSE("done", {
       source: "llm_direct",
+      replyEventId: 0,
       state: getXbrainStateSnapshot(),
       runtimeModelRef: getCurrentRuntimeModelRef(),
+      task: tracker.snapshot(),
+      traces: tracker.getTraces(),
     });
     res.end();
   }

@@ -568,7 +568,7 @@
       const ref = soText(item.featureRef || item.ref || ('feature_' + String(idx + 1)));
       const source = [soText(item.sourceType || item.type || ''), soText(item.provider || '')].filter(Boolean).join(' / ');
       const column = soText(item.column || item.outputColumn || '');
-      const expr = soText(item.expression || item.code || item.pythonIndicator || '', '# 暂无代码');
+      const expr = soText(item.expression || item.code || item.featureCode || '', '# 暂无代码');
       return ''
         + '<div class="strategy-feature-code-item">'
         + '<div class="strategy-feature-code-head"><span>' + soEsc(ref) + '</span><span class="strategy-feature-code-meta">' + soEsc((source || '-') + (column ? (' · 列=' + column) : '')) + '</span></div>'

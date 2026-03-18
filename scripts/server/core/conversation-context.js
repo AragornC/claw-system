@@ -25,6 +25,7 @@ export function createConversationContextManager(deps = {}) {
 
   // In-memory state
   let store = loadStore();
+  if (pruneLegacyClarificationSnapshots(store)) saveStore();
 
   function createEmptyStore() {
     return {
@@ -62,6 +63,51 @@ export function createConversationContextManager(deps = {}) {
     } catch {
       return createEmptyStore();
     }
+  }
+
+  function isUnderstandPayloadV1(traceLike) {
+    const trace = traceLike && typeof traceLike === "object" ? traceLike : {};
+    const phase = toText(trace.phase || trace.step, "").toLowerCase();
+    if (phase !== "understand") return true;
+    const details = trace.details && typeof trace.details === "object" ? trace.details : {};
+    const payload = details.payload && typeof details.payload === "object" ? details.payload : null;
+    return Boolean(payload && toText(payload.schema, "") === "understand_cards_v1");
+  }
+
+  function hasLegacyUnderstandTraces(tracesLike) {
+    const traces = Array.isArray(tracesLike) ? tracesLike : [];
+    return traces.some((traceLike) => {
+      const trace = traceLike && typeof traceLike === "object" ? traceLike : {};
+      const phase = toText(trace.phase || trace.step, "").toLowerCase();
+      return phase === "understand" && !isUnderstandPayloadV1(trace);
+    });
+  }
+
+  function pruneLegacyClarificationSnapshots(storeLike) {
+    const targetStore = storeLike && typeof storeLike === "object" ? storeLike : null;
+    if (!targetStore || !targetStore.sessions || typeof targetStore.sessions !== "object") return false;
+    let changed = false;
+    Object.keys(targetStore.sessions).forEach((sessionId) => {
+      const session = targetStore.sessions[sessionId];
+      if (!session || !Array.isArray(session.messages)) return;
+      session.messages.forEach((msg) => {
+        const meta = msg && msg.meta && typeof msg.meta === "object" ? msg.meta : null;
+        if (!meta || meta.type !== "clarification_card") return;
+        const cardData = meta.cardData && typeof meta.cardData === "object" ? meta.cardData : null;
+        if (!cardData) return;
+        const traces = Array.isArray(cardData.traces) ? cardData.traces : [];
+        if (!hasLegacyUnderstandTraces(traces)) return;
+        delete cardData.task;
+        delete cardData.traces;
+        delete cardData.result;
+        delete cardData.planArtifact;
+        delete cardData.status;
+        meta.cardData = cardData;
+        msg.meta = meta;
+        changed = true;
+      });
+    });
+    return changed;
   }
 
   function saveStore() {
@@ -350,6 +396,25 @@ export function createConversationContextManager(deps = {}) {
     };
   }
 
+  function updateLatestClarificationCard(updatesLike) {
+    const updates = updatesLike && typeof updatesLike === "object" ? updatesLike : null;
+    if (!updates) return { ok: false, error: "updates required" };
+    const session = getActiveSession();
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      const msg = session.messages[i] && typeof session.messages[i] === "object" ? session.messages[i] : null;
+      const meta = msg?.meta && typeof msg.meta === "object" ? msg.meta : null;
+      if (!msg || !meta || meta.type !== "clarification_card") continue;
+      const cardData = meta.cardData && typeof meta.cardData === "object" ? meta.cardData : {};
+      meta.cardData = { ...cardData, ...updates };
+      msg.meta = meta;
+      msg.ts = nowIso();
+      session.updatedAt = msg.ts;
+      saveStore();
+      return { ok: true, message: msg };
+    }
+    return { ok: false, error: "clarification card not found" };
+  }
+
   return {
     addMessage,
     addCardEvent,
@@ -360,6 +425,7 @@ export function createConversationContextManager(deps = {}) {
     listSessions,
     restoreSession,
     getSessionDetail,
+    updateLatestClarificationCard,
     getActiveSessionId: () => store.activeSessionId,
   };
 }

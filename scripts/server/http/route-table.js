@@ -60,6 +60,8 @@ export function buildApiRouteTable(handlers = {}) {
     { method: "POST", path: "/api/strategy/intent-candidates/apply", handler: expectHandler(handlers, "handleStrategyIntentApply") },
     { method: "POST", path: "/api/strategy/intent-clarify", handler: expectHandler(handlers, "handleStrategyIntentClarify") },
     { method: "POST", path: "/api/strategy/intent-confirm", handler: expectHandler(handlers, "handleStrategyIntentConfirm") },
+    { method: "POST", path: "/api/strategy/intent-confirm/stream", handler: expectHandler(handlers, "handleStrategyIntentConfirmStream") },
+    { method: "POST", path: "/api/strategy/task-ack", handler: expectHandler(handlers, "handleStrategyTaskAck") },
 
     // Strategy Lab — Entities (strategies)
     { method: "GET", path: "/api/strategy/entities", handler: expectHandler(handlers, "handleStrategyEntities") },

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>chat_reply thinking 极简 Demo</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 16px; }
+    .tag { color: #9cb0ce; font-size: 12px; margin-bottom: 10px; }
+    .chat {
+      border: 1px solid #2a3a52;
+      border-radius: 12px;
+      background: #0f1727;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 560px;
+    }
+    .row { max-width: 86%; display: grid; gap: 4px; }
+    .row.user { justify-self: end; }
+    .row.bot { justify-self: start; }
+    .meta { color: #93a8c7; font-size: 12px; }
+    .bubble {
+      border: 1px solid #2a3a52;
+      border-radius: 10px;
+      background: #132136;
+      padding: 10px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .thinking-panel {
+      border: 1px solid #2b527d;
+      border-radius: 10px;
+      background: #101a2a;
+      overflow: hidden;
+      display: none;
+    }
+    .thinking-head {
+      padding: 9px 10px;
+      border-bottom: 1px solid #20324b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #cfe2ff;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .thinking-body { padding: 10px; display: grid; gap: 8px; }
+    .stream {
+      border: 1px solid #355e8d;
+      border-radius: 8px;
+      background: #0f1c2d;
+      padding: 8px;
+      font-size: 13px;
+      color: #c5d6ee;
+      line-height: 1.6;
+      min-height: 42px;
+      white-space: pre-wrap;
+    }
+    .stream.thinking-active::after {
+      content: "▋";
+      margin-left: 2px;
+      color: #8ec2ff;
+      animation: blink 0.9s steps(1, end) infinite;
+    }
+    @keyframes blink {
+      0%, 45% { opacity: 1; }
+      46%, 100% { opacity: 0; }
+    }
+    .plan-line {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0f1828;
+      padding: 7px 9px;
+      font-size: 13px;
+      color: #c5d6ee;
+    }
+    .ok { color: #7ee787; }
+    .toolbar {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #122035;
+      color: #cfe2ff;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="tag">Demo 目标：`chat_reply` 先展示 thinking，再流式回复正文</div>
+
+    <div class="chat" id="chatBox">
+      <div class="row user">
+        <div class="meta">你</div>
+        <div class="bubble">我想做一个低频趋势策略，先给我个方向建议，不要代码。</div>
+      </div>
+
+      <div class="row bot" id="thinkingRow" style="display:none;">
+        <div class="meta">ThunderClaw · thinking</div>
+        <div class="thinking-panel" id="thinkingPanel">
+          <div class="thinking-head">
+            <span>回复生成过程</span>
+            <span id="thinkingStatus">进行中</span>
+          </div>
+          <div class="thinking-body">
+            <div class="stream" id="thinkingStream"></div>
+            <div class="plan-line" id="planLine">等待生成回答计划...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row bot" id="replyRow" style="display:none;">
+        <div class="meta">ThunderClaw</div>
+        <div class="bubble" id="replyBubble"></div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="startBtn" type="button">开始演示</button>
+      <button id="resetBtn" type="button">重置</button>
+    </div>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const thinkingRow = document.getElementById("thinkingRow");
+    const thinkingPanel = document.getElementById("thinkingPanel");
+    const thinkingStatus = document.getElementById("thinkingStatus");
+    const thinkingStream = document.getElementById("thinkingStream");
+    const planLine = document.getElementById("planLine");
+    const replyRow = document.getElementById("replyRow");
+    const replyBubble = document.getElementById("replyBubble");
+
+    let timer = null;
+    let stage = 0;
+    let tokenIdx = 0;
+
+    const thoughtSteps = [
+      "先理解用户目标：低频、趋势、先要方向而非代码。",
+      "评估回答策略：给出框架化建议（市场过滤 -> 入场触发 -> 风控约束）。",
+      "确定输出风格：短步骤、可执行、避免过度技术细节。",
+    ];
+    const replyText = "建议先从“趋势过滤 + 回撤入场 + 严格风控”三层结构开始：\n1) 趋势过滤：只在日线趋势向上时参与；\n2) 入场触发：在4小时回撤后再确认量价恢复；\n3) 风控约束：固定单笔风险与最大回撤阈值。\n这样你能先稳定交易频率，再逐步优化胜率。";
+
+    function resetDemo() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      stage = 0;
+      tokenIdx = 0;
+      thinkingRow.style.display = "none";
+      thinkingPanel.style.display = "none";
+      thinkingStatus.textContent = "进行中";
+      thinkingStream.textContent = "";
+      thinkingStream.classList.remove("thinking-active");
+      planLine.textContent = "等待生成回答计划...";
+      replyRow.style.display = "none";
+      replyBubble.textContent = "";
+      startBtn.disabled = false;
+      startBtn.textContent = "开始演示";
+    }
+
+    function startDemo() {
+      if (timer) return;
+      resetDemo();
+      thinkingRow.style.display = "";
+      thinkingPanel.style.display = "block";
+      thinkingStream.classList.add("thinking-active");
+      startBtn.disabled = true;
+      startBtn.textContent = "演示中...";
+
+      timer = setInterval(function() {
+        if (stage < thoughtSteps.length) {
+          const prefix = thinkingStream.textContent ? "\n\n" : "";
+          thinkingStream.textContent += prefix + thoughtSteps[stage];
+          planLine.textContent = stage < 2 ? "正在形成回答计划..." : "回答计划已定稿，开始生成回复。";
+          stage += 1;
+          return;
+        }
+
+        if (replyRow.style.display === "none") replyRow.style.display = "";
+        if (tokenIdx < replyText.length) {
+          replyBubble.textContent += replyText[tokenIdx];
+          tokenIdx += 1;
+          return;
+        }
+
+        clearInterval(timer);
+        timer = null;
+        thinkingStream.classList.remove("thinking-active");
+        thinkingStatus.innerHTML = '<span class="ok">已完成</span>';
+        startBtn.disabled = false;
+        startBtn.textContent = "重新演示";
+      }, 120);
+    }
+
+    startBtn.addEventListener("click", startDemo);
+    resetBtn.addEventListener("click", resetDemo);
+  </script>
+</body>
+</html>

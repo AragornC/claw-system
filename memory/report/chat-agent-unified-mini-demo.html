@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>两阶段 Agent Demo</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 18px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    button {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #122035;
+      color: #cfe2ff;
+      padding: 6px 10px;
+      cursor: pointer;
+      display: inline-block;
+      user-select: none;
+      text-decoration: none;
+    }
+    button:disabled { opacity: 0.55; cursor: default; }
+    .tag { font-size: 12px; color: #9cb0ce; }
+    .chat {
+      border: 1px solid #2a3a52;
+      border-radius: 12px;
+      padding: 12px;
+      background: #0f1727;
+      display: grid;
+      gap: 10px;
+    }
+    .row { max-width: 88%; display: grid; gap: 4px; }
+    .user { justify-self: end; }
+    .bot { justify-self: start; }
+    .meta { font-size: 12px; color: #94a8c7; }
+    .bubble {
+      border: 1px solid #2a3a52;
+      border-radius: 10px;
+      padding: 10px;
+      background: #132136;
+      line-height: 1.6;
+    }
+    .clarify { border-color: #2f6f4a; background: #13291f; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    .chip {
+      border: 1px solid #34624a;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      color: #b8efca;
+      background: #113221;
+    }
+    .task-wrap { display: none; }
+    .task {
+      width: min(95%, 860px);
+      border: 1px solid #294f79;
+      border-radius: 12px;
+      background: #101a2a;
+      overflow: hidden;
+    }
+    .task-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid #20324b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      color: #cfe2ff;
+    }
+    .task-body { padding: 10px 12px; display: grid; gap: 8px; }
+    .thinking {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0d1625;
+      padding: 8px;
+      display: none;
+      gap: 6px;
+    }
+    .thinking-title {
+      font-size: 12px;
+      color: #9db3d5;
+      letter-spacing: 0.2px;
+    }
+    .thinking-log {
+      display: block;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .thinking-stream {
+      border: 1px solid #355e8d;
+      border-radius: 7px;
+      background: #0f1c2d;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #c5d6ee;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      min-height: 22px;
+    }
+    .phase {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0f1828;
+      overflow: hidden;
+    }
+    .phase summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      color: #d4e5ff;
+    }
+    .phase summary::-webkit-details-marker { display: none; }
+    .phase .content {
+      border-top: 1px solid #24324a;
+      padding: 8px 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .line {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      font-size: 13px;
+      color: #c5d6ee;
+    }
+    .line .icon { color: #79c0ff; }
+    .line.done .icon { color: #7ee787; }
+    .plan-card {
+      border: 1px solid #2d6e4d;
+      border-radius: 10px;
+      background: #12281f;
+      padding: 10px;
+      display: none;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .plan-title { font-weight: 700; color: #9ff5bd; }
+    .plan-title .mini-status {
+      margin-left: 8px;
+      font-size: 12px;
+      color: #9fcfb0;
+      font-weight: 500;
+    }
+    .plan-section {
+      border: 1px solid #29503b;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0f211a;
+      font-size: 13px;
+    }
+    .plan-section b {
+      display: block;
+      margin-bottom: 4px;
+      color: #b9f7ce;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <span class="tag">这版演示：点击澄清卡后，才开始“理解需求 -> 生成计划”</span>
+    </div>
+
+    <div class="chat" id="chat">
+      <div class="row user">
+        <div class="meta">你</div>
+        <div class="bubble">做一个波动率过滤特征，避免低波动区间频繁交易。</div>
+      </div>
+
+      <div class="row bot">
+        <div class="meta">ThunderClaw · 澄清卡</div>
+        <div class="bubble clarify">
+          先确认几个关键点后再启动生成流程：
+          <div class="chips">
+            <span class="chip">ATR</span>
+            <span class="chip">30 周期</span>
+            <span class="chip">输出 0~1</span>
+          </div>
+          <button id="cardStartBtn" type="button" onclick="window.__startFlowDemo && window.__startFlowDemo()">开始生成特征</button>
+        </div>
+      </div>
+
+      <div class="row bot task-wrap" id="taskWrap">
+        <div class="meta">ThunderClaw · 特征生成任务</div>
+        <div class="task">
+          <div class="task-head">
+            <span>需求理解与计划阶段</span>
+            <span id="statusText">等待触发</span>
+          </div>
+          <div class="task-body">
+            <details class="phase" open id="phaseUnderstand">
+              <summary><span>理解需求</span><span id="understandState">未开始</span></summary>
+              <div class="content" id="understandHost">
+                <div class="line done"><span class="icon">✓</span><span>读取用户描述与澄清选择。</span></div>
+                <div class="line done"><span class="icon">✓</span><span>提取硬约束：ATR、30 周期、输出范围 0~1。</span></div>
+                <div class="line done"><span class="icon">✓</span><span>确认目标：降低低波动区间的误触发。</span></div>
+              </div>
+            </details>
+
+            <div class="thinking" id="thinkingPanel">
+              <div class="thinking-title">AI 思考过程（用于生成计划）</div>
+              <div class="thinking-log">
+                <div class="thinking-stream" id="thinkingStream"></div>
+              </div>
+            </div>
+
+            <details class="phase" open id="phasePlan">
+              <summary><span>生成计划</span><span id="planState">未开始</span></summary>
+              <div class="content" id="planHost">
+                <div class="line"><span class="icon">◦</span><span id="planProgressLine">等待生成计划清单...</span></div>
+              </div>
+            </details>
+
+            <div class="plan-card" id="planCard">
+              <div class="plan-title">本次任务计划 <span class="mini-status" id="planCardStatus">等待中</span></div>
+              <div class="plan-section">
+                <b>我理解到的需求</b>
+                <span id="planGoalText">...</span>
+              </div>
+              <div class="plan-section">
+                <b>我将怎么做</b>
+                <span id="planApproachText">...</span>
+              </div>
+              <div class="plan-section">
+                <b>我会如何验证</b>
+                <span id="planValidationText">...</span>
+              </div>
+              <div class="plan-section">
+                <b>若失败怎么修复</b>
+                <span id="planRepairText">...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function mountDemoRuntime() {
+      const cardStartBtn = document.getElementById("cardStartBtn");
+      const taskWrap = document.getElementById("taskWrap");
+      const statusText = document.getElementById("statusText");
+      const thinkingPanel = document.getElementById("thinkingPanel");
+      const thinkingStream = document.getElementById("thinkingStream");
+      const understandHost = document.getElementById("understandHost");
+      const planHost = document.getElementById("planHost");
+      const understandState = document.getElementById("understandState");
+      const planState = document.getElementById("planState");
+      const planCard = document.getElementById("planCard");
+      const planCardStatus = document.getElementById("planCardStatus");
+      const planGoalText = document.getElementById("planGoalText");
+      const planApproachText = document.getElementById("planApproachText");
+      const planValidationText = document.getElementById("planValidationText");
+      const planRepairText = document.getElementById("planRepairText");
+
+      if (!cardStartBtn || !taskWrap || !statusText || !thinkingPanel || !thinkingStream || !understandHost || !planHost || !understandState || !planState || !planCard || !planCardStatus || !planGoalText || !planApproachText || !planValidationText || !planRepairText) {
+        return;
+      }
+
+      const flowScript = [
+      {
+        phase: "understand",
+        host: understandHost,
+        stateEl: understandState,
+        lines: [
+          "读取用户描述与澄清选择。",
+          "提取硬约束：ATR、30 周期、输出范围 0~1。",
+          "确认目标：降低低波动区间的误触发。",
+        ],
+        thoughts: [],
+      },
+      {
+        phase: "plan",
+        host: planHost,
+        stateEl: planState,
+        lines: [],
+        thoughts: [
+          "计划上先采用 ATR 归一化生成过滤强度，这条路线简单、可解释，也便于后续调参。",
+          "验证我会关注三个点：长度一致、非全零且有方差、在高低波动区间有明显区分。",
+          "若结果过平或无效，我会优先回调窗口与归一化阈值，再进入下一轮修复。",
+        ],
+        planBuild: [
+          {
+            progress: "计划草案构建中...",
+            cardStatus: "草案中",
+            key: "goal",
+            text: "用 ATR 识别波动状态，在低波动时抑制信号，在高波动时提高信号权重。",
+          },
+          {
+            progress: "计划细化中...",
+            cardStatus: "细化中",
+            key: "approach",
+            text: "构建 ATR 序列并归一化成 0~1 过滤强度，再结合阈值分段逻辑输出。",
+          },
+          {
+            progress: "补充验证与修复策略...",
+            cardStatus: "细化中",
+            key: "validation",
+            text: "检查长度、空值、方差，以及高低波动样本上的区分效果。",
+          },
+          {
+            progress: "计划定稿完成。",
+            cardStatus: "已定稿",
+            key: "repair",
+            text: "若输出过平/全零，则回调窗口参数与归一化策略后重跑。",
+          },
+        ],
+      },
+      ];
+
+      let running = false;
+      let timer = null;
+      let phaseIdx = 0;
+      let lineIdx = 0;
+      let planThinkIdx = 0;
+      let planBuildIdx = 0;
+
+      function appendLine(host, text) {
+        const row = document.createElement("div");
+        row.className = "line";
+        row.innerHTML = '<span class="icon">◦</span><span>' + text + "</span>";
+        host.appendChild(row);
+        return row;
+      }
+
+      function appendThought(text) {
+        const current = String(thinkingStream.textContent || "");
+        const prefix = current ? "\n\n" : "";
+        thinkingStream.textContent = current + prefix + text;
+        const logWrap = thinkingStream.parentElement;
+        if (logWrap) logWrap.scrollTop = logWrap.scrollHeight;
+      }
+
+      function markDone(lineEl) {
+        if (!lineEl) return;
+        lineEl.classList.add("done");
+        const icon = lineEl.querySelector(".icon");
+        if (icon) icon.textContent = "✓";
+      }
+
+      function resetPlanCard() {
+        planCardStatus.textContent = "等待中";
+        planGoalText.textContent = "...";
+        planApproachText.textContent = "...";
+        planValidationText.textContent = "...";
+        planRepairText.textContent = "...";
+        const progressEl = document.getElementById("planProgressLine");
+        if (progressEl) progressEl.textContent = "等待生成计划清单...";
+      }
+
+      function applyPlanBuild(itemLike) {
+        const item = itemLike && typeof itemLike === "object" ? itemLike : {};
+        const progressEl = document.getElementById("planProgressLine");
+        if (progressEl) progressEl.textContent = String(item.progress || "计划生成中...");
+        planCardStatus.textContent = String(item.cardStatus || "进行中");
+        if (item.key === "goal") planGoalText.textContent = String(item.text || "");
+        if (item.key === "approach") planApproachText.textContent = String(item.text || "");
+        if (item.key === "validation") planValidationText.textContent = String(item.text || "");
+        if (item.key === "repair") planRepairText.textContent = String(item.text || "");
+      }
+
+      function resetDemo() {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        running = false;
+        phaseIdx = 0;
+        lineIdx = 0;
+        planThinkIdx = 0;
+        planBuildIdx = 0;
+        statusText.textContent = "等待触发";
+        thinkingPanel.style.display = "none";
+        thinkingStream.textContent = "";
+        understandState.textContent = "未开始";
+        planState.textContent = "未开始";
+        understandHost.innerHTML = "";
+        planHost.innerHTML = '<div class="line"><span class="icon">◦</span><span id="planProgressLine">等待生成计划清单...</span></div>';
+        planCard.style.display = "none";
+        resetPlanCard();
+        taskWrap.style.display = "none";
+        cardStartBtn.textContent = "开始生成特征";
+      }
+
+      function startFlow() {
+        if (running) return;
+        resetDemo();
+        running = true;
+        taskWrap.style.display = "grid";
+        statusText.textContent = "进行中";
+        thinkingPanel.style.display = "none";
+        cardStartBtn.textContent = "生成中...";
+
+        timer = setInterval(function() {
+          const phase = flowScript[phaseIdx];
+          if (!phase) {
+            clearInterval(timer);
+            timer = null;
+            running = false;
+            statusText.textContent = "已完成";
+            planCard.style.display = "grid";
+            cardStartBtn.textContent = "重新演示";
+            return;
+          }
+
+          phase.stateEl.textContent = "进行中";
+          if (phase.phase === "plan") {
+            thinkingPanel.style.display = "grid";
+            planCard.style.display = "grid";
+            if (Array.isArray(phase.thoughts) && planThinkIdx < phase.thoughts.length) {
+              appendThought(phase.thoughts[planThinkIdx]);
+              planThinkIdx += 1;
+              return;
+            }
+            if (Array.isArray(phase.planBuild) && planBuildIdx < phase.planBuild.length) {
+              applyPlanBuild(phase.planBuild[planBuildIdx]);
+              planBuildIdx += 1;
+              return;
+            }
+            planState.textContent = "已完成";
+            phaseIdx += 1;
+            lineIdx = 0;
+            planThinkIdx = 0;
+            planBuildIdx = 0;
+            return;
+          }
+          const lines = phase.host.querySelectorAll(".line");
+          if (lineIdx > 0) markDone(lines[lineIdx - 1]);
+
+          if (lineIdx >= phase.lines.length) {
+            phase.stateEl.textContent = "已完成";
+            phaseIdx += 1;
+            lineIdx = 0;
+            return;
+          }
+
+          appendLine(phase.host, phase.lines[lineIdx]);
+          lineIdx += 1;
+        }, 750);
+      }
+
+      window.__startFlowDemo = startFlow;
+      cardStartBtn.addEventListener("click", startFlow);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", mountDemoRuntime);
+    } else {
+      mountDemoRuntime();
+    }
+  </script>
+</body>
+</html>

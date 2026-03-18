@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聊天任务区极简流式 Demo</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0b1220;
+      color: #e6edf3;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+    .head { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    button {
+      border: 1px solid #2a3a52;
+      background: #122035;
+      color: #cfe2ff;
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .chat {
+      border: 1px solid #2a3a52;
+      border-radius: 12px;
+      padding: 10px;
+      min-height: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #0f1727;
+    }
+    .row { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
+    .row.user { align-self: flex-end; }
+    .row.bot { align-self: flex-start; }
+    .meta { font-size: 12px; color: #93a8c7; }
+    .bubble {
+      border: 1px solid #2a3a52;
+      border-radius: 10px;
+      padding: 10px;
+      background: #132136;
+      line-height: 1.6;
+    }
+    .card { border-color: #2f6f4a; background: #13291f; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    .chip {
+      font-size: 12px;
+      border: 1px solid #2a3a52;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: #b8c9e2;
+    }
+    .chip.on { border-color: #4b88d8; color: #8ec2ff; }
+
+    .task-row { width: min(92%, 920px); max-width: none; }
+    .task {
+      border: 1px solid #24456d;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #101a2a;
+    }
+    .task > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px 12px;
+      border-bottom: 1px solid #20324b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      color: #cfe2ff;
+    }
+    .task > summary::-webkit-details-marker { display: none; }
+    .task-body { padding: 10px 12px; display: grid; gap: 8px; }
+    .hint {
+      font-size: 12px;
+      color: #94a8c7;
+      border: 1px dashed #2a3a52;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0d1625;
+    }
+    .step {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f1828;
+    }
+    .step > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+    .step > summary::-webkit-details-marker { display: none; }
+    .step .body {
+      border-top: 1px solid #24324a;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #c5d6ee;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .tag { font-size: 12px; color: #9cb0ce; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <button id="start">开始演示流式任务</button>
+      <button id="reset">重置</button>
+      <span class="tag">刷新页面后会保留当前演示进度</span>
+    </div>
+
+    <div class="chat" id="chat">
+      <div class="row user">
+        <div class="meta">你</div>
+        <div class="bubble">做一个波动率判断特征。</div>
+      </div>
+
+      <div class="row bot">
+        <div class="meta">ThunderClaw · 澄清卡</div>
+        <div class="bubble card">
+          这是澄清卡（只负责提问与提交，不展示过程）。
+          <div class="chips">
+            <span class="chip on">ATR</span>
+            <span class="chip on">中期(30)</span>
+            <span class="chip on">百分比变化</span>
+          </div>
+          <button id="inlineStart">开始生成特征</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY = "mini_task_demo_state_v1";
+    const chat = document.getElementById("chat");
+    const startBtn = document.getElementById("start");
+    const inlineStartBtn = document.getElementById("inlineStart");
+    const resetBtn = document.getElementById("reset");
+
+    const scriptSteps = [
+      {
+        key: "understand",
+        title: "理解需求",
+        lines: ["已整理用户意图、上下文与特征约束。"],
+      },
+      {
+        key: "plan",
+        title: "生成计划",
+        lines: ["计划完成：先锁定 Spec，再生成首版代码，再运行检测。"],
+      },
+      {
+        key: "spec_lock",
+        title: "锁定 Spec",
+        lines: ["Spec 已锁定：outputRange=0~1，input=OHLCV。"],
+      },
+      {
+        key: "write",
+        title: "生成首版代码",
+        lines: [
+          "子步骤1：正在写代码...",
+          "子步骤2：已生成函数签名 compute_feature(df)。",
+          "子步骤3：代码完成，准备运行检测。",
+        ],
+      },
+      {
+        key: "run",
+        title: "第1轮运行",
+        lines: [
+          "子步骤1：mock 校验中...",
+          "子步骤2：mock 校验通过。",
+          "子步骤3：真实评估中（pair=BTC/USDT, tf=1h）。",
+          "子步骤4：真实评估完成，拿到统计结果。",
+        ],
+      },
+      {
+        key: "detect",
+        title: "第1轮检测",
+        lines: ["检测通过：工程层/数值层/语义层均通过。"],
+      },
+      {
+        key: "summarize",
+        title: "最终结果",
+        lines: ["任务完成，可加入特征库。"],
+      },
+    ];
+
+    function save(state) {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    }
+    function load() {
+      try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; }
+    }
+    function clear() {
+      localStorage.removeItem(KEY);
+    }
+
+    function ensureTaskRow() {
+      let row = chat.querySelector(".task-row");
+      if (row) return row;
+      row = document.createElement("div");
+      row.className = "row bot task-row";
+      row.innerHTML = `
+        <div class="meta">ThunderClaw · 特征生成任务</div>
+        <details class="task" open>
+          <summary>
+            <span>特征生成任务（流式演示）</span>
+            <span id="taskStatus">进行中</span>
+          </summary>
+          <div class="task-body">
+            <div class="hint">演示目标：顺序固定为 计划 -> Spec -> 代码；并且每步按子步骤持续追加。</div>
+            <div id="stepsHost"></div>
+          </div>
+        </details>
+      `;
+      const cardRow = chat.querySelectorAll(".row.bot")[0];
+      cardRow.insertAdjacentElement("afterend", row);
+      return row;
+    }
+
+    function upsertStep(stepKey, title, appendLine) {
+      const host = document.getElementById("stepsHost");
+      let step = host.querySelector('[data-step="' + stepKey + '"]');
+      if (!step) {
+        step = document.createElement("details");
+        step.className = "step";
+        step.dataset.step = stepKey;
+        step.open = true;
+        step.innerHTML = `
+          <summary><span>${title}</span><span>▼</span></summary>
+          <div class="body"></div>
+        `;
+        host.appendChild(step);
+      }
+      const body = step.querySelector(".body");
+      body.textContent = (body.textContent ? body.textContent + "\n" : "") + appendLine;
+    }
+
+    async function runDemoFrom(state) {
+      const row = ensureTaskRow();
+      const statusEl = row.querySelector("#taskStatus");
+      statusEl.textContent = "进行中";
+      const startStep = state.stepIndex || 0;
+      const startLine = state.lineIndex || 0;
+
+      for (let i = startStep; i < scriptSteps.length; i += 1) {
+        const s = scriptSteps[i];
+        const lineStart = i === startStep ? startLine : 0;
+        for (let j = lineStart; j < s.lines.length; j += 1) {
+          upsertStep(s.key, s.title, s.lines[j]);
+          save({ running: true, stepIndex: i, lineIndex: j + 1 });
+          await new Promise((r) => setTimeout(r, 650));
+        }
+        save({ running: true, stepIndex: i + 1, lineIndex: 0 });
+      }
+      statusEl.textContent = "已完成";
+      save({ running: false, done: true, stepIndex: scriptSteps.length, lineIndex: 0 });
+    }
+
+    function startDemo() {
+      const st = load();
+      if (st && st.running) return;
+      const row = ensureTaskRow();
+      row.querySelector("#stepsHost").innerHTML = "";
+      save({ running: true, stepIndex: 0, lineIndex: 0 });
+      runDemoFrom({ running: true, stepIndex: 0, lineIndex: 0 });
+    }
+
+    function restore() {
+      const st = load();
+      if (!st) return;
+      ensureTaskRow();
+      if (st.done) {
+        for (const s of scriptSteps) {
+          for (const line of s.lines) upsertStep(s.key, s.title, line);
+        }
+        const statusEl = document.querySelector("#taskStatus");
+        if (statusEl) statusEl.textContent = "已完成";
+        return;
+      }
+      if (st.running) {
+        for (let i = 0; i < Math.min(scriptSteps.length, st.stepIndex + 1); i += 1) {
+          const s = scriptSteps[i];
+          const max = i < st.stepIndex ? s.lines.length : Math.min(s.lines.length, st.lineIndex);
+          for (let j = 0; j < max; j += 1) upsertStep(s.key, s.title, s.lines[j]);
+        }
+        runDemoFrom(st);
+      }
+    }
+
+    startBtn.addEventListener("click", startDemo);
+    inlineStartBtn.addEventListener("click", startDemo);
+    resetBtn.addEventListener("click", () => {
+      clear();
+      const row = chat.querySelector(".task-row");
+      if (row) row.remove();
+    });
+
+    restore();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ThunderClaw 聊天内任务区 Demo</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #111927;
+      --card: #16202b;
+      --card-2: #1a2332;
+      --border: #273244;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --blue: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #0d1218 0%, #101722 100%);
+      color: var(--text);
+    }
+
+    .demo-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .demo-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .demo-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .demo-sub {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 760px;
+    }
+
+    .demo-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .demo-btn {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .demo-btn.primary {
+      border-color: rgba(88,166,255,0.48);
+      background: rgba(88,166,255,0.14);
+      color: #8ec2ff;
+    }
+
+    .demo-layout {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(8, 12, 18, 0.7);
+      overflow: hidden;
+      min-height: 720px;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+    }
+
+    .demo-sidebar {
+      border-right: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      padding: 16px 14px;
+    }
+
+    .demo-sidebar .side-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .demo-sidebar .side-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+
+    .side-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .side-card .label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .side-card .value {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .demo-main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .chat-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .chat-toolbar .title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .chat-toolbar .sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .chat-status {
+      font-size: 12px;
+      color: #7ee787;
+      border: 1px solid rgba(63,185,80,0.25);
+      background: rgba(63,185,80,0.08);
+      border-radius: 999px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .chat-stream {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background:
+        radial-gradient(1000px 480px at 0% 0%, rgba(88,166,255,0.06), transparent 50%),
+        rgba(7,10,16,0.55);
+    }
+
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 720px;
+    }
+
+    .msg-row.user {
+      align-self: flex-end;
+      width: fit-content;
+    }
+
+    .msg-row.bot {
+      align-self: flex-start;
+      width: min(720px, 100%);
+    }
+
+    .msg-bubble {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+      padding: 12px 14px;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .msg-row.user .msg-bubble {
+      background: rgba(88,166,255,0.16);
+      border-color: rgba(88,166,255,0.35);
+    }
+
+    .msg-meta {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .feature-card {
+      border: 1px solid rgba(88,166,255,0.2);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(19,31,24,0.88), rgba(17,27,22,0.94));
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .feature-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .feature-card-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .feature-q {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feature-q-label {
+      font-size: 13px;
+      color: #d5dee8;
+      line-height: 1.6;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border: 1px solid rgba(139,148,158,0.3);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      color: #c9d1d9;
+      padding: 7px 12px;
+      font-size: 12px;
+    }
+
+    .chip.active {
+      border-color: rgba(88,166,255,0.55);
+      background: rgba(88,166,255,0.16);
+      color: #93c5ff;
+      font-weight: 600;
+    }
+
+    .card-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+
+    .generate-btn {
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #58a6ff 0%, #388bfd 100%);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+
+    .ghost-btn {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .task-row {
+      border: 1px solid rgba(88,166,255,0.18);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(20,28,39,0.96), rgba(16,23,33,0.98));
+      overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+    }
+
+    .task-row > summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .task-row > summary::-webkit-details-marker { display: none; }
+
+    .task-row-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .task-row[open] .task-row-header {
+      border-bottom: 1px solid rgba(139,148,158,0.12);
+    }
+
+    .task-row-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--blue);
+      flex: 0 0 auto;
+    }
+
+    .task-row.dot-success .task-row-dot { background: var(--green); }
+    .task-row.dot-fail .task-row-dot { background: var(--red); }
+
+    .task-row-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .task-row-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .task-row-chevron {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+    }
+
+    .task-row[open] .task-row-chevron {
+      transform: rotate(180deg);
+    }
+
+    .task-row-body {
+      padding: 12px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .task-summary {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.7;
+      padding: 10px 12px;
+      border: 1px dashed rgba(139,148,158,0.18);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .step {
+      border: 1px solid rgba(139,148,158,0.15);
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .step > summary {
+      list-style: none;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .step > summary::-webkit-details-marker { display: none; }
+
+    .step-icon {
+      width: 18px;
+      text-align: center;
+      color: var(--green);
+      font-size: 13px;
+      flex: 0 0 auto;
+      margin-top: 1px;
+    }
+
+    .step.fail .step-icon { color: var(--red); }
+    .step.running .step-icon { color: var(--blue); }
+
+    .step-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .step-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    .step-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-top: 2px;
+    }
+
+    .step-chevron {
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .step[open] .step-chevron {
+      transform: rotate(180deg);
+    }
+
+    .step-body {
+      border-top: 1px solid rgba(139,148,158,0.12);
+      padding: 12px 14px 14px;
+      display: grid;
+      gap: 10px;
+      background: rgba(0,0,0,0.1);
+    }
+
+    .info-block {
+      border: 1px solid rgba(139,148,158,0.14);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .info-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8ec2ff;
+      margin-bottom: 6px;
+    }
+
+    .info-text {
+      font-size: 12px;
+      line-height: 1.7;
+      color: #d6deea;
+      white-space: pre-wrap;
+    }
+
+    .code-block {
+      margin: 0;
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(4,7,12,0.9);
+      border: 1px solid rgba(139,148,158,0.12);
+      color: #c9d1d9;
+      font-size: 12px;
+      line-height: 1.6;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+
+    .result-ok {
+      border-color: rgba(63,185,80,0.24);
+      background: rgba(63,185,80,0.08);
+    }
+
+    .result-fail {
+      border-color: rgba(248,81,73,0.28);
+      background: rgba(248,81,73,0.08);
+    }
+
+    .chat-input-row {
+      border-top: 1px solid var(--border);
+      padding: 12px 14px;
+      display: flex;
+      gap: 10px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .chat-input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+
+    .chat-send {
+      border: 1px solid rgba(88,166,255,0.38);
+      background: rgba(88,166,255,0.16);
+      color: #91c7ff;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    @media (max-width: 980px) {
+      .demo-layout {
+        grid-template-columns: 1fr;
+      }
+      .demo-sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-shell">
+    <div class="demo-head">
+      <div>
+        <div class="demo-title">聊天内任务区 Demo</div>
+        <div class="demo-sub">
+          这是一个纯静态 HTML 原型，不接后端、不接真实数据。只演示你要确认的 UI 形态：
+          <br>
+          1. 任务区仍然在 ThunderClaw 聊天流里
+          2. 任务区位于特征卡片下方，但和卡片分离
+          3. 每个任务区内部按步骤展示，并可展开/折叠
+          4. 支持多个任务区按聊天顺序堆叠
+        </div>
+      </div>
+      <div class="demo-actions">
+        <button class="demo-btn" id="reset-demo-btn">重置 Demo</button>
+        <button class="demo-btn primary" id="insert-success-btn">插入成功任务</button>
+        <button class="demo-btn" id="insert-fail-btn">插入失败任务</button>
+      </div>
+    </div>
+
+    <div class="demo-layout">
+      <aside class="demo-sidebar">
+        <div class="side-title">你现在确认的重点</div>
+        <div class="side-sub">
+          这里只看 UI，不看真实功能。
+          你主要看“任务区挂载位置”和“步骤展开体验”对不对。
+        </div>
+        <div class="side-card">
+          <div class="label">当前原型约束</div>
+          <div class="value">
+            任务区在聊天流内部
+            <br>
+            但不是卡片正文的一部分
+          </div>
+        </div>
+        <div class="side-card">
+          <div class="label">你可以重点看</div>
+          <div class="value">
+            1. 点击“开始生成特征”后，任务区是不是长在卡片下面
+            <br>
+            2. 展开每一步时，可读性是否够
+            <br>
+            3. 多个任务堆叠时，会不会影响对话体验
+          </div>
+        </div>
+      </aside>
+
+      <main class="demo-main">
+        <div class="chat-toolbar">
+          <div>
+            <div class="title">ThunderClaw</div>
+            <div class="sub">聊天流内部原型：卡片下方独立任务区</div>
+          </div>
+          <div class="chat-status">Demo 模式</div>
+        </div>
+
+        <div class="chat-stream" id="chat-stream">
+          <div class="msg-row user">
+            <div class="msg-meta">你 · 15:38</div>
+            <div class="msg-bubble">帮我做一个判断市场波动率高低的工具</div>
+          </div>
+
+          <div class="msg-row bot">
+            <div class="msg-meta">ThunderClaw · 特征澄清卡</div>
+            <div class="feature-card" data-card-id="card-a">
+              <div>
+                <div class="feature-card-title">用户想要一个能判断市场波动率高低的特征工具，用于交易决策。</div>
+                <div class="feature-card-sub">这个卡片本身只负责提问和提交，不再承担过程展示。</div>
+              </div>
+
+              <div class="feature-q">
+                <div class="feature-q-label">你希望输出什么形式的波动率评估？</div>
+                <div class="chip-row">
+                  <div class="chip">0/1 判断</div>
+                  <div class="chip active">-1 到 1 评分</div>
+                  <div class="chip">原始数值</div>
+                </div>
+              </div>
+
+              <div class="feature-q">
+                <div class="feature-q-label">你想基于什么方法衡量波动率？</div>
+                <div class="chip-row">
+                  <div class="chip active">ATR</div>
+                  <div class="chip">布林带宽度</div>
+                  <div class="chip">价格标准差</div>
+                </div>
+              </div>
+
+              <div class="card-actions">
+                <button class="generate-btn" data-generate-for="card-a" data-mode="success">开始生成特征</button>
+                <button class="ghost-btn" data-generate-for="card-a" data-mode="fail">模拟失败任务</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="msg-row user">
+            <div class="msg-meta">你 · 15:41</div>
+            <div class="msg-bubble">再帮我做一个趋势突破过滤特征</div>
+          </div>
+
+          <div class="msg-row bot">
+            <div class="msg-meta">ThunderClaw · 特征澄清卡</div>
+            <div class="feature-card" data-card-id="card-b">
+              <div>
+                <div class="feature-card-title">用户还想要一个趋势突破过滤特征，用于识别假突破并过滤噪音。</div>
+                <div class="feature-card-sub">这个第二张卡片是为了演示“多个任务区顺序堆叠”的效果。</div>
+              </div>
+
+              <div class="feature-q">
+                <div class="feature-q-label">过滤逻辑更偏向哪一类？</div>
+                <div class="chip-row">
+                  <div class="chip active">均线趋势确认</div>
+                  <div class="chip">成交量放大确认</div>
+                  <div class="chip">波动率过滤</div>
+                </div>
+              </div>
+
+              <div class="card-actions">
+                <button class="generate-btn" data-generate-for="card-b" data-mode="success">开始生成特征</button>
+                <button class="ghost-btn" data-generate-for="card-b" data-mode="fail">模拟失败任务</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-row">
+          <input class="chat-input" type="text" value="这里只是 Demo，输入框不接真实逻辑" readonly>
+          <button class="chat-send" type="button">发送</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <template id="task-template-success">
+    <div class="msg-row bot task-anchor">
+      <div class="msg-meta">ThunderClaw · 生成任务</div>
+      <details class="task-row dot-success" open>
+        <summary class="task-row-header">
+          <div class="task-row-dot"></div>
+          <div>
+            <div class="task-row-title">特征生成任务（8 步，已完成）</div>
+            <div class="task-row-sub">这是独立任务区，不在卡片正文里面，但仍然处于聊天流内部。</div>
+          </div>
+          <div class="task-row-chevron">▼</div>
+        </summary>
+        <div class="task-row-body">
+          <div class="task-summary">
+            这里的重点不是“功能真不真”，而是“挂载位置和信息组织对不对”。
+            现在这个任务块和特征卡片是两个独立节点，只是顺序上挨着。
+          </div>
+
+          <details class="step" open>
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">理解需求</div>
+                <div class="step-sub">已整理用户意图、输出形式与特征约束。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">需求摘要</div>
+                <div class="info-text">做一个波动率高低判断工具，基于 ATR 输出 -1 到 1 的评分，便于交易时机判断。</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">生成计划</div>
+                <div class="step-sub">先锁定结构化 Spec，再产出首版代码，然后跑验证与修复。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">计划摘要</div>
+                <div class="info-text">1. 使用 ATR 计算波动率
+2. 做历史归一化
+3. 输出 -1 到 1 评分
+4. 跑 mock 与真实运行验证
+5. 如失败则进入修复轮次</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">锁定 Spec</div>
+                <div class="step-sub">已锁定输入列、输出范围、核心信号与保留约束。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">结构化 Spec</div>
+                <div class="info-text">featureName: volatility_judge
+route: template / atr
+inputColumns: date, open, high, low, close
+outputType: score
+outputRange: -1 ~ 1</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">生成首版代码</div>
+                <div class="step-sub">已拿到首版代码，可展开查看代码内容。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">代码来源</div>
+                <div class="info-text">template / atr</div>
+              </div>
+              <pre class="code-block">import pandas as pd
+import talib.abstract as ta
+
+def compute_feature(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    atr = ta.ATR(df, timeperiod=max(2, int(period)))
+    scaled = (atr / df["close"].replace(0, 1.0)).clip(lower=0.0)
+    centered = (scaled - scaled.rolling(50).mean()) / scaled.rolling(50).std()
+    return centered.clip(-1.0, 1.0).fillna(0.0)</pre>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">第 1 轮运行</div>
+                <div class="step-sub">结构校验通过，已拿到运行统计和样本结果。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">运行输入</div>
+                <div class="info-text">交易对：BTC/USDT
+周期：15m
+K 线数：600</div>
+              </div>
+              <div class="info-block">
+                <div class="info-label">运行结果</div>
+                <div class="info-text">均值：0.0087
+标准差：0.0027
+最小值：-0.7340
+最大值：0.9182</div>
+              </div>
+              <div class="info-block">
+                <div class="info-label">日志摘录</div>
+                <div class="info-text">mock 验证通过，真实特征评估完成，无运行异常。</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">第 1 轮检测</div>
+                <div class="step-sub">检测通过，当前代码可作为最终结果。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">检测结论</div>
+                <div class="info-text">工程层通过
+数值层通过
+语义层通过</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">最终结果</div>
+                <div class="step-sub">任务完成，支持直接加入特征库。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block result-ok">
+                <div class="info-label">最终摘要</div>
+                <div class="info-text">已生成波动率判断特征。这个结果区应该只放最终产物，不再回头重复塞整个过程长文。</div>
+              </div>
+              <div class="card-actions">
+                <button class="generate-btn" type="button">加入特征库</button>
+                <button class="ghost-btn" type="button">查看详情</button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </details>
+    </div>
+  </template>
+
+  <template id="task-template-fail">
+    <div class="msg-row bot task-anchor">
+      <div class="msg-meta">ThunderClaw · 生成任务</div>
+      <details class="task-row dot-fail" open>
+        <summary class="task-row-header">
+          <div class="task-row-dot"></div>
+          <div>
+            <div class="task-row-title">特征生成任务（6 步，失败）</div>
+            <div class="task-row-sub">失败任务也仍然是独立任务区，而不是退回卡片里显示一坨错误文案。</div>
+          </div>
+          <div class="task-row-chevron">▼</div>
+        </summary>
+        <div class="task-row-body">
+          <details class="step" open>
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">理解需求</div>
+                <div class="step-sub">已完成。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block">
+                <div class="info-label">需求摘要</div>
+                <div class="info-text">用户要一个趋势突破过滤特征。</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step">
+            <summary>
+              <div class="step-icon">✓</div>
+              <div class="step-main">
+                <div class="step-title">生成首版代码</div>
+                <div class="step-sub">已产出首版代码。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <pre class="code-block">def compute_feature(df):
+    return df["close"] > df["ema_50"]</pre>
+            </div>
+          </details>
+
+          <details class="step fail" open>
+            <summary>
+              <div class="step-icon">✗</div>
+              <div class="step-main">
+                <div class="step-title">第 1 轮检测</div>
+                <div class="step-sub">语义层未通过，当前实现无法满足过滤约束。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block result-fail">
+                <div class="info-label">失败分类</div>
+                <div class="info-text">semantic_mismatch</div>
+              </div>
+              <div class="info-block">
+                <div class="info-label">检测到的问题</div>
+                <div class="info-text">输出是布尔值，但用户要求的是连续过滤评分。
+缺少成交量确认条件。</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="step fail" open>
+            <summary>
+              <div class="step-icon">✗</div>
+              <div class="step-main">
+                <div class="step-title">最终结果</div>
+                <div class="step-sub">生成失败。</div>
+              </div>
+              <div class="step-chevron">▼</div>
+            </summary>
+            <div class="step-body">
+              <div class="info-block result-fail">
+                <div class="info-label">失败说明</div>
+                <div class="info-text">这里应该明确告诉用户失败在哪一步，而不是把所有报错混在卡片正文里。</div>
+              </div>
+              <div class="card-actions">
+                <button class="generate-btn" type="button">重新生成</button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </details>
+    </div>
+  </template>
+
+  <script>
+    (function() {
+      const chatStream = document.getElementById("chat-stream");
+      const successTemplate = document.getElementById("task-template-success");
+      const failTemplate = document.getElementById("task-template-fail");
+      const resetBtn = document.getElementById("reset-demo-btn");
+      const insertSuccessBtn = document.getElementById("insert-success-btn");
+      const insertFailBtn = document.getElementById("insert-fail-btn");
+
+      const initialMarkup = chatStream.innerHTML;
+      let taskSeq = 0;
+
+      function updateTaskTitle(node, mode) {
+        taskSeq += 1;
+        const title = node.querySelector(".task-row-title");
+        const sub = node.querySelector(".task-row-sub");
+        const meta = node.querySelector(".msg-meta");
+        if (title) {
+          title.textContent = (mode === "fail" ? "特征生成任务（失败）" : "特征生成任务（已完成）") + " #" + taskSeq;
+        }
+        if (sub) {
+          sub.textContent = mode === "fail"
+            ? "这是第 " + taskSeq + " 个任务区示例。失败任务也保持同样的块级结构。"
+            : "这是第 " + taskSeq + " 个任务区示例。它和上面的特征卡片是两个独立节点。";
+        }
+        if (meta) {
+          meta.textContent = "ThunderClaw · 生成任务 #" + taskSeq;
+        }
+      }
+
+      function createTaskNode(mode) {
+        const template = mode === "fail" ? failTemplate : successTemplate;
+        const node = template.content.firstElementChild.cloneNode(true);
+        updateTaskTitle(node, mode);
+        return node;
+      }
+
+      function insertTaskAfterCard(cardId, mode) {
+        const card = chatStream.querySelector('.feature-card[data-card-id="' + cardId + '"]');
+        if (!card) return;
+        const row = card.closest(".msg-row");
+        if (!row || !row.parentNode) return;
+
+        const taskNode = createTaskNode(mode);
+        let insertAfter = row;
+        while (insertAfter.nextElementSibling && insertAfter.nextElementSibling.classList.contains("task-anchor")) {
+          insertAfter = insertAfter.nextElementSibling;
+        }
+        insertAfter.insertAdjacentElement("afterend", taskNode);
+        taskNode.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      chatStream.addEventListener("click", function(event) {
+        const btn = event.target.closest("[data-generate-for]");
+        if (!btn) return;
+        const cardId = btn.getAttribute("data-generate-for");
+        const mode = btn.getAttribute("data-mode") || "success";
+        insertTaskAfterCard(cardId, mode);
+      });
+
+      insertSuccessBtn.addEventListener("click", function() {
+        insertTaskAfterCard("card-a", "success");
+      });
+
+      insertFailBtn.addEventListener("click", function() {
+        insertTaskAfterCard("card-b", "fail");
+      });
+
+      resetBtn.addEventListener("click", function() {
+        chatStream.innerHTML = initialMarkup;
+        taskSeq = 0;
+      });
+    })();
+  </script>
+</body>
+</html>

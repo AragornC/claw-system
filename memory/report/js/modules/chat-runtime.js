@@ -42,7 +42,37 @@ function createChatLogStoreRuntime(storageKeyLike, maxRowsLike) {
       const raw = JSON.stringify(metaLike);
       if (!raw || raw.length > 120000) return null;
       const parsed = JSON.parse(raw);
+      if (parsed && parsed.type === 'clarification_card' && parsed.cardData && typeof parsed.cardData === 'object') {
+        const traces = Array.isArray(parsed.cardData.traces) ? parsed.cardData.traces : [];
+        const hasLegacyUnderstand = traces.some(function(traceLike) {
+          const trace = traceLike && typeof traceLike === 'object' ? traceLike : {};
+          const phase = String(trace.phase || trace.step || '').trim().toLowerCase();
+          if (phase !== 'understand') return false;
+          const details = trace.details && typeof trace.details === 'object' ? trace.details : {};
+          const payload = details.payload && typeof details.payload === 'object' ? details.payload : null;
+          return !(payload && String(payload.schema || '').trim() === 'understand_cards_v1');
+        });
+        if (hasLegacyUnderstand) {
+          delete parsed.cardData.task;
+          delete parsed.cardData.traces;
+          delete parsed.cardData.result;
+          delete parsed.cardData.planArtifact;
+          delete parsed.cardData.status;
+        }
+      }
       return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeTraces(tracesLike) {
+    if (!Array.isArray(tracesLike)) return null;
+    try {
+      const raw = JSON.stringify(tracesLike.slice(-80));
+      if (!raw || raw.length > 180000) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
     } catch {
       return null;
     }
@@ -62,6 +92,8 @@ function createChatLogStoreRuntime(storageKeyLike, maxRowsLike) {
     };
     const meta = normalizeMeta(row.meta);
     if (meta) out.meta = meta;
+    const traces = normalizeTraces(row.traces);
+    if (traces && traces.length) out.traces = traces;
     return out;
   }
 
@@ -70,7 +102,11 @@ function createChatLogStoreRuntime(storageKeyLike, maxRowsLike) {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return [];
       const parsed = safeJsonParse(raw, []);
-      return Array.isArray(parsed) ? parsed : [];
+      const normalized = Array.isArray(parsed) ? parsed.map(normalizeRow).filter(Boolean) : [];
+      if (Array.isArray(parsed) && JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+        localStorage.setItem(storageKey, JSON.stringify(normalized));
+      }
+      return normalized;
     } catch {
       return [];
     }

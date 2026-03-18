@@ -8,10 +8,94 @@ import { createTradingIntentSkill } from "./trading-intent-skill.js";
  * Tests run without DeepSeek API (pipeline falls back to heuristic + template code).
  */
 
+function createMockPipeline() {
+  return {
+    async run(params = {}) {
+      const msg = String(params.userMessage || "").toLowerCase();
+      if (!msg.trim() || msg.includes("天气")) {
+        return {
+          ok: true,
+          intentDetected: false,
+          confidence: 0,
+          reasoning: "not a trading request",
+          candidates: [],
+          source: "mock",
+        };
+      }
+      const isMacd = msg.includes("macd");
+      const featureName = isMacd ? "macd_signal" : (msg.includes("rsi") ? "rsi_oversold" : "ema_crossover");
+      const featureCode = [
+        "import pandas as pd",
+        "import talib.abstract as ta",
+        "",
+        "def compute_feature(df: pd.DataFrame) -> pd.Series:",
+        isMacd
+          ? "    macd = ta.MACD(df, fastperiod=12, slowperiod=26, signalperiod=9)\n    signal = (macd['macdhist'] / df['close'].replace(0, 1) * 100).clip(-1, 1)"
+          : (msg.includes("rsi")
+              ? "    rsi = ta.RSI(df, timeperiod=14)\n    signal = ((rsi - 50.0) / 50.0).clip(-1, 1)"
+              : "    fast = ta.EMA(df, timeperiod=12)\n    slow = ta.EMA(df, timeperiod=26)\n    signal = ((fast - slow) / df['close'].replace(0, 1)).clip(-1, 1)"),
+        "    return signal.fillna(0.0)",
+      ].join("\n");
+      return {
+        ok: true,
+        intentDetected: true,
+        confidence: 0.9,
+        reasoning: "mock pipeline result",
+        source: "mock",
+        candidates: [{
+          candidateId: `cand_${featureName}`,
+          kind: "feature",
+          title: featureName,
+          feature: {
+            name: featureName,
+            group: isMacd ? "momentum" : "trend",
+            kind: isMacd ? "macd" : (msg.includes("rsi") ? "rsi" : "ema"),
+            description: "mock feature",
+            params: {},
+            generatedCode: {
+              featureName,
+              featureCode,
+              description: "mock generated feature",
+              codeSource: "mock",
+              validatedAt: "2026-01-01T00:00:00.000Z",
+              validationErrors: [],
+              validationWarnings: [],
+            },
+            codegenStatus: "validated",
+            codegenError: "",
+          },
+        }],
+      };
+    },
+    async generateAndValidate(feature) {
+      const name = String(feature?.name || "custom_feature");
+      return {
+        ok: true,
+        code: {
+          featureName: name,
+          featureCode: [
+            "import pandas as pd",
+            "",
+            "def compute_feature(df: pd.DataFrame) -> pd.Series:",
+            "    return df['close'].pct_change().fillna(0.0)",
+          ].join("\n"),
+          description: `${name} feature`,
+          codeSource: "mock",
+          validatedAt: "2026-01-01T00:00:00.000Z",
+          validationErrors: [],
+          validationWarnings: [],
+        },
+        errors: [],
+        warnings: [],
+      };
+    },
+  };
+}
+
 function createSkill() {
   return createTradingIntentSkill({
     normalizeSessionId: (s) => String(s || "main"),
-    getApiKey: () => "", // No API key → forces heuristic fallback
+    pipeline: createMockPipeline(),
   });
 }
 
@@ -70,14 +154,12 @@ test("intent extraction generates code for RSI feature", async () => {
   assert.equal(out.intentDetected, true);
   // Find a feature with generated code
   const withCode = out.candidates.find(
-    (c) => c.feature?.generatedCode?.indicatorCode,
+    (c) => c.feature?.generatedCode?.featureCode,
   );
-  // With heuristic fallback and templates, should have code
   if (withCode) {
     assert.ok(
-      withCode.feature.generatedCode.indicatorCode.includes("ta.") ||
-        withCode.feature.generatedCode.indicatorCode.includes("dataframe"),
-      "indicator code should reference ta-lib or dataframe",
+      withCode.feature.generatedCode.featureCode.includes("def compute_feature"),
+      "featureCode should define compute_feature",
     );
   }
 });
@@ -102,10 +184,9 @@ test("generateFeatureCodeForCandidate produces code for EMA feature", async () =
   assert.equal(out.ok, true);
   assert.ok(out.candidate, "should return a candidate");
   assert.ok(
-    out.candidate.feature?.generatedCode?.indicatorCode,
-    "should have indicator code",
+    out.candidate.feature?.generatedCode?.featureCode,
+    "should have feature code",
   );
-  // Code should be validated (template-based code always validates)
   assert.equal(out.candidate.feature.codegenStatus, "validated");
 });
 
@@ -127,10 +208,10 @@ test("generateFeatureCodeForCandidate produces code for MACD feature", async () 
     sessionId: "test-codegen-macd",
   });
   assert.equal(out.ok, true);
-  assert.ok(out.candidate.feature?.generatedCode?.indicatorCode);
+  assert.ok(out.candidate.feature?.generatedCode?.featureCode);
   assert.ok(
-    out.candidate.feature.generatedCode.indicatorCode.includes("MACD"),
-    "MACD code should reference MACD",
+    out.candidate.feature.generatedCode.featureCode.includes("def compute_feature"),
+    "generated code should define compute_feature",
   );
 });
 

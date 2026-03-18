@@ -39,7 +39,7 @@ export function createMemoryLayer(deps = {}) {
             const name = toText(f.name, "unnamed");
             const group = toText(f.group || f.mainCategory, "");
             const kind = toText(f.kind, "");
-            const hasCode = Boolean(f.generatedCode?.indicatorCode || f.params?.pythonIndicator);
+            const hasCode = Boolean(f.generatedCode?.featureCode || f.params?.featureCode || f.params?.pipelineCode);
             const status = hasCode ? "已验证" : "待生成代码";
             const desc = toText(f.description, "").slice(0, 60);
             return `  - ${name} (${[group, kind].filter(Boolean).join("/")}/${status}) ${desc ? "— " + desc : ""}`;

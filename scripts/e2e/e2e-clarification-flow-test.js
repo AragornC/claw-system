@@ -18,12 +18,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
-const PORT = 13458;
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
+const PORT = Number(process.env.THUNDERCLAW_E2E_PORT || (13000 + Math.floor(Math.random() * 2000)));
 const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
 
 function log(tag, msg) { console.log(`[${tag}] ${msg}`); }
+
+function pickStableOption(questionLike) {
+  const options = Array.isArray(questionLike?.options) ? questionLike.options : [];
+  if (!options.length) return null;
+  const preferred = options.find((option) => {
+    const value = String(option?.value || "").trim().toLowerCase();
+    return value && !["custom", "custom_percentile"].includes(value);
+  });
+  return preferred || options[0] || null;
+}
 
 async function post(path, body, timeoutMs = 120000) {
   const ac = new AbortController();
@@ -39,6 +49,51 @@ async function post(path, body, timeoutMs = 120000) {
   } finally { clearTimeout(timer); }
 }
 
+async function postStream(path, body, timeoutMs = 180000) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const resp = await fetch(BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ac.signal,
+    });
+    if (!resp.ok || !resp.body) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "";
+    const events = [];
+    let finalPayload = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("event: ")) {
+          currentEvent = trimmed.slice(7);
+        } else if (trimmed.startsWith("data: ")) {
+          const payload = JSON.parse(trimmed.slice(6));
+          events.push({ event: currentEvent || "message", data: payload });
+          if (currentEvent === "done" || currentEvent === "result") {
+            finalPayload = payload;
+          }
+          currentEvent = "";
+        }
+      }
+    }
+    return { ok: true, events, finalPayload };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function waitForServer(maxMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
@@ -49,6 +104,26 @@ async function waitForServer(maxMs = 30000) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
+}
+
+function buildEvalBars(count = 240, stepSec = 3600) {
+  const out = [];
+  let price = 65000;
+  for (let i = 0; i < count; i += 1) {
+    const time = 1700000000 + i * stepSec;
+    const drift = Math.sin(i / 9) * 0.006 + Math.cos(i / 15) * 0.003;
+    const next = price * (1 + drift);
+    out.push({
+      time,
+      open: price,
+      high: Math.max(price, next) * 1.002,
+      low: Math.min(price, next) * 0.998,
+      close: next,
+      volume: 1000 + i,
+    });
+    price = next;
+  }
+  return out;
 }
 
 async function main() {
@@ -98,9 +173,9 @@ async function main() {
     const questions = clarifyResult.clarifyingQuestions || [];
     const userChoices = {};
     questions.forEach((q) => {
-      // Pick first option for each question
-      if (q.options && q.options.length) {
-        userChoices[q.id] = q.options[0].value;
+      const selected = pickStableOption(q);
+      if (selected?.value) {
+        userChoices[q.id] = selected.value;
       }
     });
     log("STEP2", `Choices: ${JSON.stringify(userChoices)}`);
@@ -110,21 +185,55 @@ async function main() {
       userChoices,
       userMessage: "帮我看看什么时候比特币价格比较稳定适合买",
       assistantReply: "让我帮你分析一下比特币的价格稳定性。",
+      bars: buildEvalBars(240),
+      pair: "BTC/USDT",
+      timeframe: "1h",
+      rangeDays: 14,
     }, 120000);
     log("STEP2", `OK: ${confirmResult.ok}`);
     log("STEP2", `Feature: ${JSON.stringify(confirmResult.feature?.name || confirmResult.feature || null)}`);
     log("STEP2", `Result summary: ${confirmResult.resultSummary || "(none)"}`);
     log("STEP2", `Code source: ${confirmResult.source || "(none)"}`);
-    if (confirmResult.generatedCode?.indicatorCode) {
-      log("STEP2", `Code lines: ${confirmResult.generatedCode.indicatorCode.split("\n").length}`);
+    if (confirmResult.generatedCode?.featureCode) {
+      log("STEP2", `Code lines: ${confirmResult.generatedCode.featureCode.split("\n").length}`);
       log("STEP2", `--- Generated Code ---`);
-      console.log(confirmResult.generatedCode.indicatorCode);
-      log("STEP2", `--- Entry: ${confirmResult.generatedCode.entryConditionCode || "none"} ---`);
-      log("STEP2", `--- Exit: ${confirmResult.generatedCode.exitConditionCode || "none"} ---`);
+      console.log(confirmResult.generatedCode.featureCode);
     }
     if (confirmResult.error) {
       log("STEP2", `Error: ${confirmResult.error}`);
     }
+    log("STEP2", `Spec artifact: ${confirmResult.specArtifact ? "yes" : "no"}`);
+    log("STEP2", `Run artifacts: ${confirmResult.runArtifacts ? "yes" : "no"}`);
+
+    // ━━━━━ Step 2B: Stream confirm for workbench artifacts ━━━━━
+    log("STEP2B", "Submitting dedicated stream flow to verify task/workbench artifacts...");
+    const streamClarify = await post("/api/strategy/intent-clarify", {
+      userMessage: "帮我做一个判断市场波动率高低的工具",
+      assistantReply: "",
+    }, 60000);
+    const streamChoices = {};
+    (streamClarify.clarifyingQuestions || []).forEach((q) => {
+      const selected = pickStableOption(q);
+      if (selected?.value) streamChoices[q.id] = selected.value;
+    });
+    const streamResult = await postStream("/api/strategy/intent-confirm/stream", {
+      featureConcept: streamClarify.featureConcept || { name: "market_volatility_assessment", description: "波动率评估", category: "volatility" },
+      userChoices: streamChoices,
+      userMessage: "帮我做一个判断市场波动率高低的工具",
+      assistantReply: "",
+      bars: buildEvalBars(240),
+      pair: "BTC/USDT",
+      timeframe: "1h",
+      rangeDays: 14,
+    }, 300000);
+    const streamPayload = streamResult.finalPayload || {};
+    const thinkingEvents = (streamResult.events || []).filter((item) => item.event === "thinking");
+    log("STEP2B", `Thinking events: ${thinkingEvents.length}`);
+    log("STEP2B", `Stream OK: ${Boolean(streamPayload.ok)}`);
+    log("STEP2B", `Task present: ${Boolean(streamPayload.task)}`);
+    log("STEP2B", `Spec artifact present: ${Boolean(streamPayload.specArtifact)}`);
+    log("STEP2B", `Traces count: ${(streamPayload.traces || []).length}`);
+    log("STEP2B", `Run artifacts present: ${Boolean(streamPayload.runArtifacts || streamPayload.generatedCode?.runArtifacts)}`);
 
     // ━━━━━ Step 3: Apply to feature store ━━━━━
     if (confirmResult.ok && confirmResult.feature) {
@@ -150,6 +259,9 @@ async function main() {
         const evalResult = await post("/api/strategy/features/evaluate", {
           featureIds: [featureName],
           rangeDays: 14,
+          pair: "BTC/USDT",
+          timeframe: "1h",
+          bars: buildEvalBars(240),
         });
         log("STEP4", `Evaluated: ${evalResult.ok}`);
         if (evalResult.ok) {
@@ -205,13 +317,28 @@ async function main() {
       intentDetected: clarifyResult.intentDetected || false,
       hasQuestions: (clarifyResult.clarifyingQuestions || []).length >= 1,
       featureGenerated: confirmResult.ok || false,
-      hasCode: Boolean(confirmResult.generatedCode?.indicatorCode),
+      hasCode: Boolean(confirmResult.generatedCode?.featureCode),
       hasResultSummary: Boolean(confirmResult.resultSummary),
+      hasSpecArtifact: Boolean(confirmResult.specArtifact),
+      streamFeatureGenerated: Boolean(streamPayload.ok),
+      streamHasTask: Boolean(streamPayload.task),
+      streamHasTraces: (streamPayload.traces || []).length > 0,
+      streamHasSpecArtifact: Boolean(streamPayload.specArtifact),
+      streamHasRunArtifacts: Boolean(streamPayload.runArtifacts || streamPayload.generatedCode?.runArtifacts),
       fastPathCardOnly: chatChecks.isFastPath && chatChecks.emptyReply && chatChecks.hasClarification,
       sessionRestoreOk: restoreChecks.restoreOk,
     };
     log("RESULT", JSON.stringify(checks, null, 2));
-    const allPassed = checks.intentDetected && checks.hasQuestions && checks.featureGenerated && checks.hasCode;
+    const allPassed = checks.intentDetected
+      && checks.hasQuestions
+      && checks.featureGenerated
+      && checks.hasCode
+      && checks.hasSpecArtifact
+      && checks.streamFeatureGenerated
+      && checks.streamHasTask
+      && checks.streamHasTraces
+      && checks.streamHasSpecArtifact
+      && checks.streamHasRunArtifacts;
     log("VERDICT", allPassed ? "✅ CLARIFICATION FLOW TEST PASSED" : "⚠️ SOME CHECKS FAILED");
     process.exit(allPassed ? 0 : 1);
 

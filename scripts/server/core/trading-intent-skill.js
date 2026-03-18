@@ -101,11 +101,13 @@ function normalizeCandidate(rawLike = {}, index = 0) {
 export function createTradingIntentSkill(deps = {}) {
   // Legacy deps kept for backward compat with server wiring
   const normalizeSessionId = deps.normalizeSessionId || ((s) => toText(s, "thunderclaw-main"));
+  const injectedPipeline = deps.pipeline && typeof deps.pipeline === "object" ? deps.pipeline : null;
 
   // Create the feature pipeline with model config from xbrain store
   // Supports model switching: when user changes model in 虾脑, pipeline follows.
   let pipeline = null;
   function getPipeline() {
+    if (injectedPipeline) return injectedPipeline;
     if (pipeline) return pipeline;
     if (typeof deps.getModelConfig === "function") {
       // Full model config: supports any provider configured in 虾脑
@@ -171,11 +173,6 @@ export function createTradingIntentSkill(deps = {}) {
           normalized.feature.generatedCode = c.feature.generatedCode;
           normalized.feature.codegenStatus = toText(c.feature.codegenStatus, "");
           normalized.feature.codegenError = toText(c.feature.codegenError, "");
-          // Map to legacy params format for backward compat
-          if (c.feature.generatedCode.indicatorCode) {
-            normalized.feature.params.pythonIndicator = c.feature.generatedCode.indicatorCode;
-            normalized.feature.params.codeSource = c.feature.generatedCode.codeSource || "pipeline";
-          }
         }
         return normalized;
       }).filter(Boolean);
@@ -223,9 +220,6 @@ export function createTradingIntentSkill(deps = {}) {
         candidate.feature.generatedCode = result.code;
         candidate.feature.codegenStatus = "validated";
         candidate.feature.codegenError = "";
-        // Legacy compat
-        candidate.feature.params.pythonIndicator = result.code.indicatorCode || "";
-        candidate.feature.params.codeSource = result.code.codeSource || "pipeline";
       } else {
         candidate.feature.codegenStatus = "validation_failed";
         candidate.feature.codegenError = (result.errors || []).join("; ") || "code generation failed";
@@ -267,6 +261,22 @@ export function createTradingIntentSkill(deps = {}) {
     }
   }
 
+  async function reasonFromClarification(params = {}) {
+    try {
+      return await getPipeline().reasonFromClarification(params);
+    } catch (error) {
+      return { ok: false, error: toText(error?.message || error) };
+    }
+  }
+
+  async function planFromReasoning(params = {}) {
+    try {
+      return await getPipeline().planFromReasoning(params);
+    } catch (error) {
+      return { ok: false, error: toText(error?.message || error) };
+    }
+  }
+
   /**
    * Generate feature from user's clarification choices (heavy, deferred).
    */
@@ -294,6 +304,8 @@ export function createTradingIntentSkill(deps = {}) {
     extractTradingIntentCandidates,
     generateFeatureCodeForCandidate,
     detectAndClarify,
+    reasonFromClarification,
+    planFromReasoning,
     generateFromClarification,
     generateWithAgentLoop,
   };

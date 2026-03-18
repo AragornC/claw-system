@@ -402,6 +402,195 @@ function buildSampleTableRuntime(rowsLike, tfLike, optionsLike) {
     + "</tr></thead><tbody>" + body + "</tbody></table>";
 }
 
+function seriesPathWithGapsRuntime(rowsLike, valueKeyLike, minValLike, maxValLike, left, right, top, bottom) {
+  const rows = Array.isArray(rowsLike) ? rowsLike : [];
+  const valueKey = sfText(valueKeyLike, "");
+  const minVal = sfNum(minValLike, 0);
+  const maxVal = sfNum(maxValLike, 1);
+  const span = Math.max(1e-9, maxVal - minVal);
+  const innerW = Math.max(1, right - left);
+  const innerH = Math.max(1, bottom - top);
+  let path = "";
+  let drawing = false;
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i] && typeof rows[i] === "object" ? rows[i] : {};
+    const v = Number(row[valueKey]);
+    if (!Number.isFinite(v)) {
+      drawing = false;
+      continue;
+    }
+    const x = left + (i / Math.max(1, rows.length - 1)) * innerW;
+    const y = top + (1 - ((v - minVal) / span)) * innerH;
+    path += (drawing ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2);
+    drawing = true;
+  }
+  return path;
+}
+
+function normalizeFeatureEvalRowsRuntime(timeSeriesLike, featureColLike) {
+  const timeSeries = Array.isArray(timeSeriesLike) ? timeSeriesLike : [];
+  const featureCol = sfText(featureColLike, "");
+  return timeSeries.map(function mapRow(itemLike) {
+    const row = itemLike && typeof itemLike === "object" ? itemLike : {};
+    const timeSec = Math.floor(sfNum(row.time, 0));
+    if (!Number.isFinite(timeSec) || timeSec <= 0) return null;
+    const open = Number(row.open);
+    const high = Number(row.high);
+    const low = Number(row.low);
+    const close = Number(row.close);
+    const volume = Number(row.volume);
+    const featureValue = Number(row[featureCol]);
+    return {
+      time: timeSec,
+      open: Number.isFinite(open) ? open : null,
+      high: Number.isFinite(high) ? high : null,
+      low: Number.isFinite(low) ? low : null,
+      close: Number.isFinite(close) ? close : null,
+      volume: Number.isFinite(volume) ? volume : null,
+      value: Number.isFinite(featureValue) ? featureValue : null,
+    };
+  }).filter(Boolean).sort(function sortByTime(a, b) {
+    return sfNum(a.time, 0) - sfNum(b.time, 0);
+  });
+}
+
+function buildFeatureEvalSampleRowsRuntime(rowsLike, featureColLike, maxRowsLike) {
+  const rows = Array.isArray(rowsLike) ? rowsLike : [];
+  const featureCol = sfText(featureColLike, "").replace(/^tc_feat_/, "");
+  const maxRows = Math.max(4, Math.min(20, Math.floor(sfNum(maxRowsLike, 12))));
+  const out = [];
+  for (let i = rows.length - 1; i >= 0 && out.length < maxRows; i -= 1) {
+    const row = rows[i] && typeof rows[i] === "object" ? rows[i] : null;
+    if (!row || !Number.isFinite(Number(row.value))) continue;
+    out.push({
+      idx: i,
+      timeSec: Math.floor(sfNum(row.time, 0)),
+      ts: sfFormatBarTs(row.time),
+      close: Number.isFinite(Number(row.close)) ? Number(row.close) : null,
+      value: Number(row.value),
+      explain: featureCol ? (featureCol + "=" + Number(row.value).toFixed(4)) : ("特征值=" + Number(row.value).toFixed(4)),
+    });
+  }
+  return out;
+}
+
+function renderFeatureEvaluationRuntime(timeSeriesLike, columnsLike, optionsLike) {
+  const options = optionsLike && typeof optionsLike === "object" ? optionsLike : {};
+  const detailMode = options.detailMode !== false;
+  const tf = sfText(options.timeframe || "-", "-");
+  const columns = Array.isArray(columnsLike)
+    ? columnsLike.filter(function onlyFeatureCols(colLike) { return sfText(colLike, "").indexOf("tc_feat_") === 0; })
+    : [];
+  const featureCol = columns[0] || "";
+  if (!featureCol) {
+    return {
+      ok: false,
+      error: "未找到可展示的特征列",
+      sampleRows: [],
+      featureLabel: "",
+      timeframe: tf,
+    };
+  }
+  const normalizedRows = normalizeFeatureEvalRowsRuntime(timeSeriesLike, featureCol);
+  const validBars = normalizedRows.filter(function onlyValidBars(rowLike) {
+    const row = rowLike && typeof rowLike === "object" ? rowLike : {};
+    return [row.open, row.high, row.low, row.close].every(function each(vLike) {
+      return Number.isFinite(Number(vLike));
+    });
+  });
+  if (validBars.length < 8) {
+    return {
+      ok: false,
+      error: "有效 K 线数量不足，无法绘制特征图",
+      sampleRows: [],
+      featureLabel: featureCol.replace(/^tc_feat_/, ""),
+      timeframe: tf,
+    };
+  }
+  const chartWindow = Math.max(24, Math.min(96, Math.floor(sfNum(options.chartWindow, detailMode ? 72 : 48))));
+  const chartRows = validBars.slice(-chartWindow).map(function mapRow(row) {
+    return {
+      time: row.time,
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
+      volume: row.volume,
+      featureValue: Number.isFinite(Number(row.value)) ? Number(row.value) : null,
+    };
+  });
+  const validFeatureValues = chartRows
+    .map(function mapValue(row) { return Number(row.featureValue); })
+    .filter(Number.isFinite);
+  if (validFeatureValues.length < 3) {
+    return {
+      ok: false,
+      error: "有效特征点数量不足，无法绘制特征图",
+      sampleRows: [],
+      featureLabel: featureCol.replace(/^tc_feat_/, ""),
+      timeframe: tf,
+    };
+  }
+  const width = detailMode ? 980 : 560;
+  const height = detailMode ? 340 : 240;
+  const left = detailMode ? 18 : 12;
+  const right = width - (detailMode ? 18 : 12);
+  const topA = detailMode ? 18 : 12;
+  const bottomA = detailMode ? 208 : 144;
+  const topB = detailMode ? 236 : 168;
+  const bottomB = height - (detailMode ? 22 : 16);
+  const candleLayer = buildCandleLayerRuntime(chartRows, left, right, topA, bottomA);
+  const featureLabel = featureCol.replace(/^tc_feat_/, "");
+  let minFeature = Math.min.apply(null, validFeatureValues);
+  let maxFeature = Math.max.apply(null, validFeatureValues);
+  if (Math.abs(maxFeature - minFeature) < 1e-9) {
+    const center = minFeature;
+    minFeature = center - 1;
+    maxFeature = center + 1;
+  }
+  const featurePath = seriesPathWithGapsRuntime(chartRows, "featureValue", minFeature, maxFeature, left, right, topB, bottomB);
+  const hasZeroLine = minFeature < 0 && maxFeature > 0;
+  const zeroPath = hasZeroLine
+    ? seriesPathRuntime([0, 0], minFeature, maxFeature, left, right, topB, bottomB)
+    : "";
+  const firstLabel = chartRows.length ? sfFormatBarTs(chartRows[0].time) : "-";
+  const lastLabel = chartRows.length ? sfFormatBarTs(chartRows[chartRows.length - 1].time) : "-";
+  const skippedBarCount = Math.max(0, normalizedRows.length - validBars.length);
+  const skippedValueCount = chartRows.filter(function missingValue(row) {
+    return !Number.isFinite(Number(row.featureValue));
+  }).length;
+  const statusParts = [
+    "TF=" + sfEscapeHtml(tf),
+    "窗口=" + String(chartRows.length) + "根",
+  ];
+  if (skippedBarCount > 0) statusParts.push("已跳过" + String(skippedBarCount) + "根坏K线");
+  if (skippedValueCount > 0) statusParts.push("已忽略" + String(skippedValueCount) + "个坏点");
+  const svg = '<svg class="feature-eval-svg' + (detailMode ? " large" : "") + '" viewBox="0 0 ' + width + " " + height + '" preserveAspectRatio="none">'
+    + '<path d="' + candleLayer.wickPath + '" fill="none" stroke="rgba(139,148,158,0.55)" stroke-width="1"></path>'
+    + candleLayer.bodyHtml
+    + '<line x1="' + left + '" y1="' + topB + '" x2="' + right + '" y2="' + topB + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
+    + '<line x1="' + left + '" y1="' + bottomB + '" x2="' + right + '" y2="' + bottomB + '" stroke="rgba(139,148,158,0.18)" stroke-width="1"></line>'
+    + (zeroPath ? ('<path d="' + zeroPath + '" fill="none" stroke="rgba(210,153,34,0.45)" stroke-width="1" stroke-dasharray="4 3"></path>') : "")
+    + '<path d="' + featurePath + '" fill="none" stroke="rgba(88,166,255,0.96)" stroke-width="1.7"></path>'
+    + '<text x="' + left + '" y="' + (height - 6) + '" fill="rgba(139,148,158,0.86)" font-size="' + (detailMode ? "12" : "10") + '">' + sfEscapeHtml(firstLabel) + "</text>"
+    + '<text x="' + right + '" y="' + (height - 6) + '" text-anchor="end" fill="rgba(139,148,158,0.86)" font-size="' + (detailMode ? "12" : "10") + '">' + sfEscapeHtml(lastLabel) + "</text>"
+    + '<text x="' + left + '" y="' + (topB - 8) + '" fill="rgba(121,192,255,0.95)" font-size="' + (detailMode ? "12" : "10") + '">' + sfEscapeHtml(featureLabel || "feature") + "</text>"
+    + "</svg>";
+  return {
+    ok: true,
+    html: '<div class="feature-eval-chart-card">'
+      + '<div class="feature-eval-chart-head">'
+      + '<div class="feature-eval-chart-title">K线 + 特征图</div>'
+      + '<div class="feature-eval-chart-meta">' + statusParts.join(" · ") + "</div>"
+      + "</div>"
+      + svg
+      + "</div>",
+    sampleRows: buildFeatureEvalSampleRowsRuntime(chartRows, featureCol, options.sampleRows || 12),
+    featureLabel: featureLabel,
+    timeframe: tf,
+  };
+}
+
 function renderTrendOverlayComponent(paramsLike) {
   const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
   const detailMode = Boolean(params.context && params.context.detailMode);
@@ -677,6 +866,8 @@ function renderFeatureVisualizationRuntime(featureLike, contextLike) {
 
     return {
       renderFeatureVisualizationRuntime,
+      renderFeatureEvaluationRuntime,
+      resolvePreviewBarsRuntime,
     };
   }
 

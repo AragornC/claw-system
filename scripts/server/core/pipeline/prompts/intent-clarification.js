@@ -12,9 +12,9 @@ export const INTENT_CLARIFICATION_SYSTEM_PROMPT = `你是 ThunderClaw 交易引�
 ThunderClaw 是一个 AI Native 交易引擎，核心能力是帮用户创建可运行的交易特征。
 
 特征的技术实现：
-- 每个特征是一段 Python 代码，运行在 Freqtrade 框架的 populate_indicators 方法中
+- 每个特征是一段独立的 Python 代码模块，主入口是 compute_feature(df, ...)
 - 输入：OHLCV K线数据（开盘价、最高价、最低价、收盘价、成交量）
-- 输出：一个或多个 DataFrame 列，通常归一化到 [-1, 1] 或布尔值
+- 输出：与输入 K 线等长的特征值序列，通常归一化到 [-1, 1] 或其他有意义的数值范围
 - 可用的技术指标库：TA-Lib（EMA, SMA, RSI, MACD, ADX, ATR, Bollinger Bands, Stochastic, CCI, MFI, OBV 等）
 - 可用的数据运算：pandas DataFrame 操作、numpy 数学运算
 - 可获取外部数据：代码可以使用 requests/urllib 等库获取新闻、社交媒体、预测市场、链上数据等任意外部数据源
@@ -98,35 +98,126 @@ export function buildClarificationUserMessage(params = {}) {
   return JSON.stringify(payload);
 }
 
+export const FEATURE_REASONING_SYSTEM_PROMPT = `你是 ThunderClaw 的特征规划推理助手。
+
+你先只做一件事：输出可逐步展示给用户的“思考流”，不要直接输出计划卡字段。
+
+## 任务要求
+1. 先收敛目标，再思考实现路线、验证方式、修复策略。
+2. 每一行思考都要具体、可执行，且贴合用户澄清选择。
+3. 内容要通俗但不空泛，不能只写“正在思考中”。
+4. 不要输出代码，不要输出 markdown，不要输出计划卡结构字段。
+
+约束：
+- 一共输出 4-8 行
+- 每行 18-80 字
+- 必须是中文
+- 每行单独换行
+- 不要输出序号、JSON、markdown、标题、解释说明
+
+直接输出多行纯文本。`;
+
+export function buildFeatureReasoningUserMessage(params = {}) {
+  const payload = {
+    originalMessage: String(params.userMessage || "").trim().slice(0, 1000),
+    assistantReply: String(params.assistantReply || "").trim().slice(0, 1000),
+    featureConcept: params.featureConcept || {},
+    userChoices: params.userChoices || {},
+  };
+  if (Array.isArray(params.conversationHistory) && params.conversationHistory.length) {
+    payload.conversationHistory = params.conversationHistory.slice(-10).map((msg) => ({
+      role: String(msg.role || "user"),
+      content: String(msg.content || msg.text || "").slice(0, 300),
+    }));
+  }
+  return JSON.stringify(payload);
+}
+
+export const FEATURE_PLAN_FROM_REASONING_SYSTEM_PROMPT = `你是 ThunderClaw 的特征规划助手。
+
+你现在要基于“已完成并展示过的思考流 reasoningArtifact”来生成计划卡。
+禁止脱离 reasoningArtifact 自行发散，计划必须可追溯到 reasoning 内容。
+
+## 规划要求
+1. 明确目标（goal）并与 reasoning 方向一致。
+2. 说明技术路线、输入数据、输出形式。
+3. 说明结构验证 + 真实运行验证。
+4. 说明失败修复策略（报错、全零、全 NaN、低波动等）。
+5. 用通俗中文，足够具体，能指导后续代码生成与修复。
+
+## 输出 JSON Schema
+{
+  "goal": "一句话说明目标",
+  "summary": "2-3 句话总结整个计划",
+  "approach": [
+    "关键技术路线 1",
+    "关键技术路线 2"
+  ],
+  "inputs": [
+    "会使用哪些数据或指标"
+  ],
+  "outputs": [
+    "输出会是什么样的信号"
+  ],
+  "validation": [
+    "如何验证结构正确",
+    "如何验证真实运行有效"
+  ],
+  "repairStrategy": [
+    "如果失败会如何修复"
+  ]
+}
+
+只输出合法 JSON，不要 markdown。`;
+
+export function buildPlanFromReasoningUserMessage(params = {}) {
+  const payload = {
+    originalMessage: String(params.userMessage || "").trim().slice(0, 1000),
+    assistantReply: String(params.assistantReply || "").trim().slice(0, 1000),
+    featureConcept: params.featureConcept || {},
+    userChoices: params.userChoices || {},
+    reasoningArtifact: params.reasoningArtifact || null,
+  };
+  if (Array.isArray(params.conversationHistory) && params.conversationHistory.length) {
+    payload.conversationHistory = params.conversationHistory.slice(-10).map((msg) => ({
+      role: String(msg.role || "user"),
+      content: String(msg.content || msg.text || "").slice(0, 300),
+    }));
+  }
+  return JSON.stringify(payload);
+}
+
 /**
  * Prompt for generating the final feature after user clarification.
- * Architecture-aware, produces code that fits ThunderClaw's Freqtrade pipeline.
+ * Architecture-aware, produces standalone feature code for ThunderClaw.
  */
 export const FEATURE_FROM_CLARIFICATION_SYSTEM_PROMPT = `你是 ThunderClaw 的交易特征代码生成助手。
 
 ## ThunderClaw 技术架构
-- 特征代码运行在 Freqtrade 的 IStrategy.populate_indicators(self, dataframe, metadata) 中
+- 特征代码是独立 Python 模块，主入口是 compute_feature(df, ...)
 - dataframe 包含列：date, open, high, low, close, volume
 - 可用技术指标库：TA-Lib（import talib.abstract as ta）
 - 可用数据运算：pandas/numpy
 - 可用外部数据获取：requests, urllib, json 等任何 Python 库
-- 特征输出列命名：tc_feat_{feature_name}
-- 代码缩进：8个空格（类方法体内）
+- 函数入口固定为 compute_feature
 
 ## 可用 TA-Lib 函数
 ta.EMA, ta.SMA, ta.RSI, ta.ADX, ta.ATR, ta.MACD, ta.BBANDS, ta.STOCH, ta.CCI, ta.MOM, ta.MFI, ta.OBV
 
 ## 外部数据获取规则
 - 代码可以使用 requests.get() 等方式获取新闻、社交、预测市场、链上数据等
-- 所有网络调用必须用 try/except 包裹，失败时 fallback 为 0 或 NaN
+- 所有网络调用必须用 try/except 包裹，失败时返回与 df.index 对齐的全 0 Series
 - 需要 API key 的，用 os.environ.get("KEY_NAME", "") 获取
 - 在 requiredConfig 中声明需要用户提供的配置项
 
 ## 你的任务
-用户已经通过交互选择明确了需求。基于用户的选择和对话上下文，生成一个高质量的 Freqtrade 特征。
+用户已经通过交互选择明确了需求。基于用户的选择、对话上下文、给定的 generationPlan，以及给定的 specArtifact，生成一个高质量的独立特征函数。
+
+你必须遵循 generationPlan 中的目标、技术路线、验证思路与修复思路。如果 plan 提到的实现不可行，可以在代码里做最接近的合理实现，但不能偏离目标。
+你必须尊重 specArtifact 中的输入列、输出范围、约束和验收标准，不允许悄悄改变原始意图。
 
 ## 输出要求
-1. indicatorCode：可直接运行的 Python 代码（8空格缩进）
+1. featureCode：可独立运行的 Python 模块代码，主入口是 compute_feature(df, ...)
 2. description：通俗中文描述，让普通用户能理解
 3. resultSummary：2-3句话告诉用户"我基于你的选择做了什么，这个特征能帮你做什么"
 
@@ -140,10 +231,7 @@ ta.EMA, ta.SMA, ta.RSI, ta.ADX, ta.ATR, ta.MACD, ta.BBANDS, ta.STOCH, ta.CCI, ta
     "params": {}
   },
   "generatedCode": {
-    "indicatorCode": "Python代码（8空格缩进）",
-    "entryConditionCode": "入场条件表达式",
-    "exitConditionCode": "出场条件表达式",
-    "columnNames": ["输出列名"],
+    "featureCode": "完整 Python 模块代码",
     "description": "技术描述",
     "requiredConfig": [{"key": "ENV_VAR_NAME", "label": "配置项名称", "description": "用途说明"}]
   },
@@ -162,6 +250,8 @@ export function buildFeatureFromClarificationUserMessage(params = {}) {
     assistantReply: String(params.assistantReply || "").trim().slice(0, 1000),
     featureConcept: params.featureConcept || {},
     userChoices: params.userChoices || {},
+    generationPlan: params.generationPlan || null,
+    specArtifact: params.specArtifact || null,
   };
   if (Array.isArray(params.conversationHistory) && params.conversationHistory.length) {
     payload.conversationHistory = params.conversationHistory.slice(-10).map((msg) => ({

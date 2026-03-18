@@ -857,11 +857,8 @@ function buildStrategyFromPipelineCode(paramsLike = {}) {
   const layers = resolveRuntimeLayers(params);
   const timeframe = text(params.timeframe || "1h", "1h");
 
-  // Collect generated code from features
+  const functionBlocks = [];
   const indicatorLines = [];
-  const entryConditions = [];
-  const exitConditions = [];
-  const allColumnNames = new Set();
   const featureCodeEntries = [];
 
   features.forEach((featureLike) => {
@@ -869,52 +866,31 @@ function buildStrategyFromPipelineCode(paramsLike = {}) {
     const code = feature.generatedCode && typeof feature.generatedCode === "object"
       ? feature.generatedCode
       : null;
-    if (!code || !text(code.indicatorCode)) return;
+    const featureName = text(feature.name || "unknown");
+    const safeName = featureName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const featureColumn = `tc_feat_${safeName}`;
+    if (!code || !text(code.featureCode)) return;
 
-    const indCode = text(code.indicatorCode);
-    indicatorLines.push(`        # Feature: ${text(feature.name || "unknown")}`);
-    // Ensure each line has proper 8-space indent
-    indCode.split("\n").forEach((line) => {
-      const stripped = line.replace(/^        /, "").replace(/^\s{0,8}/, "");
-      indicatorLines.push(`        ${stripped}`);
-    });
-    indicatorLines.push("");
-
-    if (text(code.entryConditionCode)) {
-      entryConditions.push(text(code.entryConditionCode));
-    }
-    if (text(code.exitConditionCode)) {
-      exitConditions.push(text(code.exitConditionCode));
-    }
-    (Array.isArray(code.columnNames) ? code.columnNames : []).forEach((c) => allColumnNames.add(c));
+    const moduleCode = text(code.featureCode);
+    const renamedModuleCode = moduleCode.replace(/\bdef\s+compute_feature\s*\(/, `def _tc_feat_${safeName}(`);
+    functionBlocks.push(renamedModuleCode.trimEnd());
+    indicatorLines.push(`        dataframe['${featureColumn}'] = _tc_feat_${safeName}(dataframe)`);
 
     featureCodeEntries.push({
-      featureRef: text(feature.name || ""),
-      indicatorCode: indCode,
-      entryConditionCode: text(code.entryConditionCode),
-      exitConditionCode: text(code.exitConditionCode),
+      featureRef: featureName,
+      featureCode: moduleCode,
       codeSource: text(code.codeSource || "pipeline"),
       description: text(code.description || ""),
     });
   });
 
-  // If no features have generated code, return null so caller can fall back
   if (indicatorLines.length === 0) return null;
-
-  // Build combined entry/exit conditions
-  const combinedEntry = entryConditions.length > 0
-    ? entryConditions.map((c) => `(${c})`).join(" | ")
-    : "False";
-  const combinedExit = exitConditions.length > 0
-    ? exitConditions.map((c) => `(${c})`).join(" | ")
-    : "False";
 
   const strategyCode = [
     "from freqtrade.strategy import IStrategy",
     "from pandas import DataFrame",
-    "import talib.abstract as ta",
-    "import numpy as np",
     "",
+    ...functionBlocks.flatMap((block) => [block, ""]),
     "class ThunderClawStrategy(IStrategy):",
     `    timeframe = '${timeframe}'`,
     `    minimal_roi = {'0': ${Math.max(0.001, layers.takeProfitPct / 100).toFixed(4)}}`,
@@ -927,13 +903,9 @@ function buildStrategyFromPipelineCode(paramsLike = {}) {
     "        return dataframe",
     "",
     "    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:",
-    `        _entry_cond = ${combinedEntry}`,
-    "        dataframe.loc[_entry_cond, 'enter_long'] = 1",
     "        return dataframe",
     "",
     "    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:",
-    `        _exit_cond = ${combinedExit}`,
-    "        dataframe.loc[_exit_cond, 'exit_long'] = 1",
     "        return dataframe",
     "",
   ].join("\n");
@@ -1027,6 +999,136 @@ function parseFreqtradeBacktestResults(resultDir, pair) {
 export function createFreqtradeBacktestAdapter(deps = {}) {
   const command = text(deps.command || process.env.THUNDERCLAW_FREQTRADE_CMD || "freqtrade", "freqtrade");
   const enabled = text(deps.enabled || process.env.THUNDERCLAW_ENABLE_FREQTRADE || "").toLowerCase();
+  const fetchImpl = typeof deps.fetchImpl === "function"
+    ? deps.fetchImpl
+    : (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null);
+
+  function extractBitgetSymbolFromPair(pairLike) {
+    const pair = text(pairLike || "BTC/USDT", "BTC/USDT");
+    if (pair.includes("/")) {
+      const base = pair.split("/")[0] || "BTC";
+      const quotePart = pair.split("/")[1] || "USDT";
+      const quote = quotePart.split(":")[0] || "USDT";
+      return (base + quote).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    }
+    return pair.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() || "BTCUSDT";
+  }
+
+  function timeframeToBitgetGranularity(timeframeLike) {
+    const timeframe = text(timeframeLike || "1h", "1h").toLowerCase();
+    const mapping = {
+      "1m": "1m",
+      "5m": "5m",
+      "15m": "15m",
+      "1h": "1H",
+      "4h": "4H",
+      "1d": "1D",
+    };
+    return mapping[timeframe] || "1H";
+  }
+
+  function timeframeToSec(timeframeLike) {
+    const timeframe = text(timeframeLike || "1h", "1h").toLowerCase();
+    const mapping = {
+      "1m": 60,
+      "5m": 300,
+      "15m": 900,
+      "1h": 3600,
+      "4h": 14400,
+      "1d": 86400,
+    };
+    return mapping[timeframe] || 3600;
+  }
+
+  async function fetchBitgetHistoryBars(paramsLike = {}) {
+    if (!fetchImpl) {
+      return { ok: false, error: "历史行情拉取失败：当前 Node 环境不支持 fetch" };
+    }
+    const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
+    const pair = text(params.pair || "BTC/USDT", "BTC/USDT");
+    const timeframe = text(params.timeframe || "1h", "1h");
+    const rangeDays = Math.max(1, Math.min(365, Math.floor(num(params.rangeDays, 30))));
+    const exchange = text(params.exchange || process.env.THUNDERCLAW_FREQTRADE_EXCHANGE || "bitget", "bitget").toLowerCase();
+    if (exchange !== "bitget") {
+      return { ok: false, error: `历史行情拉取失败：暂不支持 ${exchange}` };
+    }
+    const symbol = extractBitgetSymbolFromPair(pair);
+    const granularity = timeframeToBitgetGranularity(timeframe);
+    const tfSec = timeframeToSec(timeframe);
+    const targetBars = Math.max(24, Math.ceil((rangeDays * 86400) / tfSec) + 8);
+    const limit = 200;
+    const endTimeMs = Date.now();
+    const startTimeMs = endTimeMs - (rangeDays * 86400 * 1000);
+    let cursorEndMs = endTimeMs;
+    let pages = 0;
+    const maxPages = Math.max(2, Math.ceil(targetBars / limit) + 4);
+    const merged = new Map();
+    while (pages < maxPages) {
+      pages += 1;
+      const url = "https://api.bitget.com/api/v2/mix/market/history-candles?symbol="
+        + encodeURIComponent(symbol)
+        + "&productType=USDT-FUTURES&granularity=" + encodeURIComponent(granularity)
+        + "&limit=" + encodeURIComponent(String(limit))
+        + "&endTime=" + encodeURIComponent(String(Math.floor(cursorEndMs)));
+      let resp;
+      try {
+        resp = await fetchImpl(url, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+      } catch (error) {
+        return { ok: false, error: `历史行情拉取失败：${text(error?.message || error || "unknown")}` };
+      }
+      if (!resp || !resp.ok) {
+        return { ok: false, error: `历史行情拉取失败：bitget ${resp ? resp.status : "network"}` };
+      }
+      let payload;
+      try {
+        payload = await resp.json();
+      } catch (error) {
+        return { ok: false, error: `历史行情拉取失败：返回解析失败 ${text(error?.message || error || "unknown")}` };
+      }
+      const rows = Array.isArray(payload?.data) ? payload.data : [];
+      const pageBars = rows.map((rowLike) => {
+        const row = Array.isArray(rowLike) ? rowLike : [];
+        const ts = Math.floor(num(row[0], 0));
+        const open = num(row[1], NaN);
+        const high = num(row[2], NaN);
+        const low = num(row[3], NaN);
+        const close = num(row[4], NaN);
+        const volume = num(row[5], NaN);
+        if (!Number.isFinite(ts) || ts <= 0) return null;
+        if (![open, high, low, close].every(Number.isFinite)) return null;
+        return {
+          time: Math.floor(ts / 1000),
+          open,
+          high,
+          low,
+          close,
+          volume: Number.isFinite(volume) ? Math.max(0, volume) : null,
+        };
+      }).filter(Boolean).sort((a, b) => a.time - b.time);
+      if (!pageBars.length) break;
+      pageBars.forEach((bar) => {
+        merged.set(String(bar.time), bar);
+      });
+      const oldestSec = num(pageBars[0]?.time, 0);
+      if (!Number.isFinite(oldestSec) || oldestSec <= 0) break;
+      if ((oldestSec * 1000) <= startTimeMs && merged.size >= targetBars) break;
+      cursorEndMs = Math.max(0, oldestSec * 1000 - 1);
+    }
+    const allBars = Array.from(merged.values()).sort((a, b) => a.time - b.time);
+    const filtered = allBars.filter((bar) => {
+      const tsMs = num(bar.time, 0) * 1000;
+      return tsMs >= startTimeMs && tsMs <= endTimeMs;
+    });
+    if (!filtered.length) {
+      return { ok: false, error: "历史范围不足：未获取到指定时间段内的真实 OHLCV" };
+    }
+    const earliestMs = num(filtered[0]?.time, 0) * 1000;
+    const boundarySlackMs = tfSec * 1000 * 2;
+    if (earliestMs > (startTimeMs + boundarySlackMs)) {
+      return { ok: false, error: "历史范围不足：未能完整回拉到所选时间范围起点" };
+    }
+    return { ok: true, bars: filtered, pair, timeframe, rangeDays };
+  }
 
   function checkFreqtradeAvailable() {
     const probe = spawnSync(command, ["--version"], {
@@ -1307,15 +1409,14 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
    * @param {string} [params.timeframe="1h"]
    * @returns {{ ok, featureTimeSeries, featureStats, generatedCode, barCount }}
    */
-  function runFeatureEvaluation(paramsLike = {}) {
+  async function runFeatureEvaluation(paramsLike = {}) {
     const params = paramsLike && typeof paramsLike === "object" ? paramsLike : {};
     const features = normalizeArray(params.features || []);
     const rangeDays = Math.max(1, Math.min(365, Math.floor(num(params.rangeDays, 30))));
     const pair = text(params.pair || "BTC/USDT", "BTC/USDT");
     const timeframe = text(params.timeframe || "1h", "1h");
 
-    // Collect indicator code from features
-    const codeBlocks = [];
+    const evalEntries = [];
     const featureNames = [];
     const featureCodeEntries = [];
     features.forEach((featureLike) => {
@@ -1325,33 +1426,49 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       const name = text(feature.name || feature.featureName || "");
       if (!name) return;
       featureNames.push(name);
-      if (code && text(code.indicatorCode)) {
-        const indCode = text(code.indicatorCode);
-        // Normalize indentation to 4 spaces for script body
-        const normalized = indCode.split("\n").map((line) => {
-          const stripped = line.replace(/^\s{0,8}/, "");
-          return stripped ? `    ${stripped}` : "";
-        }).join("\n");
-        codeBlocks.push(`    # Feature: ${name}\n${normalized}`);
+      if (code && text(code.featureCode)) {
+        evalEntries.push({
+          name,
+          safeName: name.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+          featureCode: text(code.featureCode),
+        });
         featureCodeEntries.push({
           featureName: name,
-          indicatorCode: indCode,
-          entryConditionCode: text(code.entryConditionCode, ""),
-          exitConditionCode: text(code.exitConditionCode, ""),
+          featureCode: text(code.featureCode),
           codeSource: text(code.codeSource, ""),
           description: text(code.description, ""),
         });
       }
     });
 
-    if (codeBlocks.length === 0) {
-      return { ok: false, error: "No features with generated indicator code found" };
+    if (evalEntries.length === 0) {
+      return { ok: false, error: "No features with generated featureCode found" };
     }
 
-    // Build Python evaluation script
-    const bars = buildSyntheticBars(rangeDays, timeframe === "1h" ? 3600 : 900);
+    const normalizedBars = normalizeBars(params.bars);
+    let bars = normalizedBars;
+    if (!bars.length) {
+      const historyResult = await fetchBitgetHistoryBars({
+        pair,
+        timeframe,
+        rangeDays,
+        exchange: params.exchange,
+      });
+      if (!historyResult.ok) {
+        return {
+          ok: false,
+          error: text(historyResult.error, "历史行情拉取失败"),
+        };
+      }
+      bars = normalizeBars(historyResult.bars);
+    }
+    if (!bars.length) {
+      return {
+        ok: false,
+        error: "缺少真实 OHLCV 数据，无法运行特征计算",
+      };
+    }
     const pyRows = JSON.stringify(bars.map((b) => [b.time * 1000, b.open, b.high, b.low, b.close, b.volume]));
-    // Find columns starting with tc_feat_
     const pyScript = [
       "import json, sys, math",
       "try:",
@@ -1368,30 +1485,47 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       "df['high'] = df[['open','close','high']].max(axis=1)",
       "df['low'] = df[['open','close','low']].min(axis=1)",
       "",
-      "dataframe = df.copy()",
+      "feature_cols = []",
+      "ts_data = []",
+      "stats = {}",
       "try:",
-      ...codeBlocks,
+      `    feature_entries = ${JSON.stringify(evalEntries)}`,
+      "    for entry in feature_entries:",
+      "        namespace = {}",
+      "        exec(entry['featureCode'], namespace)",
+      "        fn = namespace.get('compute_feature')",
+      "        if not callable(fn):",
+      "            raise ValueError(f\"compute_feature missing for {entry['name']}\")",
+      "        series = fn(df.copy())",
+      "        if not isinstance(series, pd.Series):",
+      "            raise ValueError(f\"compute_feature must return pandas.Series for {entry['name']}\")",
+      "        if len(series) != len(df):",
+      "            raise ValueError(f\"feature length mismatch for {entry['name']}\")",
+      "        col = 'tc_feat_' + entry['safeName']",
+      "        df[col] = series.values if len(series.index) == len(df.index) else series.reindex(df.index).values",
+      "        feature_cols.append(col)",
       "except Exception as e:",
-      "    print(json.dumps({'ok': False, 'error': f'Indicator code error: {e}'}))",
+      "    print(json.dumps({'ok': False, 'error': f'Feature code error: {e}'}))",
       "    sys.exit(0)",
       "",
-      "# Extract feature columns",
-      "base_cols = {'date','open','high','low','close','volume'}",
-      "feature_cols = [c for c in dataframe.columns if c not in base_cols]",
-      "",
       "# Build time series output",
-      "ts_data = []",
-      "for i, row in dataframe.iterrows():",
-      "    entry = {'time': int(row['date'].timestamp()), 'close': float(row['close'])}",
+      "for i, row in df.iterrows():",
+      "    entry = {",
+      "        'time': int(row['date'].timestamp()),",
+      "        'open': float(row['open']) if pd.notna(row['open']) and np.isfinite(row['open']) else None,",
+      "        'high': float(row['high']) if pd.notna(row['high']) and np.isfinite(row['high']) else None,",
+      "        'low': float(row['low']) if pd.notna(row['low']) and np.isfinite(row['low']) else None,",
+      "        'close': float(row['close']) if pd.notna(row['close']) and np.isfinite(row['close']) else None,",
+      "        'volume': float(row['volume']) if pd.notna(row['volume']) and np.isfinite(row['volume']) else None,",
+      "    }",
       "    for col in feature_cols:",
       "        v = row[col]",
       "        entry[col] = float(v) if pd.notna(v) and np.isfinite(v) else None",
       "    ts_data.append(entry)",
       "",
       "# Compute statistics",
-      "stats = {}",
       "for col in feature_cols:",
-      "    series = dataframe[col].dropna()",
+      "    series = df[col].dropna()",
       "    if len(series) == 0:",
       "        stats[col] = {'mean': 0, 'std': 0, 'min': 0, 'max': 0, 'count': 0, 'nonNull': 0}",
       "    else:",
@@ -1405,7 +1539,7 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       "            'nonNull': int(len(finite)),",
       "        }",
       "",
-      "print(json.dumps({'ok': True, 'timeSeries': ts_data[-200:], 'stats': stats, 'featureCols': feature_cols, 'totalBars': len(dataframe)}))",
+      "print(json.dumps({'ok': True, 'timeSeries': ts_data, 'stats': stats, 'featureCols': feature_cols, 'totalBars': len(df)}))",
     ].join("\n");
 
     const pyCommand = resolvePythonCommand(command);
@@ -1419,12 +1553,23 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
       return {
         ok: false,
         error: `Feature evaluation failed: ${text(run.stderr || run.stdout || "unknown")}`,
+        logs: {
+          stdout: text(run.stdout, ""),
+          stderr: text(run.stderr, ""),
+        },
       };
     }
     try {
       const output = JSON.parse(text(run.stdout));
       if (!output.ok) {
-        return { ok: false, error: text(output.error, "evaluation failed") };
+        return {
+          ok: false,
+          error: text(output.error, "evaluation failed"),
+          logs: {
+            stdout: text(run.stdout, ""),
+            stderr: text(run.stderr, ""),
+          },
+        };
       }
       return {
         ok: true,
@@ -1436,9 +1581,29 @@ export function createFreqtradeBacktestAdapter(deps = {}) {
         pair,
         timeframe,
         rangeDays,
+        request: {
+          pair,
+          timeframe,
+          rangeDays,
+          barCount: output.totalBars || bars.length || 0,
+        },
+        samples: {
+          timeSeries: Array.isArray(output.timeSeries) ? output.timeSeries.slice(0, 12) : [],
+        },
+        logs: {
+          stdout: text(run.stdout, ""),
+          stderr: text(run.stderr, ""),
+        },
       };
     } catch {
-      return { ok: false, error: "Failed to parse evaluation output" };
+      return {
+        ok: false,
+        error: "Failed to parse evaluation output",
+        logs: {
+          stdout: text(run.stdout, ""),
+          stderr: text(run.stderr, ""),
+        },
+      };
     }
   }
 

@@ -285,7 +285,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
   const codegenRaw = paramsRaw.codegen && typeof paramsRaw.codegen === "object" ? paramsRaw.codegen : {};
   const params = {};
   const paramAliasMap = {
-    pythonindicator: "pythonIndicator",
+    featurecode: "featureCode",
     codesource: "codeSource",
     sourcetype: "sourceType",
     urltemplate: "urlTemplate",
@@ -296,7 +296,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
     coderefineinstruction: "codeRefineInstruction",
   };
   const importantParamKeys = new Set([
-    "pythonIndicator",
+    "featureCode",
     "pipelineCode",
     "codeSource",
     "codegenStatus",
@@ -351,7 +351,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
       }
     });
   const nestedMap = {
-    pythonIndicator: toText(runtimeRaw.pythonIndicator || ""),
+    featureCode: toText(runtimeRaw.featureCode || ""),
     pipelineCode: toText(runtimeRaw.pipelineCode || ""),
     outputColumn: toText(runtimeRaw.outputColumn || ""),
     timeframe: toText(runtimeRaw.timeframe || ""),
@@ -385,7 +385,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
       .filter((row) => row.key);
   }
   params.runtime = {
-    pythonIndicator: toText(params.pythonIndicator || ""),
+    featureCode: toText(params.featureCode || ""),
     pipelineCode: toText(params.pipelineCode || ""),
     outputColumn: toText(params.outputColumn || ""),
     timeframe: toText(params.timeframe || ""),
@@ -430,10 +430,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
   // Pass through generatedCode from the pipeline if present
   const generatedCode = raw.generatedCode && typeof raw.generatedCode === "object"
     ? {
-        indicatorCode: toText(raw.generatedCode.indicatorCode, ""),
-        entryConditionCode: toText(raw.generatedCode.entryConditionCode, ""),
-        exitConditionCode: toText(raw.generatedCode.exitConditionCode, ""),
-        columnNames: Array.isArray(raw.generatedCode.columnNames) ? raw.generatedCode.columnNames : [],
+        featureCode: toText(raw.generatedCode.featureCode, ""),
         codeSource: toText(raw.generatedCode.codeSource, ""),
         description: toText(raw.generatedCode.description, ""),
         validatedAt: toText(raw.generatedCode.validatedAt, ""),
@@ -460,7 +457,7 @@ function normalizeFeatureCandidate(rawLike = {}) {
     sourceType: toText(raw.sourceType || ""),
     createdBy: toText(raw.createdBy || raw.creator || ""),
     enabled: raw.enabled !== false,
-    ...(generatedCode && generatedCode.indicatorCode ? { generatedCode } : {}),
+    ...(generatedCode && generatedCode.featureCode ? { generatedCode } : {}),
   };
 }
 

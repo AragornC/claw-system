@@ -15,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const PORT = 13457; // Use a non-default port to avoid conflicts
 const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
@@ -89,6 +89,26 @@ async function waitForServer(maxMs = 30000) {
   return false;
 }
 
+function buildEvalBars(count = 240, stepSec = 3600) {
+  const out = [];
+  let price = 65000;
+  for (let i = 0; i < count; i += 1) {
+    const time = 1700000000 + i * stepSec;
+    const drift = Math.sin(i / 9) * 0.006 + Math.cos(i / 15) * 0.003;
+    const next = price * (1 + drift);
+    out.push({
+      time,
+      open: price,
+      high: Math.max(price, next) * 1.002,
+      low: Math.min(price, next) * 0.998,
+      close: next,
+      volume: 1000 + i,
+    });
+    price = next;
+  }
+  return out;
+}
+
 async function runScenario(scenario) {
   const result = { id: scenario.id, description: scenario.description, message: scenario.message };
   log(scenario.id, `💬 Sending: "${scenario.message.slice(0, 50)}..."`);
@@ -110,10 +130,8 @@ async function runScenario(scenario) {
     featureName: c.feature?.name,
     featureKind: c.feature?.kind,
     codegenStatus: c.feature?.codegenStatus,
-    hasCode: Boolean(c.feature?.generatedCode?.indicatorCode),
-    indicatorCode: c.feature?.generatedCode?.indicatorCode || c.feature?.params?.pythonIndicator || "",
-    entryCode: c.feature?.generatedCode?.entryConditionCode || "",
-    exitCode: c.feature?.generatedCode?.exitConditionCode || "",
+    hasCode: Boolean(c.feature?.generatedCode?.featureCode),
+    featureCode: c.feature?.generatedCode?.featureCode || c.feature?.params?.featureCode || "",
     codeSource: c.feature?.generatedCode?.codeSource || "",
   }));
 
@@ -151,6 +169,9 @@ async function runScenario(scenario) {
         body: JSON.stringify({
           featureIds: [result.applyFeatureName],
           rangeDays: 7,
+          pair: "BTC/USDT",
+          timeframe: "1h",
+          bars: buildEvalBars(240),
         }),
       });
       result.evalOk = evalResult.ok && evalResult.body?.ok;
@@ -270,11 +291,9 @@ async function main() {
     log("CODE", "=== All Generated Python Code ===");
     results.forEach((r) => {
       (r.candidates || []).forEach((c) => {
-        if (c.indicatorCode) {
+        if (c.featureCode) {
           console.log(`\n--- ${r.id} / ${c.featureName} (${c.codeSource}) ---`);
-          console.log(c.indicatorCode);
-          if (c.entryCode) console.log(`# Entry: ${c.entryCode}`);
-          if (c.exitCode) console.log(`# Exit:  ${c.exitCode}`);
+          console.log(c.featureCode);
         }
       });
     });

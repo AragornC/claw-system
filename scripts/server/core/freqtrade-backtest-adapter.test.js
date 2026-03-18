@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 
 import { __test__, createFreqtradeBacktestAdapter } from './freqtrade-backtest-adapter.js';
 
 process.env.THUNDERCLAW_EXTERNAL_SIGNAL_LIVE = '0';
+process.env.THUNDERCLAW_FREQTRADE_PYTHON = path.join(process.cwd(), '.thunderclaw', 'freqtrade-venv', 'bin', 'python');
 
 function buildBars(count = 240) {
   const out = [];
@@ -174,4 +176,157 @@ test('runBacktest degraded path synthesizes bars when input bars are missing', (
     out.executionReport?.engine?.mode === 'backtest' || out.executionReport?.engine?.mode === 'backtest_degraded',
     `expected backtest or backtest_degraded, got: ${out.executionReport?.engine?.mode}`,
   );
+});
+
+test('runFeatureEvaluation executes featureCode and preserves response shape', async () => {
+  const adapter = createFreqtradeBacktestAdapter({ command: '/usr/bin/true' });
+  const bars = buildBars(48);
+  const out = await adapter.runFeatureEvaluation({
+    bars,
+    rangeDays: 7,
+    pair: 'BTC/USDT',
+    timeframe: '1h',
+    features: [{
+      name: 'ema_crossover',
+      generatedCode: {
+        featureName: 'ema_crossover',
+        featureCode: [
+          'import pandas as pd',
+          'import talib.abstract as ta',
+          '',
+          'def compute_feature(df: pd.DataFrame) -> pd.Series:',
+          '    fast = ta.EMA(df, timeperiod=12)',
+          '    slow = ta.EMA(df, timeperiod=26)',
+          "    signal = ((fast - slow) / df['close'].replace(0, 1)).clip(-1, 1)",
+          '    return signal.fillna(0.0)',
+        ].join('\n'),
+        description: 'ema crossover',
+        codeSource: 'test',
+      },
+    }],
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.barCount, bars.length);
+  assert.ok(Array.isArray(out.featureTimeSeries));
+  assert.ok(out.featureTimeSeries.length > 0);
+  assert.deepEqual(out.featureColumns, ['tc_feat_ema_crossover']);
+  assert.ok(out.featureStats.tc_feat_ema_crossover);
+  assert.equal(typeof out.generatedCode?.[0]?.featureCode, 'string');
+  assert.equal(typeof out.featureTimeSeries[0]?.open, 'number');
+  assert.equal(typeof out.featureTimeSeries[0]?.high, 'number');
+  assert.equal(typeof out.featureTimeSeries[0]?.low, 'number');
+  assert.equal(typeof out.featureTimeSeries[0]?.close, 'number');
+  assert.equal(typeof out.featureTimeSeries[0]?.volume, 'number');
+});
+
+test('runFeatureEvaluation returns full timeSeries without truncating to 200 bars', async () => {
+  const adapter = createFreqtradeBacktestAdapter({ command: '/usr/bin/true' });
+  const bars = buildBars(240);
+  const out = await adapter.runFeatureEvaluation({
+    bars,
+    rangeDays: 10,
+    pair: 'BTC/USDT',
+    timeframe: '1h',
+    features: [{
+      name: 'close_passthrough',
+      generatedCode: {
+        featureName: 'close_passthrough',
+        featureCode: [
+          'import pandas as pd',
+          '',
+          'def compute_feature(df: pd.DataFrame) -> pd.Series:',
+          "    return df['close'].fillna(0.0)",
+        ].join('\n'),
+        description: 'close passthrough',
+        codeSource: 'test',
+      },
+    }],
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.barCount, bars.length);
+  assert.equal(out.featureTimeSeries.length, bars.length);
+  assert.equal(out.featureTimeSeries[0]?.time, bars[0].time);
+  assert.equal(out.featureTimeSeries.at(-1)?.time, bars.at(-1)?.time);
+});
+
+test('runFeatureEvaluation rejects missing real bars instead of synthesizing data', async () => {
+  const adapter = createFreqtradeBacktestAdapter({
+    command: '/usr/bin/true',
+    fetchImpl: async () => {
+      throw new Error('network down');
+    },
+  });
+  const out = await adapter.runFeatureEvaluation({
+    rangeDays: 7,
+    pair: 'BTC/USDT',
+    timeframe: '1h',
+    features: [{
+      name: 'ema_crossover',
+      generatedCode: {
+        featureName: 'ema_crossover',
+        featureCode: [
+          'import pandas as pd',
+          '',
+          'def compute_feature(df: pd.DataFrame) -> pd.Series:',
+          "    return df['close'].fillna(0.0)",
+        ].join('\n'),
+        description: 'close passthrough',
+        codeSource: 'test',
+      },
+    }],
+  });
+  assert.equal(out.ok, false);
+  assert.match(String(out.error || ''), /历史行情拉取失败/);
+});
+
+test('runFeatureEvaluation fetches complete historical bars when bars are omitted', async () => {
+  let callCount = 0;
+  const nowMs = Date.now();
+  const page1 = Array.from({ length: 200 }, (_, idx) => {
+    const i = 199 - idx;
+    const ts = nowMs - (i * 3600 * 1000);
+    return [String(ts), "65000", "65100", "64900", "65050", "123.4", "0"];
+  });
+  const page2 = Array.from({ length: 80 }, (_, idx) => {
+    const i = 279 - idx;
+    const ts = nowMs - (i * 3600 * 1000);
+    return [String(ts), "64000", "64100", "63900", "64050", "98.7", "0"];
+  });
+  const adapter = createFreqtradeBacktestAdapter({
+    command: '/usr/bin/true',
+    fetchImpl: async () => {
+      callCount += 1;
+      const payload = callCount === 1 ? page1 : (callCount === 2 ? page2 : []);
+      return {
+        ok: true,
+        async json() {
+          return { data: payload };
+        },
+      };
+    },
+  });
+  const out = await adapter.runFeatureEvaluation({
+    rangeDays: 9,
+    pair: 'BTC/USDT',
+    timeframe: '1h',
+    features: [{
+      name: 'ema_crossover',
+      generatedCode: {
+        featureName: 'ema_crossover',
+        featureCode: [
+          'import pandas as pd',
+          '',
+          'def compute_feature(df: pd.DataFrame) -> pd.Series:',
+          "    return df['close'].fillna(0.0)",
+        ].join('\n'),
+        description: 'close passthrough',
+        codeSource: 'test',
+      },
+    }],
+  });
+  assert.equal(out.ok, true);
+  assert.ok(out.barCount >= 200);
+  assert.equal(out.featureTimeSeries.length, out.barCount);
+  assert.ok(out.featureTimeSeries[0]?.time < out.featureTimeSeries.at(-1)?.time);
+  assert.ok(callCount >= 2);
 });

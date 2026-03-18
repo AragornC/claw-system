@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const PORT = 13470;
 const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
@@ -55,6 +55,26 @@ async function waitForServer(maxMs = 30000) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
+}
+
+function buildEvalBars(count = 240, stepSec = 3600) {
+  const out = [];
+  let price = 65000;
+  for (let i = 0; i < count; i += 1) {
+    const time = 1700000000 + i * stepSec;
+    const drift = Math.sin(i / 9) * 0.006 + Math.cos(i / 15) * 0.003;
+    const next = price * (1 + drift);
+    out.push({
+      time,
+      open: price,
+      high: Math.max(price, next) * 1.002,
+      low: Math.min(price, next) * 0.998,
+      close: next,
+      volume: 1000 + i,
+    });
+    price = next;
+  }
+  return out;
 }
 
 async function main() {
@@ -101,10 +121,10 @@ async function main() {
       featureConcept: concept, userChoices: choices,
       userMessage: "EMA 20均线分析", assistantReply: "",
     }, 120000);
-    log("APPLY", `Confirm OK: ${confirmResult.ok} Feature: ${confirmResult.feature?.name} HasCode: ${Boolean(confirmResult.generatedCode?.indicatorCode)}`);
+    log("APPLY", `Confirm OK: ${confirmResult.ok} Feature: ${confirmResult.feature?.name} HasCode: ${Boolean(confirmResult.generatedCode?.featureCode)}`);
     log("APPLY", `Summary: ${confirmResult.resultSummary?.slice(0, 80)}`);
     checks.confirm_ok = Boolean(confirmResult.ok);
-    checks.has_code = Boolean(confirmResult.generatedCode?.indicatorCode);
+    checks.has_code = Boolean(confirmResult.generatedCode?.featureCode);
 
     // Apply to store
     if (confirmResult.ok && confirmResult.feature) {
@@ -163,7 +183,7 @@ async function main() {
     if (confirmResult.feature?.name) {
       log("EVAL", "=== Testing feature evaluation ===");
       const evalResult = await post("/api/strategy/features/evaluate", {
-        featureIds: [confirmResult.feature.name], rangeDays: 7,
+        featureIds: [confirmResult.feature.name], rangeDays: 7, pair: "BTC/USDT", timeframe: "1h", bars: buildEvalBars(240),
       });
       log("EVAL", `OK: ${evalResult.ok} Bars: ${evalResult.barCount} Cols: ${(evalResult.featureColumns || []).join(", ")}`);
       checks.eval_ok = Boolean(evalResult.ok);

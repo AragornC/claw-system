@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auto Follow 手感对比 Demo</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    button {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #122035;
+      color: #cfe2ff;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .hint { font-size: 12px; color: #9cb0ce; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .panel {
+      border: 1px solid #294f79;
+      border-radius: 12px;
+      background: #101a2a;
+      overflow: hidden;
+      min-height: 620px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .head {
+      padding: 10px 12px;
+      border-bottom: 1px solid #20324b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      color: #d4e5ff;
+    }
+    .status { font-size: 12px; color: #9cb0ce; font-weight: 500; }
+    .chat {
+      height: 560px;
+      overflow: auto;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+      scroll-behavior: smooth;
+    }
+    .msg {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0f1828;
+      padding: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .step {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #0f1828;
+      overflow: hidden;
+    }
+    .step summary {
+      list-style: none;
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      color: #d4e5ff;
+      font-size: 13px;
+    }
+    .step summary::-webkit-details-marker { display: none; }
+    .step .body {
+      border-top: 1px solid #24324a;
+      padding: 8px 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .line {
+      border: 1px solid #355e8d;
+      border-radius: 7px;
+      background: #0f1c2d;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: #c5d6ee;
+    }
+    .doneTag { color: #9ff5bd; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="startBtn" type="button">开始对比</button>
+      <button id="resetBtn" type="button">重置</button>
+      <span class="hint">操作建议：开始后手动滚到上方，看两边滚动行为差异。</span>
+    </div>
+    <div class="grid">
+      <section class="panel">
+        <div class="head">
+          <span>A: 强制跟随（手感偏“硬”）</span>
+          <span class="status" id="hardStatus">等待中</span>
+        </div>
+        <div class="chat" id="hardChat"></div>
+      </section>
+      <section class="panel">
+        <div class="head">
+          <span>B: 智能跟随（推荐）</span>
+          <span class="status" id="smartStatus">等待中</span>
+        </div>
+        <div class="chat" id="smartChat"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const hardChat = document.getElementById("hardChat");
+    const smartChat = document.getElementById("smartChat");
+    const hardStatus = document.getElementById("hardStatus");
+    const smartStatus = document.getElementById("smartStatus");
+    const startBtn = document.getElementById("startBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let timer = null;
+    let tick = 0;
+
+    const smartState = {
+      manualPaused: false,
+      threshold: 60,
+      done: false,
+    };
+
+    function nearBottom(el) {
+      const d = el.scrollHeight - el.clientHeight - el.scrollTop;
+      return d <= smartState.threshold;
+    }
+
+    smartChat.addEventListener("scroll", function() {
+      if (smartState.done) return;
+      smartState.manualPaused = !nearBottom(smartChat);
+      smartStatus.textContent = smartState.manualPaused ? "手动查看中（已暂停自动跟随）" : "自动跟随中";
+    }, { passive: true });
+
+    function mkMsg(text) {
+      const d = document.createElement("div");
+      d.className = "msg";
+      d.textContent = text;
+      return d;
+    }
+
+    function mkStep(title) {
+      const wrap = document.createElement("details");
+      wrap.className = "step";
+      wrap.open = true;
+      wrap.innerHTML = '<summary><span>' + title + '</span><span>进行中</span></summary><div class="body"></div>';
+      return wrap;
+    }
+
+    function appendLine(step, text) {
+      const body = step.querySelector(".body");
+      const line = document.createElement("div");
+      line.className = "line";
+      line.textContent = text;
+      body.appendChild(line);
+    }
+
+    function autoFollowHard() {
+      hardChat.scrollTop = hardChat.scrollHeight;
+    }
+
+    function autoFollowSmart(force) {
+      if (force || (!smartState.manualPaused && !smartState.done)) {
+        smartChat.scrollTop = smartChat.scrollHeight;
+      }
+    }
+
+    function setupScene(chat) {
+      chat.innerHTML = "";
+      chat.appendChild(mkMsg("用户：帮我生成一个波动率过滤特征。"));
+      const understand = mkStep("理解需求");
+      const plan = mkStep("生成计划");
+      const write = mkStep("生成代码");
+      const run = mkStep("运行与检测");
+      chat.appendChild(understand);
+      chat.appendChild(plan);
+      chat.appendChild(write);
+      chat.appendChild(run);
+      return { understand, plan, write, run };
+    }
+
+    let hardSteps = null;
+    let smartSteps = null;
+
+    function reset() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      tick = 0;
+      smartState.manualPaused = false;
+      smartState.done = false;
+      hardSteps = setupScene(hardChat);
+      smartSteps = setupScene(smartChat);
+      hardStatus.textContent = "等待中";
+      smartStatus.textContent = "等待中";
+      autoFollowHard();
+      autoFollowSmart(true);
+      startBtn.disabled = false;
+    }
+
+    function finishStep(step) {
+      const summary = step.querySelector("summary span:last-child");
+      summary.innerHTML = '<span class="doneTag">已完成</span>';
+    }
+
+    function start() {
+      if (timer) return;
+      startBtn.disabled = true;
+      hardStatus.textContent = "强制跟随中（你上滑也会被拉回）";
+      smartStatus.textContent = "自动跟随中";
+
+      const flow = [
+        () => ["understand", "已读取用户描述和历史上下文。"],
+        () => ["understand", "已确认硬约束：ATR、30 周期、输出 0~1。"],
+        () => ["plan", "AI 思考：先锁目标，再定实现路线。"],
+        () => ["plan", "AI 思考：验证会检查长度、空值、方差。"],
+        () => ["plan", "计划卡填充：我理解到的需求。"],
+        () => ["plan", "计划卡填充：我将怎么做。"],
+        () => ["write", "代码流式生成片段 #1 ..."],
+        () => ["write", "代码流式生成片段 #2 ..."],
+        () => ["run", "运行 mock 校验..."],
+        () => ["run", "真实评估完成，检测通过。"],
+      ];
+
+      timer = setInterval(function() {
+        if (tick >= flow.length) {
+          clearInterval(timer);
+          timer = null;
+          finishStep(hardSteps.understand);
+          finishStep(hardSteps.plan);
+          finishStep(hardSteps.write);
+          finishStep(hardSteps.run);
+          finishStep(smartSteps.understand);
+          finishStep(smartSteps.plan);
+          finishStep(smartSteps.write);
+          finishStep(smartSteps.run);
+          smartState.done = true;
+          hardStatus.textContent = "任务完成（0.9s 后自动收起）";
+          smartStatus.textContent = "任务完成（0.9s 后自动收起）";
+          setTimeout(function() {
+            [hardSteps, smartSteps].forEach(function(group) {
+              Object.values(group).forEach(function(step) { step.open = false; });
+            });
+            hardStatus.textContent = "已自动收起";
+            smartStatus.textContent = "已自动收起";
+          }, 900);
+          startBtn.disabled = false;
+          return;
+        }
+
+        const [phase, text] = flow[tick]();
+        appendLine(hardSteps[phase], text);
+        appendLine(smartSteps[phase], text);
+        autoFollowHard();
+        autoFollowSmart(false);
+        tick += 1;
+      }, 700);
+    }
+
+    startBtn.addEventListener("click", start);
+    resetBtn.addEventListener("click", reset);
+    reset();
+  </script>
+</body>
+</html>

@@ -11,7 +11,9 @@
     "thunderclaw:setup:freqtrade": "bash scripts/setup-install-freqtrade.sh",
     "thunderclaw:status": "node scripts/thunderclaw-cli.js status",
     "thunderclaw:assets": "node scripts/thunderclaw-cli.js assets",
-    "thunderclaw:idea": "node scripts/thunderclaw-cli.js idea"
+    "thunderclaw:idea": "node scripts/thunderclaw-cli.js idea",
+    "e2e:clarification-flow": "node scripts/e2e/e2e-clarification-flow-test.js",
+    "e2e:browser-workbench": "node scripts/e2e/e2e-browser-clarification-workbench-test.js"
   },
   "keywords": [
     "thunderclaw",
@@ -23,5 +25,8 @@
   "type": "module",
   "dependencies": {
     "openclaw": "^2026.2.21-2"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
   }
 }

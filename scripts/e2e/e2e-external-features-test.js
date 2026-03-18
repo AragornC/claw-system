@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, "..");
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const PORT = 13461;
 const BASE = `http://127.0.0.1:${PORT}`;
 const API_KEY = process.env.DEEPSEEK_API_KEY || "sk-4f09f8d07cf24711b398274ee11a13f9";
@@ -47,6 +47,26 @@ async function waitForServer(maxMs = 45000) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
+}
+
+function buildEvalBars(count = 240, stepSec = 3600) {
+  const out = [];
+  let price = 65000;
+  for (let i = 0; i < count; i += 1) {
+    const time = 1700000000 + i * stepSec;
+    const drift = Math.sin(i / 9) * 0.006 + Math.cos(i / 15) * 0.003;
+    const next = price * (1 + drift);
+    out.push({
+      time,
+      open: price,
+      high: Math.max(price, next) * 1.002,
+      low: Math.min(price, next) * 0.998,
+      close: next,
+      volume: 1000 + i,
+    });
+    price = next;
+  }
+  return out;
 }
 
 const EXTERNAL_SCENARIOS = [
@@ -115,10 +135,10 @@ async function runExternalScenario(scenario) {
     featureConcept,
     userChoices,
     userMessage: scenario.message,
-  }, 120000);
+  }, 180000);
 
   result.checks.confirmOk = Boolean(confirmResult?.ok);
-  result.checks.hasCode = Boolean(confirmResult?.generatedCode?.indicatorCode);
+  result.checks.hasCode = Boolean(confirmResult?.generatedCode?.featureCode);
   result.checks.hasResultSummary = Boolean(confirmResult?.resultSummary);
   result.checks.codeSource = String(confirmResult?.source || "");
   log(scenario.id, `  Confirm OK: ${result.checks.confirmOk}, Code: ${result.checks.hasCode}, Source: ${result.checks.codeSource}`);
@@ -159,10 +179,32 @@ async function runExternalScenario(scenario) {
     log(scenario.id, `  Required config: ${result.checks.hasRequiredConfig ? reqConfig.map((c) => c.key).join(", ") : "none"}`);
 
     // Check that code contains real data-fetching patterns (not proxy)
-    const code = String(confirmResult?.generatedCode?.indicatorCode || "");
+    const code = String(confirmResult?.generatedCode?.featureCode || "");
     result.checks.hasRealDataFetch = code.includes("requests") || code.includes("urllib") || code.includes("http");
     result.checks.hasTryExcept = code.includes("try:") || code.includes("except");
     log(scenario.id, `  Real data fetch: ${result.checks.hasRealDataFetch}, Try/except: ${result.checks.hasTryExcept}`);
+
+    if (confirmResult?.feature?.name) {
+      const evalResult = await post("/api/strategy/features/evaluate", {
+        featureIds: [confirmResult.feature.name],
+        rangeDays: 14,
+        pair: "BTC/USDT",
+        timeframe: "1h",
+        bars: buildEvalBars(240),
+      });
+      result.checks.evalOk = Boolean(evalResult?.ok);
+      const featureCols = Array.isArray(evalResult?.featureColumns) ? evalResult.featureColumns : [];
+      const featureCol = featureCols.find((col) => col.indexOf("tc_feat_") === 0) || "";
+      const series = Array.isArray(evalResult?.featureTimeSeries) ? evalResult.featureTimeSeries : [];
+      const nonZero = featureCol
+        ? series.some((row) => {
+            const value = Number(row && row[featureCol]);
+            return Number.isFinite(value) && Math.abs(value) > 1e-8;
+          })
+        : false;
+      result.checks.realSignalFetched = nonZero;
+      log(scenario.id, `  Eval: ${result.checks.evalOk}, Non-zero signal: ${result.checks.realSignalFetched}`);
+    }
 
   return result;
 }
