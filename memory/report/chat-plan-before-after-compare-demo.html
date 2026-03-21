@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>生成计划当前 vs 目标优化 Demo</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    button {
+      border: 1px solid #2a3a52;
+      border-radius: 8px;
+      background: #122035;
+      color: #cfe2ff;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .tag {
+      font-size: 12px;
+      color: #97abc8;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .panel {
+      border: 1px solid #2a3a52;
+      border-radius: 12px;
+      background: #0f1727;
+      overflow: hidden;
+      min-height: 620px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .panel-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid #24354d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-title {
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+    .panel-sub {
+      font-size: 12px;
+      color: #93a7c4;
+    }
+    .panel-body {
+      padding: 10px 12px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .box {
+      border: 1px solid #2a3a52;
+      border-radius: 9px;
+      background: #101a2a;
+      padding: 9px 10px;
+    }
+    .label {
+      font-size: 12px;
+      color: #9cb3d4;
+      margin-bottom: 6px;
+    }
+    .muted {
+      color: #8fa4c2;
+      font-size: 13px;
+    }
+    .thinking-stream {
+      border: 1px solid #365f8f;
+      border-radius: 8px;
+      background: #0f1b2d;
+      min-height: 86px;
+      white-space: pre-wrap;
+      line-height: 1.58;
+      font-size: 13px;
+      color: #c6d7ef;
+      padding: 8px 10px;
+    }
+    .plan-card {
+      border: 1px solid #2e6f4d;
+      border-radius: 10px;
+      background: #11271f;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .plan-title {
+      font-weight: 700;
+      color: #9ff4be;
+    }
+    .status {
+      margin-left: 8px;
+      color: #9bcdb1;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .section {
+      border: 1px solid #2b533d;
+      border-radius: 8px;
+      background: #0f2119;
+      padding: 8px;
+      line-height: 1.55;
+      font-size: 13px;
+      min-height: 54px;
+    }
+    .section b {
+      display: block;
+      margin-bottom: 4px;
+      color: #b9f7ce;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .mark-current {
+      color: #ffd8a8;
+      border: 1px solid #70532a;
+      background: #2a1f12;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    .mark-target {
+      color: #b7f7c9;
+      border: 1px solid #2f6f4a;
+      background: #13291f;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    .event-log {
+      border: 1px dashed #355271;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0d1726;
+      font-size: 12px;
+      color: #9bb3d4;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      min-height: 64px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .panel { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="playBtn" type="button">播放对比</button>
+      <button id="resetBtn" type="button">重置</button>
+      <span class="tag">同一份输入：左侧是你们当前已流式版本；右侧是目标优化版本（门控更强、节奏更稳、状态更清晰）</span>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">当前实现（已流式）<span class="mark-current">现状</span></div>
+          <div class="panel-sub" id="oldState">等待中</div>
+        </div>
+        <div class="panel-body">
+          <div class="box">
+            <div class="label">理解需求</div>
+            <div class="muted">已确认：📝 特征生成任务 / ✅ 输出: 连续值 ✅ 时间: 短中期 ✅ 风格: 稳健</div>
+          </div>
+          <div class="box">
+            <div class="label">AI 思考过程</div>
+            <div class="thinking-stream" id="oldThinking"></div>
+          </div>
+          <div class="plan-card">
+            <div class="plan-title">本次任务计划 <span class="status" id="oldPlanStatus">等待中</span></div>
+            <div class="section"><b>我理解到的需求</b><span id="oldGoal"></span></div>
+            <div class="section"><b>我将怎么做</b><span id="oldApproach"></span></div>
+            <div class="section"><b>我会如何验证</b><span id="oldValidation"></span></div>
+            <div class="section"><b>若失败怎么修复</b><span id="oldRepair"></span></div>
+          </div>
+          <div class="event-log" id="oldLog"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">目标优化版 <span class="mark-target">真因果+门控</span></div>
+          <div class="panel-sub" id="newState">等待中</div>
+        </div>
+        <div class="panel-body">
+          <div class="box">
+            <div class="label">理解需求</div>
+            <div class="muted">已确认：📝 特征生成任务 / ✅ 输出: 连续值 ✅ 时间: 短中期 ✅ 风格: 稳健</div>
+          </div>
+          <div class="box">
+            <div class="label">AI 思考过程</div>
+            <div class="thinking-stream" id="newThinking"></div>
+          </div>
+          <div class="plan-card">
+            <div class="plan-title">本次任务计划 <span class="status" id="newPlanStatus">等待中</span></div>
+            <div class="section"><b>我理解到的需求</b><span id="newGoal"></span></div>
+            <div class="section"><b>我将怎么做</b><span id="newApproach"></span></div>
+            <div class="section"><b>我会如何验证</b><span id="newValidation"></span></div>
+            <div class="section"><b>若失败怎么修复</b><span id="newRepair"></span></div>
+          </div>
+          <div class="event-log" id="newLog"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const planData = {
+        thinking: [
+          "先明确目标：识别分钟级价格是否处于相对稳定区间，避免低波动阶段误触发。",
+          "再确定实现：用布林带宽度衡量上下轨收敛程度，并做归一化到 0-1。",
+          "然后校验有效性：检查特征值分布、区分稳定期与非稳定期，避免全零或全 NaN。",
+          "最后准备修复：若阈值敏感或波动失真，调整周期、标准差倍数，并引入 ATR 兜底。"
+        ],
+        goal: "基于布林带宽度识别分钟级稳定区间，帮助判断趋势变化前的盘整阶段。",
+        approach: "使用布林带宽度（上轨-下轨）作为波动代理，输入分钟级 K 线，输出 0-1 归一化特征值。",
+        validation: "先做结构校验（计算正确、阈值合理、归一化稳定），再做历史回测验证稳定期识别效果。",
+        repair: "若结果异常，则依次调整周期/倍数/阈值，并与 ATR 联合判断，避免单指标误判。"
+      };
+
+      const ui = {
+        playBtn: document.getElementById("playBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+        oldState: document.getElementById("oldState"),
+        newState: document.getElementById("newState"),
+        oldThinking: document.getElementById("oldThinking"),
+        newThinking: document.getElementById("newThinking"),
+        oldPlanStatus: document.getElementById("oldPlanStatus"),
+        newPlanStatus: document.getElementById("newPlanStatus"),
+        oldGoal: document.getElementById("oldGoal"),
+        oldApproach: document.getElementById("oldApproach"),
+        oldValidation: document.getElementById("oldValidation"),
+        oldRepair: document.getElementById("oldRepair"),
+        oldLog: document.getElementById("oldLog"),
+        newGoal: document.getElementById("newGoal"),
+        newApproach: document.getElementById("newApproach"),
+        newValidation: document.getElementById("newValidation"),
+        newRepair: document.getElementById("newRepair"),
+        newLog: document.getElementById("newLog")
+      };
+
+      let runId = 0;
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function appendLog(node, line) {
+        if (!node) return;
+        node.textContent += (node.textContent ? "\n" : "") + line;
+      }
+
+      async function typeText(node, text, msPerChar, currentRun) {
+        node.textContent = "";
+        for (let i = 0; i < text.length; i += 1) {
+          if (currentRun !== runId) return;
+          node.textContent += text.charAt(i);
+          await wait(msPerChar);
+        }
+      }
+
+      async function typeAppendText(node, text, msPerChar, currentRun) {
+        for (let i = 0; i < text.length; i += 1) {
+          if (currentRun !== runId) return;
+          node.textContent += text.charAt(i);
+          await wait(msPerChar);
+        }
+      }
+
+      function resetAll() {
+        runId += 1;
+        ui.playBtn.disabled = false;
+        ui.oldState.textContent = "等待中";
+        ui.newState.textContent = "等待中";
+        ui.oldThinking.textContent = "";
+        ui.newThinking.textContent = "";
+        ui.oldPlanStatus.textContent = "等待中";
+        ui.newPlanStatus.textContent = "等待中";
+        ui.oldGoal.textContent = "";
+        ui.oldApproach.textContent = "";
+        ui.oldValidation.textContent = "";
+        ui.oldRepair.textContent = "";
+        ui.oldLog.textContent = "";
+        ui.newGoal.textContent = "";
+        ui.newApproach.textContent = "";
+        ui.newValidation.textContent = "";
+        ui.newRepair.textContent = "";
+        ui.newLog.textContent = "";
+      }
+
+      async function playOld(currentRun) {
+        ui.oldState.textContent = "流式生成中...";
+        ui.oldPlanStatus.textContent = "草案中";
+        appendLog(ui.oldLog, "trace#31 plan.reasoning 开始");
+        let thinkingMerged = "";
+        for (let i = 0; i < planData.thinking.length; i += 1) {
+          if (currentRun !== runId) return;
+          thinkingMerged += (thinkingMerged ? "\n" : "") + planData.thinking[i];
+          ui.oldThinking.textContent = thinkingMerged;
+          appendLog(ui.oldLog, "trace#" + String(32 + i) + " 收到 thinking chunk");
+          if (i === 1) {
+            // 当前版本感受：思考尚未结束时，计划字段已开始填入
+            ui.oldGoal.textContent = planData.goal;
+            ui.oldPlanStatus.textContent = "细化中";
+            appendLog(ui.oldLog, "trace#36 plan.buildGoal 先行回填");
+          }
+          await wait(420);
+        }
+        if (currentRun !== runId) return;
+        ui.oldState.textContent = "计划字段填充中...";
+        if (!ui.oldGoal.textContent) ui.oldGoal.textContent = planData.goal;
+        ui.oldApproach.textContent = planData.approach;
+        appendLog(ui.oldLog, "trace#37 plan.buildApproach");
+        await wait(260);
+        ui.oldValidation.textContent = planData.validation;
+        appendLog(ui.oldLog, "trace#38 plan.buildValidation");
+        await wait(220);
+        ui.oldRepair.textContent = planData.repair;
+        appendLog(ui.oldLog, "trace#39 plan.buildRepair");
+        await wait(180);
+        ui.oldPlanStatus.textContent = "已定稿";
+        ui.oldState.textContent = "完成（已流式，但节奏偏粗）";
+        appendLog(ui.oldLog, "trace#40 plan.finalize");
+      }
+
+      async function playNew(currentRun) {
+        ui.newState.textContent = "思考流输出中...";
+        ui.newPlanStatus.textContent = "草案中";
+        appendLog(ui.newLog, "trace#31 plan.reasoning 开始");
+
+        for (let i = 0; i < planData.thinking.length; i += 1) {
+          if (currentRun !== runId) return;
+          if (i > 0) {
+            await typeAppendText(ui.newThinking, "\n", 5, currentRun);
+          }
+          await typeAppendText(ui.newThinking, planData.thinking[i], 5, currentRun);
+          appendLog(ui.newLog, "trace#" + String(32 + i) + " thinking chunk -> 渲染完成 -> ACK");
+          await wait(280);
+        }
+
+        if (currentRun !== runId) return;
+        appendLog(ui.newLog, "thinking 阶段 finalize ACK，允许进入 plan.build*");
+        ui.newState.textContent = "计划字段回填中...";
+        await typeText(ui.newGoal, planData.goal, 8, currentRun);
+        appendLog(ui.newLog, "trace#36 plan.buildGoal -> ACK");
+        await wait(180);
+        await typeText(ui.newApproach, planData.approach, 8, currentRun);
+        appendLog(ui.newLog, "trace#37 plan.buildApproach -> ACK");
+        await wait(180);
+        await typeText(ui.newValidation, planData.validation, 8, currentRun);
+        appendLog(ui.newLog, "trace#38 plan.buildValidation -> ACK");
+        await wait(180);
+        await typeText(ui.newRepair, planData.repair, 8, currentRun);
+        appendLog(ui.newLog, "trace#39 plan.buildRepair -> ACK");
+
+        if (currentRun !== runId) return;
+        ui.newPlanStatus.textContent = "已定稿";
+        ui.newState.textContent = "完成（更强门控+顺滑回填）";
+        appendLog(ui.newLog, "trace#40 plan.finalize -> ACK");
+      }
+
+      async function playBoth() {
+        runId += 1;
+        const currentRun = runId;
+        ui.playBtn.disabled = true;
+        resetAll();
+        runId = currentRun;
+        ui.playBtn.disabled = true;
+        await Promise.all([playOld(currentRun), playNew(currentRun)]);
+        if (currentRun === runId) {
+          ui.playBtn.disabled = false;
+        }
+      }
+
+      ui.playBtn.addEventListener("click", playBoth);
+      ui.resetBtn.addEventListener("click", resetAll);
+      resetAll();
+    })();
+  </script>
+</body>
+</html>

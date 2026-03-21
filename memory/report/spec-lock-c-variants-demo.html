@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>方案 C 细分变体对比</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 16px 60px; }
+
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc { font-size: 12px; color: #5a789a; margin-bottom: 22px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+    /* 外壳面板 */
+    .panel {
+      border: 1px solid #1e2e44;
+      border-radius: 12px;
+      background: #0d1525;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 9px 13px;
+      border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-label { font-size: 12px; font-weight: 700; color: #7aaad4; }
+    .panel-name  { font-size: 12px; color: #3a5a7a; flex: 1; }
+    .panel-body  { padding: 12px; }
+
+    /* 步骤条 */
+    .step-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 8px;
+      background: #101a2c; border: 1px solid #1d2f47;
+      margin-bottom: 10px;
+    }
+    .step-icon {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #1a4a2e; color: #5adf8a;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .step-label { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-done  { font-size: 11px; color: #5a7a9a; }
+
+    /* ═══════════════════════════════════════
+       C1 — 原版（基础流）
+       ═══════════════════════════════════════ */
+    .c1 {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+    .c1-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .c1-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #1a3a5a; color: #6ab4e8;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
+    }
+    .c1-name {
+      font-size: 13px; font-weight: 700; color: #90c8f0;
+      font-family: "SF Mono", "Fira Code", monospace; flex: 1;
+    }
+    .c1-tag { font-size: 11px; color: #5090c0; opacity: .8; }
+    .c1-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      padding: 12px; gap: 0;
+    }
+    .c1-block {
+      border: 1px solid #1e3050; border-radius: 8px;
+      padding: 8px 10px; text-align: center;
+    }
+    .c1-bhead { font-size: 10px; color: #4a7aaa; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    .c1-bcont { font-size: 12px; line-height: 1.5; }
+    .c1-in  { background: #0c1f30; }
+    .c1-in .c1-bcont { color: #82b4e0; }
+    .c1-mid { background: #120f20; border-color: #2a1e40; }
+    .c1-mid .c1-bcont { color: #b090e0; }
+    .c1-out { background: #0c1e10; border-color: #1a3a20; }
+    .c1-out .c1-bcont { color: #7ad4a0; }
+    .c1-arrow { font-size: 16px; color: #2a4060; padding: 0 6px; text-align: center; }
+    .c1-desc {
+      padding: 9px 12px 10px;
+      font-size: 12px; color: #7a96b8; line-height: 1.6;
+      border-top: 1px solid #152030;
+    }
+
+    /* ═══════════════════════════════════════
+       C2 — 宽松大字版（呼吸感强）
+       ═══════════════════════════════════════ */
+    .c2 {
+      border: 1px solid #1e3a52;
+      border-radius: 12px;
+      background: #0b1724;
+      overflow: hidden;
+    }
+    .c2-header {
+      padding: 11px 14px;
+      border-bottom: 1px solid #182d44;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .c2-badge {
+      font-size: 10px; font-weight: 700;
+      letter-spacing: .8px; text-transform: uppercase;
+      color: #4ad4a0; background: #0d2a1f;
+      border: 1px solid #1e5a3a; border-radius: 999px;
+      padding: 2px 8px; flex-shrink: 0;
+    }
+    .c2-name {
+      font-size: 14px; font-weight: 700;
+      color: #b0d8f8; flex: 1;
+      font-family: "SF Mono", "Fira Code", monospace;
+      letter-spacing: .3px;
+    }
+    .c2-flow {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr 28px 1fr;
+      align-items: stretch;
+      padding: 14px;
+      gap: 0;
+    }
+    .c2-block {
+      border-radius: 9px; padding: 11px 12px;
+    }
+    .c2-bhead {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; margin-bottom: 7px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .c2-bhead-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .c2-bval { font-size: 13px; line-height: 1.6; font-weight: 500; }
+    .c2-bsub { font-size: 11px; opacity: .65; margin-top: 2px; line-height: 1.45; }
+
+    .c2-in  { background: #0d1e30; border: 1px solid #1a3050; }
+    .c2-in .c2-bhead { color: #4090c0; }
+    .c2-in .c2-bhead-dot { background: #4090c0; }
+    .c2-in .c2-bval { color: #90c0e8; }
+
+    .c2-mid { background: #15102a; border: 1px solid #2a1f4a; }
+    .c2-mid .c2-bhead { color: #9060c0; }
+    .c2-mid .c2-bhead-dot { background: #9060c0; }
+    .c2-mid .c2-bval { color: #c0a0e8; }
+
+    .c2-out { background: #0d2018; border: 1px solid #1a4028; }
+    .c2-out .c2-bhead { color: #30a870; }
+    .c2-out .c2-bhead-dot { background: #30a870; }
+    .c2-out .c2-bval { color: #80d8a8; }
+
+    .c2-arrow-cell {
+      display: flex; align-items: center; justify-content: center;
+    }
+    .c2-arrow {
+      width: 20px; height: 20px;
+      display: flex; align-items: center; justify-content: center;
+      color: #2a4466; font-size: 14px;
+    }
+    .c2-desc {
+      margin: 0 14px 14px;
+      padding: 9px 11px;
+      background: #0c1928;
+      border: 1px solid #182d44;
+      border-radius: 8px;
+      font-size: 12px; color: #6a90b8; line-height: 1.65;
+    }
+
+    /* ═══════════════════════════════════════
+       C3 — 左边框彩条 + 图标强化版
+       ═══════════════════════════════════════ */
+    .c3 {
+      border: 1px solid #1a2a3e;
+      border-radius: 11px;
+      background: #0c1724;
+      overflow: hidden;
+    }
+    .c3-header {
+      padding: 9px 13px;
+      border-bottom: 1px solid #172438;
+      display: flex; align-items: center; gap: 9px;
+    }
+    .c3-check {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #0f2820; border: 1.5px solid #2a7050;
+      display: flex; align-items: center; justify-content: center;
+      color: #40d888; font-size: 11px; flex-shrink: 0;
+    }
+    .c3-name {
+      font-size: 13px; font-weight: 700; color: #a0c8e8;
+      font-family: "SF Mono", "Fira Code", monospace; flex: 1;
+    }
+    .c3-lock { font-size: 11px; color: #3a8060; }
+
+    .c3-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      padding: 11px 12px;
+      gap: 0;
+    }
+    .c3-block {
+      border-radius: 8px;
+      border: 1px solid transparent;
+      padding: 9px 10px;
+      border-left-width: 3px;
+    }
+    .c3-icon-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 6px;
+    }
+    .c3-ico { font-size: 14px; }
+    .c3-bhead { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+    .c3-bcont { font-size: 12px; line-height: 1.55; margin-top: 1px; }
+    .c3-bsub  { font-size: 11px; opacity: .6; margin-top: 3px; line-height: 1.4; }
+
+    .c3-in  { background: #0c1e30; border-color: #163048 #163048 #163048 #2a6aaa; }
+    .c3-in .c3-bhead { color: #4090c8; }
+    .c3-in .c3-bcont { color: #88b8e0; }
+
+    .c3-mid { background: #130e22; border-color: #221640 #221640 #221640 #7040c0; }
+    .c3-mid .c3-bhead { color: #8050c8; }
+    .c3-mid .c3-bcont { color: #b890e0; }
+
+    .c3-out { background: #0c1e14; border-color: #14301a #14301a #14301a #28a860; }
+    .c3-out .c3-bhead { color: #28a060; }
+    .c3-out .c3-bcont { color: #70c890; }
+
+    .c3-arr { font-size: 14px; padding: 0 7px; color: #283848; }
+
+    .c3-bottom {
+      padding: 8px 12px 10px;
+      border-top: 1px solid #162030;
+      font-size: 12px; color: #6890b0; line-height: 1.6;
+    }
+
+    /* ═══════════════════════════════════════
+       C4 — 渐变底色 + pill 节点风
+       ═══════════════════════════════════════ */
+    .c4 {
+      border: 1px solid #1e2e44;
+      border-radius: 12px;
+      background: #0c1522;
+      overflow: hidden;
+    }
+    .c4-header {
+      padding: 10px 14px;
+      background: linear-gradient(90deg, #0f1e30 0%, #10182a 100%);
+      border-bottom: 1px solid #182840;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .c4-name {
+      font-size: 13px; font-weight: 700;
+      color: #c0dcf8;
+      font-family: "SF Mono", "Fira Code", monospace; flex: 1;
+      letter-spacing: .2px;
+    }
+    .c4-locked {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: #0f2820; border: 1px solid #1e5a3a;
+      color: #40c878; font-weight: 500;
+    }
+    .c4-flow-wrap {
+      padding: 14px 14px 0;
+      position: relative;
+    }
+    /* 连接线 */
+    .c4-connector {
+      position: absolute;
+      top: 50%;
+      left: calc(14px + 33.3% - 1px);
+      right: calc(14px + 33.3% - 1px);
+      height: 1px;
+      background: linear-gradient(90deg, #1e4060, #2a1e50, #1e4030);
+      z-index: 0;
+      margin-top: -16px;
+    }
+    .c4-flow {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      position: relative; z-index: 1;
+    }
+    .c4-node {
+      border-radius: 10px;
+      padding: 10px 11px;
+      text-align: center;
+    }
+    .c4-node-num {
+      width: 20px; height: 20px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700;
+      margin: 0 auto 7px;
+    }
+    .c4-node-title { font-size: 11px; font-weight: 600; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+    .c4-node-val   { font-size: 12px; line-height: 1.5; }
+    .c4-node-sub   { font-size: 10px; opacity: .6; margin-top: 3px; line-height: 1.4; }
+
+    .c4-n1 { background: linear-gradient(135deg, #0d2038 0%, #0f1a2e 100%); border: 1px solid #1e3858; }
+    .c4-n1 .c4-node-num { background: #1a4070; color: #70b8f0; }
+    .c4-n1 .c4-node-title { color: #4090c8; }
+    .c4-n1 .c4-node-val { color: #90bce0; }
+
+    .c4-n2 { background: linear-gradient(135deg, #150f28 0%, #110c20 100%); border: 1px solid #281a48; }
+    .c4-n2 .c4-node-num { background: #301860; color: #a070e0; }
+    .c4-n2 .c4-node-title { color: #8050c0; }
+    .c4-n2 .c4-node-val { color: #b090e0; }
+
+    .c4-n3 { background: linear-gradient(135deg, #0c2018 0%, #0a1812 100%); border: 1px solid #1a4028; }
+    .c4-n3 .c4-node-num { background: #144a28; color: #50d890; }
+    .c4-n3 .c4-node-title { color: #30a868; }
+    .c4-n3 .c4-node-val { color: #70c898; }
+
+    .c4-desc {
+      margin: 12px 14px 14px;
+      font-size: 12px; color: #6888a8; line-height: 1.65;
+      padding-top: 10px;
+      border-top: 1px solid #182840;
+    }
+
+    /* ── 底部引导 ── */
+    .guide {
+      margin-top: 20px;
+      padding: 12px 14px;
+      border: 1px solid #1e2e44;
+      border-radius: 9px;
+      background: #0c1525;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 860px) { .guide { grid-template-columns: 1fr 1fr; } }
+    .guide-item { font-size: 12px; }
+    .guide-name { font-weight: 700; color: #7aaad4; margin-bottom: 3px; }
+    .guide-desc { color: #4a6a8a; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="page-title">方案 C 细分变体 — 4 种信号流风格</div>
+    <div class="page-desc">同一思路（输入 → 逻辑 → 输出），在视觉密度、颜色层次、排版风格上的 4 种差异化实现</div>
+
+    <div class="grid">
+
+      <!-- ══ C1：原版基础流 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-label">C1</div>
+          <div class="panel-name">基础三栏流（原版）</div>
+        </div>
+        <div class="panel-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="c1">
+            <div class="c1-header">
+              <div class="c1-icon">⚙</div>
+              <div class="c1-name">price_stability_detector</div>
+              <div class="c1-tag">Spec 已确认</div>
+            </div>
+            <div class="c1-flow">
+              <div class="c1-block c1-in">
+                <div class="c1-bhead">输入</div>
+                <div class="c1-bcont">K 线数据<br><span style="font-size:11px;opacity:.65;">date · open · high<br>low · close</span></div>
+              </div>
+              <div class="c1-arrow">→</div>
+              <div class="c1-block c1-mid">
+                <div class="c1-bhead">计算逻辑</div>
+                <div class="c1-bcont">ATR 波动性<br><span style="font-size:11px;opacity:.65;">阈值识别<br>低波动区间</span></div>
+              </div>
+              <div class="c1-arrow">→</div>
+              <div class="c1-block c1-out">
+                <div class="c1-bhead">输出</div>
+                <div class="c1-bcont">稳定度值<br><span style="font-size:11px;opacity:.65;">非负连续<br>0 ~ ∞</span></div>
+              </div>
+            </div>
+            <div class="c1-desc">识别市场处于稳定或盘整的时期，帮助判断趋势变化前的平静阶段。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ C2：宽松大字版 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-label">C2</div>
+          <div class="panel-name">宽松呼吸版 — 字大、间距足</div>
+        </div>
+        <div class="panel-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="c2">
+            <div class="c2-header">
+              <div class="c2-badge">✓ LOCKED</div>
+              <div class="c2-name">price_stability_detector</div>
+            </div>
+            <div class="c2-flow">
+              <div class="c2-block c2-in">
+                <div class="c2-bhead">
+                  <div class="c2-bhead-dot"></div>输入数据
+                </div>
+                <div class="c2-bval">K 线 OHLCV</div>
+                <div class="c2-bsub">date · open · high · low · close</div>
+              </div>
+              <div class="c2-arrow-cell"><div class="c2-arrow">→</div></div>
+              <div class="c2-block c2-mid">
+                <div class="c2-bhead">
+                  <div class="c2-bhead-dot"></div>计算逻辑
+                </div>
+                <div class="c2-bval">ATR 波动分析</div>
+                <div class="c2-bsub">设阈值 · 归一化 · 识别低波动区间</div>
+              </div>
+              <div class="c2-arrow-cell"><div class="c2-arrow">→</div></div>
+              <div class="c2-block c2-out">
+                <div class="c2-bhead">
+                  <div class="c2-bhead-dot"></div>输出结果
+                </div>
+                <div class="c2-bval">稳定度得分</div>
+                <div class="c2-bsub">非负连续值 · 0 ~ ∞</div>
+              </div>
+            </div>
+            <div class="c2-desc">通过分析价格波动，识别市场的稳定或盘整时期，帮助判断趋势变化前的平静阶段。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ C3：左彩条 + 图标 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-label">C3</div>
+          <div class="panel-name">彩色左边框 + 图标强化</div>
+        </div>
+        <div class="panel-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="c3">
+            <div class="c3-header">
+              <div class="c3-check">✓</div>
+              <div class="c3-name">price_stability_detector</div>
+              <div class="c3-lock">Spec 已锁定</div>
+            </div>
+            <div class="c3-flow">
+              <div class="c3-block c3-in">
+                <div class="c3-icon-row">
+                  <span class="c3-ico">📊</span>
+                  <span class="c3-bhead">输入</span>
+                </div>
+                <div class="c3-bcont">K 线数据</div>
+                <div class="c3-bsub">date · open · high · low · close</div>
+              </div>
+              <div class="c3-arr">→</div>
+              <div class="c3-block c3-mid">
+                <div class="c3-icon-row">
+                  <span class="c3-ico">⚙️</span>
+                  <span class="c3-bhead">逻辑</span>
+                </div>
+                <div class="c3-bcont">ATR 波动分析</div>
+                <div class="c3-bsub">阈值识别 · 归一化</div>
+              </div>
+              <div class="c3-arr">→</div>
+              <div class="c3-block c3-out">
+                <div class="c3-icon-row">
+                  <span class="c3-ico">📈</span>
+                  <span class="c3-bhead">输出</span>
+                </div>
+                <div class="c3-bcont">稳定度得分</div>
+                <div class="c3-bsub">非负连续 · 0 ~ ∞</div>
+              </div>
+            </div>
+            <div class="c3-bottom">识别市场处于稳定或盘整的时期，帮助判断趋势变化前的平静阶段。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ C4：渐变 + 编号节点 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-label">C4</div>
+          <div class="panel-name">渐变底色 + 编号节点风</div>
+        </div>
+        <div class="panel-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="c4">
+            <div class="c4-header">
+              <div class="c4-name">price_stability_detector</div>
+              <div class="c4-locked">✓ 已锁定</div>
+            </div>
+            <div class="c4-flow-wrap">
+              <div class="c4-flow">
+                <div class="c4-node c4-n1">
+                  <div class="c4-node-num">1</div>
+                  <div class="c4-node-title">输入</div>
+                  <div class="c4-node-val">K 线数据</div>
+                  <div class="c4-node-sub">date · open · high<br>low · close</div>
+                </div>
+                <div class="c4-node c4-n2">
+                  <div class="c4-node-num">2</div>
+                  <div class="c4-node-title">逻辑</div>
+                  <div class="c4-node-val">ATR 波动分析</div>
+                  <div class="c4-node-sub">阈值识别<br>低波动区间</div>
+                </div>
+                <div class="c4-node c4-n3">
+                  <div class="c4-node-num">3</div>
+                  <div class="c4-node-title">输出</div>
+                  <div class="c4-node-val">稳定度得分</div>
+                  <div class="c4-node-sub">非负连续值<br>0 ~ ∞</div>
+                </div>
+              </div>
+            </div>
+            <div class="c4-desc">通过分析价格波动，识别市场的稳定或盘整时期，帮助判断趋势变化前的平静阶段。</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 变体特征说明 -->
+    <div class="guide">
+      <div class="guide-item">
+        <div class="guide-name">C1 基础版</div>
+        <div class="guide-desc">最接近原版 C，结构清晰、风格简洁，适合直接落地</div>
+      </div>
+      <div class="guide-item">
+        <div class="guide-name">C2 宽松版</div>
+        <div class="guide-desc">字体更大、间距更足，信息层次最清晰，适合信息密度低的场景</div>
+      </div>
+      <div class="guide-item">
+        <div class="guide-name">C3 图标版</div>
+        <div class="guide-desc">彩色左边框 + emoji 图标，视觉辨识度最高，扫一眼就知道每栏代表什么</div>
+      </div>
+      <div class="guide-item">
+        <div class="guide-name">C4 渐变版</div>
+        <div class="guide-desc">渐变底色 + 编号节点，视觉最现代，"流动感"最强</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

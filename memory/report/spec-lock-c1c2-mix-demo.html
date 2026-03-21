@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spec 锁定卡片 — C1 表头 + C2 内容 组合版</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 60px; }
+
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 28px; }
+
+    /* 步骤条 */
+    .step-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 8px;
+      background: #101a2c; border: 1px solid #1d2f47;
+      margin-bottom: 12px;
+    }
+    .step-icon {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #1a4a2e; color: #5adf8a;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .step-label { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-done  { font-size: 11px; color: #5a7a9a; }
+
+    /* ══════════════════════════════════════
+       组合卡片：C1 表头 + C2 主体
+       ══════════════════════════════════════ */
+    .spec-card {
+      border: 1px solid #1e3a52;
+      border-radius: 12px;
+      background: #0b1724;
+      overflow: hidden;
+    }
+
+    /* — 表头：C1 原版风格 — */
+    .spec-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .spec-header-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #1a3a5a; color: #6ab4e8;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
+    }
+    .spec-header-name {
+      font-size: 13px; font-weight: 700; color: #90c8f0;
+      font-family: "SF Mono", "Fira Code", monospace; flex: 1;
+    }
+    .spec-header-tag {
+      font-size: 11px; color: #5090c0; opacity: .8;
+    }
+
+    /* — 流程区：C2 宽松风格 — */
+    .spec-flow {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr 28px 1fr;
+      align-items: stretch;
+      padding: 14px;
+      gap: 0;
+    }
+    .flow-block {
+      border-radius: 9px; padding: 11px 12px;
+    }
+    .flow-head {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; margin-bottom: 7px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .flow-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .flow-val { font-size: 13px; line-height: 1.6; font-weight: 500; }
+    .flow-sub { font-size: 11px; opacity: .65; margin-top: 3px; line-height: 1.45; }
+
+    .fb-in  { background: #0d1e30; border: 1px solid #1a3050; }
+    .fb-in .flow-head  { color: #4090c0; }
+    .fb-in .flow-dot   { background: #4090c0; }
+    .fb-in .flow-val   { color: #90c0e8; }
+
+    .fb-mid { background: #15102a; border: 1px solid #2a1f4a; }
+    .fb-mid .flow-head { color: #9060c0; }
+    .fb-mid .flow-dot  { background: #9060c0; }
+    .fb-mid .flow-val  { color: #c0a0e8; }
+
+    .fb-out { background: #0d2018; border: 1px solid #1a4028; }
+    .fb-out .flow-head { color: #30a870; }
+    .fb-out .flow-dot  { background: #30a870; }
+    .fb-out .flow-val  { color: #80d8a8; }
+
+    .flow-arrow-cell {
+      display: flex; align-items: center; justify-content: center;
+    }
+    .flow-arrow {
+      font-size: 14px; color: #2a4466;
+    }
+
+    /* — 底部描述：C2 风格 — */
+    .spec-desc {
+      margin: 0 14px 14px;
+      padding: 9px 11px;
+      background: #0c1928;
+      border: 1px solid #182d44;
+      border-radius: 8px;
+      font-size: 12px; color: #6a90b8; line-height: 1.65;
+    }
+
+    /* 分隔线 */
+    .divider {
+      margin: 28px 0 20px;
+      border: none; border-top: 1px solid #1a2840;
+    }
+
+    /* 对比参考（旧版） */
+    .ref-label {
+      font-size: 11px; font-weight: 600; color: #c09050;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .old-block {
+      border: 1px solid #1f3050; border-radius: 8px;
+      background: #0d1929; padding: 8px 10px; margin-bottom: 8px;
+    }
+    .old-block:last-child { margin-bottom: 0; }
+    .old-label { font-size: 11px; color: #5b9bd5; font-weight: 600; margin-bottom: 5px; }
+    .old-text  { font-size: 13px; color: #b8ccec; line-height: 1.6; }
+    .old-list  { margin: 0; padding-left: 0; list-style: none; }
+    .old-list li {
+      font-size: 13px; color: #b8ccec; line-height: 1.7;
+      padding-left: 12px; position: relative;
+    }
+    .old-list li::before { content: "•"; position: absolute; left: 0; color: #3d6090; }
+
+    /* 简单注释行 */
+    .note {
+      margin-top: 16px;
+      font-size: 12px; color: #4a6a8a; line-height: 1.65;
+      padding: 8px 11px;
+      border: 1px dashed #1e3050;
+      border-radius: 7px;
+      background: #0b1525;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="page-title">锁定 Spec 卡片 — C1 表头 + C2 主体 组合版</div>
+    <div class="page-desc">表头沿用 C1 的图标 + 等宽特征名 + "Spec 已确认"；流程区和描述块用 C2 的宽松大字风格</div>
+
+    <!-- 步骤条 -->
+    <div class="step-row">
+      <div class="step-icon">✓</div>
+      <div class="step-label">锁定 Spec</div>
+      <div class="step-done">已完成</div>
+    </div>
+
+    <!-- 组合卡片 -->
+    <div class="spec-card">
+
+      <!-- C1 表头 -->
+      <div class="spec-header">
+        <div class="spec-header-icon">⚙</div>
+        <div class="spec-header-name">price_stability_detector</div>
+        <div class="spec-header-tag">Spec 已确认</div>
+      </div>
+
+      <!-- C2 流程区 -->
+      <div class="spec-flow">
+        <div class="flow-block fb-in">
+          <div class="flow-head">
+            <div class="flow-dot"></div>输入数据
+          </div>
+          <div class="flow-val">K 线 OHLCV</div>
+          <div class="flow-sub">date · open · high · low · close</div>
+        </div>
+
+        <div class="flow-arrow-cell"><div class="flow-arrow">→</div></div>
+
+        <div class="flow-block fb-mid">
+          <div class="flow-head">
+            <div class="flow-dot"></div>计算逻辑
+          </div>
+          <div class="flow-val">ATR 波动分析</div>
+          <div class="flow-sub">设阈值 · 归一化 · 识别低波动区间</div>
+        </div>
+
+        <div class="flow-arrow-cell"><div class="flow-arrow">→</div></div>
+
+        <div class="flow-block fb-out">
+          <div class="flow-head">
+            <div class="flow-dot"></div>输出结果
+          </div>
+          <div class="flow-val">稳定度得分</div>
+          <div class="flow-sub">非负连续值 · 0 ~ ∞</div>
+        </div>
+      </div>
+
+      <!-- C2 底部描述 -->
+      <div class="spec-desc">
+        通过分析价格波动，识别市场的稳定或盘整时期，帮助判断趋势变化前的平静阶段。
+      </div>
+
+    </div>
+
+    <div class="note">
+      ↑ 组合版：表头用 C1（图标 + 等宽字体特征名 + 右侧"Spec 已确认"），流程区和描述用 C2（色点 label、大字 val、灰色 sub、底部描述框）
+    </div>
+
+    <!-- 旧版参考对比 -->
+    <hr class="divider">
+    <div class="ref-label">▸ 原始版参考（改造前）</div>
+    <div class="step-row">
+      <div class="step-icon">✓</div>
+      <div class="step-label">锁定 Spec</div>
+      <div class="step-done">已完成</div>
+    </div>
+    <div class="old-block">
+      <div class="old-label">规格摘要</div>
+      <div class="old-text">这个特征通过分析价格波动来识别市场处于稳定或盘整的时期，帮助用户判断趋势变化前的平静阶段</div>
+    </div>
+    <div class="old-block">
+      <div class="old-label">核心信号</div>
+      <div class="old-text">使用ATR或价格标准差计算波动性，设定阈值来识别低波动时期，输出归一化值表示稳定程度</div>
+    </div>
+    <div class="old-block">
+      <div class="old-label">结构化 Spec</div>
+      <ul class="old-list">
+        <li>特征名：price_stability_detector</li>
+        <li>生成路由：template / atr_filter</li>
+        <li>输出类型：continuous_non_negative</li>
+        <li>输出范围：0 ~ inf</li>
+        <li>输入列：date, open, high, low, close</li>
+      </ul>
+    </div>
+    <div class="old-block">
+      <div class="old-label">必须保持不变</div>
+      <ul class="old-list">
+        <li>特征名称保持为 price_stability_detector</li>
+        <li>输入列限定为：date, open, high, low, close</li>
+        <li>输出类型保持为 continuous_non_negative</li>
+        <li>输出范围保持在 0 到 inf</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

@@ -95,41 +95,442 @@
     }
   }
 
-  function renderSpecArtifact(specLike) {
-    const spec = specLike && typeof specLike === "object" ? specLike : null;
-    if (!spec) return "";
-    const structLines = [];
-    if (spec.featureName) structLines.push("特征名：" + spec.featureName);
-    if (spec.route) structLines.push("生成路由：" + spec.route + (spec.templateId ? (" / " + spec.templateId) : ""));
-    if (spec.outputType) structLines.push("输出类型：" + spec.outputType);
-    if (spec.outputRange && (spec.outputRange.min != null || spec.outputRange.max != null)) {
-      structLines.push(
-        "输出范围：" + String(spec.outputRange.min == null ? "-inf" : spec.outputRange.min)
-        + " ~ "
-        + String(spec.outputRange.max == null ? "inf" : spec.outputRange.max),
-      );
-    }
-    if (Array.isArray(spec.inputColumns) && spec.inputColumns.length) {
-      structLines.push("输入列：" + spec.inputColumns.join(", "));
-    }
-    return [
-      wbTextBlock("规格摘要", spec.summary),
-      wbTextBlock("核心信号", spec.coreSignal),
-      structLines.length ? wbBlock("结构化 Spec", wbList(structLines)) : "",
-      Array.isArray(spec.preservedConstraints) && spec.preservedConstraints.length
-        ? wbBlock("必须保持不变", wbList(spec.preservedConstraints))
-        : "",
-    ].join("");
+  function humanizeOutputType(outputType) {
+    var map = {
+      continuous_non_negative: "非负连续值",
+      bounded_oscillator: "振荡指标",
+      categorical: "分类信号",
+      continuous_bounded: "有界连续值",
+      continuous: "连续值",
+    };
+    return map[outputType] || wbText(outputType, "连续值");
   }
 
-  function renderCodeDiff(diffLike) {
-    const diff = diffLike && typeof diffLike === "object" ? diffLike : null;
+  function humanizeRange(rangeLike) {
+    if (!rangeLike || typeof rangeLike !== "object") return "范围不限";
+    var lo = rangeLike.min;
+    var hi = rangeLike.max;
+    if (lo == null && hi == null) return "范围不限";
+    var loStr = lo == null ? "-∞" : String(lo);
+    var hiStr = hi == null ? "∞" : String(hi);
+    return loStr + " ~ " + hiStr;
+  }
+
+  function renderSpecArtifact(specLike) {
+    var spec = specLike && typeof specLike === "object" ? specLike : null;
+    if (!spec) return "";
+
+    var featureName = wbText(spec.featureName, "custom_feature");
+    var inputCols = Array.isArray(spec.inputColumns) && spec.inputColumns.length
+      ? spec.inputColumns.join(" · ") : "";
+    var outputLabel = humanizeOutputType(spec.outputType);
+    var rangeLabel = humanizeRange(spec.outputRange);
+    var coreSignal = wbText(spec.coreSignal, "");
+    var summary = wbText(spec.summary, "");
+    var descText = summary && coreSignal && summary !== coreSignal
+      ? summary + " " + coreSignal
+      : (summary || coreSignal || "");
+
+    var header = '<div class="spec-arch-header">'
+      + '<div class="spec-arch-icon">⚙</div>'
+      + '<div class="spec-arch-name">' + wbEscapeHtml(featureName) + '</div>'
+      + '<div class="spec-arch-tag">架构已确认</div>'
+      + '</div>';
+
+    var flowIn = '<div class="spec-arch-block spec-arch-in">'
+      + '<div class="spec-arch-bhead"><span class="spec-arch-dot spec-arch-dot-in"></span>输入数据</div>'
+      + '<div class="spec-arch-bval">' + wbEscapeHtml(inputCols ? "K 线 OHLCV" : "数据输入") + '</div>'
+      + (inputCols ? '<div class="spec-arch-bsub">' + wbEscapeHtml(inputCols) + '</div>' : '')
+      + '</div>';
+
+    var logicVal = coreSignal || "特征计算";
+    var flowMid = '<div class="spec-arch-block spec-arch-mid">'
+      + '<div class="spec-arch-bhead"><span class="spec-arch-dot spec-arch-dot-mid"></span>计算逻辑</div>'
+      + '<div class="spec-arch-bval">' + wbEscapeHtml(logicVal) + '</div>'
+      + '</div>';
+
+    var flowOut = '<div class="spec-arch-block spec-arch-out">'
+      + '<div class="spec-arch-bhead"><span class="spec-arch-dot spec-arch-dot-out"></span>输出结果</div>'
+      + '<div class="spec-arch-bval">' + wbEscapeHtml(outputLabel) + '</div>'
+      + '<div class="spec-arch-bsub">' + wbEscapeHtml(rangeLabel) + '</div>'
+      + '</div>';
+
+    var flow = '<div class="spec-arch-flow">'
+      + flowIn
+      + '<div class="spec-arch-arrow">→</div>'
+      + flowMid
+      + '<div class="spec-arch-arrow">→</div>'
+      + flowOut
+      + '</div>';
+
+    return '<div class="spec-arch-card">' + header + flow + '</div>';
+  }
+
+  var _pyKeywords = /\b(import|from|as|def|return|if|elif|else|for|while|in|not|and|or|is|with|try|except|finally|raise|class|pass|break|continue|yield|lambda|assert|global|nonlocal|del|True|False|None)\b/g;
+  var _pyBuiltins = /\b(int|float|str|bool|list|dict|tuple|set|len|range|print|max|min|abs|round|sorted|map|filter|enumerate|zip|type|isinstance|hasattr|getattr|setattr|super|property|staticmethod|classmethod)\b/g;
+
+  function _highlightCodeSegment(rawSeg) {
+    var escaped = wbEscapeHtml(rawSeg);
+    var spans = [];
+    function stash(html) {
+      var idx = spans.length;
+      spans.push(html);
+      return "\x00_" + idx + "_\x00";
+    }
+    escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, function(_, nu) {
+      return stash('<span class="py-nu">' + nu + "</span>");
+    });
+    escaped = escaped.replace(/\b(pd\.DataFrame|pd\.Series|np\.ndarray|pd\.Index)\b/g, function(_, tp) {
+      return stash('<span class="py-tp">' + tp + "</span>");
+    });
+    escaped = escaped.replace(/\bdef\s+([a-zA-Z_]\w*)/g, function(_, fn) {
+      return stash('<span class="py-kw">def</span> <span class="py-fn">' + fn + "</span>");
+    });
+    escaped = escaped.replace(_pyKeywords, function(_, kw) {
+      return stash('<span class="py-kw">' + kw + "</span>");
+    });
+    escaped = escaped.replace(_pyBuiltins, function(_, bi) {
+      return stash('<span class="py-bi">' + bi + "</span>");
+    });
+    return escaped.replace(/\x00_(\d+)_\x00/g, function(_, i) {
+      return spans[parseInt(i, 10)];
+    });
+  }
+
+  function highlightPython(rawLine) {
+    var tokens = [];
+    var pos = 0;
+    var len = rawLine.length;
+    var buf = "";
+    while (pos < len) {
+      var ch = rawLine[pos];
+      if (ch === "#") {
+        if (buf) { tokens.push({ type: "code", raw: buf }); buf = ""; }
+        tokens.push({ type: "comment", raw: rawLine.slice(pos) });
+        pos = len;
+      } else if (ch === "'" || ch === '"') {
+        if (buf) { tokens.push({ type: "code", raw: buf }); buf = ""; }
+        var q = ch;
+        var start = pos;
+        pos++;
+        while (pos < len && rawLine[pos] !== q) {
+          if (rawLine[pos] === "\\") pos++;
+          pos++;
+        }
+        pos++;
+        tokens.push({ type: "string", raw: rawLine.slice(start, pos) });
+      } else {
+        buf += ch;
+        pos++;
+      }
+    }
+    if (buf) tokens.push({ type: "code", raw: buf });
+    var result = "";
+    for (var ti = 0; ti < tokens.length; ti++) {
+      var tok = tokens[ti];
+      if (tok.type === "comment") {
+        result += '<span class="py-cm">' + wbEscapeHtml(tok.raw) + "</span>";
+      } else if (tok.type === "string") {
+        result += '<span class="py-st">' + wbEscapeHtml(tok.raw) + "</span>";
+      } else {
+        result += _highlightCodeSegment(tok.raw);
+      }
+    }
+    return result;
+  }
+
+  var _writeCardId = 0;
+
+  function renderCodeCard(codeLike, options) {
+    var code = wbText(codeLike, "");
+    if (!code) return "";
+    var opts = options && typeof options === "object" ? options : {};
+    var source = wbText(opts.source, "");
+    var featureName = wbText(opts.featureName, "feature");
+    var fileName = featureName.replace(/[^a-zA-Z0-9_]/g, "_") + ".py";
+    var lines = code.split("\n");
+    var lineCount = lines.length;
+    var cardId = "write-card-" + (++_writeCardId);
+
+    var isTemplate = source === "template";
+    var sourceLabel = isTemplate ? "内置模板" : "AI 生成";
+    var sourcePillClass = isTemplate ? "write-pill-template" : "write-pill-ai";
+
+    var statusbar = '<div class="write-card-statusbar" onclick="(function(e){var c=document.getElementById(\'' + cardId + '\');if(c)c.classList.toggle(\'collapsed\');})()">'
+      + '<div class="write-card-dot"></div>'
+      + '<div class="write-card-filename">' + wbEscapeHtml(fileName) + '</div>'
+      + '<div class="write-card-pills">'
+      + '<span class="write-pill">Python</span>'
+      + '<span class="write-pill">' + String(lineCount) + ' 行</span>'
+      + '<span class="write-pill ' + sourcePillClass + '">' + wbEscapeHtml(sourceLabel) + '</span>'
+      + '<span class="write-pill write-pill-green">可运行</span>'
+      + '</div>'
+      + '<div class="write-card-arrow">▼</div>'
+      + '</div>';
+
+    var codeLines = [];
+    for (var i = 0; i < lines.length; i++) {
+      codeLines.push(
+        '<div class="write-code-line">'
+        + '<span class="write-line-num">' + String(i + 1) + '</span>'
+        + '<span class="write-line-content">' + highlightPython(lines[i]) + '</span>'
+        + '</div>'
+      );
+    }
+
+    var codeBody = '<div class="write-card-code-body">'
+      + '<div class="write-card-code">' + codeLines.join("") + '</div>'
+      + '</div>';
+
+    var hint = '<div class="write-card-collapsed-hint">点击展开查看代码 · ' + String(lineCount) + ' 行</div>';
+
+    return '<div class="write-card" id="' + cardId + '">'
+      + statusbar + codeBody + hint
+      + '</div>';
+  }
+
+  function renderUnifiedDiff(diffLike, opts) {
+    var diff = diffLike && typeof diffLike === "object" ? diffLike : null;
     if (!diff) return "";
-    return [
-      wbTextBlock("变更摘要", diff.summary),
-      wbCodeBlock("修改前", diff.beforeSnippet),
-      wbCodeBlock("修改后", diff.afterSnippet),
-    ].join("");
+    var before = wbText(diff.beforeSnippet, "");
+    var after  = wbText(diff.afterSnippet, "");
+    if (!before && !after) return "";
+    var fileName = (opts && opts.fileName) ? wbEscapeHtml(opts.fileName) : "feature.py";
+    var id = "udiff-" + String(Math.random()).slice(2, 10);
+
+    var bLines = before.split("\n");
+    var aLines = after.split("\n");
+    var addCount = 0, delCount = 0;
+    var rows = [];
+
+    var maxLen = Math.max(bLines.length, aLines.length);
+    var bi = 0, ai = 0;
+    var contextBefore = [];
+    var changes = [];
+    var contextAfter  = [];
+
+    var bSet = {};
+    var aSet = {};
+    for (var xi = 0; xi < bLines.length; xi++) bSet[bLines[xi]] = (bSet[bLines[xi]] || 0) + 1;
+    for (var yi = 0; yi < aLines.length; yi++) aSet[aLines[yi]] = (aSet[aLines[yi]] || 0) + 1;
+
+    function escLine(s) { return wbEscapeHtml(s); }
+    function makeCtx(bNum, aNum, text) {
+      return '<div class="udiff-line udl-ctx"><div class="udiff-gutter"><div class="udiff-num">'
+        + bNum + '</div><div class="udiff-num">' + aNum
+        + '</div><div class="udiff-mark"> </div></div><div class="udiff-text">' + escLine(text) + '</div></div>';
+    }
+    function makeDel(bNum, text) {
+      return '<div class="udiff-line udl-del"><div class="udiff-gutter"><div class="udiff-num">'
+        + bNum + '</div><div class="udiff-num-e"></div><div class="udiff-mark">\u2212</div></div>'
+        + '<div class="udiff-text">' + escLine(text) + '</div></div>';
+    }
+    function makeAdd(aNum, text) {
+      return '<div class="udiff-line udl-add"><div class="udiff-gutter"><div class="udiff-num-e"></div><div class="udiff-num">'
+        + aNum + '</div><div class="udiff-mark">+</div></div>'
+        + '<div class="udiff-text">' + escLine(text) + '</div></div>';
+    }
+
+    bi = 0; ai = 0;
+    while (bi < bLines.length && ai < aLines.length) {
+      if (bLines[bi] === aLines[ai]) {
+        rows.push(makeCtx(bi + 1, ai + 1, bLines[bi]));
+        bi++; ai++;
+      } else {
+        var delStart = bi, addStart = ai;
+        while (bi < bLines.length && (bi === delStart || bLines[bi] !== aLines[ai])) {
+          if (ai < aLines.length && bLines[bi] === aLines[ai]) break;
+          bi++;
+        }
+        while (ai < aLines.length && (ai === addStart || bLines[bi] !== aLines[ai])) {
+          if (bi < bLines.length && bLines[bi] === aLines[ai]) break;
+          ai++;
+        }
+        for (var di = delStart; di < bi; di++) { rows.push(makeDel(di + 1, bLines[di])); delCount++; }
+        for (var ai2 = addStart; ai2 < ai; ai2++) { rows.push(makeAdd(ai2 + 1, aLines[ai2])); addCount++; }
+      }
+    }
+    while (bi < bLines.length) { rows.push(makeDel(bi + 1, bLines[bi])); delCount++; bi++; }
+    while (ai < aLines.length) { rows.push(makeAdd(ai + 1, aLines[ai])); addCount++; ai++; }
+
+    var hunkLabel = '@@ -1,' + bLines.length + ' +1,' + aLines.length + ' @@';
+    var hunk = '<div class="udiff-hunk"><span class="udiff-hunk-txt">' + wbEscapeHtml(hunkLabel) + '</span></div>';
+
+    return '<div class="udiff-card" id="' + id + '">'
+      + '<div class="udiff-card-head" onclick="(function(e){e.closest(\'.udiff-card\').classList.toggle(\'udiff-open\')})(this)">'
+      + '<div class="udiff-filename">' + fileName + '</div>'
+      + '<span class="udiff-stat-add">+' + addCount + '</span>&nbsp;'
+      + '<span class="udiff-stat-del">\u2212' + delCount + '</span>'
+      + '<span class="udiff-arrow">\u25B6</span>'
+      + '</div>'
+      + '<div class="udiff-collapse"><div class="udiff-body"><div class="udiff-inner">'
+      + hunk + rows.join("")
+      + '</div></div></div></div>';
+  }
+
+  /* ── 特征验证卡 ── */
+  var VALIDATE_PHASES = { run: 1, detect: 1, repair: 1 };
+
+  function buildValidateRoundHtml(roundTraces, roundNum) {
+    var runTrace = null, detectTrace = null, repairTrace = null;
+    for (var i = 0; i < roundTraces.length; i++) {
+      var t = roundTraces[i] && typeof roundTraces[i] === "object" ? roundTraces[i] : {};
+      var p = stepPhase(t);
+      if (p === "run") runTrace = t;
+      else if (p === "detect") detectTrace = t;
+      else if (p === "repair") repairTrace = t;
+    }
+    var hasRepair = !!repairTrace;
+    var detStatus = detectTrace ? wbText(detectTrace.status, "done").toLowerCase() : "done";
+    var passed = detStatus === "done" && !hasRepair;
+    var detDetails = detectTrace && detectTrace.details && typeof detectTrace.details === "object" ? detectTrace.details : {};
+    var runDetails = runTrace && runTrace.details && typeof runTrace.details === "object" ? runTrace.details : {};
+    var repDetails = repairTrace && repairTrace.details && typeof repairTrace.details === "object" ? repairTrace.details : {};
+
+    var outcomeClass = passed ? "vro-pass" : "vro-fail";
+    var outcomeText  = passed ? "全部检测通过" : "检测失败 · 已修复";
+    var numClass     = passed ? "vrn-pass" : "vrn-fail";
+    var collapsed    = passed ? " collapsed" : "";
+    var cardId       = "vr-" + roundNum + "-" + String(Math.random()).slice(2, 8);
+
+    var html = '<div class="vr-card' + collapsed + '" id="' + cardId + '">'
+      + '<div class="vr-head" onclick="document.getElementById(\'' + cardId + '\').classList.toggle(\'collapsed\')">'
+      + '<div class="vr-num ' + numClass + '">' + roundNum + '</div>'
+      + '<div class="vr-title">第 ' + roundNum + ' 轮</div>'
+      + '<div class="vr-outcome ' + outcomeClass + '">' + wbEscapeHtml(outcomeText) + '</div>'
+      + '<div class="vr-arrow">▾</div>'
+      + '</div><div class="vr-body"><div class="vflow">';
+
+    /* 运行节点 */
+    var runStat = '';
+    var runResult = runDetails.runResult && typeof runDetails.runResult === "object" ? runDetails.runResult : null;
+    var evalOut = runDetails.runArtifacts && typeof runDetails.runArtifacts === "object"
+      && runDetails.runArtifacts.evaluationOutput && typeof runDetails.runArtifacts.evaluationOutput === "object"
+      ? runDetails.runArtifacts.evaluationOutput : null;
+    var barCount = runResult ? wbNum(runResult.barCount, 0) : (evalOut ? wbNum(evalOut.barCount, 0) : 0);
+    if (barCount > 0) runStat += '<span class="vf-stat-k">数据行<span class="vf-stat-v">' + String(barCount) + '</span></span>';
+    if (runResult && runResult.stats && typeof runResult.stats === "object") {
+      var mean = Number.isFinite(Number(runResult.stats.mean)) ? Number(runResult.stats.mean).toFixed(4) : null;
+      if (mean !== null) runStat += '<span class="vf-stat-k">均值<span class="vf-stat-v">' + mean + '</span></span>';
+    }
+
+    html += '<div class="vf-row"><div class="vf-left">'
+      + '<div class="vf-dot vs-ok">▶</div>'
+      + '<div class="vf-line-wrap"><div class="vf-line-track"></div><div class="vf-line-fill ' + (passed ? 'lf-green' : 'lf-blue') + '" style="height:100%"></div></div>'
+      + '</div><div class="vf-right"><div class="vf-header">'
+      + '<span class="vf-phase-name vfn-ok">运行</span>'
+      + '<span class="vf-badge vfb-ok show">完成</span>'
+      + '</div><div class="vf-content visible">'
+      + (runStat ? '<div class="vf-stat-row">' + runStat + '</div>' : '')
+      + '</div></div></div>';
+
+    /* 检测节点 */
+    if (passed) {
+      var checkItems = [];
+      if (Array.isArray(detDetails.issues) && detDetails.issues.length === 0) checkItems.push("✓ 无问题");
+      if (!checkItems.length) checkItems.push("✓ 全部检测通过");
+      html += '<div class="vf-row"><div class="vf-left">'
+        + '<div class="vf-dot vs-ok">✓</div>'
+        + '<div class="vf-line-wrap" style="min-height:0;flex:0;height:0;"></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-ok">检测通过</span>'
+        + '<span class="vf-badge vfb-ok show">通过</span>'
+        + '</div><div class="vf-content visible">'
+        + '<div class="vf-pass-result">' + wbEscapeHtml(checkItems.join(" · ")) + '</div>'
+        + '</div></div></div>';
+    } else {
+      var issuesHtml = '';
+      if (Array.isArray(detDetails.issues)) {
+        for (var ii = 0; ii < detDetails.issues.length; ii++) {
+          issuesHtml += '<span class="vf-issue-tag">⚠ ' + wbEscapeHtml(wbText(detDetails.issues[ii], "")) + '</span>';
+        }
+      }
+      if (detDetails.failureType) {
+        issuesHtml += '<div class="vf-issue-desc">' + wbEscapeHtml(detDetails.failureType) + '</div>';
+      }
+      html += '<div class="vf-row"><div class="vf-left">'
+        + '<div class="vf-dot vs-fail">✕</div>'
+        + '<div class="vf-line-wrap"><div class="vf-line-track"></div><div class="vf-line-fill lf-red" style="height:100%"></div></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-fail">检测</span>'
+        + '<span class="vf-badge vfb-fail show">检测失败</span>'
+        + '</div><div class="vf-content visible">' + issuesHtml
+        + '</div></div></div>';
+
+      /* 修复节点 */
+      var repairDescHtml = '';
+      var repairSummary = repDetails.repairSummary && typeof repDetails.repairSummary === "object" ? repDetails.repairSummary : null;
+      if (repairSummary && repairSummary.repairGoal) {
+        repairDescHtml = '<div class="vf-repair-desc">' + wbEscapeHtml(repairSummary.repairGoal) + '</div>';
+      } else if (repDetails.fixSummary) {
+        repairDescHtml = '<div class="vf-repair-desc">' + wbEscapeHtml(repDetails.fixSummary) + '</div>';
+      }
+      var diffHtml = repDetails.codeDiff ? renderUnifiedDiff(repDetails.codeDiff, { fileName: "feature.py" }) : '';
+
+      html += '<div class="vf-row"><div class="vf-left">'
+        + '<div class="vf-dot vs-repair">↻</div>'
+        + '<div class="vf-line-wrap" style="min-height:0;flex:0;height:0;"></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-repair">修复</span>'
+        + '<span class="vf-badge vfb-repair show">已修复</span>'
+        + '</div><div class="vf-content visible">'
+        + repairDescHtml + diffHtml
+        + '</div></div></div>';
+    }
+
+    html += '</div></div></div>';
+    return html;
+  }
+
+  function renderStaticValidateCard(validateTraces) {
+    if (!validateTraces || !validateTraces.length) return "";
+    var rounds = {};
+    var maxAttempt = 0;
+    for (var i = 0; i < validateTraces.length; i++) {
+      var t = validateTraces[i] && typeof validateTraces[i] === "object" ? validateTraces[i] : {};
+      var attempt = Math.max(1, Math.floor(wbNum(t.attempt, 1)));
+      if (!rounds[attempt]) rounds[attempt] = [];
+      rounds[attempt].push(t);
+      if (attempt > maxAttempt) maxAttempt = attempt;
+    }
+
+    var lastDetect = null;
+    for (var j = validateTraces.length - 1; j >= 0; j--) {
+      var tt = validateTraces[j] && typeof validateTraces[j] === "object" ? validateTraces[j] : {};
+      if (stepPhase(tt) === "detect") { lastDetect = tt; break; }
+    }
+    var allPassed = lastDetect && wbText(lastDetect.status, "done").toLowerCase() === "done";
+    var hasRepairAnywhere = false;
+    for (var k = 0; k < validateTraces.length; k++) {
+      if (stepPhase(validateTraces[k]) === "repair") { hasRepairAnywhere = true; break; }
+    }
+    if (hasRepairAnywhere) allPassed = true;
+
+    var subText = maxAttempt + " 轮验证";
+    if (hasRepairAnywhere) subText += " · 含修复";
+    subText += allPassed ? " · 全部通过" : " · 未通过";
+
+    var cardId = "vc-" + String(Math.random()).slice(2, 8);
+    var html = '<div class="validate-card open" id="' + cardId + '">'
+      + '<div class="validate-head" onclick="document.getElementById(\'' + cardId + '\').classList.toggle(\'open\')">'
+      + '<div class="vhead-icon ' + (allPassed ? 'vhi-done' : 'vhi-done') + '">' + (allPassed ? '✓' : '✗') + '</div>'
+      + '<div style="flex:1"><div class="vhead-title">特征验证</div></div>'
+      + '<div class="vhead-badge ' + (allPassed ? 'vhb-done' : 'vhb-running') + '">' + (allPassed ? '已完成' : '进行中') + '</div>'
+      + '<div class="vhead-arrow">▾</div>'
+      + '</div><div class="validate-body">'
+      + '<div class="validate-summary"><div class="vs-icon">' + (allPassed ? '✓' : '⚠') + '</div>'
+      + '<div class="vs-text">' + wbEscapeHtml(subText) + '</div>'
+      + (allPassed ? '<div class="vs-badge">通过</div>' : '')
+      + '</div><div class="validate-rounds">';
+
+    for (var rn = 1; rn <= maxAttempt; rn++) {
+      if (rounds[rn]) {
+        html += buildValidateRoundHtml(rounds[rn], rn);
+      }
+    }
+
+    html += '</div></div></div>';
+    return html;
   }
 
   function renderRepairSummary(repairLike) {
@@ -242,11 +643,9 @@
     if (explicitTitle) return explicitTitle;
     if (phase === "understand") return "理解需求";
     if (phase === "plan") return "生成计划";
-    if (phase === "spec_lock") return "锁定 Spec";
+    if (phase === "spec_lock") return "架构设计";
     if (phase === "write") return "生成首版代码";
-    if (phase === "run") return "第 " + String(Math.max(1, attempt || 1)) + " 轮运行";
-    if (phase === "detect") return "第 " + String(Math.max(1, attempt || 1)) + " 轮检测";
-    if (phase === "repair") return "第 " + String(Math.max(1, attempt || 1)) + " 轮修复";
+    if (phase === "run" || phase === "detect" || phase === "repair") return "特征验证";
     if (phase === "summarize") return "最终结果";
     return wbText(trace.message || phase, "处理步骤");
   }
@@ -278,39 +677,13 @@
       }
       blocks.push(renderPlanArtifact(details.planArtifact));
     } else if (phase === "spec_lock") {
-      blocks.push(renderSpecArtifact(details.specArtifact));
+      return renderSpecArtifact(details.specArtifact);
     } else if (phase === "write") {
-      if (details.codeSource) {
-        blocks.push(wbTextBlock("代码来源", details.codeSource));
-      }
-      blocks.push(wbCodeBlock("首版代码", details.codeSnippet));
-      if (details.specArtifact) blocks.push(renderSpecArtifact(details.specArtifact));
-      if (Array.isArray(details.warnings) && details.warnings.length) {
-        blocks.push(wbBlock("提示", wbList(details.warnings)));
-      }
-    } else if (phase === "repair") {
-      if (details.codeSource) {
-        blocks.push(wbTextBlock("代码来源", details.codeSource));
-      }
-      blocks.push(renderRepairSummary(details.repairSummary));
-      blocks.push(renderCodeDiff(details.codeDiff));
-      blocks.push(wbCodeBlock("修复后代码", details.codeSnippet));
-      if (details.fixSummary) blocks.push(wbTextBlock("修复动作", details.fixSummary));
-    } else if (phase === "run") {
-      blocks.push(renderRunResult(details.runResult));
-      blocks.push(renderRunArtifacts(details.runArtifacts));
-      if (Array.isArray(details.warnings) && details.warnings.length) {
-        blocks.push(wbBlock("提示", wbList(details.warnings)));
-      }
-      if (!blocks.join("") && details.codeSnippet) {
-        blocks.push(wbCodeBlock("本轮执行代码", details.codeSnippet));
-      }
-    } else if (phase === "detect") {
-      if (details.failureType) blocks.push(wbTextBlock("失败分类", details.failureType));
-      if (Array.isArray(details.issues) && details.issues.length) blocks.push(wbBlock("检测到的问题", wbList(details.issues)));
-      if (Array.isArray(details.warnings) && details.warnings.length) blocks.push(wbBlock("提示", wbList(details.warnings)));
-      blocks.push(renderRunArtifacts(details.runArtifacts));
-      if (details.fixSummary) blocks.push(wbTextBlock("下一步处理", details.fixSummary));
+      var specForName = details.specArtifact && typeof details.specArtifact === "object" ? details.specArtifact : null;
+      return renderCodeCard(details.codeSnippet, {
+        source: wbText(details.codeSource, wbText(details.executionMode, "")),
+        featureName: specForName ? wbText(specForName.featureName, "feature") : "feature",
+      });
     } else if (phase === "summarize") {
       if (details.resultSummary) blocks.push(wbTextBlock("最终摘要", details.resultSummary));
       if (details.specArtifact) blocks.push(renderSpecArtifact(details.specArtifact));
@@ -322,7 +695,7 @@
       if (details.planArtifact) blocks.push(renderPlanArtifact(details.planArtifact));
       if (details.specArtifact) blocks.push(renderSpecArtifact(details.specArtifact));
       if (details.repairSummary) blocks.push(renderRepairSummary(details.repairSummary));
-      if (details.codeDiff) blocks.push(renderCodeDiff(details.codeDiff));
+      if (details.codeDiff) blocks.push(renderUnifiedDiff(details.codeDiff));
       if (details.codeSnippet) blocks.push(wbCodeBlock("代码片段", details.codeSnippet));
       if (details.runResult) blocks.push(renderRunResult(details.runResult));
       if (details.runArtifacts) blocks.push(renderRunArtifacts(details.runArtifacts));
@@ -359,11 +732,14 @@
 
   function renderTraceEvent(traceLike) {
     const trace = traceLike && typeof traceLike === "object" ? traceLike : {};
-    const summary = wbText(trace.message || trace.summary, "");
+    const phase = stepPhase(trace);
+    var skipSummary = phase === "spec_lock" || phase === "write";
+    const summary = skipSummary ? "" : wbText(trace.message || trace.summary, "");
     const detailsHtml = renderTraceDetails(trace);
     const status = wbText(trace.status, "running").toLowerCase();
+    var extraClass = (phase === "spec_lock" || phase === "write") ? " spec-lock-trace" : "";
     return ''
-      + '<div class="ai-workbench-trace-event ' + wbEscapeHtml(status || "running") + '">'
+      + '<div class="ai-workbench-trace-event ' + wbEscapeHtml(status || "running") + extraClass + '">'
       + (summary ? ('<div class="ai-workbench-trace-summary">' + wbEscapeHtml(summary) + "</div>") : "")
       + detailsHtml
       + "</div>";
@@ -664,6 +1040,10 @@
       if (host) return host;
       host = document.createElement("div");
       host.className = "ai-workbench-plan-progressive";
+      host.__planThinkingDone = false;
+      host.__lastThinkingIndex = 0;
+      host.__pendingPlanFields = { goal: "", approach: "", validation: "", repair: "" };
+      host.__renderedPlanFields = new Set();
       host.innerHTML = ""
         + '<div class="ai-workbench-plan-progress-line ai-workbench-trace-event running" data-plan-progress-line>等待生成计划清单...</div>'
         + '<div class="ai-workbench-plan-thinking" style="display:none">'
@@ -681,6 +1061,47 @@
       return host;
     }
 
+    function getPlanStatusLabel(statusLike, fallbackLike) {
+      const status = wbText(statusLike, "").toLowerCase();
+      if (status === "finalized") return "已定稿";
+      if (status === "refining") return "细化中";
+      if (status === "drafting") return "草案中";
+      return wbText(fallbackLike, "等待中");
+    }
+
+    function queuePlanField(hostLike, keyLike, textLike) {
+      const host = hostLike || null;
+      if (!host || !host.__pendingPlanFields || typeof host.__pendingPlanFields !== "object") return;
+      const key = wbText(keyLike, "");
+      const text = wbText(textLike, "");
+      if (!key || !Object.prototype.hasOwnProperty.call(host.__pendingPlanFields, key) || !text) return;
+      host.__pendingPlanFields[key] = text;
+    }
+
+    async function flushQueuedPlanFields(hostLike) {
+      const host = hostLike || null;
+      if (!host) return;
+      const cardWrap = host.querySelector(".ai-workbench-plan-card");
+      const renderedSet = host.__renderedPlanFields instanceof Set ? host.__renderedPlanFields : new Set();
+      host.__renderedPlanFields = renderedSet;
+      const fieldOrder = ["goal", "approach", "validation", "repair"];
+      for (let i = 0; i < fieldOrder.length; i += 1) {
+        const key = fieldOrder[i];
+        const text = wbText(host.__pendingPlanFields && host.__pendingPlanFields[key], "");
+        if (!text) break;
+        const fieldNode = host.querySelector("[data-plan-field='" + wbEscapeHtml(key) + "']");
+        if (!fieldNode) continue;
+        if (cardWrap) cardWrap.style.display = "";
+        await animateTextNode(fieldNode, text, {
+          minChunk: 1,
+          maxChunk: 4,
+          delayMs: 16,
+          activeClass: "is-streaming",
+        });
+        renderedSet.add(key);
+      }
+    }
+
     async function applyProgressivePlanTrace(panelElLike, traceLike) {
       const panelEl = panelElLike || null;
       const trace = traceLike && typeof traceLike === "object" ? traceLike : {};
@@ -695,41 +1116,48 @@
       const cardStatusNode = host.querySelector("[data-plan-card-status]");
       const planBuild = details.planBuild && typeof details.planBuild === "object" ? details.planBuild : null;
       const planStatus = wbText(details.planStatus || (planBuild && planBuild.status), "");
+      const thinkingIndex = Math.max(0, Math.floor(wbNum(details.thinkingIndex, 0)));
+      const thinkingText = wbText(details.thinkingText, "");
+      const isPlanFinalize = wbText(trace.moduleId, "") === "plan.finalize";
       if (progressLine) {
         progressLine.textContent = wbText(trace.message || trace.summary, "计划生成中...");
         progressLine.className = "ai-workbench-trace-event " + wbText(trace.status, "running").toLowerCase();
       }
       if (details.streamMode === "thinking_stream" && thinkingNode) {
         if (thinkingWrap) thinkingWrap.style.display = "";
-        await animateTextNode(thinkingNode, wbText(details.thinkingText, ""), {
-          minChunk: 1,
-          maxChunk: 3,
-          delayMs: 14,
-          activeClass: "is-streaming",
-        });
-      }
-      if (planBuild) {
-        if (cardWrap) cardWrap.style.display = "";
-        const fieldNode = host.querySelector("[data-plan-field='" + wbEscapeHtml(planBuild.key) + "']");
-        if (fieldNode) {
-          await animateTextNode(fieldNode, wbText(planBuild.text, ""), {
+        if (thinkingIndex > 0 && host.__lastThinkingIndex > 0 && thinkingIndex < host.__lastThinkingIndex) {
+          thinkingNode.textContent = thinkingText;
+          thinkingNode.__wbAnimatedText = thinkingText;
+        } else {
+          await animateTextNode(thinkingNode, thinkingText, {
             minChunk: 1,
-            maxChunk: 4,
-            delayMs: 16,
+            maxChunk: 3,
+            delayMs: 14,
             activeClass: "is-streaming",
           });
         }
+        host.__lastThinkingIndex = Math.max(host.__lastThinkingIndex || 0, thinkingIndex);
+        if (details.chunkDone === true) {
+          host.__planThinkingDone = true;
+        }
       }
-      if (details.planArtifact) {
+      if (planBuild) {
+        queuePlanField(host, wbText(planBuild.key, ""), wbText(planBuild.text, ""));
+      }
+      if (host.__planThinkingDone && planBuild) {
+        await flushQueuedPlanFields(host);
+      }
+      if (details.planArtifact && (isPlanFinalize || planStatus === "finalized")) {
         if (cardWrap) cardWrap.style.display = "";
         fillPlanCardFromArtifact(host, details.planArtifact);
+        if (host.__renderedPlanFields instanceof Set) {
+          ["goal", "approach", "validation", "repair"].forEach(function(key) {
+            host.__renderedPlanFields.add(key);
+          });
+        }
       }
       if (cardStatusNode) {
-        const label = planStatus === "finalized" ? "已定稿"
-          : planStatus === "refining" ? "细化中"
-          : planStatus === "drafting" ? "草案中"
-          : "等待中";
-        cardStatusNode.textContent = label;
+        cardStatusNode.textContent = getPlanStatusLabel(planStatus, host.__planThinkingDone ? "细化中" : "草案中");
       }
       await waitFrame();
     }
@@ -800,11 +1228,230 @@
       return stepRow;
     }
 
+    /* ── 特征验证 — 动态路径 ── */
+    var validateState = {
+      stepRow: null,
+      currentAttempt: 0,
+      roundCard: null,
+      runDot: null, runName: null, runBadge: null, runLine: null, runContent: null,
+      detDot: null, detName: null, detBadge: null, detLine: null, detContent: null,
+      repDot: null, repName: null, repBadge: null, repContent: null,
+    };
+
+    function ensureValidateStep() {
+      if (validateState.stepRow) return validateState.stepRow;
+      var key = "validate|1";
+      var stepRow = state.stepMap[key] || null;
+      if (stepRow) { validateState.stepRow = stepRow; return stepRow; }
+      stepRow = document.createElement("details");
+      stepRow.className = "ai-thinking-step ai-workbench-step running";
+      stepRow.open = true;
+      stepRow.setAttribute("data-step", key);
+      stepRow.__traceFingerprints = new Set();
+      stepRow.innerHTML = ''
+        + '<summary class="ai-workbench-step-toggle" aria-expanded="true">'
+        + '<span class="step-icon">◦</span>'
+        + '<span class="step-text">特征验证</span>'
+        + '<span class="ai-workbench-step-summary">进行中</span>'
+        + '<span class="ai-workbench-step-chevron">▼</span>'
+        + '</summary>'
+        + '<div class="ai-workbench-step-panel"></div>';
+      var toggle = stepRow.querySelector(".ai-workbench-step-toggle");
+      toggle.addEventListener("click", function() {
+        requestAnimationFrame(function() { setExpanded(stepRow, Boolean(stepRow.open)); });
+      });
+      stepsHost.appendChild(stepRow);
+      state.stepMap[key] = stepRow;
+      state.stepKeys.push(key);
+      validateState.stepRow = stepRow;
+      return stepRow;
+    }
+
+    function ensureValidateRound(attempt) {
+      if (validateState.currentAttempt === attempt && validateState.roundCard) return;
+      validateState.currentAttempt = attempt;
+      var stepRow = ensureValidateStep();
+      var panelEl = stepRow.querySelector(".ai-workbench-step-panel");
+      var roundsHost = panelEl.querySelector(".validate-rounds");
+      if (!roundsHost) {
+        panelEl.innerHTML = '<div class="validate-rounds"></div>';
+        roundsHost = panelEl.querySelector(".validate-rounds");
+      }
+      var cardId = "vr-dyn-" + attempt + "-" + String(Math.random()).slice(2, 8);
+      var cardHtml = '<div class="vr-card" id="' + cardId + '">'
+        + '<div class="vr-head" onclick="document.getElementById(\'' + cardId + '\').classList.toggle(\'collapsed\')">'
+        + '<div class="vr-num vrn-fail">' + attempt + '</div>'
+        + '<div class="vr-title">第 ' + attempt + ' 轮</div>'
+        + '<div class="vr-outcome vro-fail">验证中</div>'
+        + '<div class="vr-arrow">▾</div>'
+        + '</div><div class="vr-body"><div class="vflow">'
+        + '<div class="vf-row" data-vf="run"><div class="vf-left">'
+        + '<div class="vf-dot vs-idle" data-dot="run">▶</div>'
+        + '<div class="vf-line-wrap"><div class="vf-line-track"></div><div class="vf-line-fill lf-blue" data-line="run"></div></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-idle" data-name="run">运行</span>'
+        + '<span class="vf-badge vfb-run" data-badge="run">执行中</span>'
+        + '</div><div class="vf-content" data-cont="run">'
+        + '<div class="vf-scan" data-scan>执行特征函数<span class="vf-scan-cursor"></span></div>'
+        + '<div class="vf-stat-row" data-stats style="display:none"></div>'
+        + '</div></div></div>'
+        + '<div class="vf-row" data-vf="det"><div class="vf-left">'
+        + '<div class="vf-dot vs-idle" data-dot="det">◎</div>'
+        + '<div class="vf-line-wrap"><div class="vf-line-track"></div><div class="vf-line-fill lf-red" data-line="det"></div></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-idle" data-name="det">检测</span>'
+        + '<span class="vf-badge vfb-run" data-badge="det">检测中</span>'
+        + '</div><div class="vf-content" data-cont="det">'
+        + '<div class="vf-check" data-check><span>正在校验</span><span class="vf-dp"><span></span><span></span><span></span></span></div>'
+        + '<div data-det-result style="display:none"></div>'
+        + '</div></div></div>'
+        + '<div class="vf-row" data-vf="rep" style="display:none"><div class="vf-left">'
+        + '<div class="vf-dot vs-idle" data-dot="rep">↻</div>'
+        + '<div class="vf-line-wrap" style="min-height:0;flex:0;height:0;"></div>'
+        + '</div><div class="vf-right"><div class="vf-header">'
+        + '<span class="vf-phase-name vfn-idle" data-name="rep">修复</span>'
+        + '<span class="vf-badge vfb-repair" data-badge="rep">修复中</span>'
+        + '</div><div class="vf-content" data-cont="rep"></div></div></div>'
+        + '</div></div></div>';
+      var wrapper = document.createElement("div");
+      wrapper.innerHTML = cardHtml;
+      var card = wrapper.firstChild;
+      roundsHost.appendChild(card);
+      validateState.roundCard = card;
+      var q = function(sel) { return card.querySelector(sel); };
+      validateState.runDot  = q('[data-dot="run"]'); validateState.runName  = q('[data-name="run"]');
+      validateState.runBadge= q('[data-badge="run"]'); validateState.runLine = q('[data-line="run"]');
+      validateState.runContent = q('[data-cont="run"]');
+      validateState.detDot  = q('[data-dot="det"]'); validateState.detName  = q('[data-name="det"]');
+      validateState.detBadge= q('[data-badge="det"]'); validateState.detLine = q('[data-line="det"]');
+      validateState.detContent = q('[data-cont="det"]');
+      validateState.repDot  = q('[data-dot="rep"]'); validateState.repName  = q('[data-name="rep"]');
+      validateState.repBadge= q('[data-badge="rep"]'); validateState.repContent = q('[data-cont="rep"]');
+    }
+
+    function applyValidateTrace(trace) {
+      var phase = stepPhase(trace);
+      var attempt = Math.max(1, Math.floor(wbNum(trace.attempt, 1)));
+      var status = wbText(trace.status, "running").toLowerCase();
+      var details = trace.details && typeof trace.details === "object" ? trace.details : {};
+      ensureValidateRound(attempt);
+      var vs = validateState;
+      var card = vs.roundCard;
+
+      if (phase === "run") {
+        vs.runDot.className  = "vf-dot " + (status === "done" ? "vs-ok" : "vs-run");
+        vs.runName.className = "vf-phase-name " + (status === "done" ? "vfn-ok" : "vfn-run");
+        vs.runBadge.textContent = status === "done" ? "完成" : "执行中";
+        vs.runBadge.className = "vf-badge " + (status === "done" ? "vfb-ok" : "vfb-run") + " show";
+        vs.runContent.classList.add("visible");
+        var scanEl = card.querySelector("[data-scan]");
+        var statsEl = card.querySelector("[data-stats]");
+        if (status === "done") {
+          if (scanEl) scanEl.classList.remove("active");
+          if (statsEl) {
+            var statParts = [];
+            var rr = details.runResult && typeof details.runResult === "object" ? details.runResult : null;
+            if (rr && Number.isFinite(Number(rr.barCount))) statParts.push('<span class="vf-stat-k">数据行<span class="vf-stat-v">' + Number(rr.barCount) + '</span></span>');
+            if (rr && rr.stats && typeof rr.stats === "object" && Number.isFinite(Number(rr.stats.mean))) {
+              statParts.push('<span class="vf-stat-k">均值<span class="vf-stat-v">' + Number(rr.stats.mean).toFixed(4) + '</span></span>');
+            }
+            statsEl.innerHTML = statParts.join("");
+            statsEl.style.display = statParts.length ? "flex" : "none";
+          }
+          vs.runLine.style.transition = "height .55s ease";
+          vs.runLine.style.height = "100%";
+        } else {
+          if (scanEl) scanEl.classList.add("active");
+        }
+      } else if (phase === "detect") {
+        vs.detDot.className  = "vf-dot " + (status === "done" ? "vs-fail" : "vs-run");
+        vs.detName.className = "vf-phase-name " + (status === "done" ? "vfn-fail" : "vfn-run");
+        vs.detContent.classList.add("visible");
+        var checkEl = card.querySelector("[data-check]");
+        var detResultEl = card.querySelector("[data-det-result]");
+        if (status === "done") {
+          var hasIssues = Array.isArray(details.issues) && details.issues.length > 0;
+          if (hasIssues) {
+            vs.detDot.className = "vf-dot vs-fail";
+            vs.detName.className = "vf-phase-name vfn-fail";
+            vs.detBadge.textContent = "检测失败";
+            vs.detBadge.className = "vf-badge vfb-fail show";
+            var issHtml = "";
+            for (var ii = 0; ii < details.issues.length; ii++) {
+              issHtml += '<span class="vf-issue-tag">⚠ ' + wbEscapeHtml(wbText(details.issues[ii], "")) + '</span>';
+            }
+            if (details.failureType) issHtml += '<div class="vf-issue-desc">' + wbEscapeHtml(details.failureType) + '</div>';
+            if (detResultEl) { detResultEl.innerHTML = issHtml; detResultEl.style.display = "block"; }
+            vs.detLine.style.transition = "height .5s ease";
+            vs.detLine.style.height = "100%";
+          } else {
+            vs.detDot.className = "vf-dot vs-ok";
+            vs.detName.className = "vf-phase-name vfn-ok";
+            vs.detBadge.textContent = "通过";
+            vs.detBadge.className = "vf-badge vfb-ok show";
+            if (detResultEl) { detResultEl.innerHTML = '<div class="vf-pass-result">✓ 全部检测通过</div>'; detResultEl.style.display = "block"; }
+            var headOutcome = card.querySelector(".vr-outcome");
+            if (headOutcome) { headOutcome.textContent = "全部检测通过"; headOutcome.className = "vr-outcome vro-pass"; }
+            var headNum = card.querySelector(".vr-num");
+            if (headNum) headNum.className = "vr-num vrn-pass";
+          }
+          if (checkEl) checkEl.classList.remove("active");
+        } else {
+          vs.detBadge.textContent = "检测中"; vs.detBadge.className = "vf-badge vfb-run show";
+          if (checkEl) checkEl.classList.add("active");
+        }
+      } else if (phase === "repair") {
+        var repRow = card.querySelector('[data-vf="rep"]');
+        if (repRow) repRow.style.display = "";
+        vs.repDot.className  = "vf-dot " + (status === "done" ? "vs-repair" : "vs-run");
+        vs.repName.className = "vf-phase-name " + (status === "done" ? "vfn-repair" : "vfn-run");
+        vs.repBadge.textContent = status === "done" ? "已修复" : "修复中";
+        vs.repBadge.className = "vf-badge " + (status === "done" ? "vfb-repair" : "vfb-run") + " show";
+        vs.repContent.classList.add("visible");
+        if (status === "done") {
+          var repSummary = details.repairSummary && typeof details.repairSummary === "object" ? details.repairSummary : null;
+          var descHtml = "";
+          if (repSummary && repSummary.repairGoal) descHtml = '<div class="vf-repair-desc">' + wbEscapeHtml(repSummary.repairGoal) + '</div>';
+          else if (details.fixSummary) descHtml = '<div class="vf-repair-desc">' + wbEscapeHtml(details.fixSummary) + '</div>';
+          var diffHtml = details.codeDiff ? renderUnifiedDiff(details.codeDiff, { fileName: "feature.py" }) : "";
+          vs.repContent.innerHTML = descHtml + diffHtml;
+          var headOutcome2 = card.querySelector(".vr-outcome");
+          if (headOutcome2) { headOutcome2.textContent = "检测失败 · 已修复"; headOutcome2.className = "vr-outcome vro-fail"; }
+        }
+      }
+
+      /* 更新验证步骤行状态 */
+      var vstep = validateState.stepRow;
+      if (vstep) {
+        var isDone = status === "done" && (phase === "detect" || phase === "repair");
+        var icon = vstep.querySelector(".step-icon");
+        var sum  = vstep.querySelector(".ai-workbench-step-summary");
+        if (icon && isDone && phase === "detect" && !(Array.isArray(details.issues) && details.issues.length)) {
+          icon.textContent = "✓";
+          if (sum) sum.textContent = "已完成";
+          vstep.className = "ai-thinking-step ai-workbench-step done";
+        }
+      }
+    }
+
     async function applyTrace(traceLike) {
       const trace = traceLike && typeof traceLike === "object" ? traceLike : {};
       const phase = stepPhase(trace);
       if (!phase) return;
       ensureVisible();
+
+      /* run/detect/repair → 特征验证卡 */
+      if (VALIDATE_PHASES[phase]) {
+        applyValidateTrace(trace);
+        root.classList.remove("collapsed");
+        setProcessCollapsed(false);
+        if (!state.hasFinalized) { clearCollapseTimer(); state.autoCollapsed = false; }
+        renderHeader();
+        notifyViewportChange("trace");
+        await waitFrame();
+        return;
+      }
+
       const stepRow = ensureStep(trace);
       const status = wbText(trace.status, "running").toLowerCase();
       const iconEl = stepRow.querySelector(".step-icon");
@@ -829,26 +1476,37 @@
         } else if (phase === "write" && details.streamMode === "code_accumulate") {
           let streamHost = panelEl.querySelector(".ai-workbench-stream-host");
           if (!streamHost) {
+            const specForCard = details.specArtifact && typeof details.specArtifact === "object" ? details.specArtifact : null;
+            const cardFeatureName = specForCard ? wbText(specForCard.featureName, "feature") : "feature";
+            const cardFileName = cardFeatureName.replace(/[^a-zA-Z0-9_]/g, "_") + ".py";
+            const cardSource = wbText(details.codeSource, wbText(details.executionMode, ""));
+            const isTemplate = cardSource === "template";
+            const sourceLabel = isTemplate ? "内置模板" : "AI 生成";
+            const sourcePillClass = isTemplate ? "write-pill-template" : "write-pill-ai";
             streamHost = document.createElement("div");
-            streamHost.className = "ai-workbench-stream-host ai-workbench-trace-event running";
+            streamHost.className = "ai-workbench-stream-host write-card";
             streamHost.innerHTML = ""
-              + '<div class="ai-workbench-phase-title">代码生成过程</div>'
-              + '<div class="ai-workbench-trace-summary"></div>'
-              + '<div class="ai-workbench-stream-meta"></div>'
-              + '<pre class="ai-trace-code"><code></code></pre>';
+              + '<div class="write-card-statusbar">'
+              + '<div class="write-card-dot"></div>'
+              + '<div class="write-card-filename">' + wbEscapeHtml(cardFileName) + '</div>'
+              + '<div class="write-card-pills">'
+              + '<span class="write-pill">Python</span>'
+              + '<span class="write-pill write-stream-linecount">...</span>'
+              + '<span class="write-pill ' + wbEscapeHtml(sourcePillClass) + '">' + wbEscapeHtml(sourceLabel) + '</span>'
+              + '</div>'
+              + '<div class="write-card-arrow">▼</div>'
+              + '</div>'
+              + '<div class="write-card-code-body">'
+              + '<div class="write-card-code write-card-streaming-code"><code></code></div>'
+              + '</div>'
+              + '<div class="write-card-collapsed-hint"></div>';
+            streamHost.querySelector(".write-card-statusbar").addEventListener("click", function() {
+              streamHost.classList.toggle("collapsed");
+            });
             panelEl.appendChild(streamHost);
           }
-          const summaryNode = streamHost.querySelector(".ai-workbench-trace-summary");
-          const metaNode = streamHost.querySelector(".ai-workbench-stream-meta");
-          const codeNode = streamHost.querySelector("code");
-          streamHost.className = "ai-workbench-stream-host ai-workbench-trace-event " + status;
-          if (summaryNode) summaryNode.textContent = wbText(trace.message || trace.summary, "");
-          if (metaNode) {
-            metaNode.innerHTML = [
-              details.codeSource ? wbTextBlock("代码来源", details.codeSource) : "",
-              details.executionMode ? wbTextBlock("执行环境", details.executionMode) : "",
-            ].filter(Boolean).join("");
-          }
+          var codeNode = streamHost.querySelector("code");
+          var lineCountNode = streamHost.querySelector(".write-stream-linecount");
           if (codeNode) {
             await animateTextNode(codeNode, wbText(details.codeSnippet, ""), {
               minChunk: 2,
@@ -856,6 +1514,42 @@
               delayMs: 6,
               activeClass: "is-streaming",
             });
+            if (lineCountNode) {
+              var linesNow = wbText(details.codeSnippet, "").split("\n").length;
+              lineCountNode.textContent = String(linesNow) + " 行";
+            }
+          }
+          if (status === "done") {
+            var fullCode = wbText(details.codeSnippet, "");
+            var codeLines = fullCode.split("\n");
+            var lineCountFinal = codeLines.length;
+            var linesHtml = [];
+            for (var li = 0; li < codeLines.length; li++) {
+              linesHtml.push(
+                '<div class="write-code-line">'
+                + '<span class="write-line-num">' + String(li + 1) + '</span>'
+                + '<span class="write-line-content">' + highlightPython(codeLines[li]) + '</span>'
+                + '</div>'
+              );
+            }
+            var codeBodyEl = streamHost.querySelector(".write-card-code-body");
+            if (codeBodyEl) {
+              codeBodyEl.innerHTML = '<div class="write-card-code">' + linesHtml.join("") + '</div>';
+            }
+            if (lineCountNode) {
+              lineCountNode.textContent = String(lineCountFinal) + " 行";
+            }
+            var pillsEl = streamHost.querySelector(".write-card-pills");
+            if (pillsEl && !pillsEl.querySelector(".write-pill-green")) {
+              var runPill = document.createElement("span");
+              runPill.className = "write-pill write-pill-green";
+              runPill.textContent = "可运行";
+              pillsEl.appendChild(runPill);
+            }
+            var hintEl = streamHost.querySelector(".write-card-collapsed-hint");
+            if (hintEl) {
+              hintEl.textContent = "点击展开查看代码 · " + String(lineCountFinal) + " 行";
+            }
           }
         } else {
           const fingerprint = buildTraceFingerprint(trace);
@@ -949,7 +1643,7 @@
         !hasPlanStep && result.planArtifact ? renderPlanArtifact(result.planArtifact) : "",
         result.specArtifact ? renderSpecArtifact(result.specArtifact) : "",
         result.generatedCode && result.generatedCode.featureCode ? wbCodeBlock("最终代码", result.generatedCode.featureCode) : "",
-        result.generatedCode && result.generatedCode.codeDiff ? renderCodeDiff(result.generatedCode.codeDiff) : "",
+        result.generatedCode && result.generatedCode.codeDiff ? renderUnifiedDiff(result.generatedCode.codeDiff) : "",
         result.repairSummary ? renderRepairSummary(result.repairSummary) : "",
         result.runArtifacts ? renderRunArtifacts(result.runArtifacts) : "",
       ].filter(Boolean).join("");
@@ -1038,7 +1732,7 @@
       _renderers: {
         renderPlanArtifact: renderPlanArtifact,
         renderSpecArtifact: renderSpecArtifact,
-        renderCodeDiff: renderCodeDiff,
+        renderUnifiedDiff: renderUnifiedDiff,
         renderRepairSummary: renderRepairSummary,
         renderRunArtifacts: renderRunArtifacts,
       },
@@ -1157,11 +1851,28 @@
         steps.push(renderStaticProgressivePlanStep(chunk));
         continue;
       }
+      const tracePhase = stepPhase(trace);
+
+      /* run/detect/repair → 收组，合并为「特征验证」卡 */
+      if (VALIDATE_PHASES[tracePhase]) {
+        const vChunk = [trace];
+        while (i + 1 < traces.length) {
+          const nextT = traces[i + 1] && typeof traces[i + 1] === "object" ? traces[i + 1] : {};
+          if (!VALIDATE_PHASES[stepPhase(nextT)]) break;
+          vChunk.push(nextT);
+          i += 1;
+        }
+        steps.push(renderStaticValidateCard(vChunk));
+        continue;
+      }
+
       const status = wbText(trace.status, "done").toLowerCase();
       const title = buildStepTitle(trace);
-      const summary = buildStepSummary(trace);
+      var skipStepSummary = tracePhase === "spec_lock" || tracePhase === "write";
+      const summary = skipStepSummary ? "" : buildStepSummary(trace);
       const detailsHtml = renderTraceDetails(trace);
-      steps.push('<details class="ai-workbench-static-step"'
+      const stepExtraClass = (tracePhase === "spec_lock" || tracePhase === "write") ? " spec-lock-step" : "";
+      steps.push('<details class="ai-workbench-static-step' + stepExtraClass + '"'
         + (status === "running" || status === "error" ? " open" : "")
         + ">"
         + '<summary><span class="status ' + wbEscapeHtml(status) + '">'

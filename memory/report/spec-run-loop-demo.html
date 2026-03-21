@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运行/检测/修复 — 多轮流程设计对比</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 24px 16px 60px; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 8px; }
+    .page-scenario {
+      font-size: 11px; color: #3a6a8a;
+      background: #0c1828; border: 1px solid #1a2c40; border-radius: 6px;
+      padding: 6px 10px; margin-bottom: 24px; line-height: 1.6;
+    }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      border: 1px solid #1e2e44; border-radius: 12px;
+      background: #0d1525; overflow: hidden;
+    }
+    .panel-head {
+      padding: 9px 13px; border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-label { font-size: 12px; font-weight: 700; color: #7aaad4; }
+    .panel-name  { font-size: 12px; color: #3a5a7a; flex: 1; }
+    .panel-body  { padding: 12px; display: grid; gap: 8px; }
+
+    /* ── 通用步骤头 ── */
+    .step-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; background: #101827;
+      border: 1px solid #1a2c40; border-radius: 8px;
+    }
+    .s-check {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .s-done  { background: #1a4a2e; color: #5adf8a; }
+    .s-fail  { background: #3a1818; color: #e05050; }
+    .s-run   { background: #1a3a5a; color: #5090e0; }
+    .s-title { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .s-status { font-size: 11px; }
+    .s-done-text  { color: #3a5a7a; }
+    .s-fail-text  { color: #804040; }
+
+    /* 颜色工具 */
+    .c-green  { color: #40c878; }
+    .c-red    { color: #e05050; }
+    .c-yellow { color: #d0a040; }
+    .c-blue   { color: #5090d0; }
+    .c-muted  { color: #3a5a7a; }
+
+    /* ═══════════════════════════════════════════
+       方案 A — 轮次分组卡（Run + Detect + Repair 合一）
+       ═══════════════════════════════════════════ */
+
+    .round-card {
+      border: 1px solid #1e3050; border-radius: 10px;
+      background: #0c1828; overflow: hidden;
+    }
+    .round-card-head {
+      padding: 9px 12px; display: flex; align-items: center; gap: 9px;
+      cursor: pointer; user-select: none;
+    }
+    .round-card-head:hover { background: rgba(255,255,255,0.02); }
+    .round-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .round-num-fail { background: #2a1010; color: #d05050; border: 1px solid #5a2020; }
+    .round-num-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-title  { font-size: 13px; font-weight: 600; color: #a0c4e8; flex: 1; }
+    .round-outcome {
+      font-size: 11px; border-radius: 999px; padding: 2px 8px; font-weight: 500;
+    }
+    .round-outcome-fail { background: #2a1010; color: #e06060; border: 1px solid #5a2020; }
+    .round-outcome-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-arrow { font-size: 10px; color: #2a4466; transition: transform .2s; }
+    .round-card.collapsed .round-arrow { transform: rotate(-90deg); }
+
+    .round-mini-flow {
+      padding: 6px 12px; display: flex; align-items: center; gap: 6px;
+      border-top: 1px solid #152030; border-bottom: 1px solid #152030;
+      background: #0a1520;
+    }
+    .mini-step {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 500;
+    }
+    .mini-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .mini-dot-pass   { background: #40c878; }
+    .mini-dot-fail   { background: #e05050; }
+    .mini-dot-repair { background: #d0a040; }
+    .mini-label-pass   { color: #4a9a6a; }
+    .mini-label-fail   { color: #9a5050; }
+    .mini-label-repair { color: #9a7840; }
+    .mini-arrow { color: #1e3050; font-size: 10px; }
+
+    .round-body {
+      overflow: hidden; transition: max-height .25s ease; max-height: 400px;
+    }
+    .round-card.collapsed .round-body { max-height: 0; }
+
+    .round-section {
+      padding: 9px 12px; border-bottom: 1px solid #0f1e30;
+    }
+    .round-section:last-child { border-bottom: none; }
+    .round-section-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .5px; color: #2a4466; margin-bottom: 5px;
+    }
+    .round-section-text {
+      font-size: 12px; color: #7a96b8; line-height: 1.6;
+    }
+    .round-stat-row {
+      display: flex; gap: 12px; flex-wrap: wrap;
+    }
+    .round-stat {
+      font-size: 11px;
+    }
+    .round-stat-label { color: #2a4a6a; }
+    .round-stat-val   { color: #7ab0d8; font-weight: 500; margin-left: 3px; }
+
+    .issue-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; padding: 2px 8px; border-radius: 5px;
+      background: #2a1010; border: 1px solid #5a2020; color: #e06060;
+      margin-bottom: 5px;
+    }
+    .fix-tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 5px;
+      background: #1a2a10; border: 1px solid #3a5020; color: #80c050;
+    }
+
+    /* ═══════════════════════════════════════════
+       方案 B — 紧凑时间轴
+       ═══════════════════════════════════════════ */
+
+    .timeline-card {
+      border: 1px solid #1e3050; border-radius: 10px;
+      background: #0c1828; overflow: hidden;
+    }
+    .timeline-summary {
+      padding: 10px 12px; border-bottom: 1px solid #152030;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .tl-icon {
+      width: 24px; height: 24px; border-radius: 7px;
+      background: #0d2a18; border: 1px solid #1e5a30;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .tl-info { flex: 1; }
+    .tl-main { font-size: 13px; font-weight: 600; color: #9ad4b8; }
+    .tl-sub  { font-size: 11px; color: #3a6a4a; margin-top: 2px; }
+    .tl-badge {
+      font-size: 11px; border-radius: 999px; padding: 3px 10px; font-weight: 600;
+      background: #0d2a18; color: #40c878; border: 1px solid #1e5a30;
+    }
+
+    .timeline-rows { padding: 6px 12px 10px; display: grid; gap: 0; }
+    .tl-row {
+      display: flex; align-items: stretch; gap: 0;
+      position: relative;
+    }
+    .tl-left {
+      width: 64px; flex-shrink: 0; display: flex;
+      flex-direction: column; align-items: center;
+      padding: 8px 0;
+    }
+    .tl-line-seg {
+      width: 1px; background: #1e3050; flex: 1; min-height: 6px;
+    }
+    .tl-dot {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0; font-weight: 700;
+      border: 2px solid transparent;
+    }
+    .tl-dot-pass   { background: #0d2a18; border-color: #1e5a30; color: #40c878; }
+    .tl-dot-fail   { background: #2a1010; border-color: #5a2020; color: #e05050; }
+    .tl-dot-repair { background: #2a2010; border-color: #5a4010; color: #d0a040; }
+
+    .tl-content {
+      flex: 1; padding: 8px 0 8px 4px;
+    }
+    .tl-row-head {
+      display: flex; align-items: center; gap: 7px; margin-bottom: 3px;
+    }
+    .tl-phase {
+      font-size: 11px; font-weight: 600;
+    }
+    .tl-phase-run    { color: #5090d0; }
+    .tl-phase-detect { color: #e05050; }
+    .tl-phase-pass   { color: #40c878; }
+    .tl-phase-repair { color: #d0a040; }
+    .tl-attempt {
+      font-size: 10px; color: #2a4466;
+      background: #0f1f30; border: 1px solid #1e3050;
+      border-radius: 999px; padding: 1px 6px;
+    }
+    .tl-detail {
+      font-size: 11px; color: #4a6a8a; line-height: 1.55;
+    }
+
+    /* ═══════════════════════════════════════════
+       方案 C — 综合流水线卡（整体合一）
+       ═══════════════════════════════════════════ */
+
+    .pipeline-card {
+      border: 1px solid #1e3050; border-radius: 10px;
+      background: #0c1828; overflow: hidden;
+    }
+    .pipeline-header {
+      padding: 10px 12px; border-bottom: 1px solid #152030;
+      display: flex; align-items: center; gap: 9px;
+    }
+    .pipe-result-icon {
+      width: 26px; height: 26px; border-radius: 8px;
+      background: #0d2a18; border: 1px solid #1e5a30;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .pipe-title { font-size: 13px; font-weight: 600; color: #9ad4b8; flex: 1; }
+    .pipe-rounds-badge {
+      font-size: 11px; color: #3a6a4a; padding: 2px 8px;
+      background: #0d2a18; border: 1px solid #1e4a28; border-radius: 5px;
+    }
+
+    .pipeline-rounds {
+      padding: 12px; display: grid; gap: 8px;
+    }
+    .pipe-round {
+      display: flex; gap: 0; align-items: stretch;
+      border: 1px solid #152030; border-radius: 8px; overflow: hidden;
+    }
+    .pipe-round-num {
+      width: 36px; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      border-right: 1px solid #152030;
+    }
+    .pipe-round-num-fail { background: #1a0c0c; color: #804040; }
+    .pipe-round-num-pass { background: #0c1e12; color: #408060; }
+
+    .pipe-steps {
+      flex: 1; display: flex; align-items: stretch;
+    }
+    .pipe-step {
+      flex: 1; padding: 8px 10px;
+      border-right: 1px solid #152030;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .pipe-step:last-child { border-right: none; }
+    .pipe-step-name {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600;
+    }
+    .pipe-step-name-run    { color: #3a5a8a; }
+    .pipe-step-name-detect { color: #7a3a3a; }
+    .pipe-step-name-repair { color: #7a5a2a; }
+    .pipe-step-name-ok     { color: #2a7a4a; }
+    .pipe-step-val {
+      font-size: 12px; font-weight: 500; line-height: 1.4;
+    }
+    .pipe-step-sub { font-size: 10px; color: #2a4466; line-height: 1.4; }
+
+    .pipeline-divider {
+      margin: 0 12px;
+      border: none; border-top: 1px solid #152030;
+    }
+    .pipeline-final {
+      padding: 9px 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .pipe-final-label { font-size: 11px; color: #2a5a3a; }
+    .pipe-final-val   { font-size: 12px; color: #60b880; font-weight: 500; flex: 1; }
+    .pipe-final-stats {
+      display: flex; gap: 8px;
+    }
+    .pipe-final-stat {
+      font-size: 11px;
+    }
+    .pipe-final-stat-label { color: #2a4a6a; }
+    .pipe-final-stat-val   { color: #5090c0; font-weight: 500; margin-left: 3px; }
+
+    /* 底部说明 */
+    .guide {
+      margin-top: 18px; display: grid;
+      grid-template-columns: repeat(3, 1fr); gap: 12px;
+    }
+    @media (max-width: 1000px) { .guide { grid-template-columns: 1fr; } }
+    .guide-item {
+      border: 1px solid #1e2e44; border-radius: 8px;
+      background: #0d1626; padding: 10px 12px;
+    }
+    .guide-name { font-size: 12px; font-weight: 700; color: #7aaad4; margin-bottom: 4px; }
+    .guide-desc { font-size: 12px; color: #3a5a7a; line-height: 1.6; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">运行 / 检测 / 修复 — 多轮流程设计对比</div>
+  <div class="page-desc">三种思路：轮次分组卡、紧凑时间轴、综合流水线卡</div>
+  <div class="page-scenario">
+    模拟场景：第 1 轮运行成功但检测到输出含 NaN，触发修复（修改了 fillna 逻辑）；第 2 轮运行 + 检测全部通过 ✓
+  </div>
+
+  <div class="grid">
+
+    <!-- ══ 方案 A：轮次分组卡 ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 A</div>
+        <div class="panel-name">轮次分组卡 — run/detect/repair 合成一张</div>
+      </div>
+      <div class="panel-body">
+
+        <!-- 第 1 轮（失败 → 修复） -->
+        <div class="round-card" id="r1">
+          <div class="round-card-head" onclick="document.getElementById('r1').classList.toggle('collapsed')">
+            <div class="round-num round-num-fail">1</div>
+            <div class="round-title">第 1 轮</div>
+            <div class="round-outcome round-outcome-fail">检测未通过</div>
+            <div class="round-arrow">▼</div>
+          </div>
+          <div class="round-mini-flow">
+            <div class="mini-step">
+              <div class="mini-dot mini-dot-pass"></div>
+              <span class="mini-label-pass">运行</span>
+            </div>
+            <div class="mini-arrow">→</div>
+            <div class="mini-step">
+              <div class="mini-dot mini-dot-fail"></div>
+              <span class="mini-label-fail">检测失败</span>
+            </div>
+            <div class="mini-arrow">→</div>
+            <div class="mini-step">
+              <div class="mini-dot mini-dot-repair"></div>
+              <span class="mini-label-repair">已修复</span>
+            </div>
+          </div>
+          <div class="round-body">
+            <div class="round-section">
+              <div class="round-section-title">运行结果</div>
+              <div class="round-stat-row">
+                <div class="round-stat"><span class="round-stat-label">K 线数</span><span class="round-stat-val">500</span></div>
+                <div class="round-stat"><span class="round-stat-label">均值</span><span class="round-stat-val">0.0312</span></div>
+                <div class="round-stat"><span class="round-stat-label">标准差</span><span class="round-stat-val">0.0189</span></div>
+                <div class="round-stat"><span class="round-stat-label">最小</span><span class="round-stat-val">0.0</span></div>
+                <div class="round-stat"><span class="round-stat-label">最大</span><span class="round-stat-val">0.2341</span></div>
+              </div>
+            </div>
+            <div class="round-section">
+              <div class="round-section-title">检测问题</div>
+              <div class="issue-tag">✗ 输出含 NaN：尾部 14 行为空值</div>
+              <div class="round-section-text">ATR 初始计算需要足够的 K 线窗口期，导致序列开头出现空值，未正确 fillna。</div>
+            </div>
+            <div class="round-section">
+              <div class="round-section-title">修复动作</div>
+              <span class="fix-tag">✓ 在 reindex 后补全 fillna(0.0)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第 2 轮（通过） -->
+        <div class="round-card" id="r2">
+          <div class="round-card-head" onclick="document.getElementById('r2').classList.toggle('collapsed')">
+            <div class="round-num round-num-pass">2</div>
+            <div class="round-title">第 2 轮</div>
+            <div class="round-outcome round-outcome-pass">检测通过</div>
+            <div class="round-arrow">▼</div>
+          </div>
+          <div class="round-mini-flow">
+            <div class="mini-step">
+              <div class="mini-dot mini-dot-pass"></div>
+              <span class="mini-label-pass">运行</span>
+            </div>
+            <div class="mini-arrow">→</div>
+            <div class="mini-step">
+              <div class="mini-dot mini-dot-pass"></div>
+              <span class="mini-label-pass">检测通过</span>
+            </div>
+          </div>
+          <div class="round-body">
+            <div class="round-section">
+              <div class="round-section-title">运行结果</div>
+              <div class="round-stat-row">
+                <div class="round-stat"><span class="round-stat-label">K 线数</span><span class="round-stat-val">500</span></div>
+                <div class="round-stat"><span class="round-stat-label">均值</span><span class="round-stat-val">0.0298</span></div>
+                <div class="round-stat"><span class="round-stat-label">标准差</span><span class="round-stat-val">0.0201</span></div>
+                <div class="round-stat"><span class="round-stat-label">最小</span><span class="round-stat-val">0.0</span></div>
+                <div class="round-stat"><span class="round-stat-label">最大</span><span class="round-stat-val">0.2298</span></div>
+              </div>
+            </div>
+            <div class="round-section">
+              <div class="round-section-title">检测结果</div>
+              <div class="round-section-text c-green">✓ 无 NaN，输出范围合法，结构验证通过</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ 方案 B：紧凑时间轴 ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 B</div>
+        <div class="panel-name">紧凑时间轴 — 每步一行，最省空间</div>
+      </div>
+      <div class="panel-body">
+        <div class="timeline-card">
+          <div class="timeline-summary">
+            <div class="tl-icon">✓</div>
+            <div class="tl-info">
+              <div class="tl-main">2 轮后通过</div>
+              <div class="tl-sub">第 1 轮 NaN 修复 · 第 2 轮验证通过</div>
+            </div>
+            <div class="tl-badge">已通过</div>
+          </div>
+          <div class="timeline-rows">
+
+            <!-- 轮1 运行 -->
+            <div class="tl-row">
+              <div class="tl-left">
+                <div class="tl-line-seg"></div>
+                <div class="tl-dot tl-dot-pass">✓</div>
+                <div class="tl-line-seg"></div>
+              </div>
+              <div class="tl-content">
+                <div class="tl-row-head">
+                  <span class="tl-phase tl-phase-run">运行</span>
+                  <span class="tl-attempt">第 1 轮</span>
+                </div>
+                <div class="tl-detail">500 根 K 线 · 均值 0.031 · 标准差 0.019</div>
+              </div>
+            </div>
+
+            <!-- 轮1 检测失败 -->
+            <div class="tl-row">
+              <div class="tl-left">
+                <div class="tl-line-seg"></div>
+                <div class="tl-dot tl-dot-fail">✗</div>
+                <div class="tl-line-seg"></div>
+              </div>
+              <div class="tl-content">
+                <div class="tl-row-head">
+                  <span class="tl-phase tl-phase-detect">检测失败</span>
+                  <span class="tl-attempt">第 1 轮</span>
+                </div>
+                <div class="tl-detail">输出含 NaN · 尾部 14 行为空值</div>
+              </div>
+            </div>
+
+            <!-- 修复 -->
+            <div class="tl-row">
+              <div class="tl-left">
+                <div class="tl-line-seg"></div>
+                <div class="tl-dot tl-dot-repair">↻</div>
+                <div class="tl-line-seg"></div>
+              </div>
+              <div class="tl-content">
+                <div class="tl-row-head">
+                  <span class="tl-phase tl-phase-repair">修复</span>
+                </div>
+                <div class="tl-detail">在 reindex 后补全 fillna(0.0)</div>
+              </div>
+            </div>
+
+            <!-- 轮2 运行 -->
+            <div class="tl-row">
+              <div class="tl-left">
+                <div class="tl-line-seg"></div>
+                <div class="tl-dot tl-dot-pass">✓</div>
+                <div class="tl-line-seg"></div>
+              </div>
+              <div class="tl-content">
+                <div class="tl-row-head">
+                  <span class="tl-phase tl-phase-run">运行</span>
+                  <span class="tl-attempt">第 2 轮</span>
+                </div>
+                <div class="tl-detail">500 根 K 线 · 均值 0.030 · 标准差 0.020</div>
+              </div>
+            </div>
+
+            <!-- 轮2 检测通过 -->
+            <div class="tl-row">
+              <div class="tl-left">
+                <div class="tl-line-seg" style="visibility:hidden;"></div>
+                <div class="tl-dot tl-dot-pass">✓</div>
+                <div class="tl-line-seg" style="visibility:hidden;"></div>
+              </div>
+              <div class="tl-content">
+                <div class="tl-row-head">
+                  <span class="tl-phase tl-phase-pass">检测通过</span>
+                  <span class="tl-attempt">第 2 轮</span>
+                </div>
+                <div class="tl-detail">无 NaN · 输出范围合法 · 结构验证通过</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 方案 C：综合流水线卡 ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 C</div>
+        <div class="panel-name">综合流水线卡 — 一眼看全程</div>
+      </div>
+      <div class="panel-body">
+        <div class="pipeline-card">
+          <div class="pipeline-header">
+            <div class="pipe-result-icon">✓</div>
+            <div class="pipe-title">验证通过</div>
+            <div class="pipe-rounds-badge">共 2 轮</div>
+          </div>
+
+          <div class="pipeline-rounds">
+            <!-- 第 1 轮 -->
+            <div class="pipe-round">
+              <div class="pipe-round-num pipe-round-num-fail">1</div>
+              <div class="pipe-steps">
+                <div class="pipe-step">
+                  <div class="pipe-step-name pipe-step-name-run">运行</div>
+                  <div class="pipe-step-val c-blue">通过</div>
+                  <div class="pipe-step-sub">500 K 线</div>
+                </div>
+                <div class="pipe-step">
+                  <div class="pipe-step-name pipe-step-name-detect">检测</div>
+                  <div class="pipe-step-val c-red">失败</div>
+                  <div class="pipe-step-sub">含 NaN</div>
+                </div>
+                <div class="pipe-step">
+                  <div class="pipe-step-name pipe-step-name-repair">修复</div>
+                  <div class="pipe-step-val c-yellow">已修复</div>
+                  <div class="pipe-step-sub">fillna 补全</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 第 2 轮 -->
+            <div class="pipe-round">
+              <div class="pipe-round-num pipe-round-num-pass">2</div>
+              <div class="pipe-steps">
+                <div class="pipe-step">
+                  <div class="pipe-step-name pipe-step-name-run">运行</div>
+                  <div class="pipe-step-val c-green">通过</div>
+                  <div class="pipe-step-sub">500 K 线</div>
+                </div>
+                <div class="pipe-step">
+                  <div class="pipe-step-name pipe-step-name-ok">检测</div>
+                  <div class="pipe-step-val c-green">通过 ✓</div>
+                  <div class="pipe-step-sub">全部合法</div>
+                </div>
+                <div class="pipe-step" style="opacity:.3;">
+                  <div class="pipe-step-name pipe-step-name-repair">修复</div>
+                  <div class="pipe-step-val c-muted">—</div>
+                  <div class="pipe-step-sub">不需要</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr class="pipeline-divider">
+
+          <div class="pipeline-final">
+            <div class="pipe-final-label">最终结果</div>
+            <div class="pipe-final-val">输出合法，可进入下一步</div>
+            <div class="pipe-final-stats">
+              <div class="pipe-final-stat">
+                <span class="pipe-final-stat-label">均值</span>
+                <span class="pipe-final-stat-val">0.030</span>
+              </div>
+              <div class="pipe-final-stat">
+                <span class="pipe-final-stat-label">标准差</span>
+                <span class="pipe-final-stat-val">0.020</span>
+              </div>
+              <div class="pipe-final-stat">
+                <span class="pipe-final-stat-label">范围</span>
+                <span class="pipe-final-stat-val">0 ~ 0.23</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="guide">
+    <div class="guide-item">
+      <div class="guide-name">方案 A — 轮次分组卡</div>
+      <div class="guide-desc">每轮是一张折叠卡，内部有 run/detect/repair 三段细节。信息最完整，适合需要排查问题时展开看。</div>
+    </div>
+    <div class="guide-item">
+      <div class="guide-name">方案 B — 紧凑时间轴</div>
+      <div class="guide-desc">每步一行，竖向排列，像 git log。最省空间，流程感最强，但细节少。</div>
+    </div>
+    <div class="guide-item">
+      <div class="guide-name">方案 C — 综合流水线卡</div>
+      <div class="guide-desc">所有轮次在一张表格里对比，最容易一眼看出"哪轮出了什么问题"，底部附最终统计。</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

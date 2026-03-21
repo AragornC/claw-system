@@ -674,9 +674,9 @@ export function createFeaturePipeline(deps = {}) {
 
     await reportProgress({
       phase: "spec_lock",
-      title: "锁定 Spec",
+      title: "架构设计",
       status: "done",
-      message: "已锁定本次特征的结构化 Spec。",
+      message: "已确认特征架构设计。",
       details: {
         specArtifact,
         actionLabel: "spec_locked",

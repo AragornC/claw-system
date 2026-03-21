@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Python 高亮修复 Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b1626;
+    color: #d5e3f8;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 32px 24px;
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .panel { flex: 1; min-width: 420px; max-width: 600px; }
+  .panel-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .panel-label.broken { color: #c0392b; }
+  .panel-label.fixed  { color: #3a9e6e; }
+
+  /* ── 代码卡 ── */
+  .write-card {
+    border: 1px solid #1e3255;
+    border-radius: 12px;
+    background: #0d1b2e;
+    overflow: hidden;
+  }
+  .write-card-statusbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #111d32;
+    border-bottom: 1px solid #1e3255;
+    cursor: pointer;
+    user-select: none;
+  }
+  .write-card-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #4a9e6e;
+    flex-shrink: 0;
+  }
+  .write-card-filename {
+    font-size: 0.78rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #c8dcf5;
+    font-weight: 600;
+  }
+  .write-card-pills {
+    display: flex;
+    gap: 5px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .write-pill {
+    font-size: 0.68rem;
+    color: #7a9ec8;
+    background: #162236;
+    border: 1px solid #243a5a;
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  .write-pill-green { color: #3db87a; border-color: #1a5c3c; background: #0d2b1e; }
+
+  .write-card-code-body { overflow-x: auto; }
+  .write-card-code {
+    padding: 10px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.76rem;
+    line-height: 1.65;
+  }
+  .write-code-line {
+    display: flex;
+    align-items: baseline;
+    white-space: nowrap;
+    padding: 0 12px;
+  }
+  .write-code-line:hover { background: #13253e; }
+  .write-line-num {
+    color: #3a5070;
+    text-align: right;
+    min-width: 24px;
+    margin-right: 14px;
+    user-select: none;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+  }
+  .write-line-content { color: #c8dcf5; flex: 1; }
+
+  /* ── Python 语法着色 ── */
+  .py-kw { color: #c792ea; }
+  .py-fn { color: #82aaff; }
+  .py-bi { color: #ffcb6b; }
+  .py-st { color: #c3e88d; }
+  .py-nu { color: #f78c6c; }
+  .py-cm { color: #546e7a; font-style: italic; }
+  .py-tp { color: #80cbc4; }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="panel-label broken">改造前 · 顺序替换（正则互相污染）</div>
+  <div class="write-card" id="broken-card"></div>
+</div>
+
+<div class="panel">
+  <div class="panel-label fixed">改造后 · 占位符法（各正则隔离）</div>
+  <div class="write-card" id="fixed-card"></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// 测试代码（和截图里的真实代码一致）
+// ─────────────────────────────────────────
+var TEST_CODE = [
+  "import pandas as pd",
+  "import talib.abstract as ta",
+  "",
+  "def compute_feature(df: pd.DataFrame, period: int = 14) -> pd.Series:",
+  "    atr = ta.ATR(df, timeperiod=max(2, int(period)))",
+  "    scaled = (atr / df['close'].replace(0, 1.0)).clip(lower=0.0)",
+  "    return scaled.reindex(df.index).fillna(0.0)",
+  "",
+  "# 额外用于测试：复杂行 + 注释中的数字",
+  "def calc(x: float = 3.14, n: int = 100) -> float:",
+  "    if x > 0 and n in range(200):",
+  "        return round(x * n, 2)  # max precision: 2 decimals",
+  "    return 0.0",
+].join("\n");
+
+// ─────────────────────────────────────────
+// 公共工具
+// ─────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+var _pyKeywords = /\b(import|from|as|def|return|if|elif|else|for|while|in|not|and|or|is|with|try|except|finally|raise|class|pass|break|continue|yield|lambda|assert|global|nonlocal|del|True|False|None)\b/g;
+var _pyBuiltins = /\b(int|float|str|bool|list|dict|tuple|set|len|range|print|max|min|abs|round|sorted|map|filter|enumerate|zip|type|isinstance|hasattr|getattr|setattr|super|property|staticmethod|classmethod)\b/g;
+
+// ─────────────────────────────────────────
+// 改造前：顺序替换（复现 bug）
+// ─────────────────────────────────────────
+function highlightPythonBroken(codeLine) {
+  var escaped = escapeHtml(codeLine);
+  escaped = escaped.replace(/(#.*)$/, '<span class="py-cm">$1</span>');
+  escaped = escaped.replace(/(&#39;[^&#]*?&#39;|&quot;[^&]*?&quot;)/g, '<span class="py-st">$1</span>');
+  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, '<span class="py-nu">$1</span>');
+  escaped = escaped.replace(_pyKeywords, '<span class="py-kw">$1</span>');
+  escaped = escaped.replace(_pyBuiltins, '<span class="py-bi">$1</span>');
+  escaped = escaped.replace(/\b(pd\.DataFrame|pd\.Series|np\.ndarray|pd\.Index)\b/g, '<span class="py-tp">$1</span>');
+  escaped = escaped.replace(/\bdef\b\s+([a-zA-Z_]\w*)/g, '<span class="py-kw">def</span> <span class="py-fn">$1</span>');
+  return escaped;
+}
+
+// ─────────────────────────────────────────
+// 改造后：字符扫描 + 占位符法
+//   第一步：在【原始代码】上用字符扫描识别 string/comment
+//   第二步：对非 string/comment 的代码段再做 HTML 转义 + 数字/关键字高亮
+//   两步完全隔离，不会互相污染
+// ─────────────────────────────────────────
+function highlightCodeSegment(rawSeg) {
+  var escaped = escapeHtml(rawSeg);
+  var spans = [];
+
+  function stash(html) {
+    var idx = spans.length;
+    spans.push(html);
+    return "\x00_" + idx + "_\x00";
+  }
+
+  // 数字
+  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, function(_, nu) {
+    return stash('<span class="py-nu">' + nu + "</span>");
+  });
+  // 类型注解
+  escaped = escaped.replace(/\b(pd\.DataFrame|pd\.Series|np\.ndarray|pd\.Index)\b/g, function(_, tp) {
+    return stash('<span class="py-tp">' + tp + "</span>");
+  });
+  // def + 函数名
+  escaped = escaped.replace(/\bdef\s+([a-zA-Z_]\w*)/g, function(_, fn) {
+    return stash('<span class="py-kw">def</span> <span class="py-fn">' + fn + "</span>");
+  });
+  // 关键字
+  escaped = escaped.replace(_pyKeywords, function(_, kw) {
+    return stash('<span class="py-kw">' + kw + "</span>");
+  });
+  // 内置函数
+  escaped = escaped.replace(_pyBuiltins, function(_, bi) {
+    return stash('<span class="py-bi">' + bi + "</span>");
+  });
+
+  return escaped.replace(/\x00_(\d+)_\x00/g, function(_, i) {
+    return spans[parseInt(i, 10)];
+  });
+}
+
+function highlightPythonFixed(rawLine) {
+  // 第一步：字符扫描，把一行拆成 [code, string, comment] 段
+  var tokens = [];
+  var pos = 0;
+  var len = rawLine.length;
+  var buf = "";
+
+  while (pos < len) {
+    var ch = rawLine[pos];
+
+    if (ch === "#") {
+      // 注释：# 之后全是注释
+      if (buf) { tokens.push({ type: "code", raw: buf }); buf = ""; }
+      tokens.push({ type: "comment", raw: rawLine.slice(pos) });
+      pos = len;
+
+    } else if (ch === "'" || ch === '"') {
+      // 字符串：支持单/双引号，简单转义处理
+      if (buf) { tokens.push({ type: "code", raw: buf }); buf = ""; }
+      var q = ch;
+      var start = pos;
+      pos++;
+      while (pos < len && rawLine[pos] !== q) {
+        if (rawLine[pos] === "\\") pos++; // 跳过转义字符
+        pos++;
+      }
+      pos++; // 跳过结尾引号
+      tokens.push({ type: "string", raw: rawLine.slice(start, pos) });
+
+    } else {
+      buf += ch;
+      pos++;
+    }
+  }
+  if (buf) tokens.push({ type: "code", raw: buf });
+
+  // 第二步：按段渲染
+  var result = "";
+  for (var i = 0; i < tokens.length; i++) {
+    var tok = tokens[i];
+    if (tok.type === "comment") {
+      result += '<span class="py-cm">' + escapeHtml(tok.raw) + "</span>";
+    } else if (tok.type === "string") {
+      result += '<span class="py-st">' + escapeHtml(tok.raw) + "</span>";
+    } else {
+      result += highlightCodeSegment(tok.raw);
+    }
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────
+// 渲染代码卡
+// ─────────────────────────────────────────
+function buildCard(containerId, highlightFn, filename) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  var lines = TEST_CODE.split("\n");
+
+  var statusbar = '<div class="write-card-statusbar">'
+    + '<div class="write-card-dot"></div>'
+    + '<div class="write-card-filename">' + escapeHtml(filename) + '</div>'
+    + '<div class="write-card-pills">'
+    + '<span class="write-pill">Python</span>'
+    + '<span class="write-pill">' + lines.length + ' 行</span>'
+    + '<span class="write-pill write-pill-green">可运行</span>'
+    + '</div></div>';
+
+  var codeLines = lines.map(function(line, i) {
+    return '<div class="write-code-line">'
+      + '<span class="write-line-num">' + (i + 1) + '</span>'
+      + '<span class="write-line-content">' + highlightFn(line) + '</span>'
+      + '</div>';
+  }).join("");
+
+  container.innerHTML = statusbar
+    + '<div class="write-card-code-body">'
+    + '<div class="write-card-code">' + codeLines + '</div>'
+    + '</div>';
+}
+
+buildCard("broken-card", highlightPythonBroken, "compute_feature_broken.py");
+buildCard("fixed-card",  highlightPythonFixed,  "compute_feature_fixed.py");
+</script>
+</body>
+</html>

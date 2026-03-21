@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>理解需求 · 选项加载 Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b1626;
+    color: #d5e3f8;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 32px 24px;
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .panel {
+    flex: 1;
+    min-width: 340px;
+    max-width: 500px;
+  }
+  .panel-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #4a6fa5;
+    margin-bottom: 12px;
+  }
+  .panel-label.after { color: #3a9e6e; }
+
+  /* ── 外层步骤卡（模拟线上样式） ── */
+  .step-card {
+    border: 1px solid #1e3255;
+    border-radius: 12px;
+    background: #0f1c2e;
+    overflow: hidden;
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #1e3255;
+  }
+  .step-icon {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #1a7f5a;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-icon svg { width: 10px; height: 10px; }
+  .step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+  .step-badge {
+    margin-left: auto;
+    font-size: 0.68rem;
+    color: #3a9e6e;
+    background: #0d2b1e;
+    border: 1px solid #1a5c3c;
+    border-radius: 6px;
+    padding: 1px 7px;
+  }
+  .step-body { padding: 12px 14px; }
+
+  /* ── understand-progressive 样式（复用线上） ── */
+  .ai-workbench-understand-progressive {
+    border: 1px solid #273654;
+    border-radius: 10px;
+    background: #111d32;
+    padding: 10px 12px;
+    display: grid;
+    gap: 8px;
+  }
+  .ai-workbench-understand-line {
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: #d5e3f8;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .ai-workbench-understand-prefix {
+    color: #d5e3f8;
+  }
+  .ai-workbench-understand-inline {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .ai-workbench-understand-token {
+    display: inline-block;
+    border: 1px solid #365a89;
+    background: #13263f;
+    color: #e8f1ff;
+    border-radius: 8px;
+    padding: 1px 7px;
+    font-size: 0.76rem;
+    line-height: 1.45;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    vertical-align: baseline;
+  }
+  .ai-workbench-understand-token.task { font-weight: 600; }
+  .ai-workbench-understand-token.option { margin-right: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ══ 改造前 ══ -->
+<div class="panel">
+  <div class="panel-label">改造前 · 选项 = 问题 + 答案</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none">
+          <path d="M2 5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="step-title">理解需求</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      <div class="ai-workbench-understand-progressive">
+        <!-- 任务分配 -->
+        <div class="ai-workbench-understand-line">
+          <span class="ai-workbench-understand-prefix">- 任务分配：</span>
+          <span class="ai-workbench-understand-inline">
+            <span class="ai-workbench-understand-token task">📝 特征生成任务</span>
+          </span>
+        </div>
+        <!-- 选项加载 · 改造前：问题 + 答案 -->
+        <div class="ai-workbench-understand-line">
+          <span class="ai-workbench-understand-prefix">- 选项加载：</span>
+          <span class="ai-workbench-understand-inline">
+            <span class="ai-workbench-understand-token option">✅ 您希望基于哪种动量指标来构建这个激进特征？例如RSI、MACD或其他？：RSI（相对强弱指数）</span>
+            <span class="ai-workbench-understand-token option">✅ 您希望如何增加激进程度？例如缩短周期、降低阈值，还是结合多个指标？：缩短周期（如RSI从14天改为7天）</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 改造后 ══ -->
+<div class="panel">
+  <div class="panel-label after">改造后 · 选项 = 只展示答案</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none">
+          <path d="M2 5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="step-title">理解需求</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      <div class="ai-workbench-understand-progressive">
+        <!-- 任务分配 -->
+        <div class="ai-workbench-understand-line">
+          <span class="ai-workbench-understand-prefix">- 任务分配：</span>
+          <span class="ai-workbench-understand-inline">
+            <span class="ai-workbench-understand-token task">📝 特征生成任务</span>
+          </span>
+        </div>
+        <!-- 选项加载 · 改造后：只展示答案 -->
+        <div class="ai-workbench-understand-line">
+          <span class="ai-workbench-understand-prefix">- 选项加载：</span>
+          <span class="ai-workbench-understand-inline">
+            <span class="ai-workbench-understand-token option">✅ RSI（相对强弱指数）</span>
+            <span class="ai-workbench-understand-token option">✅ 缩短周期（如RSI从14天改为7天）</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

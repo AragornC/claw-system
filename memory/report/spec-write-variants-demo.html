@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首版代码模块 — 改造方案对比</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 24px; }
+
+    /* 两列 + 单宽参考列 */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .layout-3 { grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 900px) { .layout, .layout-3 { grid-template-columns: 1fr; } }
+
+    /* 外壳面板 */
+    .panel {
+      border: 1px solid #1e2e44;
+      border-radius: 12px;
+      background: #0d1525;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 9px 13px;
+      border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-label { font-size: 12px; font-weight: 700; color: #7aaad4; }
+    .panel-name  { font-size: 12px; color: #3a5a7a; flex: 1; }
+    .panel-tag   { font-size: 11px; border-radius: 999px; padding: 2px 7px; }
+    .tag-before  { background: #2a1f12; color: #ffd8a8; border: 1px solid #70532a; }
+    .tag-after   { background: #13291f; color: #b7f7c9; border: 1px solid #2f6f4a; }
+    .panel-body  { padding: 12px; display: grid; gap: 10px; }
+
+    /* 步骤头（通用） */
+    .step-head {
+      display: flex; align-items: center; gap: 9px;
+      padding: 7px 11px;
+      background: #101827;
+      border: 1px solid #1a2c40;
+      border-radius: 9px;
+    }
+    .step-check {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .step-check-done { background: #1a4a2e; color: #5adf8a; }
+    .step-check-run  { background: #1a2a4a; color: #5aaad8; }
+    .step-title { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-status { font-size: 11px; color: #3a5a7a; }
+
+    /* ── 旧版参考 ── */
+    .old-block {
+      border: 1px solid #1f3050; border-radius: 8px;
+      background: #0d1929; padding: 8px 10px;
+    }
+    .old-label { font-size: 11px; color: #5b9bd5; font-weight: 600; margin-bottom: 4px; }
+    .old-text  { font-size: 13px; color: #b8ccec; }
+    .old-code  {
+      background: #060d18; border: 1px solid #1a2a40;
+      border-radius: 7px; padding: 10px;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11px; color: #a8c4e0; line-height: 1.6;
+      max-height: 160px; overflow: auto; white-space: pre;
+    }
+
+    /* ── 公共：代码块 ── */
+    .code-block {
+      background: #060d18;
+      border-radius: 8px;
+      padding: 11px 12px;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11.5px; line-height: 1.65;
+      overflow: auto; white-space: pre;
+      color: #9abbd8;
+      max-height: 220px;
+    }
+    /* Python 伪高亮 */
+    .kw  { color: #c792ea; }   /* keyword */
+    .fn  { color: #82aaff; }   /* function */
+    .cm  { color: #546e7a; font-style: italic; } /* comment */
+    .st  { color: #c3e88d; }   /* string */
+    .nu  { color: #f78c6c; }   /* number */
+    .bi  { color: #89ddff; }   /* builtin */
+
+    /* ══════════════════════════════════════
+       方案 A — 代码卡片：徽标 + 代码块
+       ══════════════════════════════════════ */
+    .write-a {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+    .write-a-head {
+      padding: 8px 12px;
+      border-bottom: 1px solid #182840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .write-a-icon {
+      font-size: 13px;
+    }
+    .write-a-title {
+      font-size: 13px; font-weight: 600; color: #a0c4e8; flex: 1;
+    }
+    .source-badge {
+      font-size: 10px; font-weight: 600;
+      border-radius: 5px; padding: 2px 7px;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .source-template { background: #1a2a3f; color: #6090c0; border: 1px solid #243a58; }
+    .source-ai       { background: #1f1030; color: #9060d0; border: 1px solid #362050; }
+    .write-a-body { padding: 10px 12px; }
+
+    /* ══════════════════════════════════════
+       方案 B — 摘要行 + 折叠代码
+       ══════════════════════════════════════ */
+    .write-b {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+    .write-b-summary {
+      padding: 10px 12px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid #182840;
+    }
+    .write-b-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #0f2038;
+      border: 1px solid #1e3a58;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .write-b-info { flex: 1; }
+    .write-b-main { font-size: 13px; font-weight: 600; color: #a8c8e8; }
+    .write-b-sub  { font-size: 11px; color: #4a7aaa; margin-top: 2px; }
+    .write-b-meta {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .meta-chip {
+      font-size: 11px; border-radius: 5px; padding: 3px 8px;
+      background: #0f1f30; border: 1px solid #1e3a56; color: #5090c0;
+    }
+    .write-b-code-wrap {
+      padding: 0 12px 12px;
+    }
+    .code-toggle {
+      width: 100%; text-align: left;
+      background: none; border: none;
+      color: #4a7aaa; font-size: 11px; cursor: pointer;
+      padding: 8px 0 6px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .code-toggle:hover { color: #7aaad4; }
+    .code-toggle-arrow { transition: transform .2s; display: inline-block; }
+    .code-open .code-toggle-arrow { transform: rotate(90deg); }
+    .code-collapsible { display: none; }
+    .code-open .code-collapsible { display: block; }
+
+    /* ══════════════════════════════════════
+       方案 C — 状态栏 + 全宽代码（带行号）
+       ══════════════════════════════════════ */
+    .write-c {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+    .write-c-statusbar {
+      padding: 7px 12px;
+      border-bottom: 1px solid #182840;
+      display: flex; align-items: center; gap: 8px;
+      background: #0a1520;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #3adf8a; flex-shrink: 0;
+    }
+    .write-c-filename {
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 12px; font-weight: 600; color: #7ab8e0; flex: 1;
+    }
+    .write-c-pills { display: flex; gap: 5px; }
+    .pill {
+      font-size: 10px; border-radius: 999px; padding: 2px 8px;
+      background: #0f1f30; border: 1px solid #1e3050; color: #4a7aaa;
+    }
+    .pill-green { border-color: #1e4030; color: #40a868; background: #0d2018; }
+    .write-c-code {
+      background: #060d18;
+      padding: 10px 0;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11.5px; line-height: 1.65;
+      overflow: auto; max-height: 220px;
+    }
+    .code-line {
+      display: flex; align-items: baseline;
+    }
+    .code-line:hover { background: rgba(255,255,255,0.03); }
+    .line-num {
+      width: 36px; text-align: right;
+      color: #2a3a52; font-size: 10px; flex-shrink: 0;
+      padding-right: 12px; user-select: none;
+    }
+    .line-content { color: #9abbd8; white-space: pre; padding-right: 12px; }
+
+    /* ══════════════════════════════════════
+       通用底部说明
+       ══════════════════════════════════════ */
+    .guide {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 900px) { .guide { grid-template-columns: 1fr; } }
+    .guide-item {
+      border: 1px solid #1e2e44; border-radius: 8px;
+      background: #0d1626; padding: 10px 12px;
+    }
+    .guide-name { font-size: 12px; font-weight: 700; color: #7aaad4; margin-bottom: 4px; }
+    .guide-desc { font-size: 12px; color: #3a5a7a; line-height: 1.6; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">首版代码模块 — 改造方案对比</div>
+  <div class="page-desc">同一份数据，左侧是改造前，右侧三栏分别是三种优化方向；上方去掉了「正在生成中」的冗余块</div>
+
+  <!-- 改造前 vs 改造后（原始状态） -->
+  <div class="layout">
+
+    <!-- 旧版参考 -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">改造前</div>
+        <div class="panel-name">当前展示</div>
+        <span class="panel-tag tag-before">现状</span>
+      </div>
+      <div class="panel-body">
+        <div class="step-head">
+          <div class="step-check step-check-done">✓</div>
+          <div class="step-title">首版代码</div>
+          <div class="step-status">已完成</div>
+        </div>
+        <!-- 冗余块（将被删除） -->
+        <div class="old-block" style="border-color:#3a2020;background:#1a0e0e;">
+          <div style="font-size:11px;color:#c05050;font-weight:600;margin-bottom:6px;">✗ 以下三块将被删除</div>
+          <div class="old-label">执行动作</div>
+          <div class="old-text" style="margin-bottom:8px;">code_generation_start</div>
+          <div class="old-label">执行环境</div>
+          <div class="old-text" style="margin-bottom:8px;">code_generation</div>
+          <div style="font-size:11px;color:#c05050;margin-top:4px;">+ 架构卡片（重复展示，已在「架构设计」中出现）</div>
+        </div>
+        <!-- 代码生成过程（旧） -->
+        <div class="old-block">
+          <div class="old-label">代码生成过程</div>
+          <div class="old-text" style="margin-bottom:6px;">已拿到首版代码，准备开始运行与检测。</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">代码来源</div>
+          <div class="old-text">template</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">执行环境</div>
+          <div class="old-text">template</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">首版代码</div>
+          <div class="old-code">import pandas as pd
+import talib.abstract as ta
+
+def compute_feature(df, period=14):
+    atr = ta.ATR(df, timeperiod=max(2, int(period)))
+    scaled = (atr / df['close'].replace(0,1.0)).clip(lower=0)
+    return scaled.reindex(df.index).fillna(0.0)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 改造后说明 -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">改造后共识</div>
+        <div class="panel-name">所有方案均去掉以下内容</div>
+        <span class="panel-tag tag-after">已删除</span>
+      </div>
+      <div class="panel-body">
+        <div style="font-size:12px;color:#5a9a7a;line-height:1.7;padding:4px 0;">
+          ✓ 去掉「执行动作」和「执行环境」两个技术块<br>
+          ✓ 去掉「正在生成」阶段的架构卡（和架构设计步骤重复）<br>
+          ✓ 去掉「代码生成过程」标题（含义模糊）<br>
+          ✓ 去掉第二个「执行环境: template」（和代码来源重复）<br><br>
+          <span style="color:#4a7aaa;">保留：代码来源标识 + 代码内容本体</span><br>
+          <span style="color:#4a7aaa;">三种方案的差异在于：<br>如何呈现代码内容</span>
+        </div>
+        <div class="step-head">
+          <div class="step-check step-check-done">✓</div>
+          <div class="step-title">首版代码</div>
+          <div class="step-status">已完成</div>
+        </div>
+        <div style="font-size:12px;color:#3a6a5a;padding:6px 10px;border:1px dashed #1e4030;border-radius:8px;background:#0a1e16;">
+          ↓ 下方三栏是三种展示风格，请对比选择
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 三种方案 -->
+  <div class="layout layout-3">
+
+    <!-- 方案 A：代码卡片 -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 A</div>
+        <div class="panel-name">代码卡片 — 极简徽标</div>
+      </div>
+      <div class="panel-body">
+        <div class="step-head">
+          <div class="step-check step-check-done">✓</div>
+          <div class="step-title">首版代码</div>
+          <div class="step-status">已完成</div>
+        </div>
+        <div class="write-a">
+          <div class="write-a-head">
+            <span class="write-a-icon">📄</span>
+            <span class="write-a-title">fast_breakout.py</span>
+            <span class="source-badge source-template">模板生成</span>
+          </div>
+          <div class="write-a-body">
+            <div class="code-block"><span class="kw">import</span> pandas <span class="kw">as</span> pd
+<span class="kw">import</span> talib.abstract <span class="kw">as</span> ta
+
+<span class="kw">def</span> <span class="fn">compute_feature</span>(
+    df: pd.DataFrame,
+    period: <span class="bi">int</span> = <span class="nu">14</span>
+) -> pd.Series:
+    atr = ta.ATR(df, timeperiod=<span class="bi">max</span>(<span class="nu">2</span>, <span class="bi">int</span>(period)))
+    scaled = (atr / df[<span class="st">'close'</span>]
+              .replace(<span class="nu">0</span>, <span class="nu">1.0</span>))
+              .clip(lower=<span class="nu">0.0</span>)
+    <span class="kw">return</span> scaled.reindex(df.index).fillna(<span class="nu">0.0</span>)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 B：摘要 + 可折叠代码 -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 B</div>
+        <div class="panel-name">摘要行 + 可折叠代码</div>
+      </div>
+      <div class="panel-body">
+        <div class="step-head">
+          <div class="step-check step-check-done">✓</div>
+          <div class="step-title">首版代码</div>
+          <div class="step-status">已完成</div>
+        </div>
+        <div class="write-b">
+          <div class="write-b-summary">
+            <div class="write-b-icon">✓</div>
+            <div class="write-b-info">
+              <div class="write-b-main">首版代码已就绪</div>
+              <div class="write-b-sub">共 12 行 · 准备开始运行与检测</div>
+            </div>
+            <div class="write-b-meta">
+              <span class="meta-chip">模板生成</span>
+              <span class="meta-chip" style="border-color:#1e4030;color:#40a868;background:#0d2018;">可运行</span>
+            </div>
+          </div>
+          <div class="write-b-code-wrap">
+            <button class="code-toggle" onclick="this.parentElement.parentElement.classList.toggle('code-open')">
+              <span class="code-toggle-arrow">▶</span> 查看代码
+            </button>
+            <div class="code-collapsible">
+              <div class="code-block"><span class="kw">import</span> pandas <span class="kw">as</span> pd
+<span class="kw">import</span> talib.abstract <span class="kw">as</span> ta
+
+<span class="kw">def</span> <span class="fn">compute_feature</span>(
+    df: pd.DataFrame,
+    period: <span class="bi">int</span> = <span class="nu">14</span>
+) -> pd.Series:
+    atr = ta.ATR(df, timeperiod=<span class="bi">max</span>(<span class="nu">2</span>, <span class="bi">int</span>(period)))
+    scaled = (atr / df[<span class="st">'close'</span>]
+              .replace(<span class="nu">0</span>, <span class="nu">1.0</span>))
+              .clip(lower=<span class="nu">0.0</span>)
+    <span class="kw">return</span> scaled.reindex(df.index).fillna(<span class="nu">0.0</span>)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 C：状态栏 + 行号代码 -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 C</div>
+        <div class="panel-name">IDE 风格 — 状态栏 + 行号</div>
+      </div>
+      <div class="panel-body">
+        <div class="step-head">
+          <div class="step-check step-check-done">✓</div>
+          <div class="step-title">首版代码</div>
+          <div class="step-status">已完成</div>
+        </div>
+        <div class="write-c">
+          <div class="write-c-statusbar">
+            <div class="status-dot"></div>
+            <div class="write-c-filename">fast_breakout.py</div>
+            <div class="write-c-pills">
+              <span class="pill">Python</span>
+              <span class="pill">12 行</span>
+              <span class="pill source-template" style="border-radius:5px;font-size:10px;">模板</span>
+              <span class="pill pill-green">可运行</span>
+            </div>
+          </div>
+          <div class="write-c-code">
+<div class="code-line"><span class="line-num">1</span><span class="line-content"><span class="kw">import</span> pandas <span class="kw">as</span> pd</span></div>
+<div class="code-line"><span class="line-num">2</span><span class="line-content"><span class="kw">import</span> talib.abstract <span class="kw">as</span> ta</span></div>
+<div class="code-line"><span class="line-num">3</span><span class="line-content"></span></div>
+<div class="code-line"><span class="line-num">4</span><span class="line-content"><span class="kw">def</span> <span class="fn">compute_feature</span>(</span></div>
+<div class="code-line"><span class="line-num">5</span><span class="line-content">    df: pd.DataFrame,</span></div>
+<div class="code-line"><span class="line-num">6</span><span class="line-content">    period: <span class="bi">int</span> = <span class="nu">14</span></span></div>
+<div class="code-line"><span class="line-num">7</span><span class="line-content">) -> pd.Series:</span></div>
+<div class="code-line"><span class="line-num">8</span><span class="line-content">    atr = ta.ATR(df, timeperiod=<span class="bi">max</span>(<span class="nu">2</span>, <span class="bi">int</span>(period)))</span></div>
+<div class="code-line"><span class="line-num">9</span><span class="line-content">    scaled = (atr / df[<span class="st">'close'</span>]</span></div>
+<div class="code-line"><span class="line-num">10</span><span class="line-content">              .replace(<span class="nu">0</span>, <span class="nu">1.0</span>))</span></div>
+<div class="code-line"><span class="line-num">11</span><span class="line-content">              .clip(lower=<span class="nu">0.0</span>)</span></div>
+<div class="code-line"><span class="line-num">12</span><span class="line-content">    <span class="kw">return</span> scaled.reindex(df.index).fillna(<span class="nu">0.0</span>)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 说明 -->
+  <div class="guide">
+    <div class="guide-item">
+      <div class="guide-name">方案 A — 极简代码卡</div>
+      <div class="guide-desc">最干净，代码就是主角，徽标说明来源，没有多余信息。适合默认展示。</div>
+    </div>
+    <div class="guide-item">
+      <div class="guide-name">方案 B — 摘要 + 折叠</div>
+      <div class="guide-desc">先展示"代码已就绪"的确认感，代码默认折叠，用户主动点开才看。不想让代码占太多空间时用。</div>
+    </div>
+    <div class="guide-item">
+      <div class="guide-name">方案 C — IDE 风格</div>
+      <div class="guide-desc">带行号 + 状态栏，像一个轻量编辑器，视觉最专业。代码较长时体验最好。</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

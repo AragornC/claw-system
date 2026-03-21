@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首版代码 — 方案 C + 折叠</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 60px; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 28px; }
+
+    /* 步骤头 */
+    .step-head {
+      display: flex; align-items: center; gap: 9px;
+      padding: 7px 11px;
+      background: #101827;
+      border: 1px solid #1a2c40;
+      border-radius: 9px;
+      margin-bottom: 10px;
+    }
+    .step-check {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #1a4a2e; color: #5adf8a;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .step-title  { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-status { font-size: 11px; color: #3a5a7a; }
+
+    /* Python 伪高亮 */
+    .kw { color: #c792ea; }
+    .fn { color: #82aaff; }
+    .cm { color: #546e7a; font-style: italic; }
+    .st { color: #c3e88d; }
+    .nu { color: #f78c6c; }
+    .bi { color: #89ddff; }
+    .tp { color: #ffcb6b; }
+
+    /* ══ 方案 C + 折叠 ══ */
+    .write-card {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+
+    /* 状态栏（点击折叠/展开） */
+    .write-statusbar {
+      padding: 8px 12px;
+      border-bottom: 1px solid #182840;
+      display: flex; align-items: center; gap: 8px;
+      background: #0a1520;
+      cursor: pointer;
+      user-select: none;
+    }
+    .write-statusbar:hover { background: #0c1828; }
+
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #3adf8a; flex-shrink: 0;
+    }
+    .write-filename {
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 12px; font-weight: 600; color: #7ab8e0; flex: 1;
+    }
+    .write-pills { display: flex; gap: 5px; align-items: center; }
+    .pill {
+      font-size: 10px; border-radius: 4px; padding: 2px 7px;
+      background: #0f1f30; border: 1px solid #1e3050; color: #4a7aaa;
+      white-space: nowrap;
+    }
+    .pill-green  { border-color: #1e4030; color: #40a868; background: #0d2018; }
+    .pill-purple { border-color: #2a1e48; color: #8060c0; background: #150f28; }
+
+    .collapse-arrow {
+      font-size: 10px; color: #2a4466;
+      transition: transform .2s;
+      flex-shrink: 0; margin-left: 2px;
+    }
+    .write-card.collapsed .collapse-arrow { transform: rotate(-90deg); }
+
+    /* 代码区 */
+    .write-code-body {
+      overflow: hidden;
+      transition: max-height .25s ease;
+      max-height: 800px;
+    }
+    .write-card.collapsed .write-code-body {
+      max-height: 0;
+    }
+    .write-code {
+      background: #060d18;
+      padding: 10px 0 12px;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11.5px; line-height: 1.68;
+      overflow-x: auto;
+    }
+    .code-line {
+      display: flex; align-items: baseline;
+    }
+    .code-line:hover { background: rgba(255,255,255,0.025); }
+    .line-num {
+      width: 38px; text-align: right;
+      color: #243650; font-size: 10px; flex-shrink: 0;
+      padding-right: 14px; user-select: none;
+    }
+    .line-content { color: #9abbd8; white-space: pre; padding-right: 16px; }
+
+    /* 折叠时的底部提示 */
+    .write-collapsed-hint {
+      display: none;
+      padding: 7px 12px;
+      font-size: 11px; color: #2a4466;
+      border-top: 1px solid #182840;
+      background: #0a1520;
+    }
+    .write-card.collapsed .write-collapsed-hint { display: block; }
+
+    /* 分隔 + 第二个场景（AI 生成版） */
+    .scene-label {
+      font-size: 11px; font-weight: 600; color: #4a6a8a;
+      margin: 28px 0 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .scene-label::after {
+      content: ''; flex: 1; height: 1px; background: #1a2a40;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">首版代码 — 方案 C + 可折叠</div>
+  <div class="page-desc">IDE 风格状态栏 + 行号代码块，点击状态栏可折叠/展开；下方附 AI 流式生成版对比</div>
+
+  <!-- 场景 1：模板生成 -->
+  <div class="scene-label">场景 A — 内置模板生成</div>
+
+  <div class="step-head">
+    <div class="step-check">✓</div>
+    <div class="step-title">首版代码</div>
+    <div class="step-status">已完成</div>
+  </div>
+
+  <div class="write-card" id="card1">
+    <div class="write-statusbar" onclick="toggleCard('card1')">
+      <div class="status-dot"></div>
+      <div class="write-filename">fast_breakout.py</div>
+      <div class="write-pills">
+        <span class="pill">Python</span>
+        <span class="pill">12 行</span>
+        <span class="pill">内置模板</span>
+        <span class="pill pill-green">可运行</span>
+      </div>
+      <div class="collapse-arrow">▼</div>
+    </div>
+    <div class="write-code-body">
+      <div class="write-code">
+<div class="code-line"><span class="line-num">1</span><span class="line-content"><span class="kw">import</span> pandas <span class="kw">as</span> pd</span></div>
+<div class="code-line"><span class="line-num">2</span><span class="line-content"><span class="kw">import</span> talib.abstract <span class="kw">as</span> ta</span></div>
+<div class="code-line"><span class="line-num">3</span><span class="line-content"></span></div>
+<div class="code-line"><span class="line-num">4</span><span class="line-content"><span class="kw">def</span> <span class="fn">compute_feature</span>(</span></div>
+<div class="code-line"><span class="line-num">5</span><span class="line-content">    df: <span class="tp">pd.DataFrame</span>,</span></div>
+<div class="code-line"><span class="line-num">6</span><span class="line-content">    period: <span class="bi">int</span> = <span class="nu">14</span></span></div>
+<div class="code-line"><span class="line-num">7</span><span class="line-content">) -> <span class="tp">pd.Series</span>:</span></div>
+<div class="code-line"><span class="line-num">8</span><span class="line-content">    atr = ta.ATR(df, timeperiod=<span class="bi">max</span>(<span class="nu">2</span>, <span class="bi">int</span>(period)))</span></div>
+<div class="code-line"><span class="line-num">9</span><span class="line-content">    scaled = (atr / df[<span class="st">'close'</span>].replace(<span class="nu">0</span>, <span class="nu">1.0</span>)).clip(lower=<span class="nu">0.0</span>)</span></div>
+<div class="code-line"><span class="line-num">10</span><span class="line-content">    <span class="kw">return</span> scaled.reindex(df.index).fillna(<span class="nu">0.0</span>)</span></div>
+      </div>
+    </div>
+    <div class="write-collapsed-hint">点击展开查看代码 · 10 行</div>
+  </div>
+
+  <!-- 场景 2：AI 生成 -->
+  <div class="scene-label">场景 B — AI 模型生成</div>
+
+  <div class="step-head">
+    <div class="step-check">✓</div>
+    <div class="step-title">首版代码</div>
+    <div class="step-status">已完成</div>
+  </div>
+
+  <div class="write-card" id="card2">
+    <div class="write-statusbar" onclick="toggleCard('card2')">
+      <div class="status-dot"></div>
+      <div class="write-filename">price_stability_detector.py</div>
+      <div class="write-pills">
+        <span class="pill">Python</span>
+        <span class="pill">18 行</span>
+        <span class="pill pill-purple">AI 生成</span>
+        <span class="pill pill-green">可运行</span>
+      </div>
+      <div class="collapse-arrow">▼</div>
+    </div>
+    <div class="write-code-body">
+      <div class="write-code">
+<div class="code-line"><span class="line-num">1</span><span class="line-content"><span class="kw">import</span> pandas <span class="kw">as</span> pd</span></div>
+<div class="code-line"><span class="line-num">2</span><span class="line-content"><span class="kw">import</span> numpy <span class="kw">as</span> np</span></div>
+<div class="code-line"><span class="line-num">3</span><span class="line-content"><span class="kw">import</span> talib.abstract <span class="kw">as</span> ta</span></div>
+<div class="code-line"><span class="line-num">4</span><span class="line-content"></span></div>
+<div class="code-line"><span class="line-num">5</span><span class="line-content"><span class="kw">def</span> <span class="fn">compute_feature</span>(</span></div>
+<div class="code-line"><span class="line-num">6</span><span class="line-content">    df: <span class="tp">pd.DataFrame</span>,</span></div>
+<div class="code-line"><span class="line-num">7</span><span class="line-content">    period: <span class="bi">int</span> = <span class="nu">14</span>,</span></div>
+<div class="code-line"><span class="line-num">8</span><span class="line-content">    threshold: <span class="bi">float</span> = <span class="nu">0.02</span></span></div>
+<div class="code-line"><span class="line-num">9</span><span class="line-content">) -> <span class="tp">pd.Series</span>:</span></div>
+<div class="code-line"><span class="line-num">10</span><span class="line-content">    <span class="cm"># 用 ATR 归一化衡量波动幅度</span></span></div>
+<div class="code-line"><span class="line-num">11</span><span class="line-content">    atr = ta.ATR(df, timeperiod=<span class="bi">max</span>(<span class="nu">2</span>, <span class="bi">int</span>(period)))</span></div>
+<div class="code-line"><span class="line-num">12</span><span class="line-content">    close = df[<span class="st">'close'</span>].replace(<span class="nu">0</span>, np.nan)</span></div>
+<div class="code-line"><span class="line-num">13</span><span class="line-content">    volatility = (atr / close).clip(lower=<span class="nu">0.0</span>)</span></div>
+<div class="code-line"><span class="line-num">14</span><span class="line-content"></span></div>
+<div class="code-line"><span class="line-num">15</span><span class="line-content">    <span class="cm"># 稳定度 = 1 - 归一化波动率，clamp 到 [0, 1]</span></span></div>
+<div class="code-line"><span class="line-num">16</span><span class="line-content">    stability = (<span class="nu">1.0</span> - volatility / threshold).clip(<span class="nu">0.0</span>, <span class="nu">1.0</span>)</span></div>
+<div class="code-line"><span class="line-num">17</span><span class="line-content">    <span class="kw">return</span> stability.reindex(df.index).fillna(<span class="nu">0.0</span>)</span></div>
+      </div>
+    </div>
+    <div class="write-collapsed-hint">点击展开查看代码 · 17 行</div>
+  </div>
+
+</div>
+
+<script>
+  function toggleCard(id) {
+    document.getElementById(id).classList.toggle('collapsed');
+  }
+</script>
+</body>
+</html>

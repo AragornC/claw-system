@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运行·检测·修复 — 纵向流动动画</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #0b1220; color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 500px; margin: 0 auto; padding: 32px 16px 80px; overflow-x: hidden; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 6px; }
+    .replay-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; cursor: pointer; user-select: none;
+      color: #3a6aaa; border: 1px solid #1e3a60; border-radius: 5px;
+      padding: 4px 10px; margin-bottom: 20px; background: #0c1828;
+    }
+    .replay-btn:hover { background: #0f2038; color: #5a9ad8; }
+
+    /* ──── 总头 ──── */
+    .module-head {
+      padding: 10px 14px; margin-bottom: 10px;
+      border: 1px solid #1e3050; border-radius: 10px; background: #0c1828;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .mh-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; background: #0d2a18; border: 1px solid #1e5a30; }
+    .mh-info { flex: 1; }
+    .mh-title { font-size: 13px; font-weight: 600; color: #9ad4b8; }
+    .mh-sub   { font-size: 11px; color: #3a6a4a; margin-top: 1px; }
+    .mh-badge { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600; background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+
+    /* ──── 轮次卡 ──── */
+    .round-wrap { display: grid; gap: 8px; }
+    .round-card { border: 1px solid #1e3050; border-radius: 10px; background: #0c1828; overflow: hidden; }
+    .round-head { padding: 9px 12px; display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
+    .round-head:hover { background: rgba(255,255,255,.02); }
+    .round-num { width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 700; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .rn-fail { background: #2a1010; color: #d05050; border: 1px solid #5a2020; }
+    .rn-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-title { font-size: 13px; font-weight: 600; color: #a0c4e8; flex: 1; }
+    .round-outcome { font-size: 11px; border-radius: 999px; padding: 2px 8px; font-weight: 500; }
+    .ro-fail { background: #2a1010; color: #e06060; border: 1px solid #5a2020; }
+    .ro-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-arrow { font-size: 10px; color: #2a4466; transition: transform .2s; }
+    .round-card.collapsed .round-arrow { transform: rotate(-90deg); }
+    .round-body { overflow: hidden; transition: max-height .28s ease; max-height: 900px; }
+    .round-card.collapsed .round-body { max-height: 0; }
+
+    /* ════════════════════════════════
+       纵向流程时间轴
+    ════════════════════════════════ */
+    .vflow { padding: 10px 14px 14px; min-width: 0; }
+
+    /* 每个节点行 */
+    .vf-row { display: flex; align-items: stretch; gap: 0; }
+
+    /* 左侧：点 + 连线 */
+    .vf-left {
+      width: 44px; flex-shrink: 0;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .vf-dot {
+      width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      transition: background .3s, border-color .3s, color .3s;
+      position: relative; z-index: 1;
+    }
+    /* 状态色 */
+    .vs-idle   { background: #0f1e30; border: 1px solid #1a2c40; color: #1e3050; }
+    .vs-run    { background: #1a3a6a; border: 1px solid #2a6aaa; color: #5090d0; }
+    .vs-ok     { background: #1a4a2e; border: 1px solid #2a7a4a; color: #40c878; }
+    .vs-fail   { background: #3a1818; border: 1px solid #7a3030; color: #e05050; }
+    .vs-repair { background: #3a2818; border: 1px solid #7a5020; color: #d0a040; }
+
+    /* 连线容器（定高，内部填充动画） */
+    .vf-line-wrap {
+      flex: 1; width: 1px; position: relative;
+      min-height: 12px;
+      overflow: hidden;
+    }
+    .vf-line-track { position: absolute; top: 0; left: 0; width: 1px; height: 100%; background: #0f1e30; }
+    .vf-line-fill  { position: absolute; top: 0; left: 0; width: 1px; height: 0%; transition: height .6s ease; }
+    .lf-blue  { background: linear-gradient(to bottom, #2a6aaa, #1a4a7a); }
+    .lf-green { background: linear-gradient(to bottom, #2a7a4a, #1a5a34); }
+    .lf-red   { background: linear-gradient(to bottom, #7a3030, #5a2020); }
+    .lf-amber { background: linear-gradient(to bottom, #7a5020, #5a3a10); }
+
+    /* 右侧：阶段名 + 内容 */
+    .vf-right { flex: 1; padding: 0 0 0 10px; min-width: 0; }
+    .vf-header {
+      height: 24px; display: flex; align-items: center; gap: 8px;
+    }
+    .vf-phase-name {
+      font-size: 12px; font-weight: 700; letter-spacing: .3px;
+      transition: color .3s;
+    }
+    .vfn-idle   { color: #1e3050; }
+    .vfn-run    { color: #4a8ad0; }
+    .vfn-ok     { color: #40a868; }
+    .vfn-fail   { color: #c05050; }
+    .vfn-repair { color: #c09040; }
+
+    .vf-badge {
+      font-size: 10px; border-radius: 999px; padding: 1px 7px; font-weight: 500;
+      opacity: 0; transition: opacity .3s;
+    }
+    .vf-badge.show { opacity: 1; }
+    .vfb-run    { background: #0f2240; color: #4a80c0; border: 1px solid #1e4070; }
+    .vfb-ok     { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .vfb-fail   { background: #2a1010; color: #e06060; border: 1px solid #5a2020; }
+    .vfb-repair { background: #2a1e08; color: #c0a040; border: 1px solid #5a3e10; }
+
+    /* 内容块（淡入） */
+    .vf-content {
+      margin-top: 5px; margin-bottom: 10px;
+      opacity: 0; transform: translateY(4px);
+      transition: opacity .4s ease, transform .4s ease;
+      min-height: 0;
+      min-width: 0; /* 防止 flex 子元素撑开父容器 */
+    }
+    .vf-content.visible { opacity: 1; transform: translateY(0); }
+
+    /* 扫描动画文字 */
+    .scan-text {
+      font-size: 11px; color: #2a5a8a;
+      font-family: "SF Mono","Fira Code",monospace;
+      display: none;
+    }
+    .scan-text.active { display: block; }
+    .scan-cursor { display: inline-block; width: 6px; height: 10px; background: #2a5a8a; vertical-align: middle; margin-left: 2px; animation: blink .7s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* 检测中 */
+    .check-text { font-size: 11px; color: #2a5a8a; display: none; }
+    .check-text.active { display: flex; align-items: center; gap: 6px; }
+    .dot-pulse span { display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: #2a6aaa; margin: 0 1px; animation: dp 1.2s ease-in-out infinite; }
+    .dot-pulse span:nth-child(2) { animation-delay: .2s; }
+    .dot-pulse span:nth-child(3) { animation-delay: .4s; }
+    @keyframes dp { 0%,80%,100%{opacity:.2;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+
+    /* 统计行 */
+    .stat-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+    .stat-k { color: #2a4a6a; }
+    .stat-v { color: #7ab0d8; font-weight: 500; margin-left: 2px; }
+
+    /* 问题 tag */
+    .issue-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 5px; background: #2a1010; border: 1px solid #5a2020; color: #e06060; margin-bottom: 5px; }
+    .issue-desc { font-size: 11px; color: #5a3a3a; line-height: 1.55; }
+
+    /* 通过结果 */
+    .pass-result { font-size: 12px; color: #3a6a4a; line-height: 1.7; }
+
+    /* 修复描述 */
+    .repair-desc { font-size: 11px; color: #7a6040; line-height: 1.55; margin-bottom: 7px; }
+
+    /* diff 卡 */
+    .diff-card { border: 1px solid #1e3050; border-radius: 7px; overflow: clip; }
+    .diff-card-head { padding: 6px 10px; background: #0a1520; border-bottom: 1px solid #182838; display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+    .diff-card-head:hover { background: #0c1828; }
+    .diff-filename { font-family: "SF Mono","Fira Code",monospace; font-size: 11px; font-weight: 600; color: #6a9ac0; flex: 1; }
+    .ds-add { font-size: 11px; color: #3adf6a; }
+    .ds-del { font-size: 11px; color: #e05050; }
+    .dc-arrow { font-size: 10px; color: #2a4466; transition: transform .2s; margin-left: 3px; }
+    .diff-card.diff-open .dc-arrow { transform: rotate(90deg); }
+    .diff-collapse {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height .25s ease;
+    }
+    .diff-card.diff-open .diff-collapse { max-height: 400px; }
+    /* diff-body 是独立横向滚动容器 */
+    .diff-body {
+      background: #060c14;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11px; line-height: 1.68;
+      overflow-x: scroll;       /* 强制显示横向滚动条 */
+      overflow-y: visible;
+      -webkit-overflow-scrolling: touch;
+      /* 滚动条样式 */
+      scrollbar-width: thin;
+      scrollbar-color: #2a4466 #060c14;
+    }
+    .diff-body::-webkit-scrollbar { height: 5px; }
+    .diff-body::-webkit-scrollbar-track { background: #060c14; }
+    .diff-body::-webkit-scrollbar-thumb { background: #1e3050; border-radius: 3px; }
+    /* diff-inner 宽度由最长行决定，所有行背景都撑满这个宽度 */
+    .diff-inner { min-width: 100%; width: max-content; }
+    .diff-line { display: flex; align-items: baseline; }
+    .diff-line:hover { background: rgba(255,255,255,.025); }
+    .diff-hunk { min-width: 100%; }
+    .diff-gutter { display: flex; flex-shrink: 0; width: 64px; }
+    .diff-num { width: 32px; text-align: right; padding-right: 7px; color: #1e3050; font-size: 10px; user-select: none; }
+    .diff-num-e { width: 32px; }
+    .diff-mark { width: 13px; text-align: center; flex-shrink: 0; font-size: 11px; user-select: none; }
+    .diff-text { flex: 1; white-space: pre; padding-right: 32px; flex-shrink: 0; }
+    .dl-del { background: rgba(224,80,80,.09); }
+    .dl-del .diff-mark { color: #e05050; } .dl-del .diff-text { color: #d08080; } .dl-del .diff-num { color: #5a2828; }
+    .dl-add { background: rgba(58,223,106,.07); }
+    .dl-add .diff-mark { color: #3adf6a; } .dl-add .diff-text { color: #80d880; } .dl-add .diff-num { color: #285a32; }
+    .dl-ctx .diff-mark { color: #1e3050; } .dl-ctx .diff-text { color: #4a6a8a; }
+    .diff-hunk { background: rgba(30,48,80,.3); padding: 2px 10px 2px 64px; }
+    .diff-hunk-txt { font-size: 10px; color: #2a4466; font-style: italic; }
+    .hl-del { background: rgba(224,80,80,.28); border-radius: 2px; }
+    .hl-add { background: rgba(58,223,106,.22); border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">运行·检测·修复 — 纵向流动动画</div>
+  <div class="page-desc">节点从上到下依次激活，连线向下绘制，整体是一条垂直流程动画</div>
+  <div class="replay-btn" onclick="replayAll()">↺ 重放动画</div>
+
+  <!-- 总头 -->
+  <div class="module-head">
+    <div class="mh-icon">✓</div>
+    <div class="mh-info">
+      <div class="mh-title">验证通过</div>
+      <div class="mh-sub">2 轮 · 第 1 轮发现 1 个问题并修复 · 第 2 轮全部通过</div>
+    </div>
+    <div class="mh-badge">通过</div>
+  </div>
+
+  <div style="height:10px;"></div>
+
+  <div class="round-wrap">
+    <!-- ══ 第 1 轮 ══ -->
+    <div class="round-card" id="r1">
+      <div class="round-head" onclick="togRound('r1')">
+        <div class="round-num rn-fail">1</div>
+        <div class="round-title">第 1 轮</div>
+        <div class="round-outcome ro-fail">检测失败 · 已修复</div>
+        <div class="round-arrow">▾</div>
+      </div>
+      <div class="round-body">
+        <div class="vflow" id="vflow1">
+
+          <!-- 节点：运行 -->
+          <div class="vf-row">
+            <div class="vf-left">
+              <div class="vf-dot vs-idle" id="dot-run1">▶</div>
+              <div class="vf-line-wrap">
+                <div class="vf-line-track"></div>
+                <div class="vf-line-fill lf-blue" id="line-run1"></div>
+              </div>
+            </div>
+            <div class="vf-right">
+              <div class="vf-header">
+                <span class="vf-phase-name vfn-idle" id="name-run1">运行</span>
+                <span class="vf-badge vfb-run" id="badge-run1">执行中</span>
+              </div>
+              <div class="vf-content" id="cont-run1">
+                <div class="scan-text" id="scan1">
+                  执行特征函数 · 行 <span id="scanrow1">0</span>/2000<span class="scan-cursor"></span>
+                </div>
+                <div class="stat-row" id="runstat1" style="display:none;">
+                  <span class="stat-k">数据行<span class="stat-v">2,000</span></span>
+                  <span class="stat-k">耗时<span class="stat-v">38 ms</span></span>
+                  <span class="stat-k">输出<span class="stat-v">(2000,)</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 节点：检测 -->
+          <div class="vf-row">
+            <div class="vf-left">
+              <div class="vf-dot vs-idle" id="dot-det1">◎</div>
+              <div class="vf-line-wrap">
+                <div class="vf-line-track"></div>
+                <div class="vf-line-fill lf-red" id="line-det1"></div>
+              </div>
+            </div>
+            <div class="vf-right">
+              <div class="vf-header">
+                <span class="vf-phase-name vfn-idle" id="name-det1">检测</span>
+                <span class="vf-badge vfb-fail" id="badge-det1">检测中</span>
+              </div>
+              <div class="vf-content" id="cont-det1">
+                <div class="check-text" id="check1">
+                  <span>正在校验输出序列</span>
+                  <span class="dot-pulse"><span></span><span></span><span></span></span>
+                </div>
+                <div id="detresult1" style="display:none;">
+                  <div><span class="issue-tag">⚠ 输出序列含 NaN（前 14 行）</span></div>
+                  <div class="issue-desc">ATR 窗口期不足，序列开头产生 NaN，未做填充处理。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 节点：修复 -->
+          <div class="vf-row">
+            <div class="vf-left">
+              <div class="vf-dot vs-idle" id="dot-rep1">↻</div>
+              <div class="vf-line-wrap" style="min-height:0;flex:0;height:0;"></div>
+            </div>
+            <div class="vf-right">
+              <div class="vf-header">
+                <span class="vf-phase-name vfn-idle" id="name-rep1">修复</span>
+                <span class="vf-badge vfb-repair" id="badge-rep1">已修复</span>
+              </div>
+              <div class="vf-content" id="cont-rep1">
+                <div class="repair-desc">在 reindex 后补全 <code style="font-family:monospace;font-size:11px;background:#1a1508;padding:1px 4px;border-radius:3px;color:#d0a060;">fillna(0.0)</code>，确保输出无缺失值。</div>
+                  <div class="diff-card" id="dc1">
+                  <div class="diff-card-head" onclick="togDiff('dc1')">
+                    <div class="diff-filename">fast_breakout.py</div>
+                    <span class="ds-add">+3</span>&nbsp;<span class="ds-del">−2</span>
+                    <span class="dc-arrow">▶</span>
+                  </div>
+                  <div class="diff-collapse"><div class="diff-body"><div class="diff-inner">
+                    <div class="diff-hunk"><span class="diff-hunk-txt">@@ -1,6 +1,8 @@ def compute(df, period=14, multiplier=2.0, min_periods=None)</span></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">1</div><div class="diff-num">1</div><div class="diff-mark"> </div></div><div class="diff-text">def compute(df, period=14, multiplier=2.0, min_periods=None):</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">2</div><div class="diff-num">2</div><div class="diff-mark"> </div></div><div class="diff-text">    close = df['close'].replace(0, 1.0).astype(float)</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">3</div><div class="diff-num">3</div><div class="diff-mark"> </div></div><div class="diff-text">    high  = df['high'].astype(float)</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">4</div><div class="diff-num">4</div><div class="diff-mark"> </div></div><div class="diff-text">    low   = df['low'].astype(float)</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">5</div><div class="diff-num">5</div><div class="diff-mark"> </div></div><div class="diff-text">    n = max(2, int(period)) if min_periods is None else max(2, int(min_periods))</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">6</div><div class="diff-num">6</div><div class="diff-mark"> </div></div><div class="diff-text">    atr = ta.ATR(df, timeperiod=n)  # shape: (len(df),), NaN for first n-1 rows</div></div>
+                    <div class="diff-line dl-del"><div class="diff-gutter"><div class="diff-num">7</div><div class="diff-num-e"></div><div class="diff-mark">−</div></div><div class="diff-text">    scaled = (atr / close).clip(lower=0.0) * multiplier</div></div>
+                    <div class="diff-line dl-del"><div class="diff-gutter"><div class="diff-num">8</div><div class="diff-num-e"></div><div class="diff-mark">−</div></div><div class="diff-text">    return <span class="hl-del">scaled.reindex(df.index)</span>.fillna(0.0)</div></div>
+                    <div class="diff-line dl-add"><div class="diff-gutter"><div class="diff-num-e"></div><div class="diff-num">7</div><div class="diff-mark">+</div></div><div class="diff-text">    scaled = (atr / close).clip(lower=0.0, upper=10.0) * multiplier  # cap extreme spikes</div></div>
+                    <div class="diff-line dl-add"><div class="diff-gutter"><div class="diff-num-e"></div><div class="diff-num">8</div><div class="diff-mark">+</div></div><div class="diff-text">    result = <span class="hl-add">scaled.reindex(df.index).fillna(0.0)</span>  # fill NaN from warm-up window</div></div>
+                    <div class="diff-line dl-add"><div class="diff-gutter"><div class="diff-num-e"></div><div class="diff-num">9</div><div class="diff-mark">+</div></div><div class="diff-text">    assert result.isna().sum() == 0, f"NaN leak: {result.isna().sum()} rows still NaN after fillna"</div></div>
+                    <div class="diff-line dl-ctx"><div class="diff-gutter"><div class="diff-num">9</div><div class="diff-num">10</div><div class="diff-mark"> </div></div><div class="diff-text">    return result</div></div>
+                  </div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /vflow -->
+      </div>
+    </div><!-- /round 1 -->
+
+    <!-- ══ 第 2 轮 ══ -->
+    <div class="round-card collapsed" id="r2">
+      <div class="round-head" onclick="togRound('r2'); onR2Open()">
+        <div class="round-num rn-pass">2</div>
+        <div class="round-title">第 2 轮</div>
+        <div class="round-outcome ro-pass">全部检测通过</div>
+        <div class="round-arrow">▾</div>
+      </div>
+      <div class="round-body">
+        <div class="vflow" id="vflow2">
+
+          <!-- 运行 -->
+          <div class="vf-row">
+            <div class="vf-left">
+              <div class="vf-dot vs-idle" id="dot-run2">▶</div>
+              <div class="vf-line-wrap">
+                <div class="vf-line-track"></div>
+                <div class="vf-line-fill lf-green" id="line-run2"></div>
+              </div>
+            </div>
+            <div class="vf-right">
+              <div class="vf-header">
+                <span class="vf-phase-name vfn-idle" id="name-run2">运行</span>
+                <span class="vf-badge vfb-run" id="badge-run2">执行中</span>
+              </div>
+              <div class="vf-content" id="cont-run2">
+                <div class="scan-text" id="scan2">执行特征函数 · 行 <span id="scanrow2">0</span>/2000<span class="scan-cursor"></span></div>
+                <div class="stat-row" id="runstat2" style="display:none;">
+                  <span class="stat-k">数据行<span class="stat-v">2,000</span></span>
+                  <span class="stat-k">耗时<span class="stat-v">35 ms</span></span>
+                  <span class="stat-k">输出<span class="stat-v">(2000,)</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 检测 -->
+          <div class="vf-row">
+            <div class="vf-left">
+              <div class="vf-dot vs-idle" id="dot-det2">◎</div>
+              <div class="vf-line-wrap" style="min-height:0;flex:0;height:0;"></div>
+            </div>
+            <div class="vf-right">
+              <div class="vf-header">
+                <span class="vf-phase-name vfn-idle" id="name-det2">检测</span>
+                <span class="vf-badge vfb-ok" id="badge-det2">检测中</span>
+              </div>
+              <div class="vf-content" id="cont-det2">
+                <div class="check-text" id="check2">
+                  <span>正在校验输出序列</span>
+                  <span class="dot-pulse"><span></span><span></span><span></span></span>
+                </div>
+                <div id="detresult2" style="display:none;">
+                  <div class="pass-result">
+                    ✓ 无 NaN &nbsp;·&nbsp; ✓ 值域合法（0 ~ ∞）<br>✓ 输出长度匹配 &nbsp;·&nbsp; ✓ 无 Inf
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /round 2 -->
+  </div>
+</div>
+
+<script>
+  function togRound(id) { document.getElementById(id).classList.toggle('collapsed'); }
+  function togDiff(id)  { document.getElementById(id).classList.toggle('diff-open'); }
+
+  // 设置点的状态 class
+  function setDot(el, cls) {
+    el.className = 'vf-dot ' + cls;
+  }
+  function setName(el, cls) {
+    el.className = 'vf-phase-name ' + cls;
+  }
+
+  // T(ms, fn, base) — 带基础偏移的 setTimeout
+  function T(base, ms, fn) { return setTimeout(fn, base + ms); }
+
+  /* ─────────────────────────────────
+     第 1 轮动画（运行→检测(失败)→修复）
+  ───────────────────────────────── */
+  function animRound1(base) {
+    base = base || 0;
+    // 重置
+    const els = {
+      dotRun: document.getElementById('dot-run1'),
+      nameRun: document.getElementById('name-run1'),
+      badgeRun: document.getElementById('badge-run1'),
+      lineRun: document.getElementById('line-run1'),
+      contRun: document.getElementById('cont-run1'),
+      scan: document.getElementById('scan1'),
+      scanrow: document.getElementById('scanrow1'),
+      runstat: document.getElementById('runstat1'),
+
+      dotDet: document.getElementById('dot-det1'),
+      nameDet: document.getElementById('name-det1'),
+      badgeDet: document.getElementById('badge-det1'),
+      lineDet: document.getElementById('line-det1'),
+      contDet: document.getElementById('cont-det1'),
+      check: document.getElementById('check1'),
+      detresult: document.getElementById('detresult1'),
+
+      dotRep: document.getElementById('dot-rep1'),
+      nameRep: document.getElementById('name-rep1'),
+      badgeRep: document.getElementById('badge-rep1'),
+      contRep: document.getElementById('cont-rep1'),
+    };
+    // reset all
+    setDot(els.dotRun, 'vs-idle'); setName(els.nameRun, 'vfn-idle'); els.badgeRun.classList.remove('show');
+    setDot(els.dotDet, 'vs-idle'); setName(els.nameDet, 'vfn-idle'); els.badgeDet.classList.remove('show');
+    setDot(els.dotRep, 'vs-idle'); setName(els.nameRep, 'vfn-idle'); els.badgeRep.classList.remove('show');
+    els.lineRun.style.height = '0%'; els.lineRun.style.transition = 'none';
+    els.lineDet.style.height = '0%'; els.lineDet.style.transition = 'none';
+    els.contRun.classList.remove('visible'); els.contDet.classList.remove('visible'); els.contRep.classList.remove('visible');
+    els.scan.classList.remove('active'); els.check.classList.remove('active');
+    els.runstat.style.display = 'none'; els.detresult.style.display = 'none';
+    els.scanrow.textContent = '0';
+
+    // ① 运行开始
+    T(base, 0, () => {
+      setDot(els.dotRun, 'vs-run'); setName(els.nameRun, 'vfn-run');
+      els.badgeRun.textContent = '执行中'; els.badgeRun.className = 'vf-badge vfb-run show';
+      els.contRun.classList.add('visible');
+      els.scan.classList.add('active');
+    });
+
+    // 行扫描计数
+    let row = 0;
+    const rowTick = setInterval(() => {
+      row = Math.min(row + Math.floor(Math.random() * 160 + 80), 2000);
+      els.scanrow.textContent = row.toLocaleString();
+      if (row >= 2000) clearInterval(rowTick);
+    }, 75);
+
+    // ② 运行完成，连线向下延伸
+    T(base, 1600, () => {
+      clearInterval(rowTick); els.scanrow.textContent = '2,000';
+      els.scan.classList.remove('active');
+      els.runstat.style.display = 'flex';
+      setDot(els.dotRun, 'vs-ok'); setName(els.nameRun, 'vfn-ok');
+      els.badgeRun.textContent = '完成'; els.badgeRun.className = 'vf-badge vfb-ok show';
+
+      // 连线向下
+      els.lineRun.style.transition = 'height .55s ease';
+      els.lineRun.style.height = '100%';
+    });
+
+    // ③ 检测开始
+    T(base, 2250, () => {
+      setDot(els.dotDet, 'vs-run'); setName(els.nameDet, 'vfn-run');
+      els.badgeDet.textContent = '检测中'; els.badgeDet.className = 'vf-badge vfb-run show';
+      els.contDet.classList.add('visible');
+      els.check.classList.add('active');
+    });
+
+    // ④ 检测完成（失败）
+    T(base, 3600, () => {
+      els.check.classList.remove('active');
+      els.detresult.style.display = 'block';
+      setDot(els.dotDet, 'vs-fail'); setName(els.nameDet, 'vfn-fail');
+      els.badgeDet.textContent = '检测失败'; els.badgeDet.className = 'vf-badge vfb-fail show';
+
+      // 连线（红）向下
+      els.lineDet.style.transition = 'height .5s ease';
+      els.lineDet.style.height = '100%';
+    });
+
+    // ⑤ 修复出现
+    T(base, 4300, () => {
+      setDot(els.dotRep, 'vs-repair'); setName(els.nameRep, 'vfn-repair');
+      els.badgeRep.textContent = '已修复'; els.badgeRep.className = 'vf-badge vfb-repair show';
+      els.contRep.classList.add('visible');
+    });
+  }
+
+  /* ─────────────────────────────────
+     第 2 轮动画（运行→检测(通过)）
+  ───────────────────────────────── */
+  function animRound2(base) {
+    base = base || 0;
+    const els = {
+      dotRun: document.getElementById('dot-run2'),
+      nameRun: document.getElementById('name-run2'),
+      badgeRun: document.getElementById('badge-run2'),
+      lineRun: document.getElementById('line-run2'),
+      contRun: document.getElementById('cont-run2'),
+      scan: document.getElementById('scan2'),
+      scanrow: document.getElementById('scanrow2'),
+      runstat: document.getElementById('runstat2'),
+
+      dotDet: document.getElementById('dot-det2'),
+      nameDet: document.getElementById('name-det2'),
+      badgeDet: document.getElementById('badge-det2'),
+      contDet: document.getElementById('cont-det2'),
+      check: document.getElementById('check2'),
+      detresult: document.getElementById('detresult2'),
+    };
+    setDot(els.dotRun,'vs-idle'); setName(els.nameRun,'vfn-idle'); els.badgeRun.classList.remove('show');
+    setDot(els.dotDet,'vs-idle'); setName(els.nameDet,'vfn-idle'); els.badgeDet.classList.remove('show');
+    els.lineRun.style.height='0%'; els.lineRun.style.transition='none';
+    els.contRun.classList.remove('visible'); els.contDet.classList.remove('visible');
+    els.scan.classList.remove('active'); els.check.classList.remove('active');
+    els.runstat.style.display='none'; els.detresult.style.display='none';
+    els.scanrow.textContent='0';
+
+    T(base, 0, () => {
+      setDot(els.dotRun,'vs-run'); setName(els.nameRun,'vfn-run');
+      els.badgeRun.textContent='执行中'; els.badgeRun.className='vf-badge vfb-run show';
+      els.contRun.classList.add('visible'); els.scan.classList.add('active');
+    });
+    let row=0;
+    const rowTick=setInterval(()=>{
+      row=Math.min(row+Math.floor(Math.random()*160+80),2000);
+      els.scanrow.textContent=row.toLocaleString();
+      if(row>=2000)clearInterval(rowTick);
+    },75);
+
+    T(base, 1500, () => {
+      clearInterval(rowTick); els.scanrow.textContent='2,000';
+      els.scan.classList.remove('active'); els.runstat.style.display='flex';
+      setDot(els.dotRun,'vs-ok'); setName(els.nameRun,'vfn-ok');
+      els.badgeRun.textContent='完成'; els.badgeRun.className='vf-badge vfb-ok show';
+      els.lineRun.style.transition='height .5s ease'; els.lineRun.style.height='100%';
+    });
+
+    T(base, 2100, () => {
+      setDot(els.dotDet,'vs-run'); setName(els.nameDet,'vfn-run');
+      els.badgeDet.textContent='检测中'; els.badgeDet.className='vf-badge vfb-run show';
+      els.contDet.classList.add('visible'); els.check.classList.add('active');
+    });
+
+    T(base, 3300, () => {
+      els.check.classList.remove('active'); els.detresult.style.display='block';
+      setDot(els.dotDet,'vs-ok'); setName(els.nameDet,'vfn-ok');
+      els.badgeDet.textContent='通过'; els.badgeDet.className='vf-badge vfb-ok show';
+    });
+  }
+
+  var r2Played = false;
+  function onR2Open() {
+    const r2 = document.getElementById('r2');
+    if (r2.classList.contains('collapsed') && !r2Played) {
+      r2Played = true;
+      setTimeout(() => animRound2(0), 260);
+    }
+  }
+
+  function replayAll() {
+    r2Played = false;
+    animRound1(0);
+    const r2 = document.getElementById('r2');
+    if (!r2.classList.contains('collapsed')) {
+      animRound2(0);
+    }
+  }
+
+  window.addEventListener('load', () => { animRound1(0); });
+</script>
+</body>
+</html>

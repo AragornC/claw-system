@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>锁定 Spec 卡片 改造前 vs 改造后</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+    }
+    .page-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #c8daf4;
+      margin-bottom: 4px;
+    }
+    .page-desc {
+      font-size: 12px;
+      color: #6a839e;
+      margin-bottom: 20px;
+    }
+
+    /* ── 对比布局 ── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      border: 1px solid #2a3a52;
+      border-radius: 12px;
+      background: #0f1727;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1e2e44;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title {
+      font-weight: 700;
+      font-size: 13px;
+      color: #d0e2ff;
+      flex: 1;
+    }
+    .badge {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-weight: 500;
+    }
+    .badge-before {
+      background: #2a1f12;
+      color: #ffd8a8;
+      border: 1px solid #70532a;
+    }
+    .badge-after {
+      background: #13291f;
+      color: #b7f7c9;
+      border: 1px solid #2f6f4a;
+    }
+    .panel-body {
+      padding: 12px;
+    }
+
+    /* ── 任务步骤条（两侧一致，仅内容区不同） ── */
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: #101a2c;
+      border: 1px solid #1d2f47;
+      margin-bottom: 10px;
+    }
+    .step-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    .step-icon-done { background: #1a4a2e; color: #5adf8a; }
+    .step-label { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-status { font-size: 11px; color: #5a7a9a; }
+
+    /* ── BEFORE：当前四块堆叠风格 ── */
+    .old-block {
+      border: 1px solid #1f3050;
+      border-radius: 8px;
+      background: #0d1929;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+    }
+    .old-block:last-child { margin-bottom: 0; }
+    .old-label {
+      font-size: 11px;
+      color: #5b9bd5;
+      font-weight: 600;
+      margin-bottom: 5px;
+      letter-spacing: 0.3px;
+    }
+    .old-text {
+      font-size: 13px;
+      color: #b8ccec;
+      line-height: 1.6;
+    }
+    .old-list {
+      margin: 0;
+      padding-left: 0;
+      list-style: none;
+    }
+    .old-list li {
+      font-size: 13px;
+      color: #b8ccec;
+      line-height: 1.7;
+      padding-left: 12px;
+      position: relative;
+    }
+    .old-list li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: #3d6090;
+    }
+    .old-problem {
+      margin-top: 10px;
+      border: 1px dashed #4a3020;
+      border-radius: 6px;
+      background: #1a1208;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: #c0894a;
+      line-height: 1.55;
+    }
+
+    /* ── AFTER：新设计 ── */
+    .new-spec-card {
+      border: 1px solid #1e4a30;
+      border-radius: 10px;
+      background: #0d1f16;
+      overflow: hidden;
+    }
+    .new-spec-header {
+      padding: 9px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #163325;
+    }
+    .new-check-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #1a4a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #5adf8a;
+      flex-shrink: 0;
+    }
+    .new-feature-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #9ff4be;
+      flex: 1;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .new-confirmed-tag {
+      font-size: 11px;
+      color: #5adf8a;
+      opacity: 0.7;
+    }
+    .new-spec-desc {
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #b8d4c8;
+      line-height: 1.65;
+      border-bottom: 1px solid #163325;
+    }
+    .new-chips-row {
+      padding: 9px 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .chip-input {
+      background: #0f1f30;
+      border: 1px solid #1e3a56;
+      color: #82b4e0;
+    }
+    .chip-output {
+      background: #151a0f;
+      border: 1px solid #2e4020;
+      color: #9ed17a;
+    }
+    .chip-range {
+      background: #191226;
+      border: 1px solid #33235a;
+      color: #a891e0;
+    }
+    .chip-icon { font-size: 11px; opacity: 0.8; }
+
+    .new-benefit {
+      margin-top: 10px;
+      border: 1px dashed #1e4a30;
+      border-radius: 6px;
+      background: #0b1f14;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: #5adf8a;
+      line-height: 1.55;
+      opacity: 0.85;
+    }
+
+    /* ── 底部说明 ── */
+    .compare-notes {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 860px) {
+      .compare-notes { grid-template-columns: 1fr; }
+    }
+    .note-card {
+      border: 1px solid #1e2e44;
+      border-radius: 8px;
+      background: #0d1626;
+      padding: 10px 12px;
+    }
+    .note-title {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .note-title-before { color: #ffd8a8; }
+    .note-title-after { color: #b7f7c9; }
+    .note-item {
+      font-size: 12px;
+      color: #7a96b8;
+      line-height: 1.65;
+      padding-left: 12px;
+      position: relative;
+    }
+    .note-item::before {
+      content: attr(data-mark);
+      position: absolute;
+      left: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="page-title">锁定 Spec 卡片 — 改造前 vs 改造后</div>
+    <div class="page-desc">同一份 specArtifact 数据，左侧是当前展示，右侧是优化方案</div>
+
+    <div class="grid">
+
+      <!-- ══ 左侧：改造前 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">当前实现</div>
+          <span class="badge badge-before">现状</span>
+        </div>
+        <div class="panel-body">
+
+          <!-- 步骤条 -->
+          <div class="step-row">
+            <div class="step-icon step-icon-done">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-status">已完成</div>
+          </div>
+
+          <!-- 4 个块堆叠 -->
+          <div class="old-block">
+            <div class="old-label">规格摘要</div>
+            <div class="old-text">这个特征通过分析价格波动来识别市场处于稳定或盘整的时期，帮助用户判断趋势变化前的平静阶段</div>
+          </div>
+
+          <div class="old-block">
+            <div class="old-label">核心信号</div>
+            <div class="old-text">使用ATR或价格标准差计算波动性，设定阈值来识别低波动时期，输出归一化值表示稳定程度</div>
+          </div>
+
+          <div class="old-block">
+            <div class="old-label">结构化 Spec</div>
+            <ul class="old-list">
+              <li>特征名：price_stability_detector</li>
+              <li>生成路由：template / atr_filter</li>
+              <li>输出类型：continuous_non_negative</li>
+              <li>输出范围：0 ~ inf</li>
+              <li>输入列：date, open, high, low, close</li>
+            </ul>
+          </div>
+
+          <div class="old-block">
+            <div class="old-label">必须保持不变</div>
+            <ul class="old-list">
+              <li>特征名称保持为 price_stability_detector</li>
+              <li>输入列限定为：date, open, high, low, close</li>
+              <li>输出类型保持为 continuous_non_negative</li>
+              <li>输出范围保持在 0 到 inf</li>
+            </ul>
+          </div>
+
+          <div class="old-problem">
+            ⚠ 问题：共 4 个块，约 12 行信息 — "结构化 Spec"和"必须保持不变"几乎完全重复；"规格摘要"和"核心信号"高度相似；"生成路由 template / atr_filter"和"continuous_non_negative"用户无法理解
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ 右侧：改造后 ══ -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">优化方案</div>
+          <span class="badge badge-after">重点突出</span>
+        </div>
+        <div class="panel-body">
+
+          <!-- 步骤条 -->
+          <div class="step-row">
+            <div class="step-icon step-icon-done">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-status">已完成</div>
+          </div>
+
+          <!-- 新卡片 -->
+          <div class="new-spec-card">
+            <div class="new-spec-header">
+              <div class="new-check-icon">✓</div>
+              <div class="new-feature-name">price_stability_detector</div>
+              <div class="new-confirmed-tag">Spec 已确认</div>
+            </div>
+
+            <div class="new-spec-desc">
+              通过分析价格波动，识别市场的稳定或盘整时期。使用 ATR 计算波动性，设定阈值识别低波动区间，输出 0 到正无穷的归一化稳定度值。
+            </div>
+
+            <div class="new-chips-row">
+              <span class="chip chip-input">
+                <span class="chip-icon">📥</span>
+                date · open · high · low · close
+              </span>
+              <span class="chip chip-output">
+                <span class="chip-icon">📤</span>
+                非负连续值
+              </span>
+              <span class="chip chip-range">
+                <span class="chip-icon">↔</span>
+                0 ~ ∞
+              </span>
+            </div>
+          </div>
+
+          <div class="new-benefit">
+            ✓ 优化：从 4 块 12 行 → 1 张卡片 4 行；去除重复信息；技术术语转化为可读语言；关键参数一眼即得
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 变更说明 -->
+    <div class="compare-notes">
+      <div class="note-card">
+        <div class="note-title note-title-before">改造前 — 存在的问题</div>
+        <div class="note-item" data-mark="✗ ">「结构化 Spec」和「必须保持不变」几乎同内容说两遍</div>
+        <div class="note-item" data-mark="✗ ">「规格摘要」和「核心信号」高度相似，读完有重复感</div>
+        <div class="note-item" data-mark="✗ ">生成路由 template / atr_filter 用户无法理解</div>
+        <div class="note-item" data-mark="✗ ">continuous_non_negative 是技术枚举值，不是人话</div>
+        <div class="note-item" data-mark="✗ ">4 块纵向堆叠，视觉重心分散，找不到重点</div>
+      </div>
+      <div class="note-card">
+        <div class="note-title note-title-after">改造后 — 设计决策</div>
+        <div class="note-item" data-mark="✓ ">特征名用等宽字体大字展示，立刻明确「这是在做什么」</div>
+        <div class="note-item" data-mark="✓ ">摘要+核心信号合并为一段自然语言，减少重复感</div>
+        <div class="note-item" data-mark="✓ ">输入/输出/范围用横排 Chip 展示，扫一眼即懂</div>
+        <div class="note-item" data-mark="✓ ">删除「生成路由」和「必须保持不变」（对用户零价值）</div>
+        <div class="note-item" data-mark="✓ ">技术枚举值翻译为「非负连续值」等可读文字</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

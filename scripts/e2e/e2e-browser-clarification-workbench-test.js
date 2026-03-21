@@ -481,7 +481,18 @@ async function main() {
     }).filter((value) => value > 0);
     const planThinkingStrictlyIncreasing = planThinkingLengths.length >= 3
       && planThinkingLengths.every((value, index) => index === 0 || value > planThinkingLengths[index - 1]);
+    const lastPlanThinkingEvent = planThinkingEvents.length ? planThinkingEvents[planThinkingEvents.length - 1] : null;
+    const lastPlanThinkingChunkDone = Boolean(lastPlanThinkingEvent?.data?.details?.chunkDone);
     const planBuildKeys = planBuildEvents.map((item) => String(item?.data?.details?.planBuild?.key || "").trim()).filter(Boolean);
+    const planBuildKeySequence = Array.from(new Set(planBuildKeys)).slice(0, 4);
+    const planStatusSequence = thinkingEvents
+      .filter((item) => String(item?.data?.phase || "").trim() === "plan")
+      .map((item) => String(item?.data?.details?.planStatus || "").trim())
+      .filter(Boolean);
+    const firstDraftingStatusIndex = planStatusSequence.indexOf("drafting");
+    const lastDraftingStatusIndex = planStatusSequence.lastIndexOf("drafting");
+    const firstRefiningStatusIndex = planStatusSequence.indexOf("refining");
+    const firstFinalizedStatusIndex = planStatusSequence.indexOf("finalized");
     const understandTaskEvent = understandEvents.find((item) => String(item?.data?.details?.payload?.stage || "").trim() === "task");
     const understandOptionsEvent = understandEvents.find((item) => String(item?.data?.details?.payload?.stage || "").trim() === "options");
     const specIndex = streamPhases.indexOf("spec_lock");
@@ -554,7 +565,13 @@ async function main() {
       && planBuildEvents.length >= 4
       && firstPlanThinkingIndex >= 0
       && firstPlanBuildIndex > firstPlanThinkingIndex
+      && lastPlanThinkingChunkDone
       && ["goal", "approach", "validation", "repair"].every((key) => planBuildKeys.includes(key))
+      && planBuildKeySequence.join(",") === "goal,approach,validation,repair"
+      && firstDraftingStatusIndex >= 0
+      && firstRefiningStatusIndex > firstDraftingStatusIndex
+      && lastDraftingStatusIndex < firstRefiningStatusIndex
+      && firstFinalizedStatusIndex > firstRefiningStatusIndex
       && specIndex >= 0
       && writeIndex > specIndex
       && writeCount === 1
@@ -625,7 +642,10 @@ async function main() {
       planBuildEventCount: planBuildEvents.length,
       firstPlanThinkingIndex,
       firstPlanBuildIndex,
+      lastPlanThinkingChunkDone,
       planBuildKeys,
+      planBuildKeySequence,
+      planStatusSequence,
       writeCount,
       specIndex,
       writeIndex,

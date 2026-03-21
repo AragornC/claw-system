@@ -269,10 +269,10 @@ export function createStrategyLabHandlers(deps = {}) {
     const outputs = normalizePlanList(plan, "outputs");
     return [
       {
-        stage: "drafting",
+        stage: "refining",
         key: "goal",
-        status: "drafting",
-        message: "计划草案构建中...",
+        status: "refining",
+        message: "开始回填计划目标...",
         text: toText(plan.goal || plan.summary, "正在明确本轮计划目标。"),
       },
       {
@@ -294,10 +294,10 @@ export function createStrategyLabHandlers(deps = {}) {
         text: validation.join("；") || "检查长度、空值、方差以及目标区间的区分效果。",
       },
       {
-        stage: "finalized",
+        stage: "refining",
         key: "repair",
-        status: "finalized",
-        message: "计划已定稿。",
+        status: "refining",
+        message: "补充修复策略...",
         text: repairStrategy.join("；") || "如运行失败或结果异常，则回调参数和归一化方式后重跑。",
       },
     ].filter((item) => toText(item.text, ""));
@@ -1532,6 +1532,8 @@ export function createStrategyLabHandlers(deps = {}) {
               key: toText(item.key, ""),
               text: toText(item.text, ""),
               status: toText(item.status, "drafting"),
+              order: i + 1,
+              total: planBuildSequence.length,
             },
           },
         });

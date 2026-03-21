@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运行·检测·修复 — 含 Diff 视图</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 740px; margin: 0 auto; padding: 28px 16px 80px; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 20px; }
+
+    /* ──────────────────────────────
+       模块总头（运行·检测·修复）
+    ────────────────────────────── */
+    .module-head {
+      padding: 10px 14px; margin-bottom: 10px;
+      border: 1px solid #1e3050; border-radius: 10px;
+      background: #0c1828;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .module-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #0d2a18; border: 1px solid #1e5a30;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+    }
+    .module-info { flex: 1; }
+    .module-title { font-size: 13px; font-weight: 600; color: #9ad4b8; }
+    .module-sub   { font-size: 11px; color: #3a6a4a; margin-top: 1px; }
+    .module-badge {
+      font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600;
+      background: #0d2a18; color: #40c878; border: 1px solid #1e5a30;
+    }
+
+    /* ──────────────────────────────
+       轮次卡
+    ────────────────────────────── */
+    .round-wrap { display: grid; gap: 8px; }
+
+    .round-card {
+      border: 1px solid #1e3050; border-radius: 10px;
+      background: #0c1828; overflow: hidden;
+    }
+    /* 卡头（点击折叠） */
+    .round-head {
+      padding: 9px 12px; display: flex; align-items: center; gap: 9px;
+      cursor: pointer; user-select: none;
+    }
+    .round-head:hover { background: rgba(255,255,255,0.02); }
+    .round-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rn-fail { background: #2a1010; color: #d05050; border: 1px solid #5a2020; }
+    .rn-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-title { font-size: 13px; font-weight: 600; color: #a0c4e8; flex: 1; }
+    .round-outcome {
+      font-size: 11px; border-radius: 999px; padding: 2px 8px; font-weight: 500;
+    }
+    .ro-fail { background: #2a1010; color: #e06060; border: 1px solid #5a2020; }
+    .ro-pass { background: #0d2a18; color: #40c878; border: 1px solid #1e5a30; }
+    .round-arrow { font-size: 10px; color: #2a4466; transition: transform .2s; }
+    .round-card.collapsed .round-arrow { transform: rotate(-90deg); }
+
+    /* 迷你流程条 */
+    .mini-bar {
+      padding: 5px 12px; display: flex; align-items: center; gap: 6px;
+      border-top: 1px solid #0f1e30; background: #090f1c;
+    }
+    .mini-step { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; }
+    .mini-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .md-pass   { background: #40c878; }
+    .md-fail   { background: #e05050; }
+    .md-repair { background: #d0a040; }
+    .ml-pass   { color: #4a9a6a; }
+    .ml-fail   { color: #9a5050; }
+    .ml-repair { color: #9a7840; }
+    .mini-arrow { color: #1e3050; font-size: 10px; }
+
+    /* 卡体 */
+    .round-body {
+      overflow: hidden; transition: max-height .28s ease; max-height: 700px;
+    }
+    .round-card.collapsed .round-body { max-height: 0; }
+
+    /* Section 块 */
+    .rs {
+      padding: 9px 12px; border-top: 1px solid #0f1e30;
+    }
+    .rs-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 5px;
+    }
+    .rsl-run    { color: #2a5a8a; }
+    .rsl-detect { color: #8a3a3a; }
+    .rsl-repair { color: #7a5a20; }
+
+    .rs-stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .rs-stat { font-size: 12px; }
+    .rs-stat-k { color: #2a4a6a; }
+    .rs-stat-v { color: #7ab0d8; font-weight: 500; margin-left: 3px; }
+
+    /* 问题 tag */
+    .issue-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; padding: 2px 8px; border-radius: 5px;
+      background: #2a1010; border: 1px solid #5a2020; color: #e06060;
+      margin-bottom: 4px;
+    }
+
+    /* ──────────────────────────────
+       修复摘要块
+    ────────────────────────────── */
+    .repair-desc {
+      font-size: 11px; color: #7a6040; line-height: 1.6; margin-bottom: 7px;
+    }
+
+    /* diff 卡（方案A样式）可折叠 */
+    .diff-card {
+      border: 1px solid #1e3050; border-radius: 8px; overflow: hidden;
+    }
+    .diff-card-head {
+      padding: 7px 11px; background: #0a1520;
+      border-bottom: 1px solid #182838;
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; user-select: none;
+    }
+    .diff-card-head:hover { background: #0c1828; }
+    .diff-filename {
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11px; font-weight: 600; color: #6a9ac0; flex: 1;
+    }
+    .diff-stats { display: flex; gap: 6px; align-items: center; }
+    .ds-add { font-size: 11px; color: #3adf6a; }
+    .ds-del { font-size: 11px; color: #e05050; }
+    .diff-card-arrow { font-size: 10px; color: #2a4466; transition: transform .2s; margin-left: 4px; }
+    .diff-card.diff-open .diff-card-arrow { transform: rotate(90deg); }
+
+    /* diff 折叠区 */
+    .diff-collapse {
+      max-height: 0; overflow: hidden; transition: max-height .26s ease;
+    }
+    .diff-card.diff-open .diff-collapse { max-height: 500px; }
+
+    .diff-body {
+      background: #060c14;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11.5px; line-height: 1.68;
+      overflow-x: auto;
+    }
+    .diff-line {
+      display: flex; align-items: baseline;
+    }
+    .diff-line:hover { background: rgba(255,255,255,0.025); }
+    .diff-gutter {
+      display: flex; flex-shrink: 0; width: 68px;
+    }
+    .diff-num {
+      width: 34px; text-align: right; padding-right: 8px;
+      color: #1e3050; font-size: 10px; user-select: none;
+    }
+    .diff-num-empty { width: 34px; }
+    .diff-mark {
+      width: 14px; text-align: center; flex-shrink: 0;
+      font-size: 11px; user-select: none;
+    }
+    .diff-text { flex: 1; white-space: pre; padding-right: 12px; }
+
+    /* 删除行 */
+    .dl-del { background: rgba(224,80,80,0.09); }
+    .dl-del .diff-mark  { color: #e05050; }
+    .dl-del .diff-text  { color: #d08080; }
+    .dl-del .diff-num   { color: #5a2828; }
+    /* 添加行 */
+    .dl-add { background: rgba(58,223,106,0.07); }
+    .dl-add .diff-mark  { color: #3adf6a; }
+    .dl-add .diff-text  { color: #80d880; }
+    .dl-add .diff-num   { color: #285a32; }
+    /* 上下文行 */
+    .dl-ctx .diff-mark  { color: #1e3050; }
+    .dl-ctx .diff-text  { color: #4a6a8a; }
+    /* hunk header */
+    .diff-hunk {
+      display: flex; align-items: center;
+      background: rgba(30,48,80,0.3);
+      padding: 2px 12px 2px 68px;
+    }
+    .diff-hunk-txt { font-size: 10px; color: #2a4466; font-style: italic; }
+    /* 字符级高亮 */
+    .hl-del { background: rgba(224,80,80,0.28); border-radius: 2px; }
+    .hl-add { background: rgba(58,223,106,0.22); border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">运行·检测·修复 — 含 Diff 视图</div>
+  <div class="page-desc">多轮验证流程，修复步骤内嵌 Unified Diff，默认折叠，点击展开查看具体改动</div>
+
+  <!-- 总头 -->
+  <div class="module-head">
+    <div class="module-icon">✓</div>
+    <div class="module-info">
+      <div class="module-title">验证通过</div>
+      <div class="module-sub">共 2 轮 · 第 1 轮发现 1 个问题并修复 · 第 2 轮全部检测通过</div>
+    </div>
+    <div class="module-badge">通过</div>
+  </div>
+
+  <!-- 轮次列表 -->
+  <div class="round-wrap">
+
+    <!-- ══ 第 1 轮（失败 → 修复） ══ -->
+    <div class="round-card" id="r1">
+      <div class="round-head" onclick="toggleRound('r1')">
+        <div class="round-num rn-fail">1</div>
+        <div class="round-title">第 1 轮</div>
+        <div class="round-outcome ro-fail">检测失败 · 已修复</div>
+        <div class="round-arrow">▾</div>
+      </div>
+      <div class="mini-bar">
+        <div class="mini-step">
+          <div class="mini-dot md-pass"></div>
+          <span class="ml-pass">运行</span>
+        </div>
+        <div class="mini-arrow">→</div>
+        <div class="mini-step">
+          <div class="mini-dot md-fail"></div>
+          <span class="ml-fail">检测失败</span>
+        </div>
+        <div class="mini-arrow">→</div>
+        <div class="mini-step">
+          <div class="mini-dot md-repair"></div>
+          <span class="ml-repair">修复</span>
+        </div>
+      </div>
+      <div class="round-body">
+        <!-- 运行 -->
+        <div class="rs">
+          <div class="rs-label rsl-run">运行</div>
+          <div class="rs-stat-row">
+            <div class="rs-stat"><span class="rs-stat-k">数据行</span><span class="rs-stat-v">2,000</span></div>
+            <div class="rs-stat"><span class="rs-stat-k">耗时</span><span class="rs-stat-v">38 ms</span></div>
+            <div class="rs-stat"><span class="rs-stat-k">输出形状</span><span class="rs-stat-v">(2000,)</span></div>
+          </div>
+        </div>
+        <!-- 检测 -->
+        <div class="rs">
+          <div class="rs-label rsl-detect">检测</div>
+          <div style="margin-bottom:5px;">
+            <span class="issue-tag">⚠ 输出序列含 NaN（前 14 行）</span>
+          </div>
+          <div style="font-size:11px;color:#5a3a3a;line-height:1.55;">
+            ATR 计算窗口期不足，序列开头产生 NaN，未做填充处理。
+          </div>
+        </div>
+        <!-- 修复 -->
+        <div class="rs">
+          <div class="rs-label rsl-repair">修复</div>
+          <div class="repair-desc">
+            在 reindex 后补全 <code style="font-family:monospace;font-size:11px;background:#1a1508;padding:1px 4px;border-radius:3px;color:#d0a060;">fillna(0.0)</code>——ATR 窗口期不足导致序列开头为 NaN，返回前统一补零，确保输出无缺失值。
+          </div>
+          <div class="diff-card" id="rb1">
+            <div class="diff-card-head" onclick="toggleDiff('rb1')">
+              <div class="diff-filename">fast_breakout.py</div>
+              <div class="diff-stats">
+                <span class="ds-add">+1</span>
+                <span class="ds-del">−1</span>
+              </div>
+              <span class="diff-card-arrow">▶</span>
+            </div>
+            <div class="diff-collapse">
+              <div class="diff-body">
+                <div class="diff-hunk"><span class="diff-hunk-txt">@@ -6,7 +6,7 @@ def compute(df, period=14)</span></div>
+                <div class="diff-line dl-ctx">
+                  <div class="diff-gutter"><div class="diff-num">5</div><div class="diff-num">5</div><div class="diff-mark"> </div></div>
+                  <div class="diff-text">    close = df['close'].replace(0, 1.0)</div>
+                </div>
+                <div class="diff-line dl-ctx">
+                  <div class="diff-gutter"><div class="diff-num">6</div><div class="diff-num">6</div><div class="diff-mark"> </div></div>
+                  <div class="diff-text">    atr = ta.ATR(df, timeperiod=max(2, int(period)))</div>
+                </div>
+                <div class="diff-line dl-ctx">
+                  <div class="diff-gutter"><div class="diff-num">7</div><div class="diff-num">7</div><div class="diff-mark"> </div></div>
+                  <div class="diff-text">    scaled = (atr / close).clip(lower=0.0)</div>
+                </div>
+                <div class="diff-line dl-del">
+                  <div class="diff-gutter"><div class="diff-num">8</div><div class="diff-num-empty"></div><div class="diff-mark">−</div></div>
+                  <div class="diff-text">    return <span class="hl-del">scaled.reindex(df.index)</span>.fillna(0.0)</div>
+                </div>
+                <div class="diff-line dl-add">
+                  <div class="diff-gutter"><div class="diff-num-empty"></div><div class="diff-num">8</div><div class="diff-mark">+</div></div>
+                  <div class="diff-text">    return <span class="hl-add">scaled.reindex(df.index).fillna(0.0)</span></div>
+                </div>
+                <div class="diff-line dl-ctx">
+                  <div class="diff-gutter"><div class="diff-num">9</div><div class="diff-num">9</div><div class="diff-mark"> </div></div>
+                  <div class="diff-text" style="opacity:.18;">···</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /round-body -->
+    </div><!-- /round 1 -->
+
+    <!-- ══ 第 2 轮（全部通过） ══ -->
+    <div class="round-card collapsed" id="r2">
+      <div class="round-head" onclick="toggleRound('r2')">
+        <div class="round-num rn-pass">2</div>
+        <div class="round-title">第 2 轮</div>
+        <div class="round-outcome ro-pass">全部检测通过</div>
+        <div class="round-arrow">▾</div>
+      </div>
+      <div class="mini-bar">
+        <div class="mini-step">
+          <div class="mini-dot md-pass"></div>
+          <span class="ml-pass">运行</span>
+        </div>
+        <div class="mini-arrow">→</div>
+        <div class="mini-step">
+          <div class="mini-dot md-pass"></div>
+          <span class="ml-pass">检测通过</span>
+        </div>
+      </div>
+      <div class="round-body">
+        <!-- 运行 -->
+        <div class="rs">
+          <div class="rs-label rsl-run">运行</div>
+          <div class="rs-stat-row">
+            <div class="rs-stat"><span class="rs-stat-k">数据行</span><span class="rs-stat-v">2,000</span></div>
+            <div class="rs-stat"><span class="rs-stat-k">耗时</span><span class="rs-stat-v">35 ms</span></div>
+            <div class="rs-stat"><span class="rs-stat-k">输出形状</span><span class="rs-stat-v">(2000,)</span></div>
+          </div>
+        </div>
+        <!-- 检测 -->
+        <div class="rs">
+          <div class="rs-label rsl-detect" style="color:#2a7a4a;">检测</div>
+          <div style="font-size:12px;color:#3a6a4a;line-height:1.6;">
+            ✓ 无 NaN &nbsp;·&nbsp; ✓ 值域合法（0 ~ ∞）&nbsp;·&nbsp; ✓ 输出长度匹配 &nbsp;·&nbsp; ✓ 无 Inf
+          </div>
+        </div>
+      </div>
+    </div><!-- /round 2 -->
+
+  </div><!-- /round-wrap -->
+</div>
+
+<script>
+  function toggleRound(id) {
+    document.getElementById(id).classList.toggle('collapsed');
+  }
+  function toggleDiff(id) {
+    document.getElementById(id).classList.toggle('diff-open');
+  }
+  // 默认展开第 1 轮的 diff 演示效果
+  // toggleDiff('rb1');
+</script>
+</body>
+</html>

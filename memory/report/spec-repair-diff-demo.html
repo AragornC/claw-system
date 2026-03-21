@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>修复 Diff 视图 — 方案对比</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 24px 16px 60px; }
+    .page-title { font-size: 15px; font-weight: 700; color: #c8daf4; margin-bottom: 3px; }
+    .page-desc  { font-size: 12px; color: #5a789a; margin-bottom: 24px; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      border: 1px solid #1e2e44; border-radius: 12px;
+      background: #0d1525; overflow: hidden;
+    }
+    .panel-head {
+      padding: 9px 13px; border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-label { font-size: 12px; font-weight: 700; color: #7aaad4; }
+    .panel-name  { font-size: 12px; color: #3a5a7a; flex: 1; }
+    .panel-body  { padding: 12px; display: grid; gap: 10px; }
+
+    /* 修复轮次头 */
+    .repair-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 11px;
+      background: #12100a;
+      border: 1px solid #3a2a10; border-radius: 8px;
+    }
+    .repair-icon {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #2a2010; color: #d0a040;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .repair-title { font-size: 13px; font-weight: 600; color: #c0a060; flex: 1; }
+    .repair-reason {
+      font-size: 11px; color: #806040;
+      background: #1a1508; border: 1px solid #3a2a10;
+      border-radius: 999px; padding: 2px 8px;
+    }
+
+    /* ═══════════════════════════════
+       方案 A — 内联 Unified Diff
+       ═══════════════════════════════ */
+    .diff-card {
+      border: 1px solid #1e3050; border-radius: 9px;
+      overflow: hidden;
+    }
+    .diff-card-head {
+      padding: 7px 11px;
+      background: #0a1520; border-bottom: 1px solid #182838;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .diff-filename {
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11px; font-weight: 600; color: #6a9ac0; flex: 1;
+    }
+    .diff-stats {
+      display: flex; gap: 6px;
+    }
+    .diff-stat-add { font-size: 11px; color: #3adf6a; }
+    .diff-stat-del { font-size: 11px; color: #e05050; }
+
+    .diff-body {
+      background: #060d18;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11.5px; line-height: 1.65;
+      overflow-x: auto;
+    }
+    .diff-line {
+      display: flex; align-items: baseline;
+      padding: 0 12px 0 0;
+    }
+    .diff-line:hover { background: rgba(255,255,255,0.02); }
+    .diff-gutter {
+      width: 72px; display: flex; gap: 0; flex-shrink: 0;
+    }
+    .diff-num {
+      width: 36px; text-align: right;
+      color: #243650; font-size: 10px;
+      padding-right: 10px; user-select: none;
+    }
+    .diff-num-empty { width: 36px; }
+    .diff-mark {
+      width: 14px; text-align: center; flex-shrink: 0;
+      font-size: 11px; user-select: none;
+    }
+    .diff-content { flex: 1; white-space: pre; }
+
+    /* 删除行 */
+    .diff-line-del { background: rgba(224,80,80,0.1); }
+    .diff-line-del .diff-mark  { color: #e05050; }
+    .diff-line-del .diff-content { color: #e08080; }
+    .diff-line-del .diff-num   { color: #6a3030; }
+    /* 新增行 */
+    .diff-line-add { background: rgba(58,223,106,0.08); }
+    .diff-line-add .diff-mark  { color: #3adf6a; }
+    .diff-line-add .diff-content { color: #80d880; }
+    .diff-line-add .diff-num   { color: #2a5a30; }
+    /* 上下文行 */
+    .diff-line-ctx .diff-mark  { color: #243650; }
+    .diff-line-ctx .diff-content { color: #6a8aaa; }
+    /* hunk 分割 */
+    .diff-hunk {
+      padding: 3px 12px 3px 0;
+      background: rgba(30,48,80,0.4);
+      display: flex; align-items: center; gap: 0;
+    }
+    .diff-hunk-gutter { width: 72px; }
+    .diff-hunk-label {
+      font-size: 10px; color: #2a4466;
+      font-family: "SF Mono","Fira Code",monospace;
+    }
+
+    /* 删除行内高亮（字符级） */
+    .del-hl { background: rgba(224,80,80,0.3); border-radius: 2px; }
+    .add-hl { background: rgba(58,223,106,0.25); border-radius: 2px; }
+
+    /* ═══════════════════════════════
+       方案 B — 左右分栏对比
+       ═══════════════════════════════ */
+    .split-card {
+      border: 1px solid #1e3050; border-radius: 9px; overflow: hidden;
+    }
+    .split-head {
+      display: grid; grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid #182838;
+    }
+    .split-col-head {
+      padding: 6px 10px; font-size: 11px; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .split-col-head-del {
+      background: rgba(224,80,80,0.06);
+      border-right: 1px solid #182838;
+      color: #904040;
+    }
+    .split-col-head-add {
+      background: rgba(58,223,106,0.06);
+      color: #406040;
+    }
+    .split-body {
+      display: grid; grid-template-columns: 1fr 1fr;
+      background: #060d18;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 11px; line-height: 1.65;
+      overflow-x: auto;
+    }
+    .split-col { overflow: hidden; }
+    .split-col-right { border-left: 1px solid #182838; }
+    .split-line {
+      display: flex; align-items: baseline; min-height: 1.65em;
+    }
+    .split-line:hover { background: rgba(255,255,255,0.02); }
+    .split-ln {
+      width: 30px; text-align: right; padding-right: 8px;
+      color: #243650; font-size: 10px; flex-shrink: 0; user-select: none;
+    }
+    .split-content { white-space: pre; flex: 1; padding-right: 8px; }
+    .split-line-del { background: rgba(224,80,80,0.1); }
+    .split-line-del .split-content { color: #e08080; }
+    .split-line-del .split-ln { color: #6a3030; }
+    .split-line-add { background: rgba(58,223,106,0.08); }
+    .split-line-add .split-content { color: #80d880; }
+    .split-line-add .split-ln { color: #2a5a30; }
+    .split-line-ctx .split-content { color: #6a8aaa; }
+    .split-line-empty { opacity: 0; }
+
+    /* ═══════════════════════════════
+       方案 C — 修复摘要 + 折叠 Diff
+       ═══════════════════════════════ */
+    .repair-summary-card {
+      border: 1px solid #2a3010; border-radius: 9px; overflow: hidden;
+    }
+    .repair-sum-head {
+      padding: 10px 12px; background: #12100a;
+      border-bottom: 1px solid #221e08;
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+    .rsm-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #1a1508; border: 1px solid #3a2a10;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .rsm-info { flex: 1; }
+    .rsm-title { font-size: 13px; font-weight: 600; color: #c0a060; margin-bottom: 3px; }
+    .rsm-desc  { font-size: 12px; color: #7a6040; line-height: 1.55; }
+    .rsm-badge {
+      font-size: 11px; background: #1a2010; border: 1px solid #3a4020;
+      color: #90b050; border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+    }
+    .repair-sum-changes {
+      padding: 8px 12px; border-bottom: 1px solid #1a1808;
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .change-chip {
+      font-size: 11px; border-radius: 5px; padding: 3px 9px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .change-chip-add { background: rgba(58,223,106,0.08); border: 1px solid #1e5020; color: #60c060; }
+    .change-chip-del { background: rgba(224,80,80,0.08); border: 1px solid #501818; color: #c06060; }
+    .change-chip-mod { background: rgba(208,160,64,0.1); border: 1px solid #503818; color: #c0a040; }
+
+    .repair-diff-toggle {
+      padding: 8px 12px; background: #0f0e08;
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; user-select: none;
+    }
+    .repair-diff-toggle:hover { background: #141208; }
+    .rdt-label { font-size: 11px; color: #504020; flex: 1; }
+    .rdt-arrow { font-size: 10px; color: #3a2a10; transition: transform .2s; }
+    .repair-summary-card.open .rdt-arrow { transform: rotate(90deg); }
+    .repair-diff-body {
+      max-height: 0; overflow: hidden; transition: max-height .25s ease;
+    }
+    .repair-summary-card.open .repair-diff-body { max-height: 500px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">修复 Diff 视图 — 三种展示方案</div>
+  <div class="page-desc">修复步骤中展示具体改动点；同一个修复场景（fillna 补全），三种 diff 呈现风格</div>
+
+  <div class="grid">
+
+    <!-- ══ 方案 A：Unified Diff（单列合并视图） ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 A</div>
+        <div class="panel-name">Unified Diff — 单列合并，最紧凑</div>
+      </div>
+      <div class="panel-body">
+        <div class="repair-head">
+          <div class="repair-icon">↻</div>
+          <div class="repair-title">修复</div>
+          <div class="repair-reason">输出含 NaN</div>
+        </div>
+
+        <div class="diff-card">
+          <div class="diff-card-head">
+            <div class="diff-filename">fast_breakout.py</div>
+            <div class="diff-stats">
+              <span class="diff-stat-add">+1</span>
+              <span class="diff-stat-del">−1</span>
+            </div>
+          </div>
+          <div class="diff-body">
+            <!-- hunk -->
+            <div class="diff-hunk">
+              <div class="diff-hunk-gutter"></div>
+              <div class="diff-hunk-label">@@ -6,7 +6,7 @@</div>
+            </div>
+            <!-- ctx -->
+            <div class="diff-line diff-line-ctx">
+              <div class="diff-gutter"><div class="diff-num">6</div><div class="diff-num">6</div><div class="diff-mark"> </div></div>
+              <div class="diff-content">    atr = ta.ATR(df, timeperiod=max(2, int(period)))</div>
+            </div>
+            <div class="diff-line diff-line-ctx">
+              <div class="diff-gutter"><div class="diff-num">7</div><div class="diff-num">7</div><div class="diff-mark"> </div></div>
+              <div class="diff-content">    scaled = (atr / df['close'].replace(0, 1.0)).clip(lower=0.0)</div>
+            </div>
+            <!-- del -->
+            <div class="diff-line diff-line-del">
+              <div class="diff-gutter"><div class="diff-num">8</div><div class="diff-num-empty"></div><div class="diff-mark">−</div></div>
+              <div class="diff-content">    return <span class="del-hl">scaled.reindex(df.index)</span>.fillna(0.0)</div>
+            </div>
+            <!-- add -->
+            <div class="diff-line diff-line-add">
+              <div class="diff-gutter"><div class="diff-num-empty"></div><div class="diff-num">8</div><div class="diff-mark">+</div></div>
+              <div class="diff-content">    return <span class="add-hl">scaled.reindex(df.index).fillna(0.0)</span></div>
+            </div>
+            <!-- ctx -->
+            <div class="diff-line diff-line-ctx">
+              <div class="diff-gutter"><div class="diff-num">9</div><div class="diff-num">9</div><div class="diff-mark"> </div></div>
+              <div class="diff-content" style="color:#243650;">                                           </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 方案 B：左右分栏对比 ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 B</div>
+        <div class="panel-name">Split Diff — 左旧右新，对比最直观</div>
+      </div>
+      <div class="panel-body">
+        <div class="repair-head">
+          <div class="repair-icon">↻</div>
+          <div class="repair-title">修复</div>
+          <div class="repair-reason">输出含 NaN</div>
+        </div>
+
+        <div class="split-card">
+          <div class="split-head">
+            <div class="split-col-head split-col-head-del">
+              <span>−</span> 修复前
+            </div>
+            <div class="split-col-head split-col-head-add">
+              <span>+</span> 修复后
+            </div>
+          </div>
+          <div class="split-body">
+            <!-- 左列（旧） -->
+            <div class="split-col">
+              <div class="split-line split-line-ctx">
+                <div class="split-ln">6</div>
+                <div class="split-content">    atr = ta.ATR(df, ...)</div>
+              </div>
+              <div class="split-line split-line-ctx">
+                <div class="split-ln">7</div>
+                <div class="split-content">    scaled = (atr / df[...</div>
+              </div>
+              <div class="split-line split-line-del">
+                <div class="split-ln">8</div>
+                <div class="split-content">    return <span class="del-hl">scaled</span></div>
+              </div>
+              <div class="split-line split-line-del">
+                <div class="split-ln"> </div>
+                <div class="split-content">        <span class="del-hl">.reindex(df.index)</span></div>
+              </div>
+              <div class="split-line split-line-del">
+                <div class="split-ln"> </div>
+                <div class="split-content">        .fillna(0.0)</div>
+              </div>
+            </div>
+            <!-- 右列（新） -->
+            <div class="split-col split-col-right">
+              <div class="split-line split-line-ctx">
+                <div class="split-ln">6</div>
+                <div class="split-content">    atr = ta.ATR(df, ...)</div>
+              </div>
+              <div class="split-line split-line-ctx">
+                <div class="split-ln">7</div>
+                <div class="split-content">    scaled = (atr / df[...</div>
+              </div>
+              <div class="split-line split-line-add">
+                <div class="split-ln">8</div>
+                <div class="split-content">    return <span class="add-hl">scaled</span></div>
+              </div>
+              <div class="split-line split-line-add">
+                <div class="split-ln"> </div>
+                <div class="split-content">        <span class="add-hl">.reindex(df.index)</span></div>
+              </div>
+              <div class="split-line split-line-add">
+                <div class="split-ln"> </div>
+                <div class="split-content">        .fillna(0.0)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 方案 C：修复摘要 + 折叠 Diff ══ -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-label">方案 C</div>
+        <div class="panel-name">修复摘要 + 可折叠 Diff</div>
+      </div>
+      <div class="panel-body">
+        <div class="repair-head">
+          <div class="repair-icon">↻</div>
+          <div class="repair-title">修复</div>
+          <div class="repair-reason">输出含 NaN</div>
+        </div>
+
+        <div class="repair-summary-card" id="rcC">
+          <div class="repair-sum-head">
+            <div class="rsm-icon">🔧</div>
+            <div class="rsm-info">
+              <div class="rsm-title">在 reindex 后补全 fillna(0.0)</div>
+              <div class="rsm-desc">ATR 窗口期不足导致序列开头为 NaN，在返回前统一补零。</div>
+            </div>
+            <div class="rsm-badge">+1 / −1</div>
+          </div>
+          <div class="repair-sum-changes">
+            <span class="change-chip change-chip-mod">↻ 修改第 8 行返回语句</span>
+            <span class="change-chip change-chip-add">+ fillna(0.0) 保证</span>
+          </div>
+          <div class="repair-diff-toggle" onclick="document.getElementById('rcC').classList.toggle('open')">
+            <span class="rdt-label">查看具体改动</span>
+            <span class="rdt-arrow">▶</span>
+          </div>
+          <div class="repair-diff-body">
+            <div class="diff-body" style="border-top:1px solid #1a1808;">
+              <div class="diff-hunk">
+                <div class="diff-hunk-gutter"></div>
+                <div class="diff-hunk-label">@@ -6,7 +6,7 @@</div>
+              </div>
+              <div class="diff-line diff-line-ctx">
+                <div class="diff-gutter"><div class="diff-num">6</div><div class="diff-num">6</div><div class="diff-mark"> </div></div>
+                <div class="diff-content">    atr = ta.ATR(df, timeperiod=max(2, int(period)))</div>
+              </div>
+              <div class="diff-line diff-line-ctx">
+                <div class="diff-gutter"><div class="diff-num">7</div><div class="diff-num">7</div><div class="diff-mark"> </div></div>
+                <div class="diff-content">    scaled = (atr / df['close'].replace(0, 1.0)).clip(lower=0.0)</div>
+              </div>
+              <div class="diff-line diff-line-del">
+                <div class="diff-gutter"><div class="diff-num">8</div><div class="diff-num-empty"></div><div class="diff-mark">−</div></div>
+                <div class="diff-content">    return <span class="del-hl">scaled.reindex(df.index)</span>.fillna(0.0)</div>
+              </div>
+              <div class="diff-line diff-line-add">
+                <div class="diff-gutter"><div class="diff-num-empty"></div><div class="diff-num">8</div><div class="diff-mark">+</div></div>
+                <div class="diff-content">    return <span class="add-hl">scaled.reindex(df.index).fillna(0.0)</span></div>
+              </div>
+              <div class="diff-line diff-line-ctx">
+                <div class="diff-gutter"><div class="diff-num">9</div><div class="diff-num">9</div><div class="diff-mark"> </div></div>
+                <div class="diff-content" style="opacity:.2;">···</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 说明 -->
+  <div style="margin-top:18px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+    <div style="border:1px solid #1e2e44;border-radius:8px;background:#0d1626;padding:10px 12px;">
+      <div style="font-size:12px;font-weight:700;color:#7aaad4;margin-bottom:4px;">方案 A — Unified Diff</div>
+      <div style="font-size:12px;color:#3a5a7a;line-height:1.6;">最经典，删除行红色 − 添加行绿色，行号左右各一列。字符级高亮标出精确改动点。最紧凑，适合改动少的修复。</div>
+    </div>
+    <div style="border:1px solid #1e2e44;border-radius:8px;background:#0d1626;padding:10px 12px;">
+      <div style="font-size:12px;font-weight:700;color:#7aaad4;margin-bottom:4px;">方案 B — Split Diff</div>
+      <div style="font-size:12px;color:#3a5a7a;line-height:1.6;">左旧右新，对比最直观，像 GitHub 的 side-by-side。改动多时更容易看懂前后差别，但占宽度较大。</div>
+    </div>
+    <div style="border:1px solid #1e2e44;border-radius:8px;background:#0d1626;padding:10px 12px;">
+      <div style="font-size:12px;font-weight:700;color:#7aaad4;margin-bottom:4px;">方案 C — 摘要 + 折叠 Diff</div>
+      <div style="font-size:12px;color:#3a5a7a;line-height:1.6;">先展示"修复了什么"的人话摘要，diff 默认折叠，点击才展开。适合大多数用户不需要看 diff 的场景。</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

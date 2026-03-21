@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>锁定 Spec — 多方案对比</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1220;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .wrap {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 16px 60px;
+    }
+
+    /* ── 页头 ── */
+    .page-header {
+      margin-bottom: 24px;
+    }
+    .page-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #c8daf4;
+      margin-bottom: 4px;
+    }
+    .page-desc {
+      font-size: 12px;
+      color: #5a789a;
+    }
+
+    /* ── 方案导航 ── */
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .nav-tab {
+      padding: 5px 14px;
+      border-radius: 7px;
+      border: 1px solid #2a3a52;
+      background: #0f1727;
+      color: #8aaed4;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+      font-weight: 500;
+    }
+    .nav-tab:hover { border-color: #4a7aaa; color: #cfe2ff; }
+    .nav-tab.active { border-color: #3a6aaa; background: #12233f; color: #90c4ff; }
+    .nav-tab.ref-tab { border-color: #3a2a14; background: #1a1208; color: #c09050; }
+    .nav-tab.ref-tab.active { border-color: #8a5a24; color: #ffd8a8; }
+
+    /* ── 主展示区 ── */
+    .main-area {
+      display: grid;
+      gap: 16px;
+    }
+
+    /* 参考区（原始版本，折叠状态） */
+    .ref-section {
+      border: 1px solid #3a2a14;
+      border-radius: 10px;
+      background: #12100a;
+      overflow: hidden;
+    }
+    .ref-section-head {
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .ref-section-head:hover { background: #1a1510; }
+    .ref-section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #c09050;
+      flex: 1;
+    }
+    .ref-section-toggle {
+      font-size: 11px;
+      color: #7a5a30;
+    }
+    .ref-section-body {
+      padding: 12px;
+      display: none;
+      border-top: 1px solid #2a1f0e;
+    }
+    .ref-section.open .ref-section-body { display: block; }
+    .ref-section.open .ref-toggle-icon { transform: rotate(90deg); display: inline-block; }
+
+    /* ── 方案区 ── */
+    .variants-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 900px) {
+      .variants-grid { grid-template-columns: 1fr; }
+    }
+
+    .variant-panel {
+      border: 1px solid #1e2e44;
+      border-radius: 12px;
+      background: #0d1525;
+      overflow: hidden;
+    }
+    .variant-head {
+      padding: 9px 13px;
+      border-bottom: 1px solid #1a2840;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .variant-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #7aaad4;
+    }
+    .variant-name {
+      font-size: 12px;
+      color: #4a6a8a;
+      flex: 1;
+    }
+    .variant-tag {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #13291f;
+      color: #b7f7c9;
+      border: 1px solid #2f6f4a;
+    }
+    .variant-body {
+      padding: 12px;
+    }
+
+    /* 步骤条（所有方案公用） */
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #101a2c;
+      border: 1px solid #1d2f47;
+      margin-bottom: 10px;
+    }
+    .step-icon {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #1a4a2e;
+      color: #5adf8a;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .step-label { font-size: 13px; font-weight: 600; color: #bdd5f5; flex: 1; }
+    .step-done { font-size: 11px; color: #5a7a9a; }
+
+    /* ══════════════════════════════════════════
+       方案 A：名片 + 自然语言 + 横排 Chip
+       ══════════════════════════════════════════ */
+    .spec-a {
+      border: 1px solid #1e4a30;
+      border-radius: 10px;
+      background: #0d1f16;
+      overflow: hidden;
+    }
+    .spec-a-header {
+      padding: 9px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #163325;
+    }
+    .spec-a-check {
+      width: 20px; height: 20px;
+      border-radius: 50%; background: #1a4a2e;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #5adf8a; flex-shrink: 0;
+    }
+    .spec-a-name {
+      font-size: 13px; font-weight: 700; color: #9ff4be; flex: 1;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .spec-a-confirmed { font-size: 11px; color: #5adf8a; opacity: 0.65; }
+    .spec-a-desc {
+      padding: 10px 12px;
+      font-size: 13px; color: #b8d4c8; line-height: 1.65;
+      border-bottom: 1px solid #163325;
+    }
+    .spec-a-chips {
+      padding: 9px 12px;
+      display: flex; flex-wrap: wrap; gap: 7px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 6px; padding: 4px 9px;
+      font-size: 12px; line-height: 1;
+    }
+    .chip-in  { background: #0f1f30; border: 1px solid #1e3a56; color: #82b4e0; }
+    .chip-out { background: #151a0f; border: 1px solid #2e4020; color: #9ed17a; }
+    .chip-rng { background: #191226; border: 1px solid #33235a; color: #a891e0; }
+
+    /* ══════════════════════════════════════════
+       方案 B：极简"身份证"风
+       ══════════════════════════════════════════ */
+    .spec-b {
+      border: 1px solid #234060;
+      border-radius: 10px;
+      background: #0b1828;
+      padding: 12px 14px;
+      display: grid;
+      gap: 9px;
+    }
+    .spec-b-top {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .spec-b-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%; background: #3adf8a; flex-shrink: 0;
+    }
+    .spec-b-name {
+      font-size: 14px; font-weight: 700;
+      color: #e0f0ff;
+      font-family: "SF Mono", "Fira Code", monospace;
+      flex: 1;
+      letter-spacing: 0.2px;
+    }
+    .spec-b-badge {
+      font-size: 11px; color: #4adf8a;
+      border: 1px solid #1a4a30; border-radius: 999px;
+      padding: 1px 7px; background: #0d2018;
+    }
+    .spec-b-line {
+      height: 1px; background: #1a2e44; margin: 0 -2px;
+    }
+    .spec-b-summary {
+      font-size: 13px; color: #9ab8d8; line-height: 1.6;
+    }
+    .spec-b-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      align-items: center;
+    }
+    .spec-b-meta-item {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 11px;
+    }
+    .spec-b-meta-key { color: #4a6a8a; }
+    .spec-b-meta-val { color: #a0c0e0; font-weight: 500; }
+    .spec-b-sep { color: #243444; font-size: 10px; }
+
+    /* ══════════════════════════════════════════
+       方案 C：信号流三栏
+       ══════════════════════════════════════════ */
+    .spec-c {
+      border: 1px solid #1e3050;
+      border-radius: 10px;
+      background: #0c1828;
+      overflow: hidden;
+    }
+    .spec-c-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1a2840;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .spec-c-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #1a3a5a; color: #6ab4e8;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
+    }
+    .spec-c-name {
+      font-size: 13px; font-weight: 700; color: #90c8f0;
+      font-family: "SF Mono", "Fira Code", monospace; flex: 1;
+    }
+    .spec-c-tag {
+      font-size: 11px; color: #5090c0; opacity: 0.8;
+    }
+    .spec-c-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      padding: 12px;
+      gap: 0;
+    }
+    .spec-c-flow-block {
+      border: 1px solid #1e3050;
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .spec-c-flow-head {
+      font-size: 10px; color: #4a7aaa; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+    .spec-c-flow-content {
+      font-size: 12px; line-height: 1.5;
+    }
+    .spec-c-in { background: #0c1f30; }
+    .spec-c-in .spec-c-flow-content { color: #82b4e0; }
+    .spec-c-logic { background: #120f20; border-color: #2a1e40; }
+    .spec-c-logic .spec-c-flow-content { color: #b090e0; }
+    .spec-c-out { background: #0c1e10; border-color: #1a3a20; }
+    .spec-c-out .spec-c-flow-content { color: #7ad4a0; }
+    .spec-c-arrow {
+      font-size: 16px; color: #2a4060; padding: 0 6px; text-align: center;
+    }
+    .spec-c-desc {
+      padding: 0 12px 10px;
+      font-size: 12px; color: #7a96b8; line-height: 1.6;
+      border-top: 1px solid #152030;
+      margin-top: 2px;
+      padding-top: 9px;
+    }
+
+    /* ══════════════════════════════════════════
+       方案 D：关键信息卡（横向两列）
+       ══════════════════════════════════════════ */
+    .spec-d {
+      border: 1px solid #1e3848;
+      border-radius: 10px;
+      background: #0c1820;
+      overflow: hidden;
+    }
+    .spec-d-header {
+      padding: 9px 12px;
+      display: flex; align-items: center; gap: 8px;
+      border-bottom: 1px solid #182838;
+    }
+    .spec-d-pulse {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #30c878;
+      box-shadow: 0 0 0 3px rgba(48,200,120,0.15);
+      flex-shrink: 0;
+    }
+    .spec-d-name {
+      font-size: 13px; font-weight: 700;
+      color: #a8e0ff;
+      font-family: "SF Mono", "Fira Code", monospace;
+      flex: 1;
+    }
+    .spec-d-ok {
+      font-size: 11px; color: #30c878; font-weight: 600;
+    }
+    .spec-d-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+    .spec-d-left {
+      padding: 10px 12px;
+      border-right: 1px solid #182838;
+    }
+    .spec-d-right {
+      padding: 10px 12px;
+    }
+    .spec-d-section-title {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      color: #3a6a8a; margin-bottom: 6px;
+    }
+    .spec-d-text {
+      font-size: 12px; color: #8ab4d4; line-height: 1.65;
+    }
+    .spec-d-rows { display: grid; gap: 5px; }
+    .spec-d-row {
+      display: flex; align-items: baseline; gap: 6px;
+    }
+    .spec-d-row-key {
+      font-size: 11px; color: #3a6080; white-space: nowrap;
+      width: 40px; flex-shrink: 0;
+    }
+    .spec-d-row-val {
+      font-size: 12px; color: #90b8d8; font-weight: 500;
+      line-height: 1.4;
+    }
+
+    /* ── 原始版参考（旧样式复现） ── */
+    .old-block {
+      border: 1px solid #1f3050; border-radius: 8px;
+      background: #0d1929; padding: 8px 10px; margin-bottom: 8px;
+    }
+    .old-block:last-child { margin-bottom: 0; }
+    .old-label {
+      font-size: 11px; color: #5b9bd5; font-weight: 600;
+      margin-bottom: 5px;
+    }
+    .old-text { font-size: 13px; color: #b8ccec; line-height: 1.6; }
+    .old-list { margin: 0; padding-left: 0; list-style: none; }
+    .old-list li {
+      font-size: 13px; color: #b8ccec; line-height: 1.7;
+      padding-left: 12px; position: relative;
+    }
+    .old-list li::before { content: "•"; position: absolute; left: 0; color: #3d6090; }
+
+    /* ── 底部评分维度 ── */
+    .score-section {
+      margin-top: 20px;
+      border: 1px solid #1e2e44;
+      border-radius: 10px;
+      background: #0d1525;
+      overflow: hidden;
+    }
+    .score-head {
+      padding: 9px 14px;
+      border-bottom: 1px solid #182438;
+      font-size: 12px; font-weight: 600; color: #7aaad4;
+    }
+    .score-grid {
+      display: grid;
+      grid-template-columns: 120px repeat(5, 1fr);
+      gap: 0;
+    }
+    .score-cell {
+      padding: 8px 10px;
+      font-size: 12px;
+      border-right: 1px solid #182438;
+      border-bottom: 1px solid #182438;
+      text-align: center;
+    }
+    .score-cell:last-child { border-right: none; }
+    .score-cell.row-head {
+      text-align: left; color: #5a7a9a; font-size: 11px;
+      background: #0c1220;
+    }
+    .score-cell.col-head {
+      font-weight: 600; font-size: 11px;
+      background: #0c1422; color: #6a94c4;
+    }
+    .score-cell.col-head.old { color: #c09050; background: #1a1208; }
+    .score-h5 { color: #3adf8a; font-weight: 700; }
+    .score-h4 { color: #7ad4a0; font-weight: 600; }
+    .score-h3 { color: #c0c870; font-weight: 500; }
+    .score-h2 { color: #d08050; font-weight: 500; }
+    .score-h1 { color: #d05050; }
+    .score-row-alt { background: #0d1828; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="page-header">
+      <div class="page-title">锁定 Spec 卡片 — 4 种方案对比</div>
+      <div class="page-desc">同一份数据，4 种不同的呈现思路，点击「原始版参考」可展开查看改造前的样子</div>
+    </div>
+
+    <!-- 原始版参考（可折叠） -->
+    <div class="ref-section" id="refSection">
+      <div class="ref-section-head" onclick="toggleRef()">
+        <div class="ref-section-title">▶ 原始版参考（改造前，点击展开）</div>
+        <div class="ref-section-toggle">4 块堆叠 · 约 12 行信息</div>
+      </div>
+      <div class="ref-section-body">
+        <div class="step-row" style="margin-bottom:10px;">
+          <div class="step-icon">✓</div>
+          <div class="step-label">锁定 Spec</div>
+          <div class="step-done">已完成</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">规格摘要</div>
+          <div class="old-text">这个特征通过分析价格波动来识别市场处于稳定或盘整的时期，帮助用户判断趋势变化前的平静阶段</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">核心信号</div>
+          <div class="old-text">使用ATR或价格标准差计算波动性，设定阈值来识别低波动时期，输出归一化值表示稳定程度</div>
+        </div>
+        <div class="old-block">
+          <div class="old-label">结构化 Spec</div>
+          <ul class="old-list">
+            <li>特征名：price_stability_detector</li>
+            <li>生成路由：template / atr_filter</li>
+            <li>输出类型：continuous_non_negative</li>
+            <li>输出范围：0 ~ inf</li>
+            <li>输入列：date, open, high, low, close</li>
+          </ul>
+        </div>
+        <div class="old-block">
+          <div class="old-label">必须保持不变</div>
+          <ul class="old-list">
+            <li>特征名称保持为 price_stability_detector</li>
+            <li>输入列限定为：date, open, high, low, close</li>
+            <li>输出类型保持为 continuous_non_negative</li>
+            <li>输出范围保持在 0 到 inf</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 种方案 -->
+    <div class="variants-grid" style="margin-top:14px;">
+
+      <!-- ═══ 方案 A ═══ -->
+      <div class="variant-panel">
+        <div class="variant-head">
+          <div class="variant-label">方案 A</div>
+          <div class="variant-name">确认卡 + 自然语言 + 横排 Chip</div>
+          <span class="variant-tag">推荐</span>
+        </div>
+        <div class="variant-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="spec-a">
+            <div class="spec-a-header">
+              <div class="spec-a-check">✓</div>
+              <div class="spec-a-name">price_stability_detector</div>
+              <div class="spec-a-confirmed">Spec 已确认</div>
+            </div>
+            <div class="spec-a-desc">
+              通过分析价格波动，识别市场的稳定或盘整时期。使用 ATR 计算波动性，设定阈值识别低波动区间，输出 0 到正无穷的归一化稳定度值。
+            </div>
+            <div class="spec-a-chips">
+              <span class="chip chip-in">📥 date · open · high · low · close</span>
+              <span class="chip chip-out">📤 非负连续值</span>
+              <span class="chip chip-rng">↔ 0 ~ ∞</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 方案 B ═══ -->
+      <div class="variant-panel">
+        <div class="variant-head">
+          <div class="variant-label">方案 B</div>
+          <div class="variant-name">极简身份证风 — 最紧凑</div>
+        </div>
+        <div class="variant-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="spec-b">
+            <div class="spec-b-top">
+              <div class="spec-b-dot"></div>
+              <div class="spec-b-name">price_stability_detector</div>
+              <div class="spec-b-badge">✓ 已确认</div>
+            </div>
+            <div class="spec-b-line"></div>
+            <div class="spec-b-summary">
+              识别价格稳定或盘整时期，使用 ATR 波动性计算，输出归一化稳定度值（0 ~ ∞）。
+            </div>
+            <div class="spec-b-meta">
+              <div class="spec-b-meta-item">
+                <span class="spec-b-meta-key">输入</span>
+                <span class="spec-b-meta-val">date · open · high · low · close</span>
+              </div>
+              <span class="spec-b-sep">|</span>
+              <div class="spec-b-meta-item">
+                <span class="spec-b-meta-key">输出</span>
+                <span class="spec-b-meta-val">非负连续值，0 ~ ∞</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 方案 C ═══ -->
+      <div class="variant-panel">
+        <div class="variant-head">
+          <div class="variant-label">方案 C</div>
+          <div class="variant-name">信号流三栏 — 最直观</div>
+        </div>
+        <div class="variant-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="spec-c">
+            <div class="spec-c-header">
+              <div class="spec-c-icon">⚙</div>
+              <div class="spec-c-name">price_stability_detector</div>
+              <div class="spec-c-tag">Spec 已确认</div>
+            </div>
+            <div class="spec-c-flow">
+              <div class="spec-c-flow-block spec-c-in">
+                <div class="spec-c-flow-head">输入</div>
+                <div class="spec-c-flow-content">K 线数据<br><span style="font-size:11px;opacity:.7;">date · open · high<br>low · close</span></div>
+              </div>
+              <div class="spec-c-arrow">→</div>
+              <div class="spec-c-flow-block spec-c-logic">
+                <div class="spec-c-flow-head">计算逻辑</div>
+                <div class="spec-c-flow-content">ATR 波动性<br><span style="font-size:11px;opacity:.7;">设阈值识别<br>低波动区间</span></div>
+              </div>
+              <div class="spec-c-arrow">→</div>
+              <div class="spec-c-flow-block spec-c-out">
+                <div class="spec-c-flow-head">输出</div>
+                <div class="spec-c-flow-content">稳定度值<br><span style="font-size:11px;opacity:.7;">非负连续<br>0 ~ ∞</span></div>
+              </div>
+            </div>
+            <div class="spec-c-desc">
+              识别市场处于稳定或盘整的时期，帮助判断趋势变化前的平静阶段。
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 方案 D ═══ -->
+      <div class="variant-panel">
+        <div class="variant-head">
+          <div class="variant-label">方案 D</div>
+          <div class="variant-name">左描述右参数 — 两栏信息分层</div>
+        </div>
+        <div class="variant-body">
+          <div class="step-row">
+            <div class="step-icon">✓</div>
+            <div class="step-label">锁定 Spec</div>
+            <div class="step-done">已完成</div>
+          </div>
+          <div class="spec-d">
+            <div class="spec-d-header">
+              <div class="spec-d-pulse"></div>
+              <div class="spec-d-name">price_stability_detector</div>
+              <div class="spec-d-ok">✓ Spec 已锁定</div>
+            </div>
+            <div class="spec-d-body">
+              <div class="spec-d-left">
+                <div class="spec-d-section-title">做什么</div>
+                <div class="spec-d-text">通过分析价格波动，识别市场的稳定或盘整时期。使用 ATR 计算波动性，设阈值识别低波动区间。</div>
+              </div>
+              <div class="spec-d-right">
+                <div class="spec-d-section-title">关键参数</div>
+                <div class="spec-d-rows">
+                  <div class="spec-d-row">
+                    <div class="spec-d-row-key">输入列</div>
+                    <div class="spec-d-row-val">date · open · high · low · close</div>
+                  </div>
+                  <div class="spec-d-row">
+                    <div class="spec-d-row-key">输出类型</div>
+                    <div class="spec-d-row-val">非负连续值</div>
+                  </div>
+                  <div class="spec-d-row">
+                    <div class="spec-d-row-key">输出范围</div>
+                    <div class="spec-d-row-val">0 ~ ∞</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 对比评分维度 -->
+    <div class="score-section">
+      <div class="score-head">方案评分对比（主观维度参考）</div>
+      <div class="score-grid">
+        <div class="score-cell col-head old">原始版</div>
+        <div class="score-cell col-head">方案 A</div>
+        <div class="score-cell col-head">方案 B</div>
+        <div class="score-cell col-head">方案 C</div>
+        <div class="score-cell col-head">方案 D</div>
+        <div class="score-cell col-head" style="border-right:none;">维度</div>
+
+        <div class="score-cell row-alt score-h1">★★☆☆☆</div>
+        <div class="score-cell row-alt score-h5">★★★★★</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt row-head" style="border-right:none;">信息精简度</div>
+
+        <div class="score-cell score-h1">★★☆☆☆</div>
+        <div class="score-cell score-h5">★★★★★</div>
+        <div class="score-cell score-h4">★★★★☆</div>
+        <div class="score-cell score-h3">★★★☆☆</div>
+        <div class="score-cell score-h4">★★★★☆</div>
+        <div class="score-cell row-head" style="border-right:none;">用户可读性</div>
+
+        <div class="score-cell row-alt score-h2">★★★☆☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt score-h5">★★★★★</div>
+        <div class="score-cell row-alt score-h3">★★★☆☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt row-head" style="border-right:none;">紧凑程度</div>
+
+        <div class="score-cell score-h2">★★★☆☆</div>
+        <div class="score-cell score-h4">★★★★☆</div>
+        <div class="score-cell score-h3">★★★☆☆</div>
+        <div class="score-cell score-h5">★★★★★</div>
+        <div class="score-cell score-h4">★★★★☆</div>
+        <div class="score-cell row-head" style="border-right:none;">逻辑直观性</div>
+
+        <div class="score-cell row-alt score-h1">★★☆☆☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt score-h4">★★★★☆</div>
+        <div class="score-cell row-alt score-h3">★★★☆☆</div>
+        <div class="score-cell row-alt score-h5">★★★★★</div>
+        <div class="score-cell row-alt row-head" style="border-right:none;">信息分层感</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    function toggleRef() {
+      var sec = document.getElementById("refSection");
+      sec.classList.toggle("open");
+    }
+  </script>
+</body>
+</html>
