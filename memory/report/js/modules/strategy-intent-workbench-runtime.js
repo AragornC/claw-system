@@ -571,6 +571,106 @@
     return lines.length ? wbBlock("运行结果", wbList(lines)) : "";
   }
 
+  var WB_ZONE_LABELS = {
+    volatility: { lo: "低值区：市场走势相对平稳", hi: "高值区：市场出现较大波动" },
+    trend:      { lo: "负值区：下行动能偏强",     hi: "正值区：上行动能偏强" },
+    momentum:   { lo: "低值区：动能偏弱",         hi: "高值区：动能偏强" },
+    volume:     { lo: "低值区：成交量偏低",        hi: "高值区：成交量明显放大" },
+    structure:  { lo: "低值区：结构相对稳定",      hi: "高值区：出现结构性变化" },
+    risk:       { lo: "低值区：风险敞口较小",      hi: "高值区：风险敞口偏高" },
+  };
+
+  var WB_CAT_LABELS = {
+    volatility: "波动类", trend: "趋势类", momentum: "动量类",
+    volume: "成交量类", structure: "结构类", risk: "风控类",
+  };
+
+  function buildDistributionBars(statsLike, mainCategory) {
+    var stats = statsLike && typeof statsLike === "object" ? statsLike : null;
+    if (!stats) return "";
+    var mean = wbNum(stats.mean, NaN);
+    var std = wbNum(stats.std, NaN);
+    if (!Number.isFinite(mean) || !Number.isFinite(std) || std <= 0) return "";
+    var buckets = 10;
+    var heights = [];
+    for (var i = 0; i < buckets; i++) {
+      var x = -2.5 + (i + 0.5) * (5 / buckets);
+      heights.push(Math.exp(-0.5 * x * x));
+    }
+    var maxH = Math.max.apply(null, heights);
+    var cat = wbText(mainCategory, "").toLowerCase();
+    var isBipolar = cat === "trend" || cat === "momentum";
+    var bars = [];
+    for (var j = 0; j < buckets; j++) {
+      var pct = Math.round((heights[j] / maxH) * 100);
+      var cls = "wb-dist-bar";
+      if (isBipolar) {
+        cls += j < Math.floor(buckets * 0.4) ? " wb-db-lo" : (j >= Math.ceil(buckets * 0.6) ? " wb-db-hi" : " wb-db-md");
+      } else {
+        cls += j < Math.floor(buckets * 0.5) ? " wb-db-lo" : (j >= Math.ceil(buckets * 0.7) ? " wb-db-hi" : " wb-db-md");
+      }
+      bars.push('<div class="' + cls + '" style="height:' + pct + '%"></div>');
+    }
+    var evalOut = stats;
+    var barCount = wbNum(evalOut.barCount || evalOut.count, 0);
+    var barCountLabel = barCount > 0 ? (barCount + " 根 K 线") : "";
+    var zones = WB_ZONE_LABELS[cat] || null;
+    var xLo = isBipolar ? "← 负值" : "← 低值";
+    var xHi = isBipolar ? "正值 →" : "高值 →";
+    var html = '<div class="wb-dist-header">'
+      + '<span>历史测试值分布</span>'
+      + (barCountLabel ? '<span>' + wbEscapeHtml(barCountLabel) + '</span>' : '')
+      + '</div>'
+      + '<div class="wb-dist-chart">' + bars.join("") + '</div>'
+      + '<div class="wb-dist-x"><span>' + xLo + '</span><span>' + xHi + '</span></div>';
+    if (zones) {
+      html += '<div class="wb-dist-zones">'
+        + '<div class="wb-dz wb-dz-lo"><span class="wb-dz-dot"></span>' + wbEscapeHtml(zones.lo) + '</div>'
+        + '<div class="wb-dz wb-dz-hi"><span class="wb-dz-dot"></span>' + wbEscapeHtml(zones.hi) + '</div>'
+        + '</div>';
+    }
+    return html;
+  }
+
+  function renderFeatureResultCard(resultLike, conceptLike) {
+    var result = resultLike && typeof resultLike === "object" ? resultLike : {};
+    var concept = conceptLike && typeof conceptLike === "object" ? conceptLike : {};
+    var feature = result.feature && typeof result.feature === "object" ? result.feature : {};
+    var name = wbText(feature.name || concept.name, "特征");
+    var cat = wbText(feature.mainCategory || concept.mainCategory, "").toLowerCase();
+    var catDisplay = WB_CAT_LABELS[cat] || (cat ? wbEscapeHtml(cat) : "");
+    var artifacts = result.runArtifacts && typeof result.runArtifacts === "object" ? result.runArtifacts : null;
+    var evalOutput = artifacts && artifacts.evaluationOutput && typeof artifacts.evaluationOutput === "object"
+      ? artifacts.evaluationOutput : null;
+    var firstStats = evalOutput && evalOutput.stats && typeof evalOutput.stats === "object"
+      ? (evalOutput.stats[Object.keys(evalOutput.stats)[0]] || null) : null;
+    if (firstStats && evalOutput) {
+      firstStats = Object.assign({}, firstStats, { barCount: evalOutput.barCount });
+    }
+    var distHtml = buildDistributionBars(firstStats, cat);
+    var zones = WB_ZONE_LABELS[cat.toLowerCase()] || null;
+    var hasDistOrZones = Boolean(distHtml) || Boolean(zones);
+    var html = '<div class="wb-feature-result-card">'
+      + '<div class="wb-frc-head">'
+      + '<span class="wb-frc-name">' + wbEscapeHtml(name) + '</span>'
+      + (catDisplay ? '<span class="wb-frc-cat">' + catDisplay + '</span>' : '')
+      + '</div>';
+    if (hasDistOrZones) {
+      html += '<div class="wb-frc-body">';
+      if (distHtml) {
+        html += distHtml;
+      } else if (zones) {
+        html += '<div class="wb-dist-zones">'
+          + '<div class="wb-dz wb-dz-lo"><span class="wb-dz-dot"></span>' + wbEscapeHtml(zones.lo) + '</div>'
+          + '<div class="wb-dz wb-dz-hi"><span class="wb-dz-dot"></span>' + wbEscapeHtml(zones.hi) + '</div>'
+          + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderRunArtifacts(artifactsLike) {
     const artifacts = artifactsLike && typeof artifactsLike === "object" ? artifactsLike : null;
     if (!artifacts) return "";
@@ -686,11 +786,6 @@
       });
     } else if (phase === "summarize") {
       if (details.resultSummary) blocks.push(wbTextBlock("最终摘要", details.resultSummary));
-      if (details.specArtifact) blocks.push(renderSpecArtifact(details.specArtifact));
-      if (details.generatedCode && details.generatedCode.featureCode) {
-        blocks.push(wbCodeBlock("最终代码", details.generatedCode.featureCode));
-      }
-      if (details.runArtifacts) blocks.push(renderRunArtifacts(details.runArtifacts));
     } else {
       if (details.planArtifact) blocks.push(renderPlanArtifact(details.planArtifact));
       if (details.specArtifact) blocks.push(renderSpecArtifact(details.specArtifact));
@@ -961,21 +1056,28 @@
     function ensureUnderstandProgressiveHost(panelElLike) {
       const panelEl = panelElLike || null;
       if (!panelEl) return null;
-      let host = panelEl.querySelector(".ai-workbench-understand-progressive");
+      let host = panelEl.querySelector(".ud-wrap");
       if (host) return host;
       host = document.createElement("div");
-      host.className = "ai-workbench-understand-progressive";
+      host.className = "ud-wrap";
       host.__taskRendered = false;
       host.__optionTokens = new Set();
       host.innerHTML = ""
-        + '<div class="ai-workbench-understand-line" data-understand-task-line style="display:none">'
-        + '  <span class="ai-workbench-understand-prefix">- 任务分配：</span>'
-        + '  <span class="ai-workbench-understand-inline" data-understand-task></span>'
-        + "</div>"
-        + '<div class="ai-workbench-understand-line" data-understand-option-line style="display:none">'
-        + '  <span class="ai-workbench-understand-prefix">- 选项加载：</span>'
-        + '  <span class="ai-workbench-understand-inline ai-workbench-understand-options" data-understand-options></span>'
-        + "</div>";
+        + '<div class="ud-block" data-ud-task-block style="display:none">'
+        + '  <div class="ud-head">'
+        + '    <span class="ud-head-icon">\uD83D\uDCCB</span>'
+        + '    <span class="ud-head-label">\u4EFB\u52A1\u5206\u914D</span>'
+        + '  </div>'
+        + '  <div class="ud-list" data-ud-task-list></div>'
+        + '</div>'
+        + '<div class="ud-block" data-ud-opt-block style="display:none">'
+        + '  <div class="ud-head">'
+        + '    <span class="ud-head-icon">\u2705</span>'
+        + '    <span class="ud-head-label">\u7528\u6237\u9009\u9879</span>'
+        + '    <span class="ud-head-count" data-ud-opt-count></span>'
+        + '  </div>'
+        + '  <div class="ud-list" data-ud-opt-list></div>'
+        + '</div>';
       panelEl.appendChild(host);
       return host;
     }
@@ -989,42 +1091,60 @@
       const host = ensureUnderstandProgressiveHost(panelEl);
       if (!host) return;
       if (!(host.__optionTokens instanceof Set)) host.__optionTokens = new Set();
-      const taskLine = host.querySelector("[data-understand-task-line]");
-      const taskInline = host.querySelector("[data-understand-task]");
-      const optionLine = host.querySelector("[data-understand-option-line]");
-      const optionInline = host.querySelector("[data-understand-options]");
+      const taskBlock = host.querySelector("[data-ud-task-block]");
+      const taskList = host.querySelector("[data-ud-task-list]");
+      const optBlock = host.querySelector("[data-ud-opt-block]");
+      const optList = host.querySelector("[data-ud-opt-list]");
+      const optCount = host.querySelector("[data-ud-opt-count]");
       const taskTokenText = wbText(payload.taskToken, "");
-      if (taskTokenText && taskLine && taskInline && !host.__taskRendered) {
-        taskLine.style.display = "";
-        const tokenEl = document.createElement("span");
-        tokenEl.className = "ai-workbench-understand-token task";
-        taskInline.appendChild(tokenEl);
-        await animateTextNode(tokenEl, taskTokenText, {
+      if (taskTokenText && taskBlock && taskList && !host.__taskRendered) {
+        host.__taskRendered = true;
+        taskBlock.style.display = "";
+        const item = document.createElement("div");
+        item.className = "ud-item";
+        const mark = document.createElement("span");
+        mark.className = "ud-item-mark task";
+        mark.textContent = "\u25B8";
+        const text = document.createElement("span");
+        text.className = "ud-item-text";
+        item.appendChild(mark);
+        item.appendChild(text);
+        taskList.appendChild(item);
+        await animateTextNode(text, taskTokenText, {
           minChunk: 1,
           maxChunk: 3,
           delayMs: 14,
           activeClass: "is-streaming",
         });
-        host.__taskRendered = true;
       }
       const optionTokens = Array.isArray(payload.optionTokens)
         ? payload.optionTokens.map(function(itemLike) { return wbText(itemLike, ""); }).filter(Boolean)
         : [];
-      if (optionTokens.length && optionLine && optionInline) {
-        optionLine.style.display = "";
+      if (optionTokens.length && optBlock && optList) {
+        optBlock.style.display = "";
         for (let i = 0; i < optionTokens.length; i += 1) {
           const tokenText = optionTokens[i];
           if (!tokenText || host.__optionTokens.has(tokenText)) continue;
-          const optionEl = document.createElement("span");
-          optionEl.className = "ai-workbench-understand-token option";
-          optionInline.appendChild(optionEl);
-          await animateTextNode(optionEl, tokenText, {
+          host.__optionTokens.add(tokenText);
+          const item = document.createElement("div");
+          item.className = "ud-item";
+          const mark = document.createElement("span");
+          mark.className = "ud-item-mark";
+          mark.textContent = "\u2713";
+          const text = document.createElement("span");
+          text.className = "ud-item-text";
+          item.appendChild(mark);
+          item.appendChild(text);
+          optList.appendChild(item);
+          await animateTextNode(text, tokenText, {
             minChunk: 1,
             maxChunk: 4,
             delayMs: 12,
             activeClass: "is-streaming",
           });
-          host.__optionTokens.add(tokenText);
+          if (optCount) {
+            optCount.textContent = String(host.__optionTokens.size) + " \u9879";
+          }
           if (i < optionTokens.length - 1) {
             await waitMs(180);
           }
@@ -1593,9 +1713,10 @@
       const result = resultLike && typeof resultLike === "object" ? resultLike : {};
       state.hasFinalized = true;
       progress.style.display = "none";
-      resultHost.style.display = "block";
+      resultHost.style.display = "none";
       resultHost.innerHTML = "";
       if (!result.ok) {
+        resultHost.style.display = "block";
         const errorDiv = document.createElement("div");
         errorDiv.className = "ai-clarify-result-error";
         errorDiv.textContent = "⚠️ " + wbText(result.error || "特征生成失败，请重试或调整描述", "特征生成失败，请重试或调整描述");
@@ -1611,47 +1732,12 @@
         return;
       }
 
-      const feature = result.feature && typeof result.feature === "object" ? result.feature : {};
-      const featureName = wbText(feature.name || featureConcept.name || "", "特征");
-      const successDiv = document.createElement("div");
-      successDiv.className = "ai-clarify-result-success";
+      const cardDiv = document.createElement("div");
+      cardDiv.innerHTML = renderFeatureResultCard(result, featureConcept);
 
-      const titleDiv = document.createElement("div");
-      titleDiv.className = "ai-clarify-result-title";
-      titleDiv.textContent = "✅ 特征已生成";
-      successDiv.appendChild(titleDiv);
-
-      const summary = wbText(result.resultSummary, "");
-      if (summary) {
-        const summaryDiv = document.createElement("div");
-        summaryDiv.className = "ai-clarify-result-summary";
-        summaryDiv.textContent = summary;
-        successDiv.appendChild(summaryDiv);
-      }
-
-      const nameDiv = document.createElement("div");
-      nameDiv.className = "ai-clarify-result-name";
-      nameDiv.textContent = "特征名称：" + featureName;
-      successDiv.appendChild(nameDiv);
-
-      const resultBlocks = document.createElement("div");
-      resultBlocks.className = "ai-workbench-result-blocks";
-      const hasPlanStep = state.stepKeys.some(function(key) {
-        return String(key || "").indexOf("plan|") === 0;
-      });
-      const resultHtml = [
-        !hasPlanStep && result.planArtifact ? renderPlanArtifact(result.planArtifact) : "",
-        result.specArtifact ? renderSpecArtifact(result.specArtifact) : "",
-        result.generatedCode && result.generatedCode.featureCode ? wbCodeBlock("最终代码", result.generatedCode.featureCode) : "",
-        result.generatedCode && result.generatedCode.codeDiff ? renderUnifiedDiff(result.generatedCode.codeDiff) : "",
-        result.repairSummary ? renderRepairSummary(result.repairSummary) : "",
-        result.runArtifacts ? renderRunArtifacts(result.runArtifacts) : "",
-      ].filter(Boolean).join("");
-      resultBlocks.innerHTML = resultHtml;
-      if (resultHtml) successDiv.appendChild(resultBlocks);
-
+      let applyBtn = null;
       if (onApply) {
-        const applyBtn = document.createElement("button");
+        applyBtn = document.createElement("button");
         applyBtn.type = "button";
         applyBtn.className = "ai-clarify-apply";
         applyBtn.textContent = "加入特征库";
@@ -1673,10 +1759,35 @@
               applyBtn.disabled = false;
             });
         });
-        successDiv.appendChild(applyBtn);
       }
 
-      resultHost.appendChild(successDiv);
+      // 找到 summarize 步骤卡的 panel，把卡片和按钮注入其中
+      const summarizeStepRow = (function findSummarizeStep() {
+        for (let i = state.stepKeys.length - 1; i >= 0; i--) {
+          if (String(state.stepKeys[i]).indexOf("summarize|") === 0) {
+            return state.stepMap[state.stepKeys[i]] || null;
+          }
+        }
+        return null;
+      }());
+      const stepPanel = summarizeStepRow
+        ? summarizeStepRow.querySelector(".ai-workbench-step-panel")
+        : null;
+
+      if (stepPanel) {
+        if (cardDiv.firstChild) stepPanel.appendChild(cardDiv.firstChild);
+        if (applyBtn) stepPanel.appendChild(applyBtn);
+        resultHost.style.display = "none";
+      } else {
+        // 找不到步骤卡时降级：沿用 resultHost
+        const successDiv = document.createElement("div");
+        successDiv.className = "ai-clarify-result-success";
+        if (cardDiv.firstChild) successDiv.appendChild(cardDiv.firstChild);
+        if (applyBtn) successDiv.appendChild(applyBtn);
+        resultHost.style.display = "block";
+        resultHost.innerHTML = "";
+        resultHost.appendChild(successDiv);
+      }
       root.classList.remove("collapsed");
       expandAllSteps();
       setProcessCollapsed(false);

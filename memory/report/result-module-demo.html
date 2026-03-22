@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果模块 · 方案对比</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.panel { flex: 1; min-width: 300px; max-width: 380px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 10px;
+}
+
+/* ── 公用步骤卡 ── */
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden; margin-bottom: 10px;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.step-body { padding: 11px 13px; font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; }
+
+/* ── 上面步骤（仅作参考对比用）── */
+.prev-step .step-head { border-bottom-color: #1e3255; }
+.prev-step .step-icon { background: #1a4a7f; }
+.prev-step-placeholder {
+  font-size: 0.72rem; color: #4a6680; padding: 8px 13px;
+  font-style: italic;
+}
+
+/* ── 当前方案（原始）── */
+/* resultHost 区块 */
+.result-host {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.result-host-inner { padding: 14px 14px; }
+.result-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.result-check { font-size: 0.88rem; color: #3cc87a; font-weight: 700; }
+.result-label { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.result-summary-text { font-size: 0.78rem; color: #a0b8d8; line-height: 1.5; margin-bottom: 10px; }
+.result-name-line { font-size: 0.76rem; color: #4a8abf; margin-bottom: 12px; }
+
+/* spec 架构卡（缩略）*/
+.spec-card {
+  border: 1px solid #1e4870; border-radius: 10px;
+  background: #0c1e38; padding: 10px 12px; margin-bottom: 10px;
+}
+.spec-card-head { font-size: 0.72rem; color: #5a9ed4; font-weight: 600; margin-bottom: 8px; }
+.spec-flow {
+  display: flex; align-items: stretch; gap: 0;
+}
+.spec-col {
+  flex: 1; background: #0e2240; border-radius: 8px;
+  padding: 8px 10px; font-size: 0.7rem;
+}
+.spec-col-label {
+  font-size: 0.63rem; color: #4a8abf; font-weight: 600; margin-bottom: 4px;
+}
+.spec-col-title { color: #7ab4e8; font-weight: 600; margin-bottom: 3px; font-size: 0.73rem; }
+.spec-col-sub { color: #5a7898; font-size: 0.67rem; }
+.spec-arrow {
+  display: flex; align-items: center; padding: 0 4px;
+  color: #2a5080; font-size: 0.9rem;
+}
+.spec-col.mid { background: #120e2e; }
+.spec-col.mid .spec-col-label { color: #7054a8; }
+.spec-col.mid .spec-col-title { color: #b08ee0; }
+.spec-col.right { background: #0e2240; }
+.spec-col.right .spec-col-label { color: #3a9e6e; }
+.spec-col.right .spec-col-title { color: #5acc98; }
+
+/* 代码块（缩略）*/
+.code-block {
+  background: #080f1a; border: 1px solid #1a2d4a; border-radius: 8px;
+  overflow: hidden; margin-bottom: 10px;
+}
+.code-block-head {
+  padding: 5px 10px; background: #0d1c30; border-bottom: 1px solid #1a2d4a;
+  font-size: 0.68rem; color: #4a6fa5; font-weight: 600;
+}
+.code-block-body {
+  padding: 8px 10px; font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.67rem; color: #7ab4e8; line-height: 1.6;
+}
+.code-line-dim { color: #3a5270; }
+
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #1a3a6a; border: 1px solid #2a5090;
+  color: #7ab4e8; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.apply-btn:hover { background: #1e4480; }
+
+/* ────────────────────────────────────────
+   方案 A：摘要文本 + 按钮放进步骤卡，无独立 resultHost
+──────────────────────────────────────── */
+.option-a-body {
+  padding: 11px 13px;
+}
+.option-a-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.option-a-name {
+  font-size: 0.74rem; color: #4a8abf;
+  background: #0c1e38; border: 1px solid #1a3a5a; border-radius: 6px;
+  padding: 4px 9px; display: inline-block; margin-bottom: 10px;
+}
+.option-a-btn {
+  width: 100%; padding: 7px; border-radius: 7px;
+  background: #1a3a6a; border: 1px solid #2a5090;
+  color: #7ab4e8; font-size: 0.76rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+
+/* ────────────────────────────────────────
+   方案 B：步骤卡只有摘要；下方紧凑 feature 完成卡（无架构图/代码）
+──────────────────────────────────────── */
+.feature-done-card {
+  border: 1px solid #1a4a2a; border-radius: 12px;
+  background: #0a1e14;
+  overflow: hidden;
+}
+.fdc-head {
+  padding: 10px 14px; border-bottom: 1px solid #1a4a2a;
+  display: flex; align-items: center; gap: 10px;
+}
+.fdc-icon { font-size: 1rem; }
+.fdc-name { font-size: 0.86rem; font-weight: 700; color: #e8f1ff; }
+.fdc-cat {
+  margin-left: auto; font-size: 0.66rem;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px;
+  padding: 2px 8px; color: #3cc87a;
+}
+.fdc-body { padding: 10px 14px; }
+.fdc-desc { font-size: 0.76rem; color: #8aafcc; line-height: 1.5; margin-bottom: 10px; }
+.fdc-stats {
+  display: flex; gap: 8px; margin-bottom: 10px;
+}
+.fdc-stat {
+  flex: 1; background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 8px; padding: 6px 10px; text-align: center;
+}
+.fdc-stat-label { font-size: 0.62rem; color: #4a8060; margin-bottom: 2px; }
+.fdc-stat-val { font-size: 0.82rem; font-weight: 700; color: #5acc98; }
+.fdc-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.fdc-btn:hover { background: #143820; }
+
+/* ────────────────────────────────────────
+   方案 C：最终结果步骤卡内嵌入完成 pill + 按钮，无 resultHost
+──────────────────────────────────────── */
+.option-c-body { padding: 11px 13px; }
+.option-c-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.option-c-pill {
+  display: flex; align-items: center; gap: 10px;
+  background: #0c2a1e; border: 1px solid #1a5c3c; border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 10px;
+}
+.option-c-pill-icon { font-size: 1.1rem; }
+.option-c-pill-info { flex: 1; min-width: 0; }
+.option-c-pill-name { font-size: 0.8rem; font-weight: 700; color: #e8f1ff; }
+.option-c-pill-sub { font-size: 0.68rem; color: #4a8060; margin-top: 1px; }
+.option-c-pill-stats { font-size: 0.68rem; color: #5acc98; white-space: nowrap; }
+.option-c-btn {
+  width: 100%; padding: 7px; border-radius: 7px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.76rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.option-c-btn:hover { background: #143820; }
+
+/* ────────────────────────────────────────
+   方案 C+B：步骤卡内嵌 B 风格绿卡，无 resultHost
+──────────────────────────────────────── */
+.option-cb-body { padding: 11px 13px; }
+.option-cb-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+/* 绿色特征卡嵌入步骤卡内部 */
+.option-cb-feature {
+  background: #0a1e14;
+  border: 1px solid #1a4a2a;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.option-cb-feature-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.option-cb-feature-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; min-width: 0; }
+.option-cb-feature-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a; white-space: nowrap;
+}
+.option-cb-feature-body { padding: 8px 12px; }
+.option-cb-feature-desc { font-size: 0.74rem; color: #8aafcc; line-height: 1.5; margin-bottom: 8px; }
+.option-cb-stats {
+  display: flex; gap: 6px; margin-bottom: 0;
+}
+.option-cb-stat {
+  flex: 1; background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 7px; padding: 5px 8px; text-align: center;
+}
+.option-cb-stat-label { font-size: 0.61rem; color: #4a8060; margin-bottom: 2px; }
+.option-cb-stat-val { font-size: 0.8rem; font-weight: 700; color: #5acc98; }
+.option-cb-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.option-cb-btn:hover { background: #143820; }
+
+/* label 标注 */
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.red { color: #7a3a3a; border-color: #3a1e1e; background: #120a0a; }
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     当前方案（原始）
+════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">当前方案（原始）</div>
+
+  <!-- 上面的步骤参考 -->
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">架构设计</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过架构流程卡）</div>
+  </div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">生成首版代码</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过代码块）</div>
+  </div>
+
+  <!-- 最终结果步骤卡 -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      已完成特征生成，准备展示结果并允许加入特征库。
+    </div>
+  </div>
+
+  <!-- 独立 resultHost 区块 -->
+  <div class="result-host">
+    <div class="result-host-inner">
+      <div class="result-title-row">
+        <span class="result-check">✅</span>
+        <span class="result-label">特征已生成</span>
+      </div>
+      <div class="result-summary-text">
+        这个特征基于历史价格数据预测未来波动率的变化，帮助判断市场是否将进入高波动或低波动状态 特征统计：均值=0.0076，标准差=0.0023
+      </div>
+      <div class="result-name-line">特征名称：volatility_prediction</div>
+
+      <!-- 架构卡（和 spec_lock 步骤重复）-->
+      <div class="spec-card">
+        <div class="spec-card-head">▸ volatility_prediction &nbsp;架构已确认</div>
+        <div class="spec-flow">
+          <div class="spec-col">
+            <div class="spec-col-label">● 输入数据</div>
+            <div class="spec-col-title">K 线 OHLCV</div>
+            <div class="spec-col-sub">date · open · high · low · close</div>
+          </div>
+          <div class="spec-arrow">→</div>
+          <div class="spec-col mid">
+            <div class="spec-col-label">● 计算逻辑</div>
+            <div class="spec-col-title" style="font-size:0.67rem">使用TA-Lib计算ATR或Bollinger Bands宽度作为波动率代理，或实现历史波动率计算</div>
+          </div>
+          <div class="spec-arrow">→</div>
+          <div class="spec-col right">
+            <div class="spec-col-label">● 输出结果</div>
+            <div class="spec-col-title">非负连续值</div>
+            <div class="spec-col-sub">0 ~ ∞</div>
+          </div>
+        </div>
+      </div>
+      <div class="anno red">⚠ 和「架构设计」步骤内容重复</div>
+
+      <!-- 代码块（和 write 步骤重复）-->
+      <div class="code-block" style="margin-top:8px">
+        <div class="code-block-head">最终代码</div>
+        <div class="code-block-body">
+          <div class="code-line-dim">import pandas as pd</div>
+          <div class="code-line-dim">import talib.abstract as ta</div>
+          <div style="height:4px"></div>
+          <div>def compute_feature(df: pd.DataFrame, period: int = 14) -&gt; pd.Series:</div>
+          <div>&nbsp;&nbsp;atr = ta.ATR(df, timeperiod=max(2, int(period)))</div>
+          <div>&nbsp;&nbsp;scaled = (atr / df['close'].replace(0, 1.0)).clip(lower=0.0)</div>
+          <div>&nbsp;&nbsp;return scaled.reindex(df.index).fillna(0.0)</div>
+        </div>
+      </div>
+      <div class="anno red">⚠ 和「生成首版代码」步骤内容重复</div>
+
+      <div class="apply-btn" style="margin-top:10px">加入特征库</div>
+    </div>
+  </div>
+
+  <div class="anno" style="margin-top:8px">问题：resultHost 内容与上方步骤高度重叠，信息冗余</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     方案 A：无独立 resultHost，按钮收进步骤卡
+════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方案 A · 步骤卡吃掉按钮，删除 resultHost</div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">架构设计</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过架构流程卡）</div>
+  </div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">生成首版代码</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过代码块）</div>
+  </div>
+
+  <!-- 最终结果步骤卡：内嵌按钮 -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="option-a-body">
+      <div class="option-a-summary">
+        已完成特征生成，准备展示结果并允许加入特征库。
+      </div>
+      <div class="option-a-name">volatility_prediction</div>
+      <div class="option-a-btn">加入特征库</div>
+    </div>
+  </div>
+
+  <div class="anno green" style="margin-top:4px">✓ 无重复内容，结构紧凑。最简方案。</div>
+  <div class="anno" style="margin-top:4px">缺：没有任何特征信息摘要，点按钮前信息较少</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     方案 B：步骤卡只有摘要文本，下方独立特征完成卡（无架构/代码）
+════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方案 B · 独立特征完成卡（含统计）</div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">架构设计</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过架构流程卡）</div>
+  </div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">生成首版代码</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过代码块）</div>
+  </div>
+
+  <!-- 最终结果步骤卡：只有摘要 -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      已完成特征生成，准备展示结果并允许加入特征库。
+    </div>
+  </div>
+
+  <!-- 独立特征完成卡（绿色调，仅显示新信息）-->
+  <div class="feature-done-card">
+    <div class="fdc-head">
+      <span class="fdc-icon">✅</span>
+      <span class="fdc-name">volatility_prediction</span>
+      <span class="fdc-cat">波动类</span>
+    </div>
+    <div class="fdc-body">
+      <div class="fdc-desc">
+        基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。
+      </div>
+      <!-- 统计信息：这是新内容，上面步骤里没有展示过 -->
+      <div class="fdc-stats">
+        <div class="fdc-stat">
+          <div class="fdc-stat-label">均值</div>
+          <div class="fdc-stat-val">0.0076</div>
+        </div>
+        <div class="fdc-stat">
+          <div class="fdc-stat-label">标准差</div>
+          <div class="fdc-stat-val">0.0023</div>
+        </div>
+        <div class="fdc-stat">
+          <div class="fdc-stat-label">输出类型</div>
+          <div class="fdc-stat-val" style="font-size:0.7rem">非负连续值</div>
+        </div>
+      </div>
+      <div class="fdc-btn">加入特征库</div>
+    </div>
+  </div>
+
+  <div class="anno green" style="margin-top:4px">✓ 无重复。独立卡只展示新信息（统计数值）。</div>
+  <div class="anno" style="margin-top:4px">适合有 runArtifacts 数值结果时展示</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     方案 C：步骤卡内嵌 pill 行 + 按钮，无 resultHost（视觉更紧凑）
+════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方案 C · 步骤卡内嵌 pill + 按钮</div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">架构设计</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过架构流程卡）</div>
+  </div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">生成首版代码</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过代码块）</div>
+  </div>
+
+  <!-- 最终结果步骤卡：pill + 按钮 -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="option-c-body">
+      <div class="option-c-summary">
+        已完成特征生成，准备展示结果并允许加入特征库。
+      </div>
+      <!-- 特征 pill：一行摘要 -->
+      <div class="option-c-pill">
+        <span class="option-c-pill-icon">📦</span>
+        <div class="option-c-pill-info">
+          <div class="option-c-pill-name">volatility_prediction</div>
+          <div class="option-c-pill-sub">波动类 · 非负连续值 · 输出 0~∞</div>
+        </div>
+        <div class="option-c-pill-stats">μ=0.0076<br>σ=0.0023</div>
+      </div>
+      <div class="option-c-btn">加入特征库</div>
+    </div>
+  </div>
+
+  <div class="anno green" style="margin-top:4px">✓ 无重复，一行 pill 摘要信息密度高，结构最紧凑</div>
+  <div class="anno" style="margin-top:4px">适合在步骤卡折叠态也能一眼看到关键信息</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     方案 C+B：C 的结构（步骤卡内嵌）+ B 的绿色特征卡视觉
+════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方案 C+B · 步骤卡内嵌绿色特征卡</div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">架构设计</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过架构流程卡）</div>
+  </div>
+
+  <div class="step-card prev-step">
+    <div class="step-head">
+      <div class="step-icon" style="background:#1a4a7f">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#7ab4e8" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">生成首版代码</span>
+      <span class="step-badge" style="color:#4a8abf;border-color:#1a3a6a;background:#0c1e38">已完成</span>
+    </div>
+    <div class="prev-step-placeholder">（已展示过代码块）</div>
+  </div>
+
+  <!-- 最终结果步骤卡：摘要 + 嵌入绿色特征卡 + 按钮 -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon">
+        <svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg>
+      </div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="option-cb-body">
+      <!-- 摘要文本 -->
+      <div class="option-cb-summary">
+        已完成特征生成，准备展示结果并允许加入特征库。
+      </div>
+      <!-- 嵌入绿色特征卡（B 风格，但在步骤卡内） -->
+      <div class="option-cb-feature">
+        <div class="option-cb-feature-head">
+          <span class="option-cb-feature-name">volatility_prediction</span>
+          <span class="option-cb-feature-cat">波动类</span>
+        </div>
+        <div class="option-cb-feature-body">
+          <div class="option-cb-feature-desc">
+            基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。
+          </div>
+          <div class="option-cb-stats">
+            <div class="option-cb-stat">
+              <div class="option-cb-stat-label">均值</div>
+              <div class="option-cb-stat-val">0.0076</div>
+            </div>
+            <div class="option-cb-stat">
+              <div class="option-cb-stat-label">标准差</div>
+              <div class="option-cb-stat-val">0.0023</div>
+            </div>
+            <div class="option-cb-stat">
+              <div class="option-cb-stat-label">输出类型</div>
+              <div class="option-cb-stat-val" style="font-size:0.68rem">非负连续值</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 按钮在卡片外，视觉上是步骤卡的 CTA -->
+      <div class="option-cb-btn">加入特征库</div>
+    </div>
+  </div>
+
+  <div class="anno green" style="margin-top:4px">✓ 无独立 resultHost，无重复内容</div>
+  <div class="anno green" style="margin-top:4px">✓ 绿色特征卡只展示新信息（统计值）</div>
+  <div class="anno" style="margin-top:4px">结构：C（内嵌）+ B（绿卡视觉）</div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果 · 特征含义可视化（修正版）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.panel { flex: 1; min-width: 290px; max-width: 360px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 6px;
+}
+.panel-sublabel { font-size: 0.7rem; color: #5a7898; margin-bottom: 10px; line-height: 1.4; }
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fi-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a; white-space: nowrap;
+}
+.fi-body { padding: 10px 12px; }
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+.anno.red { color: #7a3a3a; border-color: #3a1e1e; background: #120a0a; }
+
+
+/* ═══════════════════════════════════════
+   变体 A：刻度尺（仅描述市场状态，无策略）
+   特征值 → 这个数字代表什么
+═══════════════════════════════════════ */
+.scale-wrap { }
+.scale-bar {
+  height: 10px; border-radius: 5px; margin-bottom: 5px;
+  background: linear-gradient(to right, #1a5c3c, #5acc98 40%, #e8c44a 70%, #e84a1a);
+}
+.scale-poles {
+  display: flex; justify-content: space-between; margin-bottom: 10px;
+}
+.scale-pole { display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: 80px; }
+.scale-pole.left { align-items: flex-start; }
+.scale-pole.right { align-items: flex-end; }
+.scale-pole-icon { font-size: 1.1rem; }
+.scale-pole-label { font-size: 0.72rem; font-weight: 600; }
+.scale-pole.left .scale-pole-label { color: #5acc98; }
+.scale-pole.right .scale-pole-label { color: #e87a4a; }
+.scale-pole-desc { font-size: 0.64rem; color: #5a7878; line-height: 1.3; }
+
+
+/* ═══════════════════════════════════════
+   变体 B：两端标注（仅陈述市场事实）
+   不说"怎么做"，只说"这意味着什么"
+═══════════════════════════════════════ */
+.meaning-row { display: flex; gap: 6px; }
+.meaning-card {
+  flex: 1; border-radius: 9px; padding: 9px 10px; text-align: center;
+}
+.meaning-card.lo { background: #0a1e14; border: 1px solid #1a4a2a; }
+.meaning-card.hi { background: #1e1208; border: 1px solid #3a2a12; }
+.mc-val { font-size: 0.72rem; font-weight: 700; margin-bottom: 5px; }
+.meaning-card.lo .mc-val { color: #5acc98; }
+.meaning-card.hi .mc-val { color: #e8944a; }
+.mc-icon { font-size: 1.3rem; margin-bottom: 5px; }
+.mc-desc { font-size: 0.68rem; line-height: 1.4; }
+.meaning-card.lo .mc-desc { color: #5aaa88; }
+.meaning-card.hi .mc-desc { color: #a87858; }
+/* 注意：没有"策略"行 */
+.meaning-note {
+  margin-top: 7px; font-size: 0.65rem; color: #3a5870; text-align: center;
+  padding: 4px; background: #0c1824; border-radius: 5px;
+}
+
+
+/* ═══════════════════════════════════════
+   变体 C：分布图 + 纯市场状态标注
+   适合任何范围的特征，避免主观解读
+═══════════════════════════════════════ */
+.dist-header {
+  font-size: 0.62rem; color: #3a5870; margin-bottom: 5px;
+  display: flex; justify-content: space-between;
+}
+.dist-chart {
+  display: flex; align-items: flex-end; gap: 2px; height: 44px; margin-bottom: 4px;
+}
+.dist-bar { flex: 1; border-radius: 2px 2px 0 0; background: #1a3050; }
+.dist-bar.zone-lo { background: #1a4a3a; }
+.dist-bar.zone-hi { background: #4a2a1a; }
+.dist-x {
+  display: flex; justify-content: space-between;
+  font-size: 0.6rem; margin-bottom: 8px;
+}
+.dist-x span { color: #3a5060; }
+.dist-zone-labels {
+  display: flex; gap: 6px; margin-bottom: 0;
+}
+.dzl { flex: 1; border-radius: 6px; padding: 5px 7px; }
+.dzl.lo { background: #0a1e14; border: 1px solid #1a4a2a; }
+.dzl.hi { background: #1e1208; border: 1px solid #3a2a12; }
+.dzl-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dzl.lo .dzl-dot { background: #3cc87a; }
+.dzl.hi .dzl-dot { background: #e8944a; }
+.dzl-text { font-size: 0.68rem; }
+.dzl.lo .dzl-text { color: #5aaa88; }
+.dzl.hi .dzl-text { color: #a87858; }
+
+
+/* ═══════════════════════════════════════
+   变体 D：单向连续描述（适合无法二分的特征）
+   用一句话说清楚"这个数字测量的是什么"
+═══════════════════════════════════════ */
+.measure-card {
+  background: #0c1e38; border: 1px solid #1a3a5a;
+  border-radius: 9px; padding: 10px 12px; margin-bottom: 8px;
+}
+.measure-label {
+  font-size: 0.62rem; color: #4a6fa5; font-weight: 700; margin-bottom: 5px;
+}
+.measure-bar-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+}
+.measure-pole-lo { font-size: 0.68rem; color: #5acc98; white-space: nowrap; }
+.measure-pole-hi { font-size: 0.68rem; color: #e87a4a; white-space: nowrap; }
+.measure-bar {
+  flex: 1; height: 8px; border-radius: 4px;
+  background: linear-gradient(to right, #1a5c3c, #e84a1a);
+}
+.measure-desc { font-size: 0.72rem; color: #8aafcc; line-height: 1.5; }
+.measure-desc strong { color: #a0d0f0; }
+
+/* 历史分位标注 */
+.pct-row {
+  display: flex; gap: 6px; margin-top: 7px;
+}
+.pct-item {
+  flex: 1; background: #0a1628; border: 1px solid #1a2a48;
+  border-radius: 7px; padding: 5px 6px; text-align: center;
+}
+.pct-item-label { font-size: 0.59rem; color: #3a5878; margin-bottom: 2px; }
+.pct-item-val { font-size: 0.76rem; font-weight: 700; color: #7ab4e8; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     变体 A：刻度尺（两端描述市场状态）
+════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 A · 刻度尺</div>
+  <div class="panel-sublabel">渐变色条两端只描述市场状态，不说策略动作</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="scale-wrap">
+            <div class="scale-bar"></div>
+            <div class="scale-poles">
+              <div class="scale-pole left">
+                <div class="scale-pole-icon">🌊</div>
+                <div class="scale-pole-label">值低</div>
+                <div class="scale-pole-desc">市场走势<br>相对平稳</div>
+              </div>
+              <div class="scale-pole right">
+                <div class="scale-pole-icon">⚡</div>
+                <div class="scale-pole-label">值高</div>
+                <div class="scale-pole-desc">市场出现<br>较大波动</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 只说「值代表什么」，不越界说策略该怎么做</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     变体 B：双态对比（只陈述市场事实）
+════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 B · 双态市场描述</div>
+  <div class="panel-sublabel">两张卡各描述一种市场状态，不含任何操作建议</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="meaning-row">
+            <div class="meaning-card lo">
+              <div class="mc-icon">🌊</div>
+              <div class="mc-val">值偏低时</div>
+              <div class="mc-desc">价格波动幅度较小，市场处于相对稳定状态</div>
+            </div>
+            <div class="meaning-card hi">
+              <div class="mc-icon">⚡</div>
+              <div class="mc-val">值偏高时</div>
+              <div class="mc-desc">价格波动幅度加大，市场不确定性上升</div>
+            </div>
+          </div>
+          <div class="meaning-note">⟳ 该特征持续输出，随市场变化实时更新</div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 描述市场现象，把解读权留给策略层</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     变体 C：分布图 + 区间标注
+     适合任意范围特征，完全不依赖语义假设
+════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 C · 分布图 + 区间标注</div>
+  <div class="panel-sublabel">不假设语义，只展示值的分布和两端代表什么</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="dist-header">
+            <span>历史测试值分布</span>
+            <span>共 1,240 根 K 线</span>
+          </div>
+          <div class="dist-chart">
+            <div class="dist-bar zone-lo" style="height:30%"></div>
+            <div class="dist-bar zone-lo" style="height:55%"></div>
+            <div class="dist-bar zone-lo" style="height:80%"></div>
+            <div class="dist-bar zone-lo" style="height:100%"></div>
+            <div class="dist-bar" style="height:90%"></div>
+            <div class="dist-bar" style="height:65%"></div>
+            <div class="dist-bar zone-hi" style="height:45%"></div>
+            <div class="dist-bar zone-hi" style="height:28%"></div>
+            <div class="dist-bar zone-hi" style="height:15%"></div>
+            <div class="dist-bar zone-hi" style="height:8%"></div>
+          </div>
+          <div class="dist-x">
+            <span>← 低值区</span>
+            <span>高值区 →</span>
+          </div>
+          <div class="dist-zone-labels">
+            <div class="dzl lo">
+              <span class="dzl-dot"></span>
+              <span class="dzl-text">低值区：市场走势平稳</span>
+            </div>
+            <div class="dzl hi">
+              <span class="dzl-dot"></span>
+              <span class="dzl-text">高值区：市场波动加大</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 分布图对任意范围都适用，区间标注只描述现象</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     变体 D：测量尺 + 历史分位（最中立）
+     只说"这个特征在测量什么"+ 历史统计
+════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 D · 测量尺 + 历史分位</div>
+  <div class="panel-sublabel">最中立：只说在测量什么，附上历史参考数字</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="measure-card">
+            <div class="measure-label">这个特征在测量 →</div>
+            <div class="measure-bar-row">
+              <span class="measure-pole-lo">平稳</span>
+              <div class="measure-bar"></div>
+              <span class="measure-pole-hi">动荡</span>
+            </div>
+            <div class="measure-desc">
+              基于历史价格数据，持续估算市场当前的<strong>波动程度</strong>
+            </div>
+          </div>
+          <!-- 历史分位数（中立的统计信息）-->
+          <div class="pct-row">
+            <div class="pct-item">
+              <div class="pct-item-label">历史 25% 分位</div>
+              <div class="pct-item-val">0.0042</div>
+            </div>
+            <div class="pct-item">
+              <div class="pct-item-label">历史中位数</div>
+              <div class="pct-item-val">0.0076</div>
+            </div>
+            <div class="pct-item">
+              <div class="pct-item-label">历史 75% 分位</div>
+              <div class="pct-item-val">0.0118</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 最诚实：只报告"在测量什么"+ 历史分布参考</div>
+  <div class="anno">分位数比均值/标准差更直觉，也适合任意范围</div>
+</div>
+
+</body>
+</html>

@@ -344,7 +344,7 @@ export function createStrategyLabHandlers(deps = {}) {
           selected && (selected.label || selected.title || selected.text || selected.value || selected.id),
           valueText,
         );
-        tokens.push("✅ " + label + ": " + selectedLabel);
+        tokens.push(selectedLabel);
       });
     });
     if (tokens.length) return tokens;

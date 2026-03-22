@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>理解需求 · C+E 融合方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 28px 20px;
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* ── 公用外框 ── */
+.panel { flex: 1; min-width: 300px; max-width: 380px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 10px;
+}
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.step-body { padding: 11px 13px; }
+
+/* ════════════════════════════════════════
+   CE-1：分组卡片 + 竖向行（紧凑版）
+   E 的外壳结构，C 的内部行布局
+════════════════════════════════════════ */
+.ce1-wrap { display: grid; gap: 7px; }
+
+.ce1-block {
+  border: 1px solid #1c2f4a; border-radius: 9px;
+  background: #0e1820; overflow: hidden;
+}
+.ce1-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border-bottom: 1px solid #162230;
+}
+.ce1-head-dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+}
+.ce1-head-dot.task { background: #4a9e6e; }
+.ce1-head-dot.opt  { background: #4a7cbf; }
+.ce1-head-title {
+  font-size: 0.64rem; font-weight: 700; color: #6a8cb0;
+  letter-spacing: 0.4px; text-transform: uppercase;
+}
+.ce1-body { padding: 6px 8px; display: grid; gap: 3px; }
+.ce1-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 7px;
+  transition: background 0.15s;
+}
+.ce1-row:hover { background: #111f33; }
+.ce1-row-dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+}
+.ce1-row-dot.task { background: #4a9e6e; }
+.ce1-row-dot.opt  { background: #4a7cbf; }
+.ce1-row-text {
+  font-size: 0.76rem; color: #c8dcf5; line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ce1-row-tag {
+  margin-left: auto; font-size: 0.62rem; color: #3a5878; flex-shrink: 0;
+}
+
+
+/* ════════════════════════════════════════
+   CE-2：无头部分组线，左色边条区分
+   E 的块感，C 的行感，用左边框颜色区分组别
+════════════════════════════════════════ */
+.ce2-wrap { display: grid; gap: 6px; }
+.ce2-group { display: grid; gap: 2px; }
+.ce2-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 9px 5px 11px; border-radius: 8px;
+  background: #0e1820;
+  border-left: 2px solid transparent;
+  transition: background 0.15s;
+}
+.ce2-row:hover { background: #121e30; }
+.ce2-row.task { border-left-color: #3a8e62; }
+.ce2-row.opt  { border-left-color: #3a6ca5; }
+.ce2-icon { font-size: 0.75rem; flex-shrink: 0; line-height: 1; }
+.ce2-text {
+  font-size: 0.77rem; color: #c8dcf5; line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ce2-category {
+  margin-left: auto; font-size: 0.63rem; color: #3a5878;
+  flex-shrink: 0; white-space: nowrap;
+}
+.ce2-divider {
+  height: 1px; background: #162230; margin: 3px 0;
+}
+
+
+/* ════════════════════════════════════════
+   CE-3：E 的双卡 + C 的竖列，但加上分隔线
+   最有层次感的组合
+════════════════════════════════════════ */
+.ce3-wrap { display: grid; gap: 8px; }
+
+.ce3-block {
+  border: 1px solid #1c2f4a; border-radius: 10px; overflow: hidden;
+}
+
+.ce3-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 12px; background: #111d32;
+}
+.ce3-head-icon { font-size: 0.78rem; }
+.ce3-head-label {
+  font-size: 0.67rem; font-weight: 700; color: #6a8cb0;
+  letter-spacing: 0.4px; text-transform: uppercase;
+}
+.ce3-head-count {
+  margin-left: auto; font-size: 0.65rem; color: #3a5878;
+}
+
+.ce3-list { padding: 5px 0; }
+.ce3-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #0e1820;
+}
+.ce3-item:last-child { border-bottom: none; }
+.ce3-item:hover { background: #0e1820; }
+.ce3-item-mark {
+  font-size: 0.7rem; flex-shrink: 0; line-height: 1;
+  color: #3a9e6e;
+}
+.ce3-item-mark.task { color: #7ab4e8; }
+.ce3-item-text {
+  font-size: 0.77rem; color: #c8dcf5; line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex: 1;
+}
+.ce3-item-tag {
+  font-size: 0.63rem; color: #3a5878;
+  background: #0a1520; border: 1px solid #162030;
+  border-radius: 4px; padding: 1px 5px; flex-shrink: 0;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ══ CE-1 ══ -->
+<div class="panel">
+  <div class="panel-label">CE-1 · E 外壳 + C 行布局（紧凑）</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span class="step-title">理解需求</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      <div class="ce1-wrap">
+
+        <div class="ce1-block">
+          <div class="ce1-head">
+            <div class="ce1-head-dot task"></div>
+            <span class="ce1-head-title">任务分配</span>
+          </div>
+          <div class="ce1-body">
+            <div class="ce1-row">
+              <div class="ce1-row-dot task"></div>
+              <span class="ce1-row-text">特征生成任务</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ce1-block">
+          <div class="ce1-head">
+            <div class="ce1-head-dot opt"></div>
+            <span class="ce1-head-title">用户选项</span>
+          </div>
+          <div class="ce1-body">
+            <div class="ce1-row">
+              <div class="ce1-row-dot opt"></div>
+              <span class="ce1-row-text">RSI（相对强弱指数）</span>
+              <span class="ce1-row-tag">指标</span>
+            </div>
+            <div class="ce1-row">
+              <div class="ce1-row-dot opt"></div>
+              <span class="ce1-row-text">缩短周期（RSI 14→7天）</span>
+              <span class="ce1-row-tag">激进度</span>
+            </div>
+            <div class="ce1-row">
+              <div class="ce1-row-dot opt"></div>
+              <span class="ce1-row-text">分钟级（5分钟）</span>
+              <span class="ce1-row-tag">时间粒度</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CE-2 ══ -->
+<div class="panel">
+  <div class="panel-label">CE-2 · 左色边条分组，无卡片头部</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span class="step-title">理解需求</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      <div class="ce2-wrap">
+
+        <div class="ce2-group">
+          <div class="ce2-row task">
+            <span class="ce2-icon">📋</span>
+            <span class="ce2-text">特征生成任务</span>
+            <span class="ce2-category">任务</span>
+          </div>
+        </div>
+
+        <div class="ce2-divider"></div>
+
+        <div class="ce2-group">
+          <div class="ce2-row opt">
+            <span class="ce2-icon">✅</span>
+            <span class="ce2-text">RSI（相对强弱指数）</span>
+            <span class="ce2-category">指标</span>
+          </div>
+          <div class="ce2-row opt">
+            <span class="ce2-icon">✅</span>
+            <span class="ce2-text">缩短周期（RSI 14→7天）</span>
+            <span class="ce2-category">激进度</span>
+          </div>
+          <div class="ce2-row opt">
+            <span class="ce2-icon">✅</span>
+            <span class="ce2-text">分钟级（5分钟）</span>
+            <span class="ce2-category">时间粒度</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CE-3 ══ -->
+<div class="panel">
+  <div class="panel-label">CE-3 · 双卡 + 内部行列表 + 右侧标签</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span class="step-title">理解需求</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="step-body">
+      <div class="ce3-wrap">
+
+        <div class="ce3-block">
+          <div class="ce3-head">
+            <span class="ce3-head-icon">📋</span>
+            <span class="ce3-head-label">任务分配</span>
+          </div>
+          <div class="ce3-list">
+            <div class="ce3-item">
+              <span class="ce3-item-mark task">▸</span>
+              <span class="ce3-item-text">特征生成任务</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ce3-block">
+          <div class="ce3-head">
+            <span class="ce3-head-icon">✅</span>
+            <span class="ce3-head-label">用户选项</span>
+            <span class="ce3-head-count">3 项</span>
+          </div>
+          <div class="ce3-list">
+            <div class="ce3-item">
+              <span class="ce3-item-mark">✓</span>
+              <span class="ce3-item-text">RSI（相对强弱指数）</span>
+              <span class="ce3-item-tag">指标</span>
+            </div>
+            <div class="ce3-item">
+              <span class="ce3-item-mark">✓</span>
+              <span class="ce3-item-text">缩短周期（RSI 14→7天）</span>
+              <span class="ce3-item-tag">激进度</span>
+            </div>
+            <div class="ce3-item">
+              <span class="ce3-item-mark">✓</span>
+              <span class="ce3-item-text">分钟级（5分钟）</span>
+              <span class="ce3-item-tag">时间粒度</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

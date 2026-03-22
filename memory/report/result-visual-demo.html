@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果 · 可视化解读 UI</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.panel { flex: 1; min-width: 290px; max-width: 360px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 10px;
+}
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; }
+.fi-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a;
+}
+.fi-body { padding: 10px 12px; }
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+
+
+/* ═══════════════════════════════
+   变体 A：仪表盘 gauge
+═══════════════════════════════ */
+.gauge-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.gauge-svg { display: block; }
+.gauge-labels {
+  display: flex; justify-content: space-between;
+  width: 140px; font-size: 0.62rem; color: #4a8060;
+}
+.gauge-center-label {
+  font-size: 0.72rem; color: #a0c8b0; text-align: center; margin-top: -2px;
+}
+
+
+/* ═══════════════════════════════
+   变体 B：双态卡（低值 vs 高值）
+═══════════════════════════════ */
+.dual-state { display: flex; gap: 6px; }
+.state-card {
+  flex: 1; border-radius: 9px; padding: 9px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;
+}
+.state-card.calm {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+}
+.state-card.storm {
+  background: #1e1208; border: 1px solid #4a2a0a;
+}
+.state-icon { font-size: 1.4rem; line-height: 1; }
+.state-val {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.3px;
+  padding: 2px 7px; border-radius: 4px;
+}
+.calm .state-val { color: #5acc98; background: #0d2b1e; }
+.storm .state-val { color: #e8944a; background: #2a1208; }
+.state-market {
+  font-size: 0.72rem; font-weight: 600;
+}
+.calm .state-market { color: #5acc98; }
+.storm .state-market { color: #e8944a; }
+.state-action {
+  font-size: 0.66rem; color: #6a8878; line-height: 1.4;
+}
+.calm .state-action { color: #4a8060; }
+.storm .state-action { color: #8a6040; }
+.state-arrow {
+  font-size: 0.65rem; padding: 2px 7px; border-radius: 4px; margin-top: 1px;
+}
+.calm .state-arrow { background: #0c2a1e; color: #3cc87a; }
+.storm .state-arrow { background: #2a1208; color: #e87a4a; }
+
+
+/* ═══════════════════════════════
+   变体 C：信号流（值 → 状态 → 策略动作）
+═══════════════════════════════ */
+.signal-flow { display: flex; flex-direction: column; gap: 5px; }
+.sf-row {
+  display: flex; align-items: center; gap: 0;
+  border-radius: 8px; overflow: hidden;
+}
+.sf-cell {
+  flex: 1; padding: 7px 8px; font-size: 0.7rem; text-align: center; line-height: 1.3;
+}
+.sf-cell-label { font-size: 0.58rem; margin-bottom: 2px; opacity: 0.6; }
+.sf-cell-val { font-weight: 700; }
+.sf-arrow-cell {
+  padding: 0 4px; font-size: 0.75rem; color: #2a5060;
+  display: flex; align-items: center;
+}
+
+/* 低值行 */
+.sf-row.low .sf-cell.v { background: #0c2a1e; }
+.sf-row.low .sf-cell.v .sf-cell-val { color: #5acc98; }
+.sf-row.low .sf-cell.s { background: #0d2018; }
+.sf-row.low .sf-cell.s .sf-cell-val { color: #5acc98; }
+.sf-row.low .sf-cell.a { background: #0c1e38; }
+.sf-row.low .sf-cell.a .sf-cell-val { color: #7ab4e8; }
+
+/* 高值行 */
+.sf-row.high .sf-cell.v { background: #2a1208; }
+.sf-row.high .sf-cell.v .sf-cell-val { color: #e8944a; }
+.sf-row.high .sf-cell.s { background: #2a1408; }
+.sf-row.high .sf-cell.s .sf-cell-val { color: #e8944a; }
+.sf-row.high .sf-cell.a { background: #1e1a08; }
+.sf-row.high .sf-cell.a .sf-cell-val { color: #e8d44a; }
+
+.sf-header {
+  display: flex; gap: 0; margin-bottom: 2px;
+}
+.sf-header-cell {
+  flex: 1; font-size: 0.58rem; color: #3a5870; text-align: center; padding: 0 8px;
+}
+.sf-header-arrow { padding: 0 4px; font-size: 0.58rem; color: transparent; }
+
+
+/* ═══════════════════════════════
+   变体 D：渐变能量条 + 图例
+═══════════════════════════════ */
+.energy-wrap { }
+.energy-bar-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.energy-bar {
+  flex: 1; height: 12px; border-radius: 6px;
+  background: linear-gradient(to right,
+    #1a5c3c 0%,
+    #3acc7a 35%,
+    #e8c44a 65%,
+    #e8541a 100%
+  );
+  position: relative;
+}
+.energy-marker {
+  position: absolute; top: 50%; left: 28%;
+  transform: translate(-50%, -50%);
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 2px solid #0b1626;
+  box-shadow: 0 0 0 2px #5acc98;
+}
+.energy-bar-now {
+  font-size: 0.68rem; color: #5acc98; white-space: nowrap; font-weight: 600;
+}
+.energy-legend {
+  display: flex; justify-content: space-between;
+  font-size: 0.61rem; margin-bottom: 10px;
+}
+.energy-legend span { color: #3a5870; }
+.energy-legend span:last-child { color: #7a4030; }
+.energy-actions {
+  display: flex; gap: 6px;
+}
+.ea-item {
+  flex: 1; border-radius: 8px; padding: 7px 6px; text-align: center;
+}
+.ea-item.c { background: #0c2a1e; border: 1px solid #1a4a2e; }
+.ea-item.h { background: #2a1208; border: 1px solid #4a2a0a; }
+.ea-item-zone { font-size: 0.6rem; margin-bottom: 3px; font-weight: 600; }
+.ea-item.c .ea-item-zone { color: #3cc87a; }
+.ea-item.h .ea-item-zone { color: #e8944a; }
+.ea-item-action { font-size: 0.68rem; }
+.ea-item.c .ea-item-action { color: #7acca8; }
+.ea-item.h .ea-item-action { color: #c88060; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ 变体 A：仪表盘 ═══════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 A · 仪表盘 Gauge</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="gauge-wrap">
+            <!-- SVG 半圆仪表盘 -->
+            <svg class="gauge-svg" width="160" height="90" viewBox="0 0 160 90">
+              <!-- 背景弧 -->
+              <path d="M 16 80 A 64 64 0 0 1 144 80"
+                fill="none" stroke="#1a2e40" stroke-width="12" stroke-linecap="round"/>
+              <!-- 颜色弧：绿→黄→红 -->
+              <defs>
+                <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%"   stop-color="#1a8c52"/>
+                  <stop offset="50%"  stop-color="#e8c44a"/>
+                  <stop offset="100%" stop-color="#e84a1a"/>
+                </linearGradient>
+              </defs>
+              <!-- 已填充部分（约30%处，当前值"平稳"） -->
+              <path d="M 16 80 A 64 64 0 0 1 144 80"
+                fill="none" stroke="url(#gaugeGrad)" stroke-width="12" stroke-linecap="round"
+                stroke-dasharray="201" stroke-dashoffset="0" opacity="0.25"/>
+              <!-- 激活部分 0~30% -->
+              <path d="M 16 80 A 64 64 0 0 1 144 80"
+                fill="none" stroke="url(#gaugeGrad)" stroke-width="12" stroke-linecap="round"
+                stroke-dasharray="201" stroke-dashoffset="141"/>
+              <!-- 指针 -->
+              <line x1="80" y1="80" x2="38" y2="34"
+                stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
+              <circle cx="80" cy="80" r="4" fill="#fff" opacity="0.9"/>
+              <!-- 中心标签 -->
+              <text x="80" y="72" text-anchor="middle" fill="#5acc98" font-size="9" font-weight="700">平稳</text>
+            </svg>
+            <div class="gauge-labels">
+              <span>平稳</span>
+              <span style="text-align:center">正常</span>
+              <span style="text-align:right">动荡</span>
+            </div>
+            <div class="gauge-center-label">当前特征值处于低区间 · 市场较平稳</div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 指针直观传达"当前在哪"</div>
+  <div class="anno" style="margin-top:4px">需要后端输出分位区间（0~1）来定位指针</div>
+</div>
+
+
+<!-- ═══════════════ 变体 B：双态对比卡 ═══════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 B · 双态对比</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="dual-state">
+            <!-- 低值状态 -->
+            <div class="state-card calm">
+              <div class="state-icon">🌊</div>
+              <div class="state-val">值偏低</div>
+              <div class="state-market">市场平稳</div>
+              <div class="state-action">正常交易<br>保持仓位</div>
+              <div class="state-arrow">✓ 持仓</div>
+            </div>
+            <!-- 高值状态 -->
+            <div class="state-card storm">
+              <div class="state-icon">⚡</div>
+              <div class="state-val">值偏高</div>
+              <div class="state-market">市场动荡</div>
+              <div class="state-action">谨慎交易<br>考虑减仓</div>
+              <div class="state-arrow">↓ 减仓</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 两张卡一眼对比，动作建议清晰</div>
+  <div class="anno" style="margin-top:4px">图标 + 颜色区分两种状态，无需读文字</div>
+</div>
+
+
+<!-- ═══════════════ 变体 C：信号流 ═══════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 C · 信号流（值→状态→动作）</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <!-- 表头 -->
+          <div class="sf-header">
+            <div class="sf-header-cell">特征值</div>
+            <div class="sf-header-arrow">→</div>
+            <div class="sf-header-cell">市场状态</div>
+            <div class="sf-header-arrow">→</div>
+            <div class="sf-header-cell">策略建议</div>
+          </div>
+          <div class="signal-flow">
+            <!-- 低值行 -->
+            <div class="sf-row low">
+              <div class="sf-cell v">
+                <div class="sf-cell-label">低</div>
+                <div class="sf-cell-val">🌊 平稳</div>
+              </div>
+              <div class="sf-arrow-cell">→</div>
+              <div class="sf-cell s">
+                <div class="sf-cell-label">状态</div>
+                <div class="sf-cell-val">走势稳定</div>
+              </div>
+              <div class="sf-arrow-cell">→</div>
+              <div class="sf-cell a">
+                <div class="sf-cell-label">动作</div>
+                <div class="sf-cell-val">保持仓位</div>
+              </div>
+            </div>
+            <!-- 高值行 -->
+            <div class="sf-row high">
+              <div class="sf-cell v">
+                <div class="sf-cell-label">高</div>
+                <div class="sf-cell-val">⚡ 动荡</div>
+              </div>
+              <div class="sf-arrow-cell">→</div>
+              <div class="sf-cell s">
+                <div class="sf-cell-label">状态</div>
+                <div class="sf-cell-val">波动剧烈</div>
+              </div>
+              <div class="sf-arrow-cell">→</div>
+              <div class="sf-cell a">
+                <div class="sf-cell-label">动作</div>
+                <div class="sf-cell-val">减少仓位</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 因果链条清晰：值→状态→动作，逻辑一目了然</div>
+  <div class="anno" style="margin-top:4px">两行穷尽了主要使用场景，无需阅读长段文字</div>
+</div>
+
+
+<!-- ═══════════════ 变体 D：渐变能量条 + 区间动作 ═══════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 D · 渐变能量条 + 区间</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <!-- 渐变条 + 当前位置 -->
+          <div class="energy-bar-row">
+            <div class="energy-bar">
+              <div class="energy-marker"></div>
+            </div>
+            <div class="energy-bar-now">历史低位</div>
+          </div>
+          <div class="energy-legend">
+            <span>🌊 平稳</span>
+            <span>⚡ 动荡</span>
+          </div>
+          <!-- 两区间说明 -->
+          <div class="energy-actions">
+            <div class="ea-item c">
+              <div class="ea-item-zone">低区间</div>
+              <div class="ea-item-action">保持正常仓位</div>
+            </div>
+            <div class="ea-item h">
+              <div class="ea-item-zone">高区间</div>
+              <div class="ea-item-action">考虑减仓避险</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 渐变色条直观，小圆点标出当前历史位置</div>
+  <div class="anno" style="margin-top:4px">下方两格快速对应区间行为，色彩强化区分</div>
+</div>
+
+</body>
+</html>

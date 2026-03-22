@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果模块 · 修复前后对比</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; background: #0b1220; color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px; padding: 20px;
+  display: flex; gap: 20px; align-items: flex-start;
+}
+.col { flex: 1; min-width: 400px; max-width: 520px; }
+.col-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; margin-bottom: 10px; padding: 3px 8px;
+  border-radius: 4px; display: inline-block;
+}
+.col-label.before { color: #e05050; background: #2a1010; border: 1px solid #5a2020; }
+.col-label.after  { color: #3cc87a; background: #0d2a18; border: 1px solid #1e5a30; }
+
+/* ── 公用工作区外框 ── */
+.workbench {
+  border: 1px solid #2a3a52; border-radius: 12px;
+  background: #0d1525; overflow: hidden;
+}
+.wb-head {
+  padding: 10px 14px; border-bottom: 1px solid #1a2840;
+  display: flex; align-items: center; gap: 10px;
+}
+.wb-head-title { font-size: 13px; font-weight: 700; color: #c8daf4; flex: 1; }
+.wb-body { padding: 10px; display: grid; gap: 7px; }
+
+/* ── 步骤卡 ── */
+.step {
+  border: 1px solid #2a3a52; border-radius: 9px;
+  background: #0f1828; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px;
+}
+.step-dot {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  background: #0d2a18; border: 1px solid #1e5a30;
+  display: flex; align-items: center; justify-content: center;
+}
+.step-dot svg { width: 9px; height: 9px; }
+.step-label { font-size: 12px; font-weight: 600; color: #d4e5ff; flex: 1; }
+.step-meta { font-size: 11px; color: #4a6a8a; }
+.step-badge {
+  font-size: 10px; color: #3cc87a; background: #0d2a18;
+  border: 1px solid #1e5a30; border-radius: 12px; padding: 1px 7px;
+}
+
+/* ── 步骤内容 ── */
+.step-body {
+  border-top: 1px solid #1e2e44; padding: 8px 11px;
+  display: grid; gap: 6px;
+}
+.step-body-text { font-size: 11px; color: #9cb0ce; line-height: 1.6; }
+
+/* ── 前：resultHost 独立浮块 ── */
+.result-host-before {
+  border: 1px solid rgba(63,185,80,0.18); border-radius: 10px;
+  background: rgba(63,185,80,0.06); padding: 12px 14px;
+  margin-top: 2px;
+}
+.rh-summary { font-size: 12px; color: #c9d1d9; line-height: 1.6; margin-bottom: 10px; }
+.rh-feature-name { font-size: 12px; font-weight: 700; color: #e8f1ff; margin-bottom: 8px; }
+/* 前：分布图在 resultHost 里 */
+.rh-dist-wrap { background: #0a1220; border: 1px solid #1a2840; border-radius: 8px; padding: 9px 11px; margin-bottom: 10px; }
+.rh-dist-header { display: flex; justify-content: space-between; font-size: 10px; color: #3a5870; margin-bottom: 5px; }
+.rh-dist-chart { display: flex; align-items: flex-end; gap: 2px; height: 34px; margin-bottom: 4px; }
+.rh-dist-bar { flex: 1; border-radius: 2px 2px 0 0; }
+.rh-bar-lo { background: rgba(26,74,58,0.8); }
+.rh-bar-md { background: rgba(26,48,80,0.6); }
+.rh-bar-hi { background: rgba(74,42,26,0.8); }
+.rh-dist-x { display: flex; justify-content: space-between; font-size: 10px; color: #3a5060; margin-bottom: 0px; }
+/* 前：胶囊按钮 */
+.apply-pill {
+  display: inline-block; padding: 8px 22px; border-radius: 18px;
+  border: 1px solid rgba(63,185,80,0.4); background: rgba(63,185,80,0.12);
+  color: #3fb950; font-size: 12px; font-weight: 600; cursor: pointer;
+  text-align: center;
+}
+
+/* 问题标注 */
+.issue-tag {
+  display: inline-block; font-size: 10px; padding: 2px 6px;
+  background: #2a1010; border: 1px solid #5a2020; border-radius: 4px;
+  color: #e05050; margin-bottom: 5px;
+}
+
+/* ── 后：修复后的步骤卡内嵌特征卡 ── */
+.step-after .step-head {
+  /* 修复后 header 显示特征名摘要 */
+}
+.step-meta-after {
+  font-size: 10px; color: #4a6a8a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 内嵌绿色特征完成卡 */
+.wb-feature-card {
+  background: rgba(10,30,20,0.6); border: 1px solid rgba(26,74,42,0.7);
+  border-radius: 9px; overflow: hidden; margin-top: 2px;
+}
+.wbfc-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border-bottom: 1px solid rgba(26,74,42,0.5);
+}
+.wbfc-name { font-size: 12px; font-weight: 700; color: #e8f1ff; flex: 1; min-width: 0; }
+.wbfc-cat {
+  font-size: 10px; background: rgba(13,43,30,0.8); border: 1px solid rgba(26,92,60,0.6);
+  border-radius: 4px; padding: 2px 7px; color: #3fb950; white-space: nowrap;
+}
+.wbfc-body { padding: 9px 11px; }
+/* 分布图 */
+.dist-header { display: flex; justify-content: space-between; font-size: 10px; color: #3a5870; margin-bottom: 5px; }
+.dist-chart { display: flex; align-items: flex-end; gap: 2px; height: 36px; margin-bottom: 3px; }
+.dist-bar { flex: 1; border-radius: 2px 2px 0 0; }
+.db-lo { background: rgba(26,74,58,0.9); }
+.db-md { background: rgba(26,48,80,0.7); }
+.db-hi { background: rgba(74,42,26,0.9); }
+.dist-x { display: flex; justify-content: space-between; font-size: 10px; color: #3a5060; margin-bottom: 7px; }
+/* 区间标注（修复后正确显示） */
+.dist-zones { display: flex; gap: 5px; }
+.dz {
+  flex: 1; border-radius: 6px; padding: 6px 8px; font-size: 11px; line-height: 1.3;
+  display: flex; align-items: center; gap: 5px;
+}
+.dz-lo { background: rgba(10,30,20,0.7); border: 1px solid rgba(26,74,42,0.5); color: #5aaa88; }
+.dz-hi { background: rgba(30,18,8,0.7); border: 1px solid rgba(58,42,18,0.5); color: #a87858; }
+.dz-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dz-lo .dz-dot { background: #3fb950; }
+.dz-hi .dz-dot { background: #e8944a; }
+
+/* 修复后：全宽矩形按钮 */
+.apply-full {
+  width: 100%; margin-top: 8px; padding: 9px; border-radius: 8px;
+  border: 1px solid rgba(63,185,80,0.4); background: rgba(63,185,80,0.12);
+  color: #3fb950; font-size: 13px; font-weight: 600; cursor: pointer;
+  text-align: center; letter-spacing: 0.3px;
+  transition: background 0.15s;
+}
+.apply-full:hover { background: rgba(63,185,80,0.2); }
+
+/* 修复标注 */
+.fix-tag {
+  display: inline-block; font-size: 10px; padding: 2px 6px;
+  background: #0d2a18; border: 1px solid #1e5a30; border-radius: 4px;
+  color: #3cc87a; margin-bottom: 5px;
+}
+.anno {
+  font-size: 10px; color: #3a5070; padding: 3px 6px; border-radius: 4px;
+  border: 1px dashed #1e3255; background: #0a1220; margin-top: 5px;
+}
+.anno.bad  { color: #7a3a3a; border-color: #3a1e1e; background: #120a0a; }
+.anno.good { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+
+/* ── 前：无区间标注标注说明 ── */
+.missing-zones {
+  font-size: 10px; color: #5a3a3a; padding: 5px 7px;
+  background: rgba(90,20,20,0.15); border: 1px dashed #4a2020;
+  border-radius: 5px; text-align: center; margin-top: 4px;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ 修复前 ═══════════════════ -->
+<div class="col">
+  <div class="col-label before">修复前（当前线上效果）</div>
+
+  <div class="workbench">
+    <div class="wb-head">
+      <div class="wb-head-title">特征生成工作区</div>
+    </div>
+    <div class="wb-body">
+
+      <!-- 特征验证步骤（收起） -->
+      <div class="step">
+        <div class="step-head">
+          <div class="step-dot"><svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg></div>
+          <span class="step-label">特征验证</span>
+          <span class="step-badge">已完成</span>
+        </div>
+      </div>
+
+      <!-- 最终结果步骤卡：body 只有摘要文字 -->
+      <div class="step">
+        <div class="step-head">
+          <div class="step-dot"><svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg></div>
+          <span class="step-label">最终结果</span>
+          <span class="step-badge">已完成</span>
+        </div>
+        <div class="step-body">
+          <div class="step-body-text">已完成特征生成，准备展示结果并允许加入特征库。</div>
+        </div>
+      </div>
+
+      <!-- 问题1：resultHost 独立浮在步骤卡下方 -->
+      <div style="position:relative">
+        <div class="issue-tag">✗ 问题1：特征卡独立浮在步骤卡外面</div>
+        <div class="result-host-before">
+          <!-- 问题2：摘要文字重复 -->
+          <div class="issue-tag">✗ 问题2：摘要文字重复出现</div>
+          <div class="rh-summary">这个特征通过检测移动平均线的死叉信号，来识别潜在的市场下跌风险，帮助用户规避风险。特征统计：均值=0.0076，标准差=0.0023</div>
+
+          <div class="rh-feature-name">dead_cross_risk_avoidance</div>
+
+          <!-- 分布图有柱子，但无区间标注 -->
+          <div class="rh-dist-wrap">
+            <div class="rh-dist-header"><span>历史测试值分布</span><span>334 根 K 线</span></div>
+            <div class="rh-dist-chart">
+              <div class="rh-dist-bar rh-bar-lo" style="height:30%"></div>
+              <div class="rh-dist-bar rh-bar-lo" style="height:60%"></div>
+              <div class="rh-dist-bar rh-bar-lo" style="height:90%"></div>
+              <div class="rh-dist-bar rh-bar-lo" style="height:100%"></div>
+              <div class="rh-dist-bar rh-bar-md" style="height:78%"></div>
+              <div class="rh-dist-bar rh-bar-md" style="height:52%"></div>
+              <div class="rh-dist-bar rh-bar-hi" style="height:30%"></div>
+              <div class="rh-dist-bar rh-bar-hi" style="height:16%"></div>
+              <div class="rh-dist-bar rh-bar-hi" style="height:8%"></div>
+              <div class="rh-dist-bar rh-bar-hi" style="height:3%"></div>
+            </div>
+            <div class="rh-dist-x"><span>← 低值</span><span>高值 →</span></div>
+            <!-- 问题3：区间标注（绿/橙格子）没有渲染出来 -->
+            <div class="missing-zones">✗ 问题3：区间标注（绿/橙格子）缺失</div>
+          </div>
+
+          <!-- 问题4：小胶囊按钮，非全宽 -->
+          <div class="issue-tag">✗ 问题4：小胶囊按钮</div>
+          <div class="apply-pill">加入特征库</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="anno bad" style="margin-top:8px">4个问题：特征卡在步骤外 / 摘要重复 / 区间标注消失 / 按钮样式错</div>
+</div>
+
+
+<!-- ═══════════════════ 修复后 ═══════════════════ -->
+<div class="col">
+  <div class="col-label after">修复后（预期效果）</div>
+
+  <div class="workbench">
+    <div class="wb-head">
+      <div class="wb-head-title">特征生成工作区</div>
+    </div>
+    <div class="wb-body">
+
+      <!-- 特征验证步骤（收起） -->
+      <div class="step">
+        <div class="step-head">
+          <div class="step-dot"><svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg></div>
+          <span class="step-label">特征验证</span>
+          <span class="step-badge">已完成</span>
+        </div>
+      </div>
+
+      <!-- 修复1：特征卡在「最终结果」步骤卡内部 -->
+      <div class="step step-after">
+        <div class="step-head">
+          <div class="step-dot"><svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg></div>
+          <span class="step-label">最终结果</span>
+          <!-- 修复：特征名显示在 header meta 位置 -->
+          <span class="step-meta-after">dead_cross_risk_avoidance · 已就绪</span>
+          <span class="step-badge">已完成</span>
+        </div>
+        <div class="step-body">
+          <!-- 修复2：摘要文字只出现一次（在步骤卡 body） -->
+          <div class="step-body-text">已完成特征生成，准备展示结果并允许加入特征库。</div>
+
+          <!-- 修复1：特征卡嵌入步骤卡内 -->
+          <div class="wb-feature-card">
+            <div class="wbfc-head">
+              <span class="wbfc-name">dead_cross_risk_avoidance</span>
+              <span class="wbfc-cat">风控类</span>
+            </div>
+            <div class="wbfc-body">
+              <div class="dist-header"><span>历史测试值分布</span><span>334 根 K 线</span></div>
+              <div class="dist-chart">
+                <div class="dist-bar db-lo" style="height:30%"></div>
+                <div class="dist-bar db-lo" style="height:60%"></div>
+                <div class="dist-bar db-lo" style="height:90%"></div>
+                <div class="dist-bar db-lo" style="height:100%"></div>
+                <div class="dist-bar db-md" style="height:78%"></div>
+                <div class="dist-bar db-md" style="height:52%"></div>
+                <div class="dist-bar db-hi" style="height:30%"></div>
+                <div class="dist-bar db-hi" style="height:16%"></div>
+                <div class="dist-bar db-hi" style="height:8%"></div>
+                <div class="dist-bar db-hi" style="height:3%"></div>
+              </div>
+              <div class="dist-x"><span>← 低值</span><span>高值 →</span></div>
+              <!-- 修复3：区间标注正确渲染 -->
+              <div class="dist-zones">
+                <div class="dz dz-lo"><span class="dz-dot"></span>低值区：风险敞口较小</div>
+                <div class="dz dz-hi"><span class="dz-dot"></span>高值区：风险敞口偏高</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 修复4：全宽矩形按钮，在步骤卡内 -->
+          <div class="apply-full">加入特征库</div>
+        </div>
+      </div>
+
+      <!-- 修复1：resultHost 隐藏，不再单独浮出 -->
+
+    </div>
+  </div>
+
+  <div class="anno good" style="margin-top:8px">✓ 特征卡在步骤卡内 / 摘要不重复 / 区间标注正常 / 全宽按钮</div>
+</div>
+
+</body>
+</html>

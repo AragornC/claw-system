@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果 · 统计信息替代方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.panel { flex: 1; min-width: 290px; max-width: 360px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 10px;
+}
+
+/* ── 公用步骤卡外框 ── */
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+
+/* ── 公用步骤卡 body 容器 ── */
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+
+/* ── 公用绿色特征内嵌卡 ── */
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; }
+.fi-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a;
+}
+.fi-body { padding: 9px 12px; }
+.fi-desc { font-size: 0.74rem; color: #8aafcc; line-height: 1.5; margin-bottom: 9px; }
+
+/* ── 公用按钮 ── */
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+
+/* 标注 */
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+
+
+/* ════════════════════════════════════════
+   参考基准（原始专业数值）
+════════════════════════════════════════ */
+.ref-stats { display: flex; gap: 6px; }
+.ref-stat {
+  flex: 1; background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 7px; padding: 5px 8px; text-align: center;
+}
+.ref-stat-label { font-size: 0.61rem; color: #4a8060; margin-bottom: 2px; }
+.ref-stat-val { font-size: 0.8rem; font-weight: 700; color: #5acc98; }
+
+
+/* ════════════════════════════════════════
+   方向 1：信号直觉标签（↑高 = 动荡 / ↓低 = 平稳）
+════════════════════════════════════════ */
+.signal-tags { display: flex; flex-direction: column; gap: 5px; }
+.signal-row {
+  display: flex; align-items: center; gap: 8px;
+  background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 8px; padding: 6px 10px;
+}
+.signal-arrow { font-size: 1rem; flex-shrink: 0; }
+.signal-label { font-size: 0.76rem; font-weight: 600; }
+.signal-desc { font-size: 0.7rem; color: #6a9a80; margin-top: 1px; }
+.signal-high .signal-label { color: #e87a4a; }
+.signal-high { border-color: #3a2a1a; background: #1e1208; }
+.signal-low .signal-label { color: #5acc98; }
+
+
+/* ════════════════════════════════════════
+   方向 2：场景标签 chips
+════════════════════════════════════════ */
+.scene-section { margin-bottom: 8px; }
+.scene-title { font-size: 0.65rem; color: #4a8060; font-weight: 600; margin-bottom: 5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  font-size: 0.7rem; padding: 3px 9px; border-radius: 20px;
+  background: #0c2a1e; border: 1px solid #1a4a2e; color: #7acc98;
+}
+.chip.usage { background: #0c1e38; border-color: #1a3a6a; color: #6a9ad8; }
+.chip.pair { background: #1e1208; border-color: #3a2a1a; color: #d8946a; }
+
+
+/* ════════════════════════════════════════
+   方向 3：值域色条（低 / 正常 / 高）
+════════════════════════════════════════ */
+.range-bar-wrap { margin-bottom: 8px; }
+.range-bar-label { font-size: 0.68rem; color: #4a8060; margin-bottom: 5px; }
+.range-bar {
+  height: 8px; border-radius: 4px;
+  background: linear-gradient(to right, #1a5c3c 0%, #5acc98 40%, #e8b44a 75%, #e87a4a 100%);
+  position: relative; margin-bottom: 4px;
+}
+.range-marker {
+  position: absolute; top: -3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2px solid #5acc98;
+  transform: translateX(-50%);
+  left: 30%; /* 当前值位置 */
+}
+.range-ticks {
+  display: flex; justify-content: space-between;
+  font-size: 0.62rem; color: #4a6a58;
+}
+.range-cur {
+  margin-top: 6px; font-size: 0.72rem; color: #a0c8b0;
+  display: flex; align-items: center; gap: 6px;
+}
+.range-cur-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #5acc98; flex-shrink: 0;
+}
+
+
+/* ════════════════════════════════════════
+   方向 4：一句话通俗解读
+════════════════════════════════════════ */
+.plain-insight {
+  background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 9px; padding: 10px 12px; margin-bottom: 0;
+}
+.plain-insight-icon { font-size: 1.2rem; margin-bottom: 4px; }
+.plain-insight-text {
+  font-size: 0.78rem; color: #a8d8b8; line-height: 1.6;
+}
+.plain-insight-text strong { color: #5acc98; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     参考基准（原始专业数值）
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">基准（原始专业数值）</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="fi-desc">基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。</div>
+          <div class="ref-stats">
+            <div class="ref-stat">
+              <div class="ref-stat-label">均值</div>
+              <div class="ref-stat-val">0.0076</div>
+            </div>
+            <div class="ref-stat">
+              <div class="ref-stat-label">标准差</div>
+              <div class="ref-stat-val">0.0023</div>
+            </div>
+            <div class="ref-stat">
+              <div class="ref-stat-label">输出类型</div>
+              <div class="ref-stat-val" style="font-size:0.68rem">非负连续值</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno" style="margin-top:6px">均值、标准差、非负连续值 → 对非专业用户较难理解</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     方向 1：信号直觉标签
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方向 1 · 信号直觉标签</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="fi-desc">基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。</div>
+          <!-- 信号直觉标签：高/低对应含义 -->
+          <div class="signal-tags">
+            <div class="signal-row signal-high">
+              <span class="signal-arrow">↑</span>
+              <div>
+                <div class="signal-label">数值偏高</div>
+                <div class="signal-desc">市场可能进入剧烈波动，风险上升</div>
+              </div>
+            </div>
+            <div class="signal-row signal-low">
+              <span class="signal-arrow">↓</span>
+              <div>
+                <div class="signal-label">数值偏低</div>
+                <div class="signal-desc">市场走势平稳，波动风险较小</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 直接告诉用户「高/低意味着什么」，无需懂数学</div>
+  <div class="anno" style="margin-top:4px">适合输出值有明确高/低语义的特征</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     方向 2：场景 & 搭配 chips
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方向 2 · 使用场景 + 搭配建议</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="fi-desc">基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。</div>
+          <!-- 使用场景 chips -->
+          <div class="scene-section">
+            <div class="scene-title">适合用于</div>
+            <div class="chips">
+              <span class="chip usage">控制仓位大小</span>
+              <span class="chip usage">过滤低质量信号</span>
+              <span class="chip usage">动态止损</span>
+            </div>
+          </div>
+          <!-- 搭配 chips -->
+          <div class="scene-section">
+            <div class="scene-title">建议搭配</div>
+            <div class="chips">
+              <span class="chip pair">趋势类特征</span>
+              <span class="chip pair">成交量类特征</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 告诉用户「能拿来做什么」，策略意图更清晰</div>
+  <div class="anno" style="margin-top:4px">需要 AI 在 summarize 阶段输出场景建议字段</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     方向 3：值域色条
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方向 3 · 值域色条（当前处于哪个区间）</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="fi-desc">基于历史价格数据预测未来波动率变化，帮助判断市场是否将进入高波动或低波动状态。</div>
+          <!-- 值域色条 -->
+          <div class="range-bar-wrap">
+            <div class="range-bar-label">典型值域分布</div>
+            <div class="range-bar">
+              <div class="range-marker"></div>
+            </div>
+            <div class="range-ticks">
+              <span>极平稳</span>
+              <span>正常</span>
+              <span>偏高</span>
+              <span>极动荡</span>
+            </div>
+            <div class="range-cur">
+              <div class="range-cur-dot"></div>
+              <span>历史测试期间，该特征多数时候处于<strong style="color:#5acc98">平稳～正常</strong>区间</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 可视化替代数字，直觉感受「通常处于哪段」</div>
+  <div class="anno" style="margin-top:4px">需要后端输出 percentile 分位数；标签可配置</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     方向 4：一句话通俗解读
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">方向 4 · 一句话通俗解读</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <!-- 一句话解读（代替所有数字）-->
+          <div class="plain-insight">
+            <div class="plain-insight-icon">💡</div>
+            <div class="plain-insight-text">
+              这个特征会持续给出一个分数，分数越高说明市场最近越<strong>不平静</strong>。策略可以用它来<strong>踩刹车</strong>——在分数走高时减少交易或缩小仓位，等市场恢复平稳后再恢复正常节奏。
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 完全不需要金融知识，像在解释给朋友听</div>
+  <div class="anno" style="margin-top:4px">由 AI 在 summarize 阶段生成 plain_insight 字段</div>
+</div>
+
+</body>
+</html>

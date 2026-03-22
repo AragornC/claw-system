@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>特征生成完整流程 · 方案C串联</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; background: #0b1220; color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px; padding: 24px 20px 60px;
+}
+.wrap { max-width: 560px; margin: 0 auto; }
+.page-title { font-size: 13px; font-weight: 700; color: #7aaad4; margin-bottom: 2px; }
+.page-desc  { font-size: 11px; color: #3a5a7a; margin-bottom: 20px; }
+
+/* ── 工作区外框 ── */
+.workbench {
+  border: 1px solid #1e2e44; border-radius: 12px;
+  background: #0d1525; overflow: hidden;
+}
+.workbench-head {
+  padding: 10px 14px; border-bottom: 1px solid #1a2840;
+  display: flex; align-items: center; gap: 10px;
+}
+.workbench-head-title { font-size: 13px; font-weight: 700; color: #c8daf4; flex: 1; }
+.workbench-head-sub { font-size: 11px; color: #3a5a7a; }
+.workbench-status {
+  font-size: 11px; color: #3cc87a; background: rgba(60,200,120,0.08);
+  border: 1px solid rgba(60,200,120,0.25); border-radius: 20px; padding: 2px 9px;
+}
+.workbench-body { padding: 10px; display: grid; gap: 7px; }
+
+/* ── 步骤卡 ── */
+.step {
+  border: 1px solid #2a3a52; border-radius: 9px;
+  background: #0f1828; overflow: hidden;
+}
+.step.done  { border-color: #2a3a52; }
+.step.open  { border-color: #2e4a6e; }
+
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; cursor: pointer; user-select: none;
+}
+.step-head:hover { background: rgba(255,255,255,0.02); }
+
+.step-dot {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.step-dot.done { background: #0d2a18; border: 1px solid #1e5a30; }
+.step-dot.done svg { width: 9px; height: 9px; }
+
+.step-label { font-size: 12px; font-weight: 600; color: #d4e5ff; flex: 1; }
+.step-summary { font-size: 11px; color: #4a6a8a; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.step-badge {
+  font-size: 10px; color: #3cc87a; background: #0d2a18;
+  border: 1px solid #1e5a30; border-radius: 12px; padding: 1px 7px; white-space: nowrap;
+}
+.step-chevron { font-size: 10px; color: #3a5a7a; transition: transform 0.18s; margin-left: 2px; }
+.step.open .step-chevron { transform: rotate(180deg); }
+
+/* 步骤内容区 */
+.step-body {
+  border-top: 1px solid #1e2e44;
+  padding: 9px 11px; display: grid; gap: 7px;
+}
+.step.collapsed .step-body { display: none; }
+
+/* ── 通用内容块 ── */
+.trace-text {
+  font-size: 12px; color: #9cb0ce; line-height: 1.6;
+}
+.trace-card {
+  border: 1px solid #2a3a52; border-radius: 8px;
+  background: #0d1625; padding: 8px 10px;
+}
+
+/* ── 理解需求：选项卡片 ── */
+.understand-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.understand-chip {
+  font-size: 11px; padding: 3px 9px; border-radius: 5px;
+  background: #0c1e38; border: 1px solid #1a3a6a; color: #7ab4e8;
+}
+.understand-chip.selected {
+  background: #0d2a1e; border-color: #1e5a3a; color: #5acc98;
+}
+
+/* ── 计划：要点列表 ── */
+.plan-points { display: grid; gap: 5px; }
+.plan-point { display: flex; gap: 7px; font-size: 12px; color: #b9f7ce; align-items: flex-start; line-height: 1.5; }
+.plan-point-num {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+  background: #12281f; border: 1px solid #29503b;
+  font-size: 10px; color: #5acc98; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+
+/* ── 架构设计：三列流程卡 ── */
+.spec-card {
+  border: 1px solid #1e4870; border-radius: 9px;
+  background: #0c1e38; overflow: hidden;
+}
+.spec-card-head {
+  padding: 6px 10px; border-bottom: 1px solid #1e3860;
+  font-size: 11px; color: #5a9ed4; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+}
+.spec-card-head-name { color: #7ab4e8; }
+.spec-card-head-badge {
+  margin-left: auto; font-size: 10px; color: #3a6e9a;
+  background: #0c1e38; border: 1px solid #1a3a60; border-radius: 4px; padding: 1px 6px;
+}
+.spec-flow { display: flex; }
+.spec-col { flex: 1; padding: 8px 10px; font-size: 11px; }
+.spec-col + .spec-col { border-left: 1px solid #1a3050; }
+.spec-col-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.spec-col-label { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+.spec-col.inp .spec-col-label { color: #4a8abf; }
+.spec-col.inp .spec-col-dot { background: #4a8abf; }
+.spec-col.mid .spec-col-label { color: #7054a8; }
+.spec-col.mid .spec-col-dot { background: #7054a8; }
+.spec-col.out .spec-col-label { color: #3a9e6e; }
+.spec-col.out .spec-col-dot { background: #3a9e6e; }
+.spec-col-title { font-weight: 600; margin-bottom: 3px; font-size: 12px; }
+.spec-col.inp .spec-col-title { color: #7ab4e8; }
+.spec-col.mid .spec-col-title { color: #b08ee0; font-size: 11px; line-height: 1.4; }
+.spec-col.out .spec-col-title { color: #5acc98; }
+.spec-col-sub { font-size: 10px; color: #3a5878; }
+.spec-arrow { display: flex; align-items: center; padding: 0 3px; color: #2a4060; font-size: 12px; align-self: center; }
+
+/* ── 代码块 ── */
+.code-card { border: 1px solid #1a2d4a; border-radius: 8px; overflow: hidden; }
+.code-card-head {
+  padding: 5px 10px; background: #0d1c30; border-bottom: 1px solid #1a2d4a;
+  font-size: 10px; color: #4a6fa5; font-weight: 700;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.code-card-lang { font-size: 10px; color: #2a4060; }
+.code-body {
+  background: #080f1a; padding: 8px 10px;
+  font-family: "JetBrains Mono","Fira Code","SF Mono",monospace;
+  font-size: 11px; color: #7ab4e8; line-height: 1.65; overflow-x: auto;
+}
+.code-kw { color: #c792ea; }
+.code-fn { color: #82aaff; }
+.code-cm { color: #3a5878; font-style: italic; }
+.code-st { color: #c3e88d; }
+.code-nm { color: #f78c6c; }
+
+/* ── 验证轮次 ── */
+.validate-rounds { display: grid; gap: 5px; }
+.vr-round {
+  border: 1px solid #2a3a52; border-radius: 7px;
+  background: #0d1625; overflow: hidden;
+}
+.vr-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 9px;
+}
+.vr-num {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.vr-num.pass { background: #0d2a18; color: #3cc87a; border: 1px solid #1e5a30; }
+.vr-num.fail { background: #2a1010; color: #e05050; border: 1px solid #5a2020; }
+.vr-title { font-size: 11px; font-weight: 600; color: #a0c4e8; flex: 1; }
+.vr-badge { font-size: 10px; border-radius: 12px; padding: 1px 7px; }
+.vr-badge.pass { background: #0d2a18; color: #3cc87a; border: 1px solid #1e5a30; }
+.vr-badge.fail { background: #2a1010; color: #e05050; border: 1px solid #5a2020; }
+.vr-body { padding: 0 9px 7px; font-size: 11px; color: #6a8898; line-height: 1.5; }
+
+/* ══════════════════════════════════════════
+   最终结果 步骤内容：方案 C
+══════════════════════════════════════════ */
+.result-summary {
+  font-size: 12px; color: #9cb0ce; line-height: 1.6;
+}
+
+/* 特征内嵌卡（绿色调） */
+.feature-card {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 9px; overflow: hidden;
+}
+.fc-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border-bottom: 1px solid #1a4a2a;
+}
+.fc-name { font-size: 12px; font-weight: 700; color: #e8f1ff; flex: 1; }
+.fc-cat {
+  font-size: 10px; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 4px; padding: 2px 7px; color: #3cc87a;
+}
+.fc-body { padding: 9px 11px; }
+
+/* 变体 C：分布图 */
+.dist-header {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #3a5870; margin-bottom: 5px;
+}
+.dist-chart {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 38px; margin-bottom: 3px;
+}
+.dist-bar { flex: 1; border-radius: 2px 2px 0 0; }
+.dist-bar.lo { background: #1a4a3a; }
+.dist-bar.md { background: #1a3050; }
+.dist-bar.hi { background: #4a2a1a; }
+.dist-x {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #3a5060; margin-bottom: 7px;
+}
+.dist-zones { display: flex; gap: 5px; margin-bottom: 0; }
+.dz {
+  flex: 1; border-radius: 6px; padding: 5px 7px; font-size: 11px; line-height: 1.35;
+}
+.dz.a { background: #0a1e14; border: 1px solid #1a4a2a; color: #5aaa88; }
+.dz.b { background: #1e1208; border: 1px solid #3a2a12; color: #a87858; }
+.dz-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dz.a .dz-dot { background: #3cc87a; }
+.dz.b .dz-dot { background: #e8944a; }
+
+/* 加入特征库按钮 */
+.apply-btn {
+  margin-top: 9px; width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 12px; font-weight: 600;
+  cursor: pointer; text-align: center; letter-spacing: 0.3px;
+}
+.apply-btn:hover { background: #143820; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">特征生成工作区 · 完整流程 · 方案C</div>
+  <div class="page-desc">volatility_prediction · 全流程串联，最终结果使用分布图变体</div>
+
+  <div class="workbench">
+    <div class="workbench-head">
+      <div>
+        <div class="workbench-head-title">特征生成工作区</div>
+        <div class="workbench-head-sub">计划、代码、运行、检测和修复过程单独展示在这里</div>
+      </div>
+      <div class="workbench-status">已完成</div>
+    </div>
+
+    <div class="workbench-body">
+
+      <!-- ── 步骤 1：理解需求（已折叠）── -->
+      <div class="step done collapsed" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">理解需求</span>
+          <span class="step-summary">识别到波动率预测特征需求</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <div class="trace-text">已解析用户需求，识别出核心意图：生成一个基于历史价格预测未来波动率的特征。</div>
+          <div class="understand-chips">
+            <span class="understand-chip selected">波动率预测</span>
+            <span class="understand-chip selected">基于历史价格</span>
+            <span class="understand-chip selected">连续值输出</span>
+            <span class="understand-chip">动量相关</span>
+            <span class="understand-chip">布林带宽度</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 步骤 2：生成计划（已折叠）── -->
+      <div class="step done collapsed" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">生成计划</span>
+          <span class="step-summary">确定用 ATR 方案计算波动率</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <div class="plan-points">
+            <div class="plan-point"><div class="plan-point-num">1</div><span>使用 TA-Lib 的 ATR 指标作为波动率代理，计算效率高且可解释</span></div>
+            <div class="plan-point"><div class="plan-point-num">2</div><span>对 ATR 值除以收盘价做归一化，消除价格量级的影响</span></div>
+            <div class="plan-point"><div class="plan-point-num">3</div><span>输出为非负连续值，clip 保证不产生负数，fillna 处理头部缺失</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 步骤 3：架构设计（展开）── -->
+      <div class="step done open" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">架构设计</span>
+          <span class="step-summary">输入 OHLCV → ATR 归一化 → 非负连续值</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <div class="trace-text">已锁定特征架构，输入/计算/输出结构确认如下：</div>
+          <div class="spec-card">
+            <div class="spec-card-head">
+              <span>▸</span>
+              <span class="spec-card-head-name">volatility_prediction</span>
+              <span class="spec-card-head-badge">架构已确认</span>
+            </div>
+            <div class="spec-flow">
+              <div class="spec-col inp">
+                <div class="spec-col-label"><span class="spec-col-dot"></span>输入数据</div>
+                <div class="spec-col-title">K 线 OHLCV</div>
+                <div class="spec-col-sub">date · open · high · low · close</div>
+              </div>
+              <div class="spec-arrow">→</div>
+              <div class="spec-col mid">
+                <div class="spec-col-label"><span class="spec-col-dot"></span>计算逻辑</div>
+                <div class="spec-col-title">ATR 归一化<br>除以收盘价，clip ≥ 0</div>
+              </div>
+              <div class="spec-arrow">→</div>
+              <div class="spec-col out">
+                <div class="spec-col-label"><span class="spec-col-dot"></span>输出结果</div>
+                <div class="spec-col-title">非负连续值</div>
+                <div class="spec-col-sub">0 ~ ∞</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 步骤 4：生成首版代码（已折叠）── -->
+      <div class="step done collapsed" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">生成首版代码</span>
+          <span class="step-summary">compute_feature · Python · 12 行</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <div class="code-card">
+            <div class="code-card-head">
+              <span>volatility_prediction.py</span>
+              <span class="code-card-lang">Python</span>
+            </div>
+            <div class="code-body">
+<span class="code-kw">import</span> pandas <span class="code-kw">as</span> pd<br>
+<span class="code-kw">import</span> talib.abstract <span class="code-kw">as</span> ta<br>
+<br>
+<span class="code-kw">def</span> <span class="code-fn">compute_feature</span>(df: pd.DataFrame, period: <span class="code-fn">int</span> = <span class="code-nm">14</span>) -> pd.Series:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-cm"># ATR 归一化：除以收盘价，消除量级差异</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;atr = ta.<span class="code-fn">ATR</span>(df, timeperiod=<span class="code-fn">max</span>(<span class="code-nm">2</span>, <span class="code-fn">int</span>(period)))<br>
+&nbsp;&nbsp;&nbsp;&nbsp;scaled = (atr / df[<span class="code-st">'close'</span>].<span class="code-fn">replace</span>(<span class="code-nm">0</span>, <span class="code-nm">1.0</span>)).<span class="code-fn">clip</span>(lower=<span class="code-nm">0.0</span>)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-kw">return</span> scaled.<span class="code-fn">reindex</span>(df.index).<span class="code-fn">fillna</span>(<span class="code-nm">0.0</span>)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 步骤 5：特征验证（已折叠）── -->
+      <div class="step done collapsed" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">特征验证</span>
+          <span class="step-summary">1 轮修复后通过，输出值正常</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <div class="validate-rounds">
+            <div class="vr-round">
+              <div class="vr-head">
+                <div class="vr-num fail">1</div>
+                <span class="vr-title">首次运行</span>
+                <span class="vr-badge fail">失败</span>
+              </div>
+              <div class="vr-body">检测到 NaN 值占比 9.3%（超过阈值 5%），原因：period 参数过大导致头部数据全为 NaN。已自动修复：fillna(0.0) 策略改为 fillna(method='bfill')。</div>
+            </div>
+            <div class="vr-round">
+              <div class="vr-head">
+                <div class="vr-num pass">2</div>
+                <span class="vr-title">修复后重跑</span>
+                <span class="vr-badge pass">通过</span>
+              </div>
+              <div class="vr-body">NaN 占比 0%，值域 [0, 0.048]，无异常尖峰，验证通过。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 步骤 6：最终结果（展开，方案C）── -->
+      <div class="step done open" onclick="toggle(this)">
+        <div class="step-head">
+          <div class="step-dot done">
+            <svg viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2.5" stroke="#3cc87a" stroke-width="1.4"/></svg>
+          </div>
+          <span class="step-label">最终结果</span>
+          <span class="step-summary">volatility_prediction · 已就绪</span>
+          <span class="step-badge">已完成</span>
+          <span class="step-chevron">▼</span>
+        </div>
+        <div class="step-body">
+          <!-- 摘要文本 -->
+          <div class="result-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+
+          <!-- 特征卡（方案 C） -->
+          <div class="feature-card">
+            <div class="fc-head">
+              <span class="fc-name">volatility_prediction</span>
+              <span class="fc-cat">波动类</span>
+            </div>
+            <div class="fc-body">
+              <!-- 分布图 -->
+              <div class="dist-header">
+                <span>历史测试值分布</span>
+                <span>1,240 根 K 线</span>
+              </div>
+              <div class="dist-chart">
+                <div class="dist-bar lo" style="height:30%"></div>
+                <div class="dist-bar lo" style="height:58%"></div>
+                <div class="dist-bar lo" style="height:88%"></div>
+                <div class="dist-bar lo" style="height:100%"></div>
+                <div class="dist-bar md" style="height:82%"></div>
+                <div class="dist-bar md" style="height:55%"></div>
+                <div class="dist-bar hi" style="height:32%"></div>
+                <div class="dist-bar hi" style="height:18%"></div>
+                <div class="dist-bar hi" style="height:8%"></div>
+                <div class="dist-bar hi" style="height:3%"></div>
+              </div>
+              <div class="dist-x">
+                <span>← 低值（平稳）</span>
+                <span>高值（动荡）→</span>
+              </div>
+              <div class="dist-zones">
+                <div class="dz a"><span class="dz-dot"></span>低值区：市场走势相对平稳</div>
+                <div class="dz b"><span class="dz-dot"></span>高值区：市场出现较大波动</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 加入特征库按钮 -->
+          <div class="apply-btn" onclick="event.stopPropagation()">加入特征库</div>
+        </div>
+      </div>
+
+    </div><!-- /workbench-body -->
+  </div><!-- /workbench -->
+</div>
+
+<script>
+function toggle(el) {
+  el.classList.toggle('collapsed');
+  el.classList.toggle('open');
+}
+// 初始状态：1,2,4,5 折叠；3,6 展开
+document.querySelectorAll('.step').forEach(function(s) {
+  if (s.classList.contains('collapsed')) {
+    s.querySelector('.step-chevron').style.transform = 'rotate(-90deg)';
+  }
+});
+document.querySelectorAll('.step').forEach(function(s) {
+  s.querySelector('.step-head').addEventListener('click', function(e) {
+    e.stopPropagation();
+    s.classList.toggle('collapsed');
+    s.classList.toggle('open');
+    var ch = s.querySelector('.step-chevron');
+    ch.style.transform = s.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+  });
+});
+</script>
+</body>
+</html>

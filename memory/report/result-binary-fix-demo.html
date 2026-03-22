@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>二值特征 · 变体 C 修复方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start;
+}
+.panel { flex: 1; min-width: 280px; max-width: 360px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 6px;
+}
+.panel-sublabel { font-size: 0.7rem; color: #5a7898; margin-bottom: 10px; line-height: 1.4; }
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; }
+.fi-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a; white-space: nowrap;
+}
+.fi-body { padding: 10px 12px; }
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+.anno.red   { color: #7a3a3a; border-color: #3a1e1e; background: #120a0a; }
+
+.dist-header {
+  font-size: 0.6rem; color: #3a5870; margin-bottom: 5px;
+  display: flex; justify-content: space-between;
+}
+.dist-zones { display: flex; gap: 5px; margin-top: 7px; }
+.dz {
+  flex: 1; border-radius: 6px; padding: 5px 7px;
+  font-size: 0.67rem; line-height: 1.35;
+}
+.dz.a { background: #0a1e14; border: 1px solid #1a4a2a; color: #5aaa88; }
+.dz.b { background: #1e1a08; border: 1px solid #3a3010; color: #b8940a; }
+.dz .dz-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dz.a .dz-dot { background: #3cc87a; }
+.dz.b .dz-dot { background: #b8940a; }
+
+
+/* ══════════════════════════════
+   原始问题：两根柱 + 大量空白
+══════════════════════════════ */
+.old-chart {
+  display: flex; align-items: flex-end;
+  justify-content: center; gap: 40px;
+  height: 44px; margin-bottom: 4px;
+}
+.old-bar {
+  width: 60px; border-radius: 4px 4px 0 0;
+}
+
+/* ══════════════════════════════
+   方案 1：比例分段横条
+   一条横条，两段颜色，面积=频率
+══════════════════════════════ */
+.ratio-wrap { }
+.ratio-bar {
+  display: flex; height: 32px; border-radius: 8px; overflow: hidden;
+  margin-bottom: 6px;
+}
+.ratio-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700; transition: flex 0.3s;
+}
+.ratio-seg.a { background: #1a4a3a; color: #5acc98; }
+.ratio-seg.b { background: #3a3010; color: #d8a830; }
+.ratio-labels { display: flex; justify-content: space-between; font-size: 0.67rem; }
+.ratio-labels .la { color: #5acc98; }
+.ratio-labels .lb { color: #b8940a; }
+
+
+/* ══════════════════════════════
+   方案 2：全宽双柱（按比例高度）
+   0 的柱占满，1 的柱矮
+══════════════════════════════ */
+.fullbar-chart {
+  display: flex; align-items: flex-end; gap: 6px;
+  height: 56px; margin-bottom: 4px;
+}
+.fullbar-col { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.fullbar-col.zero { flex: 9; }  /* 92% 宽度 */
+.fullbar-col.one  { flex: 1; }  /* 8% 宽度 */
+.fullbar-bar { width: 100%; border-radius: 4px 4px 0 0; }
+.fullbar-pct { font-size: 0.65rem; color: #5a7888; }
+
+
+/* ══════════════════════════════
+   方案 3：SVG 圆环图
+══════════════════════════════ */
+.donut-wrap {
+  display: flex; align-items: center; gap: 12px;
+}
+.donut-svg { flex-shrink: 0; }
+.donut-legend { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.donut-leg-item { display: flex; align-items: center; gap: 7px; font-size: 0.71rem; }
+.donut-leg-dot {
+  width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+}
+.donut-leg-label { color: #8aafcc; flex: 1; }
+.donut-leg-pct { font-weight: 700; }
+
+
+/* ══════════════════════════════
+   方案 4：频率计 + 两态格（D 的做法，供对比）
+══════════════════════════════ */
+.freq-stat { background: #0c1e38; border: 1px solid #1a3a5a; border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
+.freq-label { font-size: 0.6rem; color: #4a6fa5; font-weight: 700; margin-bottom: 4px; }
+.freq-bar { height: 8px; background: #1a3050; border-radius: 4px; overflow: hidden; margin-bottom: 3px; }
+.freq-fill { height: 100%; border-radius: 4px; background: linear-gradient(to right, #1a5c3c, #3cc87a); }
+.freq-val { font-size: 0.66rem; color: #5acc98; }
+.bin-row { display: flex; gap: 5px; }
+.bin-card { flex: 1; border-radius: 6px; padding: 7px 8px; text-align: center; }
+.bin-card.off { background: #141824; border: 1px solid #2a3448; }
+.bin-card.on  { background: #0c2a1e; border: 1px solid #1a5c3c; }
+.bin-val { font-size: 0.82rem; font-weight: 700; margin-bottom: 3px; }
+.bin-card.off .bin-val { color: #5a7898; }
+.bin-card.on  .bin-val { color: #5acc98; }
+.bin-desc { font-size: 0.66rem; line-height: 1.35; }
+.bin-card.off .bin-desc { color: #3a5068; }
+.bin-card.on  .bin-desc { color: #5aaa88; }
+
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ 原始问题 ══════════════════════ -->
+<div class="panel">
+  <div class="panel-label">原始 C（有问题）</div>
+  <div class="panel-sublabel">两根孤立的柱 + 大量空白<br>完全看不出「分布」是什么</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+        <div class="fi-body">
+          <div class="dist-header"><span>历史测试值分布</span><span>1,240 根 K 线</span></div>
+          <!-- 问题：只有两根孤立柱 -->
+          <div class="old-chart">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div class="old-bar" style="height:44px;background:#1a4a3a"></div>
+              <span style="font-size:0.62rem;color:#3a5870">= 0（92%）</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div class="old-bar" style="height:4px;background:#b8940a"></div>
+              <span style="font-size:0.62rem;color:#3a5870">= 1（8%）</span>
+            </div>
+          </div>
+          <div class="dist-zones">
+            <div class="dz a"><span class="dz-dot"></span>= 0：未检测到突破</div>
+            <div class="dz b"><span class="dz-dot"></span>= 1：检测到突破</div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno red">✗ 两柱之间大量空白，看不出比例关系，图表无意义</div>
+</div>
+
+
+<!-- ══════════════════════ 方案 1：比例分段横条 ══════════════════════ -->
+<div class="panel">
+  <div class="panel-label">修复方案 1 · 比例横条</div>
+  <div class="panel-sublabel">一条横条，两段颜色<br>面积直接等于频率比例</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+        <div class="fi-body">
+          <div class="dist-header"><span>历史触发比例</span><span>1,240 根 K 线</span></div>
+          <div class="ratio-bar">
+            <div class="ratio-seg a" style="flex:92">92%</div>
+            <div class="ratio-seg b" style="flex:8">8%</div>
+          </div>
+          <div class="ratio-labels">
+            <span class="la">= 0 · 未触发（92%）</span>
+            <span class="lb">= 1 · 触发（8%）</span>
+          </div>
+          <div class="dist-zones">
+            <div class="dz a"><span class="dz-dot"></span>= 0：未检测到结构性突破</div>
+            <div class="dz b"><span class="dz-dot"></span>= 1：价格出现结构性突破</div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 横条面积=频率，一眼看出「8% 很稀少」</div>
+  <div class="anno">适合任何二值特征，无需单独配置</div>
+</div>
+
+
+<!-- ══════════════════════ 方案 2：全宽双柱（宽度=频率）══════════════════════ -->
+<div class="panel">
+  <div class="panel-label">修复方案 2 · 全宽双柱</div>
+  <div class="panel-sublabel">柱宽 = 频率比例，柱高相同<br>强调「哪个更多见」</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+        <div class="fi-body">
+          <div class="dist-header"><span>历史触发比例</span><span>1,240 根 K 线</span></div>
+          <div class="fullbar-chart">
+            <!-- 0 占 92% 宽度 -->
+            <div class="fullbar-col zero">
+              <div class="fullbar-bar" style="height:100%;background:#1a4a3a;border-radius:6px 4px 0 0"></div>
+            </div>
+            <!-- 1 占 8% 宽度 -->
+            <div class="fullbar-col one">
+              <div class="fullbar-bar" style="height:100%;background:#3a3010;border-radius:4px 6px 0 0"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;font-size:0.62rem;margin-bottom:6px">
+            <span style="flex:9;color:#5acc98;text-align:center">= 0（92%）</span>
+            <span style="flex:1;color:#b8940a;text-align:center">= 1</span>
+          </div>
+          <div class="dist-zones">
+            <div class="dz a"><span class="dz-dot"></span>= 0：未检测到结构性突破</div>
+            <div class="dz b"><span class="dz-dot"></span>= 1：价格出现结构性突破</div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 柱宽比例直观，无空白浪费</div>
+  <div class="anno">「1 的柱很窄」= 触发频率低，一眼就明白</div>
+</div>
+
+
+<!-- ══════════════════════ 方案 3：SVG 圆环图 ══════════════════════ -->
+<div class="panel">
+  <div class="panel-label">修复方案 3 · 圆环图</div>
+  <div class="panel-sublabel">SVG donut，适合展示比例<br>右侧文字标注两态含义</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+        <div class="fi-body">
+          <div class="dist-header"><span>历史触发比例</span><span>1,240 根 K 线</span></div>
+          <div class="donut-wrap">
+            <!-- SVG 圆环：8% 触发（约 29deg） -->
+            <svg class="donut-svg" width="80" height="80" viewBox="0 0 80 80">
+              <!-- 背景圆环（92%，绿色） -->
+              <circle cx="40" cy="40" r="28"
+                fill="none" stroke="#1a4a3a" stroke-width="12"
+                stroke-dasharray="175.9" stroke-dashoffset="0"
+                transform="rotate(-90 40 40)"/>
+              <!-- 前景弧（8%，黄色）-->
+              <circle cx="40" cy="40" r="28"
+                fill="none" stroke="#b8940a" stroke-width="12"
+                stroke-dasharray="175.9" stroke-dashoffset="161.8"
+                transform="rotate(-90 40 40)"/>
+              <!-- 中心文字 -->
+              <text x="40" y="36" text-anchor="middle" fill="#b8940a" font-size="11" font-weight="700">8%</text>
+              <text x="40" y="48" text-anchor="middle" fill="#5a7888" font-size="7.5">触发率</text>
+            </svg>
+            <div class="donut-legend">
+              <div class="donut-leg-item">
+                <div class="donut-leg-dot" style="background:#1a4a3a;border:1px solid #3cc87a"></div>
+                <span class="donut-leg-label">= 0 未触发</span>
+                <span class="donut-leg-pct" style="color:#5acc98">92%</span>
+              </div>
+              <div class="donut-leg-item">
+                <div class="donut-leg-dot" style="background:#3a3010;border:1px solid #b8940a"></div>
+                <span class="donut-leg-label">= 1 检测到突破</span>
+                <span class="donut-leg-pct" style="color:#b8940a">8%</span>
+              </div>
+              <div style="font-size:0.63rem;color:#3a5870;margin-top:2px;line-height:1.4">
+                每 100 根 K 线<br>约触发 8 次
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green">✓ 圆环最适合「比例」这个概念</div>
+  <div class="anno">中心直接显示触发率，右侧补充文字说明</div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>C & D 变体 · 多特征类型带入</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+}
+
+/* ── 分组标题 ── */
+.group { margin-bottom: 32px; }
+.group-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.group-tag {
+  font-size: 0.68rem; font-weight: 700; padding: 3px 10px; border-radius: 20px;
+}
+.group-title { font-size: 0.78rem; color: #a0b8d8; }
+.group-note { font-size: 0.68rem; color: #3a5878; margin-left: auto; }
+
+/* 类别 tag 颜色 */
+.tag-volatility { background: #1a2a3e; color: #7ab4e8; border: 1px solid #2a4a6e; }
+.tag-trend      { background: #1e2a1a; color: #7acc78; border: 1px solid #2e4a2e; }
+.tag-volume     { background: #2a1e1a; color: #e8a84a; border: 1px solid #4a2e1a; }
+.tag-structure  { background: #2a1a2e; color: #c07ae8; border: 1px solid #4a2a5e; }
+.tag-risk       { background: #2a1a1a; color: #e87a7a; border: 1px solid #4a2a2a; }
+
+/* ── 两列 ── */
+.row { display: flex; gap: 16px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 280px; max-width: 400px; }
+.col-label {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #3a5878; margin-bottom: 7px;
+  padding: 3px 7px; background: #0d1828; border-radius: 4px; display: inline-block;
+}
+
+/* ── 公用步骤卡 ── */
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.8rem; font-weight: 700; color: #e8f1ff; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fi-cat {
+  font-size: 0.63rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a; white-space: nowrap;
+}
+.fi-body { padding: 10px 12px; }
+.apply-btn {
+  width: 100%; padding: 7px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.76rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+
+
+/* ════════════════════════════════════════
+   变体 C：分布图 + 区间标注
+════════════════════════════════════════ */
+.dist-header {
+  font-size: 0.6rem; color: #3a5870; margin-bottom: 5px;
+  display: flex; justify-content: space-between;
+}
+.dist-chart {
+  display: flex; align-items: flex-end; gap: 2px; height: 40px; margin-bottom: 3px;
+}
+.dist-bar { flex: 1; border-radius: 2px 2px 0 0; }
+.dist-bar.neutral { background: #1a3050; }
+.dist-bar.zone-a  { background: #1a4a3a; }   /* 绿色端 */
+.dist-bar.zone-b  { background: #4a2a1a; }   /* 橙/红端 */
+.dist-bar.zone-c  { background: #2a1a3a; }   /* 紫色端（负值） */
+.dist-bar.zone-d  { background: #3a3010; }   /* 黄色端（二值=1） */
+.dist-x {
+  display: flex; justify-content: space-between;
+  font-size: 0.58rem; margin-bottom: 7px;
+}
+.dist-x span { color: #3a5060; }
+.dist-zones { display: flex; gap: 5px; }
+.dz {
+  flex: 1; border-radius: 6px; padding: 5px 7px;
+  font-size: 0.67rem; line-height: 1.35;
+}
+.dz.a { background: #0a1e14; border: 1px solid #1a4a2a; color: #5aaa88; }
+.dz.b { background: #1e1208; border: 1px solid #3a2a12; color: #a87858; }
+.dz.c { background: #1a1028; border: 1px solid #2a1a4a; color: #9070c8; }
+.dz .dz-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dz.a .dz-dot { background: #3cc87a; }
+.dz.b .dz-dot { background: #e8944a; }
+.dz.c .dz-dot { background: #9070c8; }
+
+
+/* ════════════════════════════════════════
+   变体 D：测量尺 + 历史分位
+════════════════════════════════════════ */
+.measure-card {
+  background: #0c1e38; border: 1px solid #1a3a5a;
+  border-radius: 9px; padding: 9px 11px; margin-bottom: 8px;
+}
+.measure-label { font-size: 0.6rem; color: #4a6fa5; font-weight: 700; margin-bottom: 5px; }
+.measure-bar-row {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+}
+.measure-pole { font-size: 0.67rem; white-space: nowrap; }
+.measure-bar {
+  flex: 1; height: 8px; border-radius: 4px;
+}
+.measure-desc { font-size: 0.71rem; color: #8aafcc; line-height: 1.5; }
+.measure-desc strong { color: #a0d0f0; }
+
+/* 分位数行 */
+.pct-row { display: flex; gap: 5px; }
+.pct-item {
+  flex: 1; background: #0a1628; border: 1px solid #1a2a48;
+  border-radius: 7px; padding: 5px 5px; text-align: center;
+}
+.pct-item-label { font-size: 0.57rem; color: #3a5878; margin-bottom: 2px; }
+.pct-item-val { font-size: 0.75rem; font-weight: 700; color: #7ab4e8; }
+
+/* D 变体：二值专用（频率 + 含义）*/
+.binary-stat {
+  background: #0c1e38; border: 1px solid #1a3a5a;
+  border-radius: 9px; padding: 9px 11px; margin-bottom: 8px;
+}
+.binary-stat-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.binary-freq-bar-wrap { flex: 1; }
+.binary-freq-label { font-size: 0.6rem; color: #4a6fa5; margin-bottom: 4px; }
+.binary-freq-bar {
+  height: 8px; border-radius: 4px; background: #1a3050;
+  overflow: hidden; margin-bottom: 3px;
+}
+.binary-freq-fill {
+  height: 100%; border-radius: 4px; background: linear-gradient(to right, #1a5c3c, #3cc87a);
+}
+.binary-freq-val { font-size: 0.62rem; color: #5acc98; }
+.binary-meanings { display: flex; gap: 5px; }
+.binary-m {
+  flex: 1; border-radius: 6px; padding: 5px 7px; text-align: center; font-size: 0.67rem;
+}
+.binary-m.off { background: #141824; border: 1px solid #2a3448; color: #4a6a88; }
+.binary-m.on  { background: #0c2a1e; border: 1px solid #1a5c3c; color: #5acc98; }
+.binary-m-val { font-weight: 700; font-size: 0.78rem; margin-bottom: 2px; }
+
+/* D 变体：双向（正负对称）*/
+.bidir-bar-row {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+}
+.bidir-bar {
+  flex: 1; height: 8px; border-radius: 4px;
+  background: linear-gradient(to right, #8050c8, #3050c8 45%, #1a2a48 50%, #2a5030 55%, #3cc87a);
+}
+
+/* 通用：没有分位时的 note */
+.d-note {
+  font-size: 0.66rem; color: #3a5870; padding: 5px 8px;
+  background: #0a1428; border-radius: 6px; text-align: center;
+}
+
+/* 分割线 */
+.group-divider {
+  border: none; border-top: 1px solid #1a2840; margin-bottom: 24px;
+}
+</style>
+</head>
+<body>
+
+
+<!-- ══════════════════════════════════════════════════════
+     特征 1：波动类（值域 0~∞，越高越动荡）
+══════════════════════════════════════════════════════ -->
+<div class="group">
+  <div class="group-header">
+    <span class="group-tag tag-volatility">波动类</span>
+    <span class="group-title">volatility_prediction &nbsp;·&nbsp; 输出非负连续值，越高表示波动越强</span>
+    <span class="group-note">值域 0 ~ ∞，偏右分布（多数时候值较小）</span>
+  </div>
+  <div class="row">
+
+    <!-- C -->
+    <div class="col">
+      <div class="col-label">变体 C · 分布图</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">volatility_prediction</span><span class="fi-cat">波动类</span></div>
+            <div class="fi-body">
+              <div class="dist-header"><span>历史测试值分布</span><span>1,240 根 K 线</span></div>
+              <div class="dist-chart">
+                <div class="dist-bar zone-a" style="height:35%"></div>
+                <div class="dist-bar zone-a" style="height:65%"></div>
+                <div class="dist-bar zone-a" style="height:100%"></div>
+                <div class="dist-bar zone-a" style="height:88%"></div>
+                <div class="dist-bar neutral" style="height:60%"></div>
+                <div class="dist-bar neutral" style="height:38%"></div>
+                <div class="dist-bar zone-b" style="height:22%"></div>
+                <div class="dist-bar zone-b" style="height:13%"></div>
+                <div class="dist-bar zone-b" style="height:7%"></div>
+                <div class="dist-bar zone-b" style="height:3%"></div>
+              </div>
+              <div class="dist-x"><span>← 低值（平稳）</span><span>高值（动荡）→</span></div>
+              <div class="dist-zones">
+                <div class="dz a"><span class="dz-dot"></span>低值区：市场走势相对平稳</div>
+                <div class="dz b"><span class="dz-dot"></span>高值区：市场出现较大波动</div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="col">
+      <div class="col-label">变体 D · 测量尺</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">volatility_prediction</span><span class="fi-cat">波动类</span></div>
+            <div class="fi-body">
+              <div class="measure-card">
+                <div class="measure-label">这个特征在测量 →</div>
+                <div class="measure-bar-row">
+                  <span class="measure-pole" style="color:#5acc98">🌊 平稳</span>
+                  <div class="measure-bar" style="background:linear-gradient(to right,#1a5c3c,#e84a1a)"></div>
+                  <span class="measure-pole" style="color:#e87a4a">⚡ 动荡</span>
+                </div>
+                <div class="measure-desc">基于历史价格，持续估算市场当前的<strong>波动程度</strong></div>
+              </div>
+              <div class="pct-row">
+                <div class="pct-item"><div class="pct-item-label">历史低位（25%）</div><div class="pct-item-val">0.0042</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史中位</div><div class="pct-item-val">0.0076</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史高位（75%）</div><div class="pct-item-val">0.0118</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="group-divider"/>
+
+
+<!-- ══════════════════════════════════════════════════════
+     特征 2：趋势类（正负对称，围绕 0）
+══════════════════════════════════════════════════════ -->
+<div class="group">
+  <div class="group-header">
+    <span class="group-tag tag-trend">趋势类</span>
+    <span class="group-title">momentum_score &nbsp;·&nbsp; 正负对称，围绕 0，正值=上行动能</span>
+    <span class="group-note">值域 -∞ ~ +∞，近似正态分布</span>
+  </div>
+  <div class="row">
+
+    <!-- C -->
+    <div class="col">
+      <div class="col-label">变体 C · 分布图</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">momentum_score</span><span class="fi-cat">趋势类</span></div>
+            <div class="fi-body">
+              <div class="dist-header"><span>历史测试值分布</span><span>1,240 根 K 线</span></div>
+              <div class="dist-chart">
+                <div class="dist-bar zone-c" style="height:10%"></div>
+                <div class="dist-bar zone-c" style="height:28%"></div>
+                <div class="dist-bar zone-c" style="height:55%"></div>
+                <div class="dist-bar zone-c" style="height:80%"></div>
+                <div class="dist-bar neutral" style="height:100%"></div>
+                <div class="dist-bar neutral" style="height:95%"></div>
+                <div class="dist-bar zone-a" style="height:72%"></div>
+                <div class="dist-bar zone-a" style="height:45%"></div>
+                <div class="dist-bar zone-a" style="height:22%"></div>
+                <div class="dist-bar zone-a" style="height:8%"></div>
+              </div>
+              <div class="dist-x"><span>← 负值（下行）</span><span>中性</span><span>正值（上行）→</span></div>
+              <div class="dist-zones">
+                <div class="dz c"><span class="dz-dot"></span>负值区：下行动能较强</div>
+                <div class="dz a"><span class="dz-dot"></span>正值区：上行动能较强</div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="col">
+      <div class="col-label">变体 D · 测量尺</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">momentum_score</span><span class="fi-cat">趋势类</span></div>
+            <div class="fi-body">
+              <div class="measure-card">
+                <div class="measure-label">这个特征在测量 →</div>
+                <div class="bidir-bar-row">
+                  <span class="measure-pole" style="color:#9070c8">📉 下行</span>
+                  <div class="bidir-bar"></div>
+                  <span class="measure-pole" style="color:#5acc98">📈 上行</span>
+                </div>
+                <div class="measure-desc">综合多周期价格变化，衡量当前市场的<strong>方向性动能</strong>强弱，0 为中性</div>
+              </div>
+              <div class="pct-row">
+                <div class="pct-item"><div class="pct-item-label">历史低位（25%）</div><div class="pct-item-val">-0.031</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史中位</div><div class="pct-item-val">0.002</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史高位（75%）</div><div class="pct-item-val">+0.028</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="group-divider"/>
+
+
+<!-- ══════════════════════════════════════════════════════
+     特征 3：成交量类（ratio ~1，越大量能越大）
+══════════════════════════════════════════════════════ -->
+<div class="group">
+  <div class="group-header">
+    <span class="group-tag tag-volume">成交量类</span>
+    <span class="group-title">volume_surge_ratio &nbsp;·&nbsp; 当前量 / 近期均量，>1 表示放量</span>
+    <span class="group-note">值域 0 ~ ∞，多数时间集中在 0.5~2</span>
+  </div>
+  <div class="row">
+
+    <!-- C -->
+    <div class="col">
+      <div class="col-label">变体 C · 分布图</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">volume_surge_ratio</span><span class="fi-cat">成交量类</span></div>
+            <div class="fi-body">
+              <div class="dist-header"><span>历史测试值分布</span><span>1,240 根 K 线</span></div>
+              <div class="dist-chart">
+                <div class="dist-bar zone-a" style="height:45%"></div>
+                <div class="dist-bar zone-a" style="height:90%"></div>
+                <div class="dist-bar zone-a" style="height:100%"></div>
+                <div class="dist-bar neutral" style="height:75%"></div>
+                <div class="dist-bar neutral" style="height:50%"></div>
+                <div class="dist-bar zone-b" style="height:30%"></div>
+                <div class="dist-bar zone-b" style="height:18%"></div>
+                <div class="dist-bar zone-b" style="height:10%"></div>
+                <div class="dist-bar zone-b" style="height:5%"></div>
+                <div class="dist-bar zone-b" style="height:2%"></div>
+              </div>
+              <div class="dist-x"><span>← 缩量（&lt;1）</span><span style="color:#5a7888">均量（≈1）</span><span>放量（&gt;1）→</span></div>
+              <div class="dist-zones">
+                <div class="dz a"><span class="dz-dot"></span>缩量区：交易活跃度低于近期均值</div>
+                <div class="dz b"><span class="dz-dot"></span>放量区：交易活跃度明显高于均值</div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="col">
+      <div class="col-label">变体 D · 测量尺</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">volume_surge_ratio</span><span class="fi-cat">成交量类</span></div>
+            <div class="fi-body">
+              <div class="measure-card">
+                <div class="measure-label">这个特征在测量 →</div>
+                <div class="measure-bar-row">
+                  <span class="measure-pole" style="color:#5acc98">📉 缩量</span>
+                  <div class="measure-bar" style="background:linear-gradient(to right,#1a5c3c,#e8a84a)"></div>
+                  <span class="measure-pole" style="color:#e8a84a">📈 放量</span>
+                </div>
+                <div class="measure-desc">当前 K 线成交量与近期均量的<strong>倍数关系</strong>，1 = 正常水平</div>
+              </div>
+              <div class="pct-row">
+                <div class="pct-item"><div class="pct-item-label">历史低位（25%）</div><div class="pct-item-val">0.62×</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史中位</div><div class="pct-item-val">0.94×</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史高位（75%）</div><div class="pct-item-val">1.38×</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="group-divider"/>
+
+
+<!-- ══════════════════════════════════════════════════════
+     特征 4：二值信号（输出 0 或 1）
+══════════════════════════════════════════════════════ -->
+<div class="group">
+  <div class="group-header">
+    <span class="group-tag tag-structure">结构类</span>
+    <span class="group-title">breakout_signal &nbsp;·&nbsp; 检测到价格突破时输出 1，否则 0</span>
+    <span class="group-note">二值离散输出，触发频率约 8%</span>
+  </div>
+  <div class="row">
+
+    <!-- C -->
+    <div class="col">
+      <div class="col-label">变体 C · 分布图</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+            <div class="fi-body">
+              <div class="dist-header"><span>历史触发比例</span><span>1,240 根 K 线</span></div>
+              <!-- 二值：比例横条，面积=频率 -->
+              <div style="display:flex;height:28px;border-radius:7px;overflow:hidden;margin-bottom:5px">
+                <div style="flex:92;background:#1a4a3a;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#5acc98">92%</div>
+                <div style="flex:8;background:#3a3010;display:flex;align-items:center;justify-content:center;font-size:0.66rem;font-weight:700;color:#b8940a">8%</div>
+              </div>
+              <div class="dist-x">
+                <span>= 0 · 未触发（92%）</span>
+                <span>= 1 · 触发（8%）</span>
+              </div>
+              <div class="dist-zones">
+                <div class="dz a"><span class="dz-dot"></span>= 0：未检测到结构性突破</div>
+                <div class="dz" style="background:#1e1a08;border:1px solid #3a3010;color:#b8940a"><span class="dz-dot" style="background:#b8940a"></span>= 1：价格出现结构性突破</div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="col">
+      <div class="col-label">变体 D · 测量尺</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">breakout_signal</span><span class="fi-cat">结构类</span></div>
+            <div class="fi-body">
+              <!-- 二值特征：D 变体用触发频率替换测量尺 -->
+              <div class="binary-stat">
+                <div class="binary-freq-label">历史触发频率</div>
+                <div class="binary-freq-bar"><div class="binary-freq-fill" style="width:8%"></div></div>
+                <div class="binary-freq-val">约 8% 的 K 线触发（每 100 根约 8 次）</div>
+              </div>
+              <div class="binary-meanings">
+                <div class="binary-m off">
+                  <div class="binary-m-val">= 0</div>
+                  <div>未检测到结构性突破</div>
+                </div>
+                <div class="binary-m on">
+                  <div class="binary-m-val">= 1</div>
+                  <div>价格出现结构性突破</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="group-divider"/>
+
+
+<!-- ══════════════════════════════════════════════════════
+     特征 5：风控类（复杂公式，范围完全未知）
+══════════════════════════════════════════════════════ -->
+<div class="group">
+  <div class="group-header">
+    <span class="group-tag tag-risk">风控类</span>
+    <span class="group-title">drawdown_exposure &nbsp;·&nbsp; 复杂组合公式，输出范围事先未知</span>
+    <span class="group-note">AI 无法事先确定语义，依赖测试数据</span>
+  </div>
+  <div class="row">
+
+    <!-- C -->
+    <div class="col">
+      <div class="col-label">变体 C · 分布图</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">drawdown_exposure</span><span class="fi-cat">风控类</span></div>
+            <div class="fi-body">
+              <div class="dist-header"><span>历史测试值分布</span><span>1,240 根 K 线</span></div>
+              <div class="dist-chart">
+                <div class="dist-bar neutral" style="height:25%"></div>
+                <div class="dist-bar neutral" style="height:60%"></div>
+                <div class="dist-bar neutral" style="height:90%"></div>
+                <div class="dist-bar neutral" style="height:100%"></div>
+                <div class="dist-bar neutral" style="height:80%"></div>
+                <div class="dist-bar neutral" style="height:55%"></div>
+                <div class="dist-bar neutral" style="height:35%"></div>
+                <div class="dist-bar neutral" style="height:18%"></div>
+                <div class="dist-bar neutral" style="height:8%"></div>
+                <div class="dist-bar neutral" style="height:3%"></div>
+              </div>
+              <div class="dist-x"><span>← 小值端</span><span>大值端 →</span></div>
+              <!-- 无法确定语义时，不加区间标注 -->
+              <div style="font-size:0.67rem;color:#3a5870;padding:5px 7px;background:#0a1428;border-radius:6px;text-align:center">
+                语义待定 · 建议在回测面板中观察该特征的实际表现
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="col">
+      <div class="col-label">变体 D · 测量尺</div>
+      <div class="step-card">
+        <div class="step-head">
+          <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+          <span class="step-title">最终结果</span><span class="step-badge">已完成</span>
+        </div>
+        <div class="card-body">
+          <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+          <div class="feature-inner">
+            <div class="fi-head"><span class="fi-name">drawdown_exposure</span><span class="fi-cat">风控类</span></div>
+            <div class="fi-body">
+              <div class="measure-card">
+                <div class="measure-label">这个特征在测量 →</div>
+                <!-- 无语义时，只显示特征描述，不加方向标签 -->
+                <div class="measure-desc" style="margin-bottom:0">综合回撤深度与持续时间，评估当前的<strong>风险暴露水平</strong>（具体语义需结合回测观察）</div>
+              </div>
+              <div class="pct-row">
+                <div class="pct-item"><div class="pct-item-label">历史低位（25%）</div><div class="pct-item-val">0.14</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史中位</div><div class="pct-item-val">0.38</div></div>
+                <div class="pct-item"><div class="pct-item-label">历史高位（75%）</div><div class="pct-item-val">0.61</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="apply-btn">加入特征库</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

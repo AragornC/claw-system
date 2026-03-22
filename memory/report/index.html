@@ -2153,50 +2153,59 @@
       letter-spacing: 0.2px;
       font-weight: 600;
     }
-    .ai-workbench-understand-progressive {
-      border: 1px solid #273654;
+    /* ── 理解需求 · CE-3 双卡布局 ── */
+    .ud-wrap { display: grid; gap: 8px; }
+    .ud-block {
+      border: 1px solid #1c2f4a;
       border-radius: 10px;
-      background: #111d32;
-      padding: 10px 12px;
-      display: grid;
-      gap: 8px;
+      overflow: hidden;
     }
-    .ai-workbench-understand-line {
-      font-size: 0.78rem;
-      line-height: 1.6;
-      color: #d5e3f8;
+    .ud-head {
       display: flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 4px;
+      gap: 7px;
+      padding: 6px 12px;
+      background: #111d32;
     }
-    .ai-workbench-understand-prefix {
-      color: #d5e3f8;
+    .ud-head-icon { font-size: 0.78rem; }
+    .ud-head-label {
+      font-size: 0.67rem;
+      font-weight: 700;
+      color: #6a8cb0;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
     }
-    .ai-workbench-understand-inline {
-      display: inline-flex;
+    .ud-head-count {
+      margin-left: auto;
+      font-size: 0.65rem;
+      color: #3a5878;
+    }
+    .ud-list { padding: 5px 0; }
+    .ud-item {
+      display: flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 4px;
+      gap: 9px;
+      padding: 6px 12px;
+      border-bottom: 1px solid #0e1820;
+      transition: background 0.15s;
     }
-    .ai-workbench-understand-token {
-      display: inline-block;
-      border: 1px solid #365a89;
-      background: #13263f;
-      color: #e8f1ff;
-      border-radius: 8px;
-      padding: 1px 7px;
-      font-size: 0.76rem;
-      line-height: 1.45;
+    .ud-item:last-child { border-bottom: none; }
+    .ud-item:hover { background: #0e1820; }
+    .ud-item-mark {
+      font-size: 0.7rem;
+      flex-shrink: 0;
+      line-height: 1;
+      color: #3a9e6e;
+    }
+    .ud-item-mark.task { color: #7ab4e8; }
+    .ud-item-text {
+      font-size: 0.77rem;
+      color: #c8dcf5;
+      line-height: 1.4;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      vertical-align: baseline;
+      flex: 1;
     }
-    .ai-workbench-understand-token.task {
-      font-weight: 600;
-    }
-    .ai-workbench-understand-token.option {
-      margin-right: 2px;
-    }
+    .ud-item-text.is-streaming { opacity: 0.7; }
     .ai-workbench-phase-stream {
       border: 1px solid #355e8d;
       border-radius: 7px;
@@ -2751,6 +2760,102 @@
       gap: 8px;
       margin-top: 10px;
     }
+    /* ── 最终结果：方案 C 特征完成卡 ── */
+    .wb-feature-result-card {
+      background: rgba(10,30,20,0.6);
+      border: 1px solid rgba(26,74,42,0.7);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .wb-frc-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(26,74,42,0.5);
+    }
+    .wb-frc-name {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #e8f1ff;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .wb-frc-cat {
+      font-size: 0.63rem;
+      background: rgba(13,43,30,0.8);
+      border: 1px solid rgba(26,92,60,0.6);
+      border-radius: 5px;
+      padding: 2px 7px;
+      color: #3fb950;
+      white-space: nowrap;
+    }
+    .wb-frc-body {
+      padding: 9px 12px;
+    }
+    .wb-dist-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.62rem;
+      color: #5a7888;
+      margin-bottom: 5px;
+    }
+    .wb-dist-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 38px;
+      margin-bottom: 3px;
+    }
+    .wb-dist-bar {
+      flex: 1;
+      border-radius: 2px 2px 0 0;
+    }
+    .wb-db-lo { background: rgba(26,74,58,0.8); }
+    .wb-db-md { background: rgba(26,48,80,0.6); }
+    .wb-db-hi { background: rgba(74,42,26,0.8); }
+    .wb-dist-x {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.6rem;
+      color: #3a5060;
+      margin-bottom: 7px;
+    }
+    .wb-dist-zones {
+      display: flex;
+      gap: 5px;
+    }
+    .wb-dz {
+      flex: 1;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 0.68rem;
+      line-height: 1.35;
+    }
+    .wb-dz-lo {
+      background: rgba(10,30,20,0.7);
+      border: 1px solid rgba(26,74,42,0.5);
+      color: #5aaa88;
+    }
+    .wb-dz-hi {
+      background: rgba(30,18,8,0.7);
+      border: 1px solid rgba(58,42,18,0.5);
+      color: #a87858;
+    }
+    .wb-dz-dot {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    .wb-dz-lo .wb-dz-dot { background: #3fb950; }
+    .wb-dz-hi .wb-dz-dot { background: #e8944a; }
     .ai-workbench-static {
       display: grid;
       gap: 8px;
@@ -3090,6 +3195,16 @@
     .ai-clarify-apply.done {
       border-color: rgba(63,185,80,0.6);
       background: rgba(63,185,80,0.2);
+    }
+    /* 步骤卡内的「加入特征库」按钮：全宽矩形 */
+    .ai-workbench-step-panel .ai-clarify-apply {
+      display: block;
+      width: 100%;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 0.85rem;
+      text-align: center;
+      margin-top: 6px;
     }
     /* Session management toolbar */
     .ai-chat-session-bar {

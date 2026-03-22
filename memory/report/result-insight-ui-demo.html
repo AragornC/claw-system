@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>最终结果 · 通俗解读 UI 变体</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0b1626;
+  color: #d5e3f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.panel { flex: 1; min-width: 290px; max-width: 360px; }
+.panel-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #4a6fa5; margin-bottom: 10px;
+}
+
+/* ── 公用步骤卡 ── */
+.step-card {
+  border: 1px solid #1e3255; border-radius: 12px;
+  background: #0f1c2e; overflow: hidden;
+}
+.step-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-bottom: 1px solid #1e3255;
+}
+.step-icon {
+  width: 18px; height: 18px; border-radius: 50%; background: #1a7f5a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-icon svg { width: 10px; height: 10px; }
+.step-title { font-size: 0.82rem; font-weight: 600; color: #e8f1ff; }
+.step-badge {
+  margin-left: auto; font-size: 0.66rem; color: #3a9e6e;
+  background: #0d2b1e; border: 1px solid #1a5c3c; border-radius: 6px; padding: 1px 7px;
+}
+.card-body { padding: 11px 13px; }
+.card-summary { font-size: 0.8rem; color: #a0b8d8; line-height: 1.55; margin-bottom: 10px; }
+
+/* ── 公用绿色特征内嵌卡头部 ── */
+.feature-inner {
+  background: #0a1e14; border: 1px solid #1a4a2a;
+  border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+}
+.fi-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid #1a4a2a;
+}
+.fi-name { font-size: 0.82rem; font-weight: 700; color: #e8f1ff; flex: 1; }
+.fi-cat {
+  font-size: 0.65rem; background: #0d2b1e; border: 1px solid #1a5c3c;
+  border-radius: 5px; padding: 2px 7px; color: #3cc87a;
+}
+.fi-body { padding: 9px 12px; }
+
+/* ── 公用按钮 ── */
+.apply-btn {
+  width: 100%; padding: 8px; border-radius: 8px;
+  background: #0f3020; border: 1px solid #1a5c3c;
+  color: #3cc87a; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+
+/* 标注 */
+.anno {
+  font-size: 0.67rem; color: #3a5880; margin-top: 6px;
+  padding: 4px 8px; background: #0a1626; border-radius: 5px;
+  border: 1px dashed #1e3255;
+}
+.anno.green { color: #3a7a5a; border-color: #1a3a2e; background: #0a120e; }
+
+
+/* ════════════════════════════════
+   变体 A：左侧竖线引用块
+════════════════════════════════ */
+.insight-quote {
+  border-left: 3px solid #2a6a48;
+  padding: 8px 0 8px 12px;
+  margin: 0;
+}
+.insight-quote-label {
+  font-size: 0.62rem; color: #3a8a5a; font-weight: 700;
+  letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 5px;
+}
+.insight-quote-text {
+  font-size: 0.77rem; color: #b0d4b8; line-height: 1.65;
+}
+.insight-quote-text strong { color: #6adda0; font-weight: 600; }
+
+
+/* ════════════════════════════════
+   变体 B：AI 对话气泡
+════════════════════════════════ */
+.insight-bubble-wrap {
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.insight-bubble-avatar {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #1a5c3c, #0d3a28);
+  border: 1px solid #2a7a50;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; color: #5acc98; font-weight: 700;
+}
+.insight-bubble {
+  background: #0c2a1e; border: 1px solid #1a4a2e;
+  border-radius: 0 10px 10px 10px;
+  padding: 8px 11px; flex: 1;
+}
+.insight-bubble-label {
+  font-size: 0.6rem; color: #3a8060; font-weight: 700;
+  letter-spacing: 0.4px; margin-bottom: 5px;
+}
+.insight-bubble-text {
+  font-size: 0.76rem; color: #b0d4b8; line-height: 1.65;
+}
+.insight-bubble-text strong { color: #6adda0; font-weight: 600; }
+
+
+/* ════════════════════════════════
+   变体 C：分行关键点列表
+════════════════════════════════ */
+.insight-points { display: flex; flex-direction: column; gap: 5px; }
+.insight-point {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 0.76rem; color: #b0d4b8; line-height: 1.5;
+}
+.insight-point-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #3cc87a; margin-top: 5px; flex-shrink: 0;
+}
+.insight-point strong { color: #6adda0; font-weight: 600; }
+
+
+/* ════════════════════════════════
+   变体 D：内联段落，无装饰
+════════════════════════════════ */
+.insight-plain {
+  font-size: 0.78rem; color: #a8c8b0; line-height: 1.7;
+}
+.insight-plain strong { color: #5acc98; font-weight: 600; }
+.insight-plain-label {
+  font-size: 0.62rem; color: #3a8060; font-weight: 700;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  margin-bottom: 5px; display: flex; align-items: center; gap: 5px;
+}
+.insight-plain-label::after {
+  content: ""; flex: 1; height: 1px; background: #1a4a2e;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     变体 A：左侧竖线引用块
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 A · 竖线引用块</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <blockquote class="insight-quote">
+            <div class="insight-quote-label">AI 解读</div>
+            <p class="insight-quote-text">
+              这个特征会持续给出一个分数，分数越高说明市场最近越<strong>不平静</strong>。策略可以用它来<strong>踩刹车</strong>——在分数走高时减少交易或缩小仓位，等市场恢复平稳后再恢复正常节奏。
+            </p>
+          </blockquote>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 干净，引用块形式有"专业摘录"感</div>
+  <div class="anno" style="margin-top:4px">竖线颜色可跟随特征类别变化</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     变体 B：AI 对话气泡
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 B · AI 对话气泡</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="insight-bubble-wrap">
+            <div class="insight-bubble-avatar">AI</div>
+            <div class="insight-bubble">
+              <div class="insight-bubble-label">AI 解读</div>
+              <div class="insight-bubble-text">
+                这个特征会持续给出一个分数，分数越高说明市场最近越<strong>不平静</strong>。策略可以用它来<strong>踩刹车</strong>——在分数走高时减少交易或缩小仓位，等市场恢复平稳后再恢复正常节奏。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 和聊天界面语言一致，强调"AI 说的"</div>
+  <div class="anno" style="margin-top:4px">气泡圆角方向暗示来源是 AI 而非系统</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     变体 C：分行关键点
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 C · 分行关键点</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="insight-points">
+            <div class="insight-point">
+              <div class="insight-point-dot"></div>
+              <span>持续输出一个分数，<strong>分数越高代表市场越动荡</strong></span>
+            </div>
+            <div class="insight-point">
+              <div class="insight-point-dot"></div>
+              <span>分数走高时，策略可<strong>减少交易量或缩小仓位</strong>来控制风险</span>
+            </div>
+            <div class="insight-point">
+              <div class="insight-point-dot"></div>
+              <span>市场恢复平稳（分数回落）后，可恢复正常节奏</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 结构最清晰，逐条扫读快</div>
+  <div class="anno" style="margin-top:4px">AI 输出 3 条 plain_points 字段即可渲染</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     变体 D：内联段落，极简无装饰
+════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label">变体 D · 内联段落，极简</div>
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-icon"><svg viewBox="0 0 10 10" fill="none"><polyline points="2,5 4,7 8,3" stroke="#fff" stroke-width="1.5"/></svg></div>
+      <span class="step-title">最终结果</span>
+      <span class="step-badge">已完成</span>
+    </div>
+    <div class="card-body">
+      <div class="card-summary">已完成特征生成，准备展示结果并允许加入特征库。</div>
+      <div class="feature-inner">
+        <div class="fi-head">
+          <span class="fi-name">volatility_prediction</span>
+          <span class="fi-cat">波动类</span>
+        </div>
+        <div class="fi-body">
+          <div class="insight-plain-label">AI 解读</div>
+          <p class="insight-plain">
+            这个特征会持续给出一个分数，分数越高说明市场最近越<strong>不平静</strong>。策略可以用它来<strong>踩刹车</strong>——在分数走高时减少交易或缩小仓位，等市场恢复平稳后再恢复正常节奏。
+          </p>
+        </div>
+      </div>
+      <div class="apply-btn">加入特征库</div>
+    </div>
+  </div>
+  <div class="anno green" style="margin-top:6px">✓ 最轻量，和整体卡片风格融合度最高</div>
+  <div class="anno" style="margin-top:4px">分割线标题替代 💡 图标，去掉噪音</div>
+</div>
+
+</body>
+</html>
