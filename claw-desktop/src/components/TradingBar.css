@@ -1,0 +1,131 @@
+.trading-bar {
+  height: var(--tradingbar-h);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 0 16px;
+}
+
+/* 实盘状态 */
+.tb-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  padding: 5px 10px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(60,200,122,0.25);
+  border-radius: 6px;
+  white-space: nowrap;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+.tb-live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1.4s infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 指标区 */
+.tb-metrics {
+  display: flex;
+  gap: 20px;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+.tb-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tb-metric-label { font-size: 10px; color: var(--text-muted); }
+.tb-metric-value { font-size: 13px; font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
+.tb-metric-value.positive { color: var(--accent); }
+.tb-metric-value.negative { color: var(--red); }
+
+.tb-divider {
+  width: 1px;
+  height: 80px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 16px;
+}
+
+/* 分区 */
+.tb-section { display: flex; flex-direction: column; gap: 6px; }
+.tb-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* 持仓 */
+.tb-positions { display: flex; flex-direction: column; gap: 4px; }
+.tb-position {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.tb-pos-symbol { color: var(--text-primary); font-weight: 600; font-family: var(--font-mono); width: 80px; }
+.tb-pos-side {
+  font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 3px;
+}
+.tb-pos-side.long  { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(60,200,122,0.3); }
+.tb-pos-side.short { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(224,80,80,0.3); }
+.tb-pos-size  { color: var(--text-muted); width: 60px; font-family: var(--font-mono); }
+.tb-pos-entry { color: var(--text-muted); font-family: var(--font-mono); }
+.tb-pos-pnl {
+  font-weight: 600; font-family: var(--font-mono);
+  min-width: 90px;
+}
+.tb-pos-pnl.positive { color: var(--accent); }
+.tb-pos-pnl.negative { color: var(--red); }
+.tb-pos-close {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tb-pos-close:hover { border-color: var(--red); color: var(--red); }
+
+/* 信号 */
+.tb-signals { display: flex; flex-direction: column; gap: 5px; }
+.tb-signal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.tb-sig-symbol { color: var(--text-primary); font-weight: 600; font-family: var(--font-mono); width: 80px; }
+.tb-sig-name   { color: var(--text-muted); width: 60px; }
+.tb-sig-bar-wrap {
+  width: 60px; height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tb-sig-bar {
+  height: 100%;
+  background: var(--accent-gold);
+  border-radius: 2px;
+}
+.tb-sig-strength { color: var(--accent-gold); font-family: var(--font-mono); width: 28px; text-align: right; }
+.tb-sig-time     { color: var(--text-dim); }

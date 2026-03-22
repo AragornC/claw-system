@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri
+claw-desktop/src-tauri/target/
+
+# Editor
+.cursor/

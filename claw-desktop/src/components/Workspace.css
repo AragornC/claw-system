@@ -1,0 +1,174 @@
+.workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Tab 栏 */
+.ws-tabbar {
+  display: flex;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ws-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 36px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.ws-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.ws-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border-bottom: 2px solid var(--accent);
+}
+.ws-tab-icon { font-size: 11px; opacity: 0.6; }
+
+/* 内容区 */
+.ws-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 28px;
+}
+
+/* 任务标题 */
+.ws-task-head {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ws-task-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+}
+.ws-task-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(60,200,122,0.25);
+  color: var(--accent);
+  letter-spacing: 0.4px;
+}
+.ws-task-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 步骤流程 */
+.ws-steps { display: flex; flex-direction: column; gap: 0; }
+
+.ws-step {
+  display: flex;
+  gap: 14px;
+  padding-bottom: 4px;
+}
+
+.ws-step-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 18px;
+}
+
+.ws-step-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 14px;
+  background: var(--text-dim);
+  border: 2px solid var(--border);
+}
+.ws-step-done    .ws-step-dot { background: var(--accent);      border-color: var(--accent); }
+.ws-step-running .ws-step-dot { background: var(--accent-gold); border-color: var(--accent-gold); animation: pulse 1.4s infinite; }
+.ws-step-pending .ws-step-dot { background: transparent;        border-color: var(--text-dim); }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,168,74,0.4); }
+  50%       { box-shadow: 0 0 0 5px rgba(232,168,74,0); }
+}
+
+.ws-step-connector {
+  flex: 1;
+  width: 1px;
+  background: var(--border-soft);
+  margin: 2px 0;
+  min-height: 12px;
+}
+
+.ws-step-body {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  min-width: 0;
+}
+.ws-step-running .ws-step-body { border-color: rgba(232,168,74,0.35); }
+.ws-step-pending .ws-step-body { opacity: 0.4; }
+
+.ws-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.ws-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws-step-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.ws-badge-done    { background: var(--accent-dim);              color: var(--accent);     border: 1px solid rgba(60,200,122,0.25); }
+.ws-badge-running { background: rgba(232,168,74,0.12);          color: var(--accent-gold);border: 1px solid rgba(232,168,74,0.3);  }
+.ws-badge-pending { background: var(--bg-hover);                color: var(--text-muted); border: 1px solid var(--border);         }
+
+.ws-step-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.ws-progress-bar {
+  margin-top: 8px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ws-progress-fill {
+  height: 100%;
+  background: var(--accent-gold);
+  border-radius: 2px;
+  animation: progress-glow 1.4s ease-in-out infinite;
+}
+@keyframes progress-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

@@ -1,0 +1,106 @@
+.sidebar {
+  display: flex;
+  flex-direction: row;
+  background: #090d16;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  min-width: 160px;
+  max-width: 400px;
+}
+
+.sidebar-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.nav-icon {
+  font-size: 15px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: all 0.12s;
+}
+.nav-icon:hover { opacity: 0.8; background: var(--bg-hover); }
+.nav-icon.active { opacity: 1; background: var(--bg-active); }
+
+.sidebar-section {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.sidebar-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.section-add {
+  background: none; border: none;
+  color: var(--text-muted); font-size: 14px;
+  cursor: pointer; padding: 0 2px;
+  line-height: 1;
+}
+.section-add:hover { color: var(--accent); }
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.1s;
+}
+.sidebar-item:hover { background: var(--bg-hover); }
+.sidebar-item.active { background: var(--bg-active); }
+
+.item-status {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-dim);
+}
+.item-status.done    { background: var(--accent); }
+.item-status.running { background: var(--accent-gold); }
+.item-status.idle    { background: var(--text-dim); }
+
+.item-info { min-width: 0; }
+.item-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.sidebar-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.sidebar-resizer:hover { background: rgba(60,200,122,0.3); }

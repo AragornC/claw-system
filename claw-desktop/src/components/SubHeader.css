@@ -1,0 +1,327 @@
+.subheader {
+  display: flex;
+  flex-direction: row;
+  height: 36px;
+  flex-shrink: 0;
+  /* overflow: visible 让 active tab 的 margin-bottom:-1px 能穿透边框 */
+}
+
+/* ── 左：nav 图标 —— 最深色，对应文件树列 ── */
+.subheader-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  background: #090d16;
+  /* 去掉右侧竖线，靠颜色差异本身区分 */
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.snav-icon {
+  font-size: 15px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: all 0.12s;
+}
+.snav-icon:hover { opacity: 0.8; background: var(--bg-hover); }
+.snav-icon.active { opacity: 1; background: var(--bg-active); }
+
+/* ── 中：文件 tabs —— 中等深度，对应工作区列 ── */
+.subheader-tabs {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  /* overflow: visible 让 active tab 的 margin-bottom:-1px 生效 */
+  overflow: visible;
+  background: var(--bg-panel);
+  /* 不用 border-right，改由 subheader-agent 用 border-left 绘制，保证与 agent-panel 对齐 */
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.sh-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.sh-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sh-tab.active {
+  background: var(--bg-base);        /* 和工作区同色 */
+  color: var(--text-primary);
+  position: relative;
+  z-index: 2;
+  margin-bottom: -1px;               /* 下探 1px 盖住父容器底部线 */
+  border-bottom: 1px solid var(--bg-base); /* 用工作区色"抹掉"那条线 */
+}
+.sh-tab-icon { font-size: 11px; opacity: 0.6; }
+.sh-tab-close {
+  opacity: 0;
+  font-size: 14px;
+  margin-left: 2px;
+}
+.sh-tab:hover .sh-tab-close { opacity: 0.5; }
+
+.sh-tab-add {
+  background: none; border: none;
+  color: var(--text-muted); font-size: 16px;
+  padding: 0 10px; cursor: pointer; height: 100%;
+}
+.sh-tab-add:hover { color: var(--text-primary); }
+
+/* ── 右：agent 操作区，干净深色，对应 agent 列 ── */
+.subheader-agent {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 10px;
+  gap: 0;
+  flex-shrink: 0;
+  background: #0a1420;
+  /* border-left 和 agent-panel 保持同一来源，上下像素完全对齐 */
+  border-left: 1px solid var(--border);
+  /* 不加 border-bottom，让 agent 列视觉连通 */
+}
+
+/* 占位 4px，对齐 agent-resizer */
+.sha-resizer-placeholder { width: 4px; flex-shrink: 0; }
+
+.sha-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  scrollbar-width: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.sha-actions::-webkit-scrollbar { display: none; }
+.sha-actions * { user-select: none; -webkit-user-select: none; }
+
+/* agent 标签页：非活动态无气泡，像 Chrome 平铺融合 */
+.sha-agent-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 3px 9px;
+  user-select: none;
+  will-change: transform;
+  overflow: hidden;
+  flex-shrink: 0;          /* 不压缩，保持原始宽度 */
+  min-width: 72px;         /* 最小宽度，不会挤成一团 */
+  max-width: 160px;        /* 最大宽度，超长截断 */
+}
+.sha-agent-tab:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+/* 活动 tab：有气泡 */
+.sha-agent-tab-active {
+  background: rgba(60,200,122,0.15);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35), 0 0 0 1px rgba(60,200,122,0.2);
+}
+.sha-agent-tab-active:hover { background: rgba(60,200,122,0.2); }
+
+/* 拖动中：微微上浮 + 半透明 */
+.sha-agent-tab-dragging {
+  opacity: 0.55;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.5) !important;
+  cursor: grabbing;
+  z-index: 10;
+  scale: 1.04;
+}
+
+.sha-agent-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  flex: 1;
+  min-width: 0;
+}
+.sha-agent-tab-active .sha-agent-label { color: var(--accent); }
+
+/* 关闭按钮：绝对定位叠在 tab 右侧，带渐变遮罩虚化文字 */
+.sha-agent-close {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, color 0.12s;
+  /* 渐变遮罩：左透明 → 右不透明，虚化文字右侧 */
+  background: linear-gradient(to right, transparent, var(--bg-hover) 40%);
+}
+.sha-agent-tab-active .sha-agent-close {
+  background: linear-gradient(to right, transparent, rgba(60,200,122,0.15) 40%);
+}
+.sha-agent-tab:hover .sha-agent-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sha-agent-close:hover {
+  color: #ff6b6b;
+  background: linear-gradient(to right, transparent, rgba(200,60,60,0.15) 40%);
+}
+
+.sha-model-tag {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(60,200,122,0.1);
+  border: 1px solid rgba(60,200,122,0.2);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.sha-right-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  flex-shrink: 0; /* 始终固定，不被挤走 */
+}
+
+.sha-icon {
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+  line-height: 1;
+}
+.sha-icon svg { display: block; }
+.sha-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+/* 内联重命名输入框 */
+.sha-rename-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  color: var(--accent);
+  font-family: var(--font);
+  width: 80px;
+  padding: 0;
+}
+
+/* 自定义右键菜单 */
+.sha-ctx-menu {
+  position: fixed;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 1000;
+  min-width: 130px;
+  overflow: hidden;
+  padding: 4px 0;
+}
+.sha-ctx-item {
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.sha-ctx-item:hover { background: var(--bg-hover); }
+.sha-ctx-danger { color: #ff6b6b; }
+.sha-ctx-danger:hover { background: rgba(200,60,60,0.12); }
+.sha-ctx-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+
+/* 历史下拉 */
+.sha-history-wrap {
+  position: relative;
+}
+.sha-history-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 100;
+  overflow: hidden;
+}
+.sha-history-title {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 8px 12px 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+.sha-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.sha-history-item:hover { background: var(--bg-hover); }
+.sha-history-item-active { background: var(--bg-active); }
+.sha-history-dot {
+  font-size: 6px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.sha-history-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* 空对话提示 */
+.agent-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}

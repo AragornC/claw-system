@@ -1,0 +1,69 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base:      #0d1117;
+  --bg-panel:     #111722;
+  --bg-hover:     #1a2332;
+  --bg-active:    #1e2d42;
+  --border:       #1e2d42;
+  --border-soft:  #192438;
+  --text-primary: #cdd9e5;
+  --text-muted:   #4a6580;
+  --text-dim:     #2a3f55;
+  --accent:       #3cc87a;
+  --accent-dim:   rgba(60,200,122,0.15);
+  --accent-gold:  #e8a84a;
+  --red:          #e05050;
+  --red-dim:      rgba(224,80,80,0.15);
+
+  --titlebar-h:   38px;
+  --tradingbar-h: 160px;
+  --font:         -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono:    "SF Mono", "Fira Code", Consolas, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: transparent; /* 让窗口圆角透出 */
+}
+
+body {
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 整体布局 ── */
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-base);
+  border-radius: 12px;  /* macOS 风格圆角 */
+  border: 1px solid rgba(255,255,255,0.06); /* 细边框增加质感 */
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 中间列：workspace + trading bar，左右两侧 panel 顶到底 */
+.app-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── 滚动条 ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
