@@ -6,31 +6,7 @@
   /* overflow: visible 让 active tab 的 margin-bottom:-1px 能穿透边框 */
 }
 
-/* ── 左：nav 图标 —— 最深色，对应文件树列 ── */
-.subheader-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  background: #090d16;
-  /* 去掉右侧竖线，靠颜色差异本身区分 */
-  border-right: none;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.snav-icon {
-  font-size: 15px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  opacity: 0.4;
-  transition: all 0.12s;
-}
-.snav-icon:hover { opacity: 0.8; background: var(--bg-hover); }
-.snav-icon.active { opacity: 1; background: var(--bg-active); }
-
-/* ── 中：文件 tabs —— 中等深度，对应工作区列 ── */
+/* ── 左：文件 tabs —— 中等深度，对应工作区列 ── */
 .subheader-tabs {
   flex: 1;
   display: flex;
@@ -123,9 +99,8 @@
   user-select: none;
   will-change: transform;
   overflow: hidden;
-  flex-shrink: 0;          /* 不压缩，保持原始宽度 */
-  min-width: 72px;         /* 最小宽度，不会挤成一团 */
-  max-width: 160px;        /* 最大宽度，超长截断 */
+  flex-shrink: 0;
+  max-width: 180px;        /* 超长截断 */
 }
 .sha-agent-tab:hover {
   background: rgba(255,255,255,0.05);
@@ -159,36 +134,52 @@
 }
 .sha-agent-tab-active .sha-agent-label { color: var(--accent); }
 
-/* 关闭按钮：绝对定位叠在 tab 右侧，带渐变遮罩虚化文字 */
+/* 遮罩：伪元素，纯视觉，不参与点击 */
+.sha-agent-tab::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 30px;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(to right, transparent 0%, rgba(10,20,32,.85) 35%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s;
+}
+.sha-agent-tab-active::after {
+  background: linear-gradient(to right, transparent 0%, rgba(18,60,40,.9) 35%);
+}
+.sha-agent-tab:hover::after {
+  opacity: 1;
+}
+
+/* 关闭按钮：仅 X 符号本身可点击 */
 .sha-agent-close {
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 36px;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 6px;
-  border-radius: 0 6px 6px 0;
+  justify-content: center;
   font-size: 12px;
+  line-height: 1;
   color: var(--text-muted);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s, color 0.12s;
-  /* 渐变遮罩：左透明 → 右不透明，虚化文字右侧 */
-  background: linear-gradient(to right, transparent, var(--bg-hover) 40%);
-}
-.sha-agent-tab-active .sha-agent-close {
-  background: linear-gradient(to right, transparent, rgba(60,200,122,0.15) 40%);
+  transition: opacity .1s, color .1s;
+  cursor: pointer;
+  z-index: 1;
+  border-radius: 3px;
 }
 .sha-agent-tab:hover .sha-agent-close {
   opacity: 1;
   pointer-events: auto;
 }
 .sha-agent-close:hover {
-  color: #ff6b6b;
-  background: linear-gradient(to right, transparent, rgba(200,60,60,0.15) 40%);
+  color: #f06060;
 }
 
 .sha-model-tag {

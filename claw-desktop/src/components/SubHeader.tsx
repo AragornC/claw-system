@@ -5,7 +5,6 @@ import "./SubHeader.css";
 const FILE_TABS = ["特征生成任务", "均线死叉特征"];
 
 interface Props {
-  sidebarWidth: number;
   agentWidth: number;
   sessions: Session[];
   activeId: string;
@@ -16,7 +15,7 @@ interface Props {
   onRename: (id: string, name: string) => void;
 }
 
-export default function SubHeader({ sidebarWidth, agentWidth, sessions, activeId, onSwitch, onNew, onClose, onReorder, onRename }: Props) {
+export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, onNew, onClose, onReorder, onRename }: Props) {
   const [showHistory, setShowHistory] = useState(false);
   const [draggingId, setDraggingId]   = useState<string | null>(null);
   const [liveOrder,  setLiveOrder]    = useState<Session[] | null>(null);
@@ -141,14 +140,6 @@ export default function SubHeader({ sidebarWidth, agentWidth, sessions, activeId
 
   return (
     <div className="subheader">
-      {/* 左：sidebar nav 图标 */}
-      <div className="subheader-nav" style={{ width: sidebarWidth }}>
-        <span className="snav-icon active" title="特征库">⚡</span>
-        <span className="snav-icon" title="策略库">📈</span>
-        <span className="snav-icon" title="回测">🔁</span>
-        <span className="snav-icon" title="市场数据">📊</span>
-      </div>
-
       {/* 中：文件 tabs */}
       <div className="subheader-tabs">
         {FILE_TABS.map((t, i) => (

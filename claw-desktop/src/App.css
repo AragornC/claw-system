@@ -17,7 +17,7 @@
   --red-dim:      rgba(224,80,80,0.15);
 
   --titlebar-h:   38px;
-  --tradingbar-h: 160px;
+  --tradingbar-h: 172px;
   --font:         -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --font-mono:    "SF Mono", "Fira Code", Consolas, monospace;
 }
@@ -53,7 +53,23 @@ body {
   overflow: hidden;
 }
 
-/* 中间列：workspace + trading bar，左右两侧 panel 顶到底 */
+/* 侧边栏右侧的整体区域：SubHeader + 内容行 */
+.app-rest {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* SubHeader 下方：workspace + agent panel 并排 */
+.app-content-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .app-center {
   flex: 1;
   display: flex;

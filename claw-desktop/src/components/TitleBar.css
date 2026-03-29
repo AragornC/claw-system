@@ -40,8 +40,43 @@
 
 .tb-icon {
   color: var(--text-muted);
-  font-size: 14px;
   cursor: pointer;
-  padding: 2px 4px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  transition: color 0.12s, background 0.12s;
 }
-.tb-icon:hover { color: var(--text-primary); }
+.tb-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
+.tb-icon-gear { font-size: 16px; }
+
+/* 布局切换按钮 */
+.tb-panel-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  transition: color 0.12s, background 0.12s;
+  padding: 0;
+}
+.tb-panel-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+/* 激活态：颜色不变，靠填充区分 */
+
+.tb-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}

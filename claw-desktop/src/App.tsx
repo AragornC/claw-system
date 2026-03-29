@@ -33,6 +33,8 @@ const INIT_SESSIONS: Session[] = [
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(220);
   const [agentWidth, setAgentWidth] = useState(300);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showTrading, setShowTrading] = useState(true);
   const [sessions, setSessions] = useState<Session[]>(INIT_SESSIONS);
   const [activeId, setActiveId] = useState("feat-1");
 
@@ -85,30 +87,38 @@ export default function App() {
 
   return (
     <div className="app-root">
-      <TitleBar />
-      <SubHeader
-        sidebarWidth={sidebarWidth}
-        agentWidth={agentWidth}
-        sessions={sessions}
-        activeId={activeId}
-        onSwitch={setActiveId}
-        onNew={handleNewSession}
-        onClose={handleCloseSession}
-        onReorder={handleReorderSessions}
-        onRename={handleRenameSession}
+      <TitleBar
+        showSidebar={showSidebar}
+        showTrading={showTrading}
+        onToggleSidebar={() => setShowSidebar(v => !v)}
+        onToggleTrading={() => setShowTrading(v => !v)}
       />
       <div className="app-body">
-        <Sidebar width={sidebarWidth} onResize={setSidebarWidth} />
-        <div className="app-center">
-          <Workspace />
-          <TradingBar />
+        {showSidebar && <Sidebar width={sidebarWidth} onResize={setSidebarWidth} />}
+        <div className="app-rest">
+          <SubHeader
+            agentWidth={agentWidth}
+            sessions={sessions}
+            activeId={activeId}
+            onSwitch={setActiveId}
+            onNew={handleNewSession}
+            onClose={handleCloseSession}
+            onReorder={handleReorderSessions}
+            onRename={handleRenameSession}
+          />
+          <div className="app-content-row">
+            <div className="app-center">
+              <Workspace />
+              {showTrading && <TradingBar onClose={() => setShowTrading(false)} />}
+            </div>
+            <AgentPanel
+              width={agentWidth}
+              onResize={setAgentWidth}
+              session={activeSession}
+              onSend={handleSendMessage}
+            />
+          </div>
         </div>
-        <AgentPanel
-          width={agentWidth}
-          onResize={setAgentWidth}
-          session={activeSession}
-          onSend={handleSendMessage}
-        />
       </div>
     </div>
   );
