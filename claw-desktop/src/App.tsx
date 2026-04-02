@@ -5,6 +5,7 @@ import AgentPanel from "./components/AgentPanel";
 import TradingBar from "./components/TradingBar";
 import TitleBar from "./components/TitleBar";
 import SubHeader from "./components/SubHeader";
+import Settings from "./components/Settings";
 import "./App.css";
 
 export interface Message {
@@ -35,6 +36,7 @@ export default function App() {
   const [agentWidth, setAgentWidth] = useState(300);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTrading, setShowTrading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [sessions, setSessions] = useState<Session[]>(INIT_SESSIONS);
   const [activeId, setActiveId] = useState("feat-1");
 
@@ -92,6 +94,7 @@ export default function App() {
         showTrading={showTrading}
         onToggleSidebar={() => setShowSidebar(v => !v)}
         onToggleTrading={() => setShowTrading(v => !v)}
+        onOpenSettings={() => setShowSettings(true)}
       />
       <div className="app-body">
         {showSidebar && <Sidebar width={sidebarWidth} onResize={setSidebarWidth} />}
@@ -105,10 +108,15 @@ export default function App() {
             onClose={handleCloseSession}
             onReorder={handleReorderSessions}
             onRename={handleRenameSession}
+            showSettings={showSettings}
+            onCloseSettings={() => setShowSettings(false)}
           />
           <div className="app-content-row">
             <div className="app-center">
-              <Workspace />
+              {showSettings
+                ? <Settings onClose={() => setShowSettings(false)} />
+                : <Workspace />
+              }
               {showTrading && <TradingBar onClose={() => setShowTrading(false)} />}
             </div>
             <AgentPanel

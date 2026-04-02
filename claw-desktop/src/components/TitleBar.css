@@ -38,19 +38,7 @@
   justify-content: flex-end;
 }
 
-.tb-icon {
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  transition: color 0.12s, background 0.12s;
-}
-.tb-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
-.tb-icon-gear { font-size: 16px; }
+/* (gear icon is now a tb-panel-btn SVG button) */
 
 /* 布局切换按钮 */
 .tb-panel-btn {
