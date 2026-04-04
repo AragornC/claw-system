@@ -385,3 +385,64 @@
 }
 .md-model-ctx { font-size: 10px; color: #3a5068; }
 .md-hint { font-size: 10px; color: #3a5068; margin-top: 8px; }
+.md-error { color: #ef5350 !important; }
+.md-oauth-big:disabled { opacity: 0.6; cursor: wait; }
+.stg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Feature 1: OAuth Connected User Card ── */
+.md-oauth-connected {
+  background: #0d1f14; border: 1px solid #1a3828; border-radius: 9px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.md-oauth-user { display: flex; align-items: center; gap: 10px; }
+.md-oauth-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #22c55e);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: #fff; flex-shrink: 0;
+}
+.md-oauth-info { flex: 1; min-width: 0; }
+.md-oauth-name {
+  font-size: 13px; font-weight: 500; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.md-oauth-email {
+  font-size: 11px; color: #5a8a6a; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.md-oauth-badge {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #22c55e; flex-shrink: 0;
+}
+.md-oauth-badge-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: #22c55e;
+  display: inline-block;
+}
+.md-oauth-actions { display: flex; gap: 6px; }
+.md-oauth-action-btn {
+  flex: 1; padding: 5px 10px; border-radius: 6px; font-size: 11.5px;
+  background: #142032; border: 1px solid #1e3048; color: #8aabcc;
+  cursor: pointer; transition: all .15s;
+}
+.md-oauth-action-btn:hover { background: #1a2c44; color: #c2cee0; }
+.md-oauth-action-btn.danger { color: #e05a5a; border-color: #3a1f1f; }
+.md-oauth-action-btn.danger:hover { background: #2a1515; border-color: #5a2a2a; }
+.md-oauth-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Feature 4: Auth Tab Green Dot ── */
+.md-auth-tab-wrap {
+  display: flex; align-items: center; gap: 5px;
+}
+.md-auth-tab-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #22c55e; flex-shrink: 0; display: inline-block;
+}
+
+/* ── Feature 4: Conflict Warning ── */
+.md-conflict-warn {
+  display: flex; align-items: flex-start; gap: 7px;
+  padding: 8px 10px; border-radius: 7px; margin-bottom: 8px;
+  background: #1f1608; border: 1px solid #3a2a10;
+  font-size: 11.5px; color: #d4a535; line-height: 1.5;
+}
+.md-conflict-warn-icon { font-size: 13px; flex-shrink: 0; margin-top: -1px; }

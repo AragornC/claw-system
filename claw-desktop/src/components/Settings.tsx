@@ -1,131 +1,32 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import "./Settings.css";
+import {
+  saveApiKey as llmSaveApiKey,
+  deleteApiKey as llmDeleteApiKey,
+  testConnection as llmTestConnection,
+  getProviderModels,
+  startOAuth as llmStartOAuth,
+  refreshOAuthStatus as llmRefreshOAuthStatus,
+  oauthDisconnect as llmOAuthDisconnect,
+  type TestResult,
+} from "../lib/llm";
+import {
+  useModelStore,
+  PROVIDER_IDS,
+  PROVIDER_META,
+  openAiModelMeta,
+  type AuthInfo,
+} from "../store/modelStore";
 
 interface Props {
   onClose: () => void;
 }
 
-/* ── 数据类型 ── */
-interface ProviderModel {
-  name: string;
-  badge: string;
-  badgeClass: string;
-  ctx: string;
-  on: boolean;
-}
-
-interface Provider {
-  id: string;
-  name: string;
-  connected: boolean;
-  activeMethod: "oauth" | "apikey";
-  lastPing: string;
-  supportsOAuth: boolean;
-  oauthLabel: string;
-  oauthConnected: boolean;
-  oauthEmail: string;
-  oauthVerify: string;
-  key: string;
-  placeholder: string;
-  hint: string;
-  logo: string;
-  logoBg: string;
-  logoFilter: string;
-  models: ProviderModel[];
-}
-
 type NavPanel = "general" | "model" | "trading" | "notify";
 
-const INIT_PROVIDERS: Provider[] = [
-  {
-    id: "anthropic", name: "Anthropic",
-    connected: true, activeMethod: "oauth", lastPing: "12s",
-    supportsOAuth: true, oauthLabel: "Anthropic 账号",
-    oauthConnected: true, oauthEmail: "aragorn@example.com", oauthVerify: "12s",
-    key: "sk-ant-api03-xxxx", placeholder: "sk-ant-api03-…", hint: "console.anthropic.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg",
-    logoBg: "#cc785c", logoFilter: "brightness(10)",
-    models: [
-      { name: "Claude 4 Sonnet", badge: "推荐", badgeClass: "badge-green", ctx: "200K", on: true },
-      { name: "Claude 3.5 Sonnet", badge: "", badgeClass: "", ctx: "200K", on: true },
-      { name: "Claude 3.5 Haiku", badge: "快速", badgeClass: "badge-blue", ctx: "200K", on: false },
-      { name: "Claude 3 Opus", badge: "", badgeClass: "", ctx: "200K", on: false },
-    ],
-  },
-  {
-    id: "openai", name: "OpenAI",
-    connected: true, activeMethod: "oauth", lastPing: "8s",
-    supportsOAuth: true, oauthLabel: "OpenAI 账号",
-    oauthConnected: true, oauthEmail: "aragorn@example.com", oauthVerify: "8s",
-    key: "sk-proj-xxxx", placeholder: "sk-proj-…", hint: "platform.openai.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg",
-    logoBg: "#fff", logoFilter: "",
-    models: [
-      { name: "GPT-4o", badge: "", badgeClass: "", ctx: "128K", on: true },
-      { name: "GPT-4o mini", badge: "快速", badgeClass: "badge-blue", ctx: "128K", on: false },
-      { name: "o1", badge: "推理", badgeClass: "badge-gold", ctx: "128K", on: false },
-      { name: "o3-mini", badge: "推理", badgeClass: "badge-gold", ctx: "128K", on: false },
-    ],
-  },
-  {
-    id: "deepseek", name: "DeepSeek",
-    connected: false, activeMethod: "apikey", lastPing: "",
-    supportsOAuth: false, oauthLabel: "",
-    oauthConnected: false, oauthEmail: "", oauthVerify: "",
-    key: "", placeholder: "sk-…", hint: "platform.deepseek.com",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg",
-    logoBg: "#fff", logoFilter: "",
-    models: [
-      { name: "DeepSeek-V3", badge: "低成本", badgeClass: "badge-blue", ctx: "64K", on: false },
-      { name: "DeepSeek-R1", badge: "推理", badgeClass: "badge-gold", ctx: "64K", on: false },
-    ],
-  },
-  {
-    id: "google", name: "Google Gemini",
-    connected: false, activeMethod: "oauth", lastPing: "",
-    supportsOAuth: true, oauthLabel: "Google 账号",
-    oauthConnected: false, oauthEmail: "", oauthVerify: "",
-    key: "", placeholder: "AIza…", hint: "aistudio.google.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg",
-    logoBg: "#fff", logoFilter: "",
-    models: [
-      { name: "Gemini 2.0 Pro", badge: "", badgeClass: "", ctx: "1M", on: false },
-      { name: "Gemini 2.0 Flash", badge: "快速", badgeClass: "badge-blue", ctx: "1M", on: false },
-    ],
-  },
-  {
-    id: "xai", name: "xAI Grok",
-    connected: false, activeMethod: "apikey", lastPing: "",
-    supportsOAuth: false, oauthLabel: "",
-    oauthConnected: false, oauthEmail: "", oauthVerify: "",
-    key: "", placeholder: "xai-…", hint: "console.x.ai",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg",
-    logoBg: "#fff", logoFilter: "",
-    models: [
-      { name: "Grok-2", badge: "", badgeClass: "", ctx: "128K", on: false },
-    ],
-  },
-];
-
 /* ═══════════════ Settings Component ═══════════════ */
-export default function Settings({ onClose }: Props) {
+export default function Settings({ onClose: _onClose }: Props) {
   const [panel, setPanel] = useState<NavPanel>("general");
-  const [providers, setProviders] = useState<Provider[]>(INIT_PROVIDERS);
-  const [selectedProvider, setSelectedProvider] = useState("anthropic");
-
-  const switchAuthMethod = useCallback((pid: string, method: "oauth" | "apikey") => {
-    setProviders(prev => prev.map(p => p.id === pid ? { ...p, activeMethod: method } : p));
-  }, []);
-
-  const toggleModel = useCallback((pid: string, modelName: string) => {
-    setProviders(prev => prev.map(p =>
-      p.id === pid
-        ? { ...p, models: p.models.map(m => m.name === modelName ? { ...m, on: !m.on } : m) }
-        : p
-    ));
-  }, []);
-
-  const dp = providers.find(p => p.id === selectedProvider) ?? providers[0];
 
   return (
     <div className="stg-overlay">
@@ -151,16 +52,7 @@ export default function Settings({ onClose }: Props) {
       {/* Right Content */}
       <div className="stg-content">
         {panel === "general" && <GeneralPanel />}
-        {panel === "model" && (
-          <ModelPanel
-            providers={providers}
-            selected={selectedProvider}
-            onSelect={setSelectedProvider}
-            dp={dp}
-            onSwitchAuth={switchAuthMethod}
-            onToggleModel={toggleModel}
-          />
-        )}
+        {panel === "model" && <ModelPanel />}
         {panel === "trading" && <TradingPanel />}
         {panel === "notify" && <NotifyPanel />}
       </div>
@@ -243,18 +135,24 @@ function GeneralPanel() {
   );
 }
 
-/* ══════ Model Panel ══════ */
-interface ModelPanelProps {
-  providers: Provider[];
-  selected: string;
-  onSelect: (id: string) => void;
-  dp: Provider;
-  onSwitchAuth: (pid: string, method: "oauth" | "apikey") => void;
-  onToggleModel: (pid: string, modelName: string) => void;
-}
+/* ══════ Model Panel (reads from Zustand store) ══════ */
+function ModelPanel() {
+  const auth = useModelStore((s) => s.auth);
+  const allModels = useModelStore((s) => s.allModels);
+  const enabledModels = useModelStore((s) => s.enabledModels);
+  const selectedProvider = useModelStore((s) => s.selectedProvider);
+  const setSelectedProvider = useModelStore((s) => s.setSelectedProvider);
+  const toggleModel = useModelStore((s) => s.toggleModel);
+  const [authTab, setAuthTab] = useState<"oauth" | "apikey">("oauth");
 
-function ModelPanel({ providers, selected, onSelect, dp, onSwitchAuth, onToggleModel }: ModelPanelProps) {
-  const oauthActive = dp.activeMethod === "oauth";
+  const pid = selectedProvider;
+  const meta = PROVIDER_META[pid];
+  const provAuth = auth[pid] ?? { connected: false, method: "none", email: "", maskedKey: "" };
+  const models = allModels[pid] ?? [];
+  const enabled = enabledModels[pid] ?? [];
+
+  const oauthActive = provAuth.connected && provAuth.method === "oauth";
+  const apikeyActive = provAuth.connected && provAuth.method === "api_key";
 
   return (
     <div>
@@ -264,65 +162,73 @@ function ModelPanel({ providers, selected, onSelect, dp, onSwitchAuth, onToggleM
       <div className="md-wrap">
         {/* Provider List */}
         <div className="md-list">
-          {providers.map(p => (
-            <div
-              key={p.id}
-              className={`md-list-item ${p.id === selected ? "active" : ""}`}
-              onClick={() => onSelect(p.id)}
-            >
-              <div className="md-list-logo" style={{ background: p.logoBg, borderColor: p.connected ? "#1e3028" : "#1e2d40" }}>
-                <img src={p.logo} width="16" height="16" style={{ objectFit: "contain", filter: p.logoFilter || undefined }} alt="" />
+          {PROVIDER_IDS.map(id => {
+            const m = PROVIDER_META[id];
+            const a = auth[id];
+            return (
+              <div
+                key={id}
+                className={`md-list-item ${id === pid ? "active" : ""}`}
+                onClick={() => setSelectedProvider(id)}
+              >
+                <div className="md-list-logo" style={{ background: m.logoBg, borderColor: a?.connected ? "#1e3028" : "#1e2d40" }}>
+                  <img src={m.logo} width="16" height="16" style={{ objectFit: "contain", filter: m.logoFilter || undefined }} alt="" />
+                </div>
+                <span className="md-list-name">{m.name}</span>
+                <span className={`md-status-dot ${a?.connected ? "ok" : "off"}`} />
               </div>
-              <span className="md-list-name">{p.name}</span>
-              <span className={`md-status-dot ${p.connected ? "ok" : "off"}`} />
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Provider Detail */}
         <div className="md-detail">
-          <div className="md-detail-title">{dp.name}</div>
+          <div className="md-detail-title">{meta.name}</div>
           <div className="md-detail-status">
-            <span className={`md-status-dot ${dp.connected ? "ok" : "off"}`} />
-            {dp.connected
-              ? <><span className="stg-green">已连接</span><span className="md-ping">· 延迟 {dp.lastPing}</span></>
+            <span className={`md-status-dot ${provAuth.connected ? "ok" : "off"}`} />
+            {provAuth.connected
+              ? <span className="stg-green">已连接</span>
               : <span className="md-off-text">未连接</span>
             }
           </div>
 
-          {/* Auth Block – 方案 B Tab */}
+          {/* Auth Block */}
           <div className="md-section-label">连接方式</div>
           <div className="md-auth-block">
-            {dp.supportsOAuth ? (
+            {meta.supportsOAuth ? (
               <>
                 <div className="md-auth-tabs">
                   <div
-                    className={`md-auth-tab ${oauthActive ? "active" : ""}`}
-                    onClick={() => onSwitchAuth(dp.id, "oauth")}
+                    className={`md-auth-tab ${authTab === "oauth" ? "active" : ""}`}
+                    onClick={() => setAuthTab("oauth")}
                   >
-                    OAuth 登录
-                    {oauthActive
-                      ? <span className="md-tab-badge">当前</span>
-                      : <span className="md-tab-badge recommend">推荐</span>
-                    }
+                    <span className="md-auth-tab-wrap">
+                      OAuth 登录
+                      {oauthActive && <span className="md-auth-tab-dot" />}
+                    </span>
                   </div>
                   <div
-                    className={`md-auth-tab ${!oauthActive ? "active" : ""}`}
-                    onClick={() => onSwitchAuth(dp.id, "apikey")}
+                    className={`md-auth-tab ${authTab === "apikey" ? "active" : ""}`}
+                    onClick={() => setAuthTab("apikey")}
                   >
-                    API Key
-                    {!oauthActive && dp.connected && <span className="md-tab-badge">当前</span>}
+                    <span className="md-auth-tab-wrap">
+                      API Key
+                      {apikeyActive && <span className="md-auth-tab-dot" />}
+                    </span>
                   </div>
                 </div>
                 <div className="md-auth-body">
-                  {oauthActive ? <OAuthContent dp={dp} /> : <ApiKeyContent dp={dp} isActive={!oauthActive} />}
+                  {authTab === "oauth"
+                    ? <OAuthContent providerId={pid} auth={provAuth} otherActive={apikeyActive} />
+                    : <ApiKeyContent providerId={pid} auth={provAuth} otherActive={oauthActive} />
+                  }
                 </div>
               </>
             ) : (
               <>
                 <div className="md-auth-only-label">仅支持 API Key 连接方式</div>
                 <div className="md-auth-body">
-                  <ApiKeyContent dp={dp} isActive />
+                  <ApiKeyContent providerId={pid} auth={provAuth} otherActive={false} />
                 </div>
               </>
             )}
@@ -330,99 +236,237 @@ function ModelPanel({ providers, selected, onSelect, dp, onSwitchAuth, onToggleM
 
           {/* Models */}
           <div className="md-section-label" style={{ marginTop: 18 }}>可用模型</div>
-          {dp.models.map(m => (
-            <div className="md-model-row" key={m.name}>
-              <div className="md-model-name">
-                {m.name}
-                {m.badge && <span className={`stg-badge ${m.badgeClass}`}>{m.badge}</span>}
-                <span className="md-model-ctx">{m.ctx} ctx</span>
+          {models.map(m => {
+            const isOn = enabled.includes(m.id);
+            return (
+              <div className="md-model-row" key={m.id}>
+                <div className="md-model-name">
+                  {m.id}
+                  {m.badge && <span className={`stg-badge ${m.badgeClass}`}>{m.badge}</span>}
+                  <span className="md-model-ctx">{m.ctx} ctx</span>
+                </div>
+                <button
+                  className={`stg-toggle ${isOn ? "on" : ""}`}
+                  disabled={!provAuth.connected}
+                  style={!provAuth.connected ? { opacity: 0.4 } : undefined}
+                  onClick={() => toggleModel(pid, m.id)}
+                />
               </div>
-              <button
-                className={`stg-toggle ${m.on ? "on" : ""}`}
-                disabled={!dp.connected}
-                style={!dp.connected ? { opacity: 0.4 } : undefined}
-                onClick={() => onToggleModel(dp.id, m.name)}
-              />
-            </div>
-          ))}
-          {!dp.connected && <div className="md-hint">连接成功后方可启用模型</div>}
+            );
+          })}
+          {!provAuth.connected && <div className="md-hint">连接成功后方可启用模型</div>}
         </div>
-      </div>
-
-      <div className="stg-group-label" style={{ marginTop: 20 }}>默认模型</div>
-      <div className="stg-card">
-        <SettingsRow title="新建对话默认使用" desc="每次开启新 Agent 对话时默认选中的模型">
-          <select className="stg-select">
-            <option>Claude 4 Sonnet</option>
-            <option>GPT-4o</option>
-          </select>
-        </SettingsRow>
       </div>
     </div>
   );
 }
 
-/* ── OAuth Content ── */
-function OAuthContent({ dp }: { dp: Provider }) {
-  if (dp.oauthConnected) {
+/* ── OAuth Content (Feature 1: user card + Feature 4: mutual exclusion) ── */
+function OAuthContent({ providerId, auth, otherActive }: { providerId: string; auth: AuthInfo; otherActive: boolean }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const store = useModelStore.getState;
+  const meta = PROVIDER_META[providerId];
+
+  const handleLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      if (otherActive) {
+        await llmDeleteApiKey(providerId);
+      }
+      const state = await llmStartOAuth(providerId);
+      store().applyAuthState(state);
+      if (state.connected) {
+        try {
+          const names = await getProviderModels(providerId);
+          if (names.length > 0) {
+            const models = names.map((n) => ({ id: n, ...openAiModelMeta(n) }));
+            store().setAllModels(providerId, models);
+          }
+        } catch { /* keep defaults */ }
+      }
+    } catch (e: any) {
+      setError(typeof e === "string" ? e : e?.message ?? "OAuth 登录失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    try {
+      await llmOAuthDisconnect(providerId);
+      store().disconnect(providerId);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      const state = await llmRefreshOAuthStatus(providerId);
+      store().applyAuthState(state);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  if (auth.connected && auth.method === "oauth") {
+    const initial = (auth.email || "U")[0].toUpperCase();
     return (
-      <>
-        <div className="md-conn-info">
-          <span className="md-status-dot ok" />
-          <span className="md-ci-email">{dp.oauthEmail}</span>
-          <span className="md-ci-badge">已授权</span>
-          <span className="md-ci-time">上次验证 {dp.oauthVerify} 前</span>
+      <div className="md-oauth-connected">
+        <div className="md-oauth-user">
+          <div className="md-oauth-avatar">{initial}</div>
+          <div className="md-oauth-info">
+            <div className="md-oauth-name">{auth.email || "OpenAI User"}</div>
+            <div className="md-oauth-email">Codex 接口</div>
+          </div>
+          <div className="md-oauth-badge"><span className="md-oauth-badge-dot" />已连接</div>
         </div>
-        <div className="md-conn-actions">
-          <button className="stg-btn sm">重新授权</button>
-          <button className="stg-btn sm">刷新状态</button>
-          <button className="stg-btn sm danger">断开授权</button>
+        <div className="md-oauth-actions">
+          <button className="md-oauth-action-btn" onClick={handleRefresh} disabled={loading}>
+            {loading ? "刷新中…" : "刷新状态"}
+          </button>
+          <button className="md-oauth-action-btn danger" onClick={handleDisconnect} disabled={loading}>断开连接</button>
         </div>
-        <div className="md-note">当前通过 OAuth 主账号连接，令牌自动续期。若需切换到 API Key，可在右侧 Tab 中选择。</div>
-      </>
+      </div>
     );
   }
+
   return (
     <>
-      <button className="md-oauth-big">
-        <img src={dp.logo} style={{ objectFit: "contain", filter: dp.logoFilter || undefined }} alt="" />
-        {dp.oauthLabel} 登录授权
-        <span className="md-oauth-arr">↗</span>
+      {otherActive && (
+        <div className="md-conflict-warn">
+          <span className="md-conflict-warn-icon">⚠</span>
+          <span>当前已通过 API Key 连接。使用 OAuth 登录后将<strong>自动断开 API Key</strong>，并切换至 Codex 接口。</span>
+        </div>
+      )}
+      <button className="md-oauth-big" onClick={handleLogin} disabled={loading}>
+        <img src={meta.logo} style={{ objectFit: "contain", filter: meta.logoFilter || undefined }} alt="" />
+        {loading ? "正在登录…" : meta.oauthLabel}
+        {!loading && <span className="md-oauth-arr">↗</span>}
       </button>
-      <div className="md-note">点击后将在浏览器中打开授权页，授权完成后自动返回。令牌自动续期，可随时撤销。</div>
+      {error && <div className="md-note md-error">{error}</div>}
+      {!error && <div className="md-note">如果你已登录过 Codex，会自动同步登录态。否则将打开浏览器完成 OpenAI 登录。</div>}
     </>
   );
 }
 
-/* ── API Key Content ── */
-function ApiKeyContent({ dp, isActive }: { dp: Provider; isActive: boolean }) {
-  if (dp.connected && isActive) {
+/* ── API Key Content (Feature 4: mutual exclusion) ── */
+function ApiKeyContent({ providerId, auth, otherActive }: { providerId: string; auth: AuthInfo; otherActive: boolean }) {
+  const [keyInput, setKeyInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [editing, setEditing] = useState(false);
+  const store = useModelStore.getState;
+  const meta = PROVIDER_META[providerId];
+
+  const handleSave = async () => {
+    if (!keyInput.trim()) return;
+    setLoading(true);
+    setTestResult(null);
+    try {
+      if (otherActive) {
+        await llmOAuthDisconnect(providerId);
+      }
+      const state = await llmSaveApiKey(providerId, keyInput.trim());
+      store().applyAuthState(state);
+      setKeyInput("");
+      setEditing(false);
+      const result = await llmTestConnection(providerId);
+      setTestResult(result);
+    } catch (e: any) {
+      setTestResult({ success: false, message: typeof e === "string" ? e : "保存失败", model: null });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setLoading(true);
+    setTestResult(null);
+    try {
+      const result = await llmTestConnection(providerId);
+      setTestResult(result);
+    } catch (e: any) {
+      setTestResult({ success: false, message: typeof e === "string" ? e : "测试失败", model: null });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setLoading(true);
+    setTestResult(null);
+    try {
+      await llmDeleteApiKey(providerId);
+      store().disconnect(providerId);
+      setEditing(false);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  const apikeyConnected = auth.connected && auth.method === "api_key";
+
+  if (apikeyConnected && !editing) {
     return (
       <>
         <div className="md-conn-info">
           <span className="md-status-dot ok" />
-          <span className="md-ci-key">sk-ant-api03-••••••••xxxx</span>
+          <span className="md-ci-key">{auth.maskedKey}</span>
           <span className="md-ci-badge">有效</span>
-          <span className="md-ci-time">上次测试 {dp.lastPing} 前</span>
         </div>
         <div className="md-conn-actions">
-          <button className="stg-btn sm">修改 Key</button>
-          <button className="stg-btn sm">测试连接</button>
-          <button className="stg-btn sm danger">断开</button>
+          <button className="stg-btn sm" onClick={() => setEditing(true)}>修改 Key</button>
+          <button className="stg-btn sm" onClick={handleTest} disabled={loading}>
+            {loading ? "测试中…" : "测试连接"}
+          </button>
+          <button className="stg-btn sm danger" onClick={handleDelete} disabled={loading}>断开</button>
         </div>
+        {testResult && (
+          <div className={`md-note ${testResult.success ? "" : "md-error"}`}>
+            {testResult.message}
+            {testResult.model && ` (${testResult.model})`}
+          </div>
+        )}
       </>
     );
   }
   return (
     <>
+      {otherActive && (
+        <div className="md-conflict-warn">
+          <span className="md-conflict-warn-icon">⚠</span>
+          <span>当前已通过 OAuth 登录。连接 API Key 后将<strong>自动退出 OAuth 登录</strong>，并切换至标准接口。</span>
+        </div>
+      )}
       <div className="md-key-row">
-        <input className="stg-input" type="password" placeholder={dp.placeholder} />
-        <button className="stg-btn sm green">连接</button>
-        <button className="stg-btn sm">测试</button>
+        <input
+          className="stg-input"
+          type="password"
+          placeholder={meta.placeholder}
+          value={keyInput}
+          onChange={e => setKeyInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
+        />
+        <button className="stg-btn sm green" onClick={handleSave} disabled={loading || !keyInput.trim()}>
+          {loading ? "连接中…" : "连接"}
+        </button>
       </div>
-      <div className="md-key-hint">
-        在 <a href="#" onClick={e => e.preventDefault()}>{dp.hint}</a> 获取 API Key
-      </div>
+      {testResult && (
+        <div className={`md-note ${testResult.success ? "" : "md-error"}`}>
+          {testResult.message}
+          {testResult.model && ` (${testResult.model})`}
+        </div>
+      )}
+      {!testResult && (
+        <div className="md-key-hint">
+          在 <a href="#" onClick={e => e.preventDefault()}>{meta.hint}</a> 获取 API Key
+        </div>
+      )}
+      {editing && (
+        <button className="stg-btn sm" style={{ marginTop: 6 }} onClick={() => setEditing(false)}>取消修改</button>
+      )}
     </>
   );
 }
@@ -480,7 +524,11 @@ function NotifyPanel() {
       <div className="stg-group-label">连接平台</div>
       <div className="stg-channels">
         <ChannelCard name="Telegram Bot" desc="通过 Bot Token 接收推送，支持命令交互" status="connected" colorClass="tg"
-          icon={<img src="https://cdn.simpleicons.org/telegram" width="22" height="22" alt="" style={{ objectFit: "contain" }} />} />
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#26A5E4">
+              <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+            </svg>
+          } />
         <ChannelCard name="飞书" desc="通过飞书机器人 Webhook 推送消息" colorClass="feishu"
           icon={
             <svg width="22" height="22" viewBox="7 7 26 26" fill="none">
@@ -492,7 +540,11 @@ function NotifyPanel() {
           <button className="stg-btn">配置</button>
         </ChannelCard>
         <ChannelCard name="Slack" desc="推送至指定 Slack 频道或私信" colorClass="slack"
-          icon={<img src="https://cdn.simpleicons.org/slack" width="22" height="22" alt="" style={{ objectFit: "contain" }} />}>
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#4A154B">
+              <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
+            </svg>
+          }>
           <button className="stg-btn">配置</button>
         </ChannelCard>
         <ChannelCard name="钉钉" desc="通过钉钉机器人 Webhook 推送" colorClass="dingtalk"

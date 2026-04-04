@@ -297,7 +297,7 @@ function TaskRow({ task: t }: { task: TaskItem }) {
 }
 
 /* ═══ Tab config ═══ */
-const TABS: { id: SidebarTab; icon: () => JSX.Element; title: string }[] = [
+const TABS: { id: SidebarTab; icon: () => React.ReactNode; title: string }[] = [
   { id: "strategy", icon: IconStrategy, title: "策略管理" },
   { id: "market", icon: IconMarket, title: "大盘" },
   { id: "community", icon: IconCommunity, title: "社区" },

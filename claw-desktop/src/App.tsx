@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import Workspace from "./components/Workspace";
 import AgentPanel from "./components/AgentPanel";
@@ -6,6 +6,8 @@ import TradingBar from "./components/TradingBar";
 import TitleBar from "./components/TitleBar";
 import SubHeader from "./components/SubHeader";
 import Settings from "./components/Settings";
+import { chatStream } from "./lib/llm";
+import { useModelStore } from "./store/modelStore";
 import "./App.css";
 
 export interface Message {
@@ -19,16 +21,8 @@ export interface Session {
   messages: Message[];
 }
 
-const DEMO_MESSAGES: Message[] = [
-  { role: "user", text: "帮我生成一个基于均线死叉的风控特征" },
-  { role: "agent", text: "好的，我来帮你生成这个特征。均线死叉信号是当短期均线下穿长期均线时触发，通常预示下跌风险。\n\n我会用 MA20 和 MA60 组合，生成一个 0/1 的二值特征。开始执行…" },
-  { role: "user", text: "验证的时候多看几个回测周期" },
-  { role: "agent", text: "明白，我已经在验证步骤中加入了 2020–2024 年的多周期回测，当前第 2 轮验证进行中，数据量 334 根 K 线。" },
-];
-
 const INIT_SESSIONS: Session[] = [
-  { id: "daily", name: "日常启动", messages: [] },
-  { id: "feat-1", name: "特征生成任务", messages: DEMO_MESSAGES },
+  { id: "daily", name: "新对话", messages: [] },
 ];
 
 export default function App() {
@@ -38,10 +32,15 @@ export default function App() {
   const [showTrading, setShowTrading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [sessions, setSessions] = useState<Session[]>(INIT_SESSIONS);
-  const [activeId, setActiveId] = useState("feat-1");
+  const [activeId, setActiveId] = useState("daily");
+  const [streaming, setStreaming] = useState(false);
+  const streamAbort = useRef(false);
+
+  useEffect(() => {
+    useModelStore.getState().initFromBackend();
+  }, []);
 
   function handleNewSession() {
-    // 已有空对话时直接跳过去，不重复创建
     const empty = sessions.find(s => s.messages.length === 0);
     if (empty) {
       setActiveId(empty.id);
@@ -63,7 +62,6 @@ export default function App() {
   function handleCloseSession(id: string) {
     setSessions(prev => {
       const next = prev.filter(s => s.id !== id);
-      // 至少保留一个 session，关掉最后一个时自动补一个新对话
       if (next.length === 0) {
         const newId = `session-${Date.now()}`;
         const fresh: Session = { id: newId, name: "新对话", messages: [] };
@@ -77,13 +75,78 @@ export default function App() {
     });
   }
 
-  function handleSendMessage(text: string) {
+  const handleSendMessage = useCallback(async (text: string) => {
+    const sid = activeId;
+    const { selectedModel } = useModelStore.getState();
+
     setSessions(prev => prev.map(s =>
-      s.id === activeId
-        ? { ...s, messages: [...s.messages, { role: "user", text }] }
+      s.id === sid
+        ? { ...s, messages: [...s.messages, { role: "user" as const, text }, { role: "agent" as const, text: "" }] }
         : s
     ));
-  }
+
+    setStreaming(true);
+    streamAbort.current = false;
+
+    const currentSession = sessions.find(s => s.id === sid);
+    const history = currentSession
+      ? currentSession.messages.map(m => ({
+          role: m.role === "user" ? "user" : "assistant",
+          content: m.text,
+        }))
+      : [];
+    history.push({ role: "user", content: text });
+
+    try {
+      await chatStream(
+        selectedModel.providerId,
+        selectedModel.modelId,
+        history,
+        (chunk) => {
+          if (streamAbort.current) return;
+          if (chunk.error) {
+            setSessions(prev => prev.map(s => {
+              if (s.id !== sid) return s;
+              const msgs = [...s.messages];
+              const last = msgs[msgs.length - 1];
+              if (last?.role === "agent") {
+                msgs[msgs.length - 1] = { ...last, text: last.text + `\n\n[错误] ${chunk.error}` };
+              }
+              return { ...s, messages: msgs };
+            }));
+            setStreaming(false);
+            return;
+          }
+          if (chunk.done) {
+            setStreaming(false);
+            return;
+          }
+          if (chunk.delta) {
+            setSessions(prev => prev.map(s => {
+              if (s.id !== sid) return s;
+              const msgs = [...s.messages];
+              const last = msgs[msgs.length - 1];
+              if (last?.role === "agent") {
+                msgs[msgs.length - 1] = { ...last, text: last.text + chunk.delta };
+              }
+              return { ...s, messages: msgs };
+            }));
+          }
+        }
+      );
+    } catch (e: any) {
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sid) return s;
+        const msgs = [...s.messages];
+        const last = msgs[msgs.length - 1];
+        if (last?.role === "agent") {
+          msgs[msgs.length - 1] = { ...last, text: `[错误] ${typeof e === "string" ? e : e?.message ?? "未知错误"}` };
+        }
+        return { ...s, messages: msgs };
+      }));
+      setStreaming(false);
+    }
+  }, [activeId, sessions]);
 
   const activeSession = sessions.find(s => s.id === activeId) ?? sessions[0];
 
@@ -124,6 +187,7 @@ export default function App() {
               onResize={setAgentWidth}
               session={activeSession}
               onSend={handleSendMessage}
+              streaming={streaming}
             />
           </div>
         </div>
