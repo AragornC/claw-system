@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Session } from "../App";
+import type { Session } from "../store/chatStore";
+import { useChatStore } from "../store/chatStore";
 import "./SubHeader.css";
 
 const FILE_TABS = ["特征生成任务", "均线死叉特征"];
@@ -17,29 +18,53 @@ interface Props {
   onCloseSettings?: () => void;
 }
 
+function groupByDate(sessions: Session[]): { label: string; items: Session[] }[] {
+  const now = Date.now();
+  const DAY = 86400000;
+  const today: Session[] = [];
+  const yesterday: Session[] = [];
+  const week: Session[] = [];
+  const older: Session[] = [];
+
+  for (const s of sessions) {
+    const diff = now - s.updatedAt;
+    if (diff < DAY) today.push(s);
+    else if (diff < 2 * DAY) yesterday.push(s);
+    else if (diff < 7 * DAY) week.push(s);
+    else older.push(s);
+  }
+
+  const groups: { label: string; items: Session[] }[] = [];
+  if (today.length > 0) groups.push({ label: "今天", items: today });
+  if (yesterday.length > 0) groups.push({ label: "昨天", items: yesterday });
+  if (week.length > 0) groups.push({ label: "本周", items: week });
+  if (older.length > 0) groups.push({ label: "更早", items: older });
+  return groups;
+}
+
 export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, onNew, onClose, onReorder, onRename, showSettings, onCloseSettings }: Props) {
   const [showHistory, setShowHistory] = useState(false);
   const [draggingId, setDraggingId]   = useState<string | null>(null);
   const [liveOrder,  setLiveOrder]    = useState<Session[] | null>(null);
-  // 右键菜单
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  // 内联重命名
   const [renamingId, setRenamingId]     = useState<string | null>(null);
   const [renameValue, setRenameValue]   = useState("");
+  const [histSearch, setHistSearch]     = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const histRef = useRef<HTMLDivElement>(null);
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const liveRef         = useRef<Session[]>(sessions);
   const draggingIdRef   = useRef<string | null>(null);
   const mouseDownX      = useRef(0);
   const didDrag         = useRef(false);
-  // FLIP: tabEl refs & previous rects
   const tabEls          = useRef<Map<string, HTMLElement>>(new Map());
   const prevRects       = useRef<Map<string, number>>(new Map());
 
+  const allSessions = useChatStore(s => s.sessions);
+
   const displayed = liveOrder ?? sessions;
 
-  // FLIP: after React re-renders new order, animate non-dragged tabs from old to new pos
   useLayoutEffect(() => {
     if (!liveOrder) return;
     tabEls.current.forEach((el, id) => {
@@ -51,7 +76,7 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
       if (Math.abs(dx) < 1) return;
       el.style.transition = "none";
       el.style.transform  = `translateX(${dx}px)`;
-      el.getBoundingClientRect(); // force reflow
+      el.getBoundingClientRect();
       el.style.transition = "transform 0.15s ease";
       el.style.transform  = "";
     });
@@ -125,7 +150,7 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
   }
 
   function startRename(id: string) {
-    const s = sessions.find(s => s.id === id);
+    const s = sessions.find(s => s.id === id) ?? allSessions.find(s => s.id === id);
     if (!s) return;
     setRenamingId(id);
     setRenameValue(s.name);
@@ -139,6 +164,28 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
     }
     setRenamingId(null);
   }
+
+  function handleHistoryOpen(id: string) {
+    useChatStore.getState().openTab(id);
+    setShowHistory(false);
+    setHistSearch("");
+  }
+
+  function handleHistoryDelete(id: string) {
+    useChatStore.getState().deleteSession(id);
+  }
+
+  const historySessions = allSessions
+    .filter(s => s.messages.length > 0)
+    .filter(s => {
+      if (!histSearch) return true;
+      const q = histSearch.toLowerCase();
+      return s.name.toLowerCase().includes(q) ||
+        s.messages.some(m => m.text.toLowerCase().includes(q));
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const historyGroups = groupByDate(historySessions);
 
   return (
     <div className="subheader">
@@ -206,7 +253,7 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
         </div>
         <div className="sha-right-icons">
           <span className="sha-icon" title="新建 Agent" onClick={onNew}>＋</span>
-          <div className="sha-history-wrap">
+          <div className="sha-history-wrap" ref={histRef}>
             <span className="sha-icon" title="历史对话" onClick={() => setShowHistory(v => !v)}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -214,19 +261,46 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
               </svg>
             </span>
             {showHistory && (
-              <div className="sha-history-dropdown" onMouseLeave={() => setShowHistory(false)}>
+              <div className="sha-history-dropdown" onMouseLeave={() => { setShowHistory(false); setHistSearch(""); }}>
                 <div className="sha-history-title">历史对话</div>
-                {sessions.map(s => (
-                  <div
-                    key={s.id}
-                    className={`sha-history-item ${s.id === activeId ? "sha-history-item-active" : ""}`}
-                    onClick={() => { onSwitch(s.id); setShowHistory(false); }}
-                  >
-                    <span className="sha-history-dot">●</span>
-                    {s.name}
-                    <span className="sha-history-count">{s.messages.length} 条</span>
-                  </div>
-                ))}
+                <div className="sha-history-search-wrap">
+                  <input
+                    className="sha-history-search"
+                    placeholder="搜索对话…"
+                    value={histSearch}
+                    onChange={e => setHistSearch(e.target.value)}
+                    onMouseDown={e => e.stopPropagation()}
+                    autoFocus
+                  />
+                </div>
+                <div className="sha-history-list">
+                  {historyGroups.length === 0 && (
+                    <div className="sha-history-empty">
+                      {histSearch ? "无匹配结果" : "暂无历史对话"}
+                    </div>
+                  )}
+                  {historyGroups.map(g => (
+                    <div key={g.label}>
+                      <div className="sha-history-group">{g.label}</div>
+                      {g.items.map(s => (
+                        <div
+                          key={s.id}
+                          className={`sha-history-item ${s.id === activeId ? "sha-history-item-active" : ""}`}
+                          onClick={() => handleHistoryOpen(s.id)}
+                        >
+                          <span className="sha-history-dot">●</span>
+                          <span className="sha-history-name">{s.name}</span>
+                          <span className="sha-history-count">{s.messages.length} 条</span>
+                          <span
+                            className="sha-history-delete"
+                            title="删除"
+                            onClick={(e) => { e.stopPropagation(); handleHistoryDelete(s.id); }}
+                          >✕</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

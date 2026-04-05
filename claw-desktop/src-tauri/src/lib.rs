@@ -1,6 +1,10 @@
 mod commands;
+mod exchange;
+mod exchange_commands;
 mod llm;
 
+use exchange::store::ExchangeStore;
+use exchange_commands::ExchangeClient;
 use llm::client::LlmClient;
 use llm::store::CredentialStore;
 use tauri::Manager;
@@ -12,6 +16,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(CredentialStore::new())
         .manage(LlmClient::new())
+        .manage(ExchangeStore::new())
+        .manage(ExchangeClient::new())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -22,6 +28,8 @@ pub fn run() {
             }
             let store: &CredentialStore = app.state::<CredentialStore>().inner();
             store.load(app.handle());
+            let ex_store: &ExchangeStore = app.state::<ExchangeStore>().inner();
+            ex_store.load(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -35,6 +43,11 @@ pub fn run() {
             commands::oauth_disconnect,
             commands::get_provider_models,
             commands::chat_stream,
+            exchange_commands::save_exchange_key,
+            exchange_commands::delete_exchange_key,
+            exchange_commands::get_all_exchange_auth_states,
+            exchange_commands::test_exchange_connection,
+            exchange_commands::fetch_exchange_balance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

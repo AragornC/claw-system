@@ -17,6 +17,17 @@ import {
   openAiModelMeta,
   type AuthInfo,
 } from "../store/modelStore";
+import {
+  saveExchangeKey,
+  deleteExchangeKey,
+  testExchangeConnection,
+  type ExchangeTestResult,
+} from "../lib/exchange";
+import {
+  useExchangeStore,
+  EXCHANGE_IDS,
+  EXCHANGE_META,
+} from "../store/exchangeStore";
 
 interface Props {
   onClose: () => void;
@@ -476,19 +487,12 @@ function TradingPanel() {
   return (
     <div>
       <div className="stg-title">交易</div>
+      <div className="stg-desc">连接交易所 API Key，即可在工作台查看实时账户数据。</div>
 
       <div className="stg-group-label">交易所连接</div>
-      <div className="stg-card">
-        <SettingsRow title="Binance" desc="未连接 — 点击配置 API Key">
-          <button className="stg-btn">配置</button>
-        </SettingsRow>
-        <SettingsRow title="Bitget" desc="已连接 · 只读模式" descGreen>
-          <button className="stg-btn green">已连接</button>
-        </SettingsRow>
-        <SettingsRow title="OKX" desc="未连接 — 点击配置 API Key">
-          <button className="stg-btn">配置</button>
-        </SettingsRow>
-      </div>
+      {EXCHANGE_IDS.map((id) => (
+        <ExchangeConnectCard key={id} exchangeId={id} />
+      ))}
 
       <div className="stg-group-label">风控</div>
       <div className="stg-card">
@@ -510,6 +514,192 @@ function TradingPanel() {
           <select className="stg-select"><option>0.05%</option><option>0.1%</option><option>0.2%</option></select>
         </SettingsRow>
       </div>
+    </div>
+  );
+}
+
+/* ── Exchange Connect Card ── */
+function ExchangeConnectCard({ exchangeId }: { exchangeId: string }) {
+  const auth = useExchangeStore((s) => s.auth[exchangeId]);
+  const balance = useExchangeStore((s) => s.balances[exchangeId]);
+  const loadingBal = useExchangeStore((s) => s.loadingBalance[exchangeId]);
+  const setAuth = useExchangeStore((s) => s.setAuth);
+  const setBalance = useExchangeStore((s) => s.setBalance);
+  const refreshBalance = useExchangeStore((s) => s.refreshBalance);
+
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [secretInput, setSecretInput] = useState("");
+  const [passphraseInput, setPassphraseInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ExchangeTestResult | null>(null);
+
+  const meta = EXCHANGE_META[exchangeId];
+  const isConnected = auth?.connected ?? false;
+
+  const clearForm = () => {
+    setKeyInput("");
+    setSecretInput("");
+    setPassphraseInput("");
+    setResult(null);
+  };
+
+  const handleConnect = async () => {
+    if (!keyInput.trim() || !secretInput.trim()) return;
+    if (meta.needsPassphrase && !passphraseInput.trim()) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const state = await saveExchangeKey(
+        exchangeId,
+        keyInput.trim(),
+        secretInput.trim(),
+        meta.needsPassphrase ? passphraseInput.trim() : undefined
+      );
+      setAuth(exchangeId, state);
+      clearForm();
+      setExpanded(false);
+      setEditing(false);
+      refreshBalance(exchangeId);
+    } catch (e: any) {
+      setResult({ success: false, message: typeof e === "string" ? e : e?.message ?? "保存失败" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    try {
+      const state = await deleteExchangeKey(exchangeId);
+      setAuth(exchangeId, state);
+      setBalance(exchangeId, null);
+      setEditing(false);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  const handleTest = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const r = await testExchangeConnection(exchangeId);
+      setResult(r);
+      if (r.success) refreshBalance(exchangeId);
+    } catch (e: any) {
+      setResult({ success: false, message: typeof e === "string" ? e : "测试失败" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showForm = (!isConnected && expanded) || (isConnected && editing);
+
+  return (
+    <div className="stg-card exch-card">
+      {/* Header row */}
+      <div className="stg-row" style={{ alignItems: "flex-start" }}>
+        <div className="stg-row-info">
+          <div className="stg-row-title">{meta.name}</div>
+          {isConnected ? (
+            <div className="stg-row-desc">
+              <span className="stg-green">已连接</span>
+              {auth?.masked_key && <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>{auth.masked_key}</span>}
+              {loadingBal && <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>加载中…</span>}
+              {!loadingBal && balance != null && (
+                <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>
+                  · 稳定币 <span style={{ color: "var(--accent)" }}>${balance.total_usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="stg-row-desc">未连接 — 点击配置 API Key</div>
+          )}
+        </div>
+        <div className="stg-btn-group" style={{ flexShrink: 0 }}>
+          {isConnected ? (
+            <>
+              <button className="stg-btn sm" onClick={handleTest} disabled={loading}>
+                {loading && !editing ? "测试中…" : "测试"}
+              </button>
+              <button className="stg-btn sm" onClick={() => { setEditing((v) => !v); setResult(null); }}>
+                {editing ? "取消" : "更换"}
+              </button>
+              <button className="stg-btn sm danger" onClick={handleDisconnect} disabled={loading}>断开</button>
+            </>
+          ) : (
+            <button className="stg-btn sm" onClick={() => { setExpanded((v) => !v); setResult(null); }}>
+              {expanded ? "收起" : "配置"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Test result for connected state */}
+      {isConnected && result && !editing && (
+        <div className={`md-note ${result.success ? "" : "md-error"}`} style={{ marginTop: 4 }}>
+          {result.message}
+        </div>
+      )}
+
+      {/* Inline form */}
+      {showForm && (
+        <div className="exch-form">
+          <div className="md-key-row">
+            <input
+              className="stg-input"
+              type="password"
+              placeholder={meta.keyPlaceholder}
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="md-key-row">
+            <input
+              className="stg-input"
+              type="password"
+              placeholder={meta.secretPlaceholder}
+              value={secretInput}
+              onChange={(e) => setSecretInput(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          {meta.needsPassphrase && (
+            <div className="md-key-row">
+              <input
+                className="stg-input"
+                type="password"
+                placeholder={meta.passphraseLabel}
+                value={passphraseInput}
+                onChange={(e) => setPassphraseInput(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          )}
+          <div className="md-key-row" style={{ marginTop: 2 }}>
+            <button
+              className="stg-btn sm green"
+              onClick={handleConnect}
+              disabled={
+                loading ||
+                !keyInput.trim() ||
+                !secretInput.trim() ||
+                (meta.needsPassphrase && !passphraseInput.trim())
+              }
+            >
+              {loading ? "连接中…" : "连接"}
+            </button>
+          </div>
+          {result && (
+            <div className={`md-note ${result.success ? "" : "md-error"}`}>{result.message}</div>
+          )}
+          <div className="md-key-hint">
+            在 <a href="#" onClick={(e) => e.preventDefault()}>{meta.hint}</a> 获取 API Key
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -561,10 +751,10 @@ function NotifyPanel() {
       <div className="stg-group-label">Telegram 配置</div>
       <div className="stg-card">
         <SettingsRow title="Bot Token" desc="在 @BotFather 处创建 Bot 获取">
-          <input className="stg-input" type="password" defaultValue="7823401234:AAHxxx…" placeholder="粘贴 Bot Token" />
+          <input className="stg-input" type="password" placeholder="粘贴 Bot Token" />
         </SettingsRow>
         <SettingsRow title="Chat ID" desc="接收消息的用户或群组 ID">
-          <input className="stg-input" defaultValue="@my_trading_group" placeholder="Chat ID 或 @username" />
+          <input className="stg-input" placeholder="Chat ID 或 @username" />
         </SettingsRow>
         <SettingsRow title="连接状态" desc="已连接 · 最近推送 2 分钟前" descGreen>
           <div className="stg-btn-group">
@@ -580,7 +770,7 @@ function NotifyPanel() {
         <TriggerRow icon="↓" color="var(--red)" name="卖出信号" desc="Agent 发出 SELL 信号时推送" defaultOn />
         <TriggerRow icon="!" color="var(--red)" name="风控预警" desc="回撤超阈值或强制平仓时立即推送" defaultOn />
         <TriggerRow icon="✓" color="var(--accent-gold)" name="任务完成" desc="特征/策略生成任务完成时推送" />
-        <TriggerRow icon="i" color="#5b8def" name="每日收益报告" desc="每天 20:00 推送当日盈亏汇总" defaultOn />
+        <TriggerRow icon="i" color="var(--info)" name="每日收益报告" desc="每天 20:00 推送当日盈亏汇总" defaultOn />
       </div>
     </div>
   );

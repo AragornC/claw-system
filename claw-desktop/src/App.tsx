@@ -6,24 +6,15 @@ import TradingBar from "./components/TradingBar";
 import TitleBar from "./components/TitleBar";
 import SubHeader from "./components/SubHeader";
 import Settings from "./components/Settings";
-import { chatStream } from "./lib/llm";
+import { chatStream, generateTitle } from "./lib/llm";
 import { useModelStore } from "./store/modelStore";
+import { useChatStore } from "./store/chatStore";
+import { useExchangeStore } from "./store/exchangeStore";
+import type { Session } from "./store/chatStore";
 import "./App.css";
 
-export interface Message {
-  role: "user" | "agent";
-  text: string;
-}
-
-export interface Session {
-  id: string;
-  name: string;
-  messages: Message[];
-}
-
-const INIT_SESSIONS: Session[] = [
-  { id: "daily", name: "新对话", messages: [] },
-];
+export type { Session };
+export type { Message } from "./store/chatStore";
 
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(220);
@@ -31,71 +22,61 @@ export default function App() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTrading, setShowTrading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>(INIT_SESSIONS);
-  const [activeId, setActiveId] = useState("daily");
   const [streaming, setStreaming] = useState(false);
   const streamAbort = useRef(false);
 
+  const sessions = useChatStore(s => s.sessions);
+  const activeId = useChatStore(s => s.activeId);
+  const openTabIds = useChatStore(s => s.openTabIds);
+
   useEffect(() => {
     useModelStore.getState().initFromBackend();
+    useExchangeStore.getState().initFromBackend();
   }, []);
 
+  const openTabs = openTabIds
+    .map(tid => sessions.find(s => s.id === tid))
+    .filter((s): s is Session => !!s);
+
   function handleNewSession() {
-    const empty = sessions.find(s => s.messages.length === 0);
-    if (empty) {
-      setActiveId(empty.id);
-      return;
-    }
-    const id = `session-${Date.now()}`;
-    setSessions(prev => [...prev, { id, name: "新对话", messages: [] }]);
-    setActiveId(id);
+    useChatStore.getState().addSession();
   }
 
   function handleReorderSessions(newOrder: Session[]) {
-    setSessions(newOrder);
+    useChatStore.getState().reorderTabs(newOrder.map(s => s.id));
   }
 
   function handleRenameSession(id: string, name: string) {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, name } : s));
+    useChatStore.getState().renameSession(id, name, true);
   }
 
   function handleCloseSession(id: string) {
-    setSessions(prev => {
-      const next = prev.filter(s => s.id !== id);
-      if (next.length === 0) {
-        const newId = `session-${Date.now()}`;
-        const fresh: Session = { id: newId, name: "新对话", messages: [] };
-        setActiveId(newId);
-        return [fresh];
-      }
-      if (activeId === id) {
-        setActiveId(next[next.length - 1].id);
-      }
-      return next;
-    });
+    useChatStore.getState().removeTab(id);
   }
 
   const handleSendMessage = useCallback(async (text: string) => {
     const sid = activeId;
     const { selectedModel } = useModelStore.getState();
+    const store = useChatStore.getState();
 
-    setSessions(prev => prev.map(s =>
-      s.id === sid
-        ? { ...s, messages: [...s.messages, { role: "user" as const, text }, { role: "agent" as const, text: "" }] }
-        : s
-    ));
+    const currentSession = store.sessions.find(s => s.id === sid);
+    const isFirstMessage = currentSession ? currentSession.messages.length === 0 : true;
+
+    const history = currentSession
+      ? currentSession.messages.map(m => ({ role: m.role, content: m.text }))
+      : [];
+    history.push({ role: "user", content: text });
+
+    store.appendUserMessage(sid, text);
 
     setStreaming(true);
     streamAbort.current = false;
 
-    const currentSession = sessions.find(s => s.id === sid);
-    const history = currentSession
-      ? currentSession.messages.map(m => ({
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.text,
-        }))
-      : [];
-    history.push({ role: "user", content: text });
+    if (isFirstMessage && !currentSession?.isNameCustomized) {
+      generateTitle(selectedModel.providerId, selectedModel.modelId, text)
+        .then((title: string) => useChatStore.getState().renameSession(sid, title, false))
+        .catch(() => {});
+    }
 
     try {
       await chatStream(
@@ -105,15 +86,7 @@ export default function App() {
         (chunk) => {
           if (streamAbort.current) return;
           if (chunk.error) {
-            setSessions(prev => prev.map(s => {
-              if (s.id !== sid) return s;
-              const msgs = [...s.messages];
-              const last = msgs[msgs.length - 1];
-              if (last?.role === "agent") {
-                msgs[msgs.length - 1] = { ...last, text: last.text + `\n\n[错误] ${chunk.error}` };
-              }
-              return { ...s, messages: msgs };
-            }));
+            useChatStore.getState().setAssistantError(sid, chunk.error!);
             setStreaming(false);
             return;
           }
@@ -122,31 +95,16 @@ export default function App() {
             return;
           }
           if (chunk.delta) {
-            setSessions(prev => prev.map(s => {
-              if (s.id !== sid) return s;
-              const msgs = [...s.messages];
-              const last = msgs[msgs.length - 1];
-              if (last?.role === "agent") {
-                msgs[msgs.length - 1] = { ...last, text: last.text + chunk.delta };
-              }
-              return { ...s, messages: msgs };
-            }));
+            useChatStore.getState().updateAssistantDelta(sid, chunk.delta);
           }
         }
       );
     } catch (e: any) {
-      setSessions(prev => prev.map(s => {
-        if (s.id !== sid) return s;
-        const msgs = [...s.messages];
-        const last = msgs[msgs.length - 1];
-        if (last?.role === "agent") {
-          msgs[msgs.length - 1] = { ...last, text: `[错误] ${typeof e === "string" ? e : e?.message ?? "未知错误"}` };
-        }
-        return { ...s, messages: msgs };
-      }));
+      const msg = typeof e === "string" ? e : e?.message ?? "未知错误";
+      useChatStore.getState().setAssistantError(sid, msg);
       setStreaming(false);
     }
-  }, [activeId, sessions]);
+  }, [activeId]);
 
   const activeSession = sessions.find(s => s.id === activeId) ?? sessions[0];
 
@@ -164,9 +122,9 @@ export default function App() {
         <div className="app-rest">
           <SubHeader
             agentWidth={agentWidth}
-            sessions={sessions}
+            sessions={openTabs}
             activeId={activeId}
-            onSwitch={setActiveId}
+            onSwitch={(id) => useChatStore.getState().setActiveId(id)}
             onNew={handleNewSession}
             onClose={handleCloseSession}
             onReorder={handleReorderSessions}

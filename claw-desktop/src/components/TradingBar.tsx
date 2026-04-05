@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "./TradingBar.css";
+import { useExchangeStore, EXCHANGE_IDS } from "../store/exchangeStore";
 
 /* ═══ Types ═══ */
 interface PositionItem {
@@ -82,18 +83,29 @@ function Sparkline({ data }: { data: number[] }) {
 }
 
 /* ═══ PnlPanel ═══ */
-function PnlPanel({ pnl, pct, equity, winRate, maxDD, free, pnlHist, dailyPnl }:
-  { pnl: number; pct: number; equity: number; winRate: number; maxDD: number; free: number; pnlHist: number[]; dailyPnl: number[] }) {
+function PnlPanel({ pnl, pct, equity, winRate, maxDD, free, pnlHist, dailyPnl, hasExchange, refreshing, onRefresh }:
+  { pnl: number; pct: number; equity: number; winRate: number; maxDD: number; free: number; pnlHist: number[]; dailyPnl: number[]; hasExchange: boolean; refreshing: boolean; onRefresh: () => void }) {
   const col = pnl >= 0 ? "var(--g)" : "var(--r)";
   const sign = pnl >= 0 ? "+" : "";
   const barMax = Math.max(...dailyPnl);
+
+  if (!hasExchange) {
+    return (
+      <div className="tb-pnl-panel tb-no-exchange">
+        <div className="tb-no-ex-icon">📊</div>
+        <div className="tb-no-ex-title">未连接交易所</div>
+        <div className="tb-no-ex-desc">在设置 → 交易 中配置 API Key，即可查看实时账户余额</div>
+      </div>
+    );
+  }
+
   return (
     <div className="tb-pnl-panel">
       <div className="tb-pnl-main">
         <div>
           <div className="tb-pnl-big" style={{ color: col }}>{sign}${Math.abs(Math.round(pnl)).toLocaleString()}</div>
           <div className="tb-pnl-pct" style={{ color: col }}>{sign}{pct.toFixed(2)}%</div>
-          <div className="tb-pnl-since">今日收益</div>
+          <div className="tb-pnl-since">今日收益 (模拟)</div>
         </div>
         <div className="tb-spark-wrap" style={{ height: 38 }}>
           <Sparkline data={pnlHist} />
@@ -102,11 +114,27 @@ function PnlPanel({ pnl, pct, equity, winRate, maxDD, free, pnlHist, dailyPnl }:
 
       <div className="tb-pnl-mid">
         <div className="tb-pnl-grid">
-          <div className="k">总资产</div><div className="v">${equity.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-          <div className="k">可用资金</div><div className="v">${free.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+          <div className="k">稳定币余额</div>
+          <div className="v" style={{ color: "var(--accent)" }}>
+            ${equity.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </div>
+          <div className="k">可用资金</div>
+          <div className="v">${free.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
           <div className="k">最大回撤</div><div className="v" style={{ color: "var(--r)" }}>{maxDD.toFixed(1)}%</div>
           <div className="k">胜率</div><div className="v">{Math.round(winRate)}%</div>
         </div>
+        <button
+          className="tb-refresh-btn"
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="刷新余额"
+        >
+          <svg width={12} height={12} viewBox="0 0 14 14" fill="none" style={{ transform: refreshing ? "rotate(360deg)" : undefined, transition: "transform 0.6s" }}>
+            <path d="M12.5 7A5.5 5.5 0 1 1 7 1.5a5.5 5.5 0 0 1 4.24 2" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+            <path d="M11.5 1.5h3v3" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {refreshing ? "刷新中" : "刷新"}
+        </button>
       </div>
 
       <div className="tb-pnl-right">
@@ -242,12 +270,34 @@ export default function TradingBar({ onClose }: { onClose: () => void }) {
   const [sortBy, setSortBy] = useState<SortKey>("pnl");
   const [items, setItems] = useState<PositionItem[]>(INIT_ITEMS);
   const [pnl, setPnl] = useState(312);
-  const [equity] = useState(20800);
   const [winRate, setWinRate] = useState(63);
   const [maxDD, setMaxDD] = useState(-4.2);
   const [pnlHist, setPnlHist] = useState<number[]>(() =>
     Array.from({ length: 24 }, (_, i) => 250 - 80 + i * 7 + (Math.random() - 0.5) * 18)
   );
+
+  // Real exchange data
+  const exAuth = useExchangeStore(s => s.auth);
+  const exBalances = useExchangeStore(s => s.balances);
+  const exLoading = useExchangeStore(s => s.loadingBalance);
+  const refreshBalance = useExchangeStore(s => s.refreshBalance);
+
+  const hasExchange = EXCHANGE_IDS.some(id => exAuth[id]?.connected);
+  const equity = EXCHANGE_IDS.reduce((sum, id) => {
+    if (exAuth[id]?.connected && exBalances[id]) return sum + (exBalances[id]?.total_usd ?? 0);
+    return sum;
+  }, 0);
+  const free = EXCHANGE_IDS.reduce((sum, id) => {
+    if (exAuth[id]?.connected && exBalances[id]) return sum + (exBalances[id]?.available_usd ?? 0);
+    return sum;
+  }, 0);
+  const refreshing = EXCHANGE_IDS.some(id => exAuth[id]?.connected && exLoading[id]);
+
+  const handleRefreshBalance = useCallback(() => {
+    EXCHANGE_IDS.forEach(id => {
+      if (exAuth[id]?.connected) refreshBalance(id);
+    });
+  }, [exAuth, refreshBalance]);
 
   const pnlRef = useRef(pnl);
   pnlRef.current = pnl;
@@ -257,10 +307,7 @@ export default function TradingBar({ onClose }: { onClose: () => void }) {
       ...d,
       pnl: Math.round((d.pnl + (Math.random() - 0.44) * 5) * 10) / 10,
     })));
-    setPnl(prev => {
-      const next = prev + (Math.random() - 0.5) * 9;
-      return next;
-    });
+    setPnl(prev => prev + (Math.random() - 0.5) * 9);
     setWinRate(w => Math.max(50, Math.min(78, w + (Math.random() - 0.5) * 0.3)));
     setMaxDD(d => Math.max(-12, Math.min(-1, d + (Math.random() - 0.5) * 0.1)));
     setPnlHist(prev => {
@@ -279,8 +326,7 @@ export default function TradingBar({ onClose }: { onClose: () => void }) {
     setOpenId(prev => prev === id ? -1 : id);
   }, []);
 
-  const pct = (pnl / equity) * 100;
-  const free = Math.round(equity * 0.42);
+  const pct = equity > 0 ? (pnl / equity) * 100 : 0;
 
   return (
     <div className="trading-bar">
@@ -325,7 +371,8 @@ export default function TradingBar({ onClose }: { onClose: () => void }) {
       <div className="tb-body">
         <div className={`tb-panel ${activeTab === "pnl" ? "active" : ""}`}>
           <PnlPanel pnl={pnl} pct={pct} equity={equity} winRate={winRate} maxDD={maxDD}
-            free={free} pnlHist={pnlHist} dailyPnl={DAILY_PNL} />
+            free={free} pnlHist={pnlHist} dailyPnl={DAILY_PNL}
+            hasExchange={hasExchange} refreshing={refreshing} onRefresh={handleRefreshBalance} />
         </div>
         <div className={`tb-panel ${activeTab === "strat" ? "active" : ""}`}>
           {curView === "card"

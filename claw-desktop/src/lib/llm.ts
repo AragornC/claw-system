@@ -31,10 +31,6 @@ export async function saveApiKey(
   });
 }
 
-export async function getApiKey(providerId: string): Promise<AuthState> {
-  return invoke("get_api_key", { providerId });
-}
-
 export async function deleteApiKey(providerId: string): Promise<AuthState> {
   return invoke("delete_api_key", { providerId });
 }
@@ -84,4 +80,27 @@ export async function chatStream(
     messages,
     channel,
   });
+}
+
+const TITLE_SYSTEM_PROMPT =
+  "你是一个对话标题生成器。根据用户的问题，用6-12个中文字提炼一个简洁准确的标题。只返回标题文本，不加引号或其他内容。";
+
+export async function generateTitle(
+  providerId: string,
+  model: string,
+  userMessage: string
+): Promise<string> {
+  let title = "";
+  await chatStream(
+    providerId,
+    model,
+    [
+      { role: "system", content: TITLE_SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
+    (chunk) => {
+      if (chunk.delta) title += chunk.delta;
+    }
+  );
+  return title.trim() || userMessage.slice(0, 14);
 }

@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
-import type { Session } from "../App";
+import ReactMarkdown from "react-markdown";
+import type { Session } from "../store/chatStore";
 import { useModelStore, PROVIDER_IDS, PROVIDER_META } from "../store/modelStore";
 import "./AgentPanel.css";
 
@@ -132,9 +133,9 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
               </div>
             ) : (
               <div key={i} className="msg-agent-wrap">
-                <div className="msg-agent-body">
+                <div className="msg-agent-body msg-agent-md">
                   {m.text
-                    ? m.text.split("\n\n").map((p, j) => <p key={j}>{p}</p>)
+                    ? <ReactMarkdown>{m.text}</ReactMarkdown>
                     : streaming && i === session.messages.length - 1
                       ? <div className="msg-typing"><span /><span /><span /></div>
                       : null

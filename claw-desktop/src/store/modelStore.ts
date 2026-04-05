@@ -6,6 +6,11 @@ import {
   refreshOAuthStatus,
   type AuthState,
 } from "../lib/llm";
+import anthropicLogo from "../assets/providers/anthropic.svg";
+import openaiLogo from "../assets/providers/openai.svg";
+import deepseekLogo from "../assets/providers/deepseek.svg";
+import geminiLogo from "../assets/providers/gemini.svg";
+import grokLogo from "../assets/providers/grok.svg";
 
 /* ── Types ── */
 export interface ModelMeta {
@@ -54,7 +59,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     oauthLabel: "",
     placeholder: "sk-ant-api03-…",
     hint: "console.anthropic.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg",
+    logo: anthropicLogo,
     logoBg: "#cc785c",
     logoFilter: "brightness(10)",
   },
@@ -64,7 +69,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     oauthLabel: "Sign in with ChatGPT",
     placeholder: "sk-proj-…",
     hint: "platform.openai.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg",
+    logo: openaiLogo,
     logoBg: "#fff",
     logoFilter: "",
   },
@@ -74,7 +79,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     oauthLabel: "",
     placeholder: "sk-…",
     hint: "platform.deepseek.com",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg",
+    logo: deepseekLogo,
     logoBg: "#fff",
     logoFilter: "",
   },
@@ -84,7 +89,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     oauthLabel: "",
     placeholder: "AIza…",
     hint: "aistudio.google.com",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg",
+    logo: geminiLogo,
     logoBg: "#fff",
     logoFilter: "",
   },
@@ -94,7 +99,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     oauthLabel: "",
     placeholder: "xai-…",
     hint: "console.x.ai",
-    logo: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg",
+    logo: grokLogo,
     logoBg: "#fff",
     logoFilter: "",
   },
@@ -190,6 +195,15 @@ function makeDefaultAuth(): Record<string, AuthInfo> {
   return auth;
 }
 
+function toAuthInfo(s: AuthState): AuthInfo {
+  return {
+    connected: s.connected,
+    method: s.method,
+    email: s.email ?? "",
+    maskedKey: s.masked_key ?? "",
+  };
+}
+
 function findFallbackModel(
   auth: Record<string, AuthInfo>,
   enabledModels: Record<string, string[]>,
@@ -282,13 +296,7 @@ export const useModelStore = create<ModelStore>()(
       },
 
       applyAuthState(state) {
-        const info: AuthInfo = {
-          connected: state.connected,
-          method: state.method,
-          email: state.email ?? "",
-          maskedKey: state.masked_key ?? "",
-        };
-        get().setAuth(state.provider_id, info);
+        get().setAuth(state.provider_id, toAuthInfo(state));
       },
 
       async initFromBackend() {
@@ -296,23 +304,12 @@ export const useModelStore = create<ModelStore>()(
           const states = await getAllAuthStates();
           const auth = { ...get().auth };
           for (const s of states) {
-            auth[s.provider_id] = {
-              connected: s.connected,
-              method: s.method,
-              email: s.email ?? "",
-              maskedKey: s.masked_key ?? "",
-            };
+            auth[s.provider_id] = toAuthInfo(s);
           }
 
-          // Always refresh OpenAI OAuth status to get fresh email and token
           try {
             const oauthState = await refreshOAuthStatus("openai");
-            auth.openai = {
-              connected: oauthState.connected,
-              method: oauthState.method,
-              email: oauthState.email ?? "",
-              maskedKey: oauthState.masked_key ?? "",
-            };
+            auth.openai = toAuthInfo(oauthState);
           } catch {
             // keep whatever getAllAuthStates returned
           }

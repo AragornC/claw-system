@@ -312,3 +312,72 @@
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* ── Markdown 渲染 ── */
+.msg-agent-md { line-height: 1.65; }
+.msg-agent-md p { margin: 0 0 8px; }
+.msg-agent-md p:last-child { margin-bottom: 0; }
+.msg-agent-md h1,.msg-agent-md h2,.msg-agent-md h3,
+.msg-agent-md h4,.msg-agent-md h5,.msg-agent-md h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 14px 0 6px;
+  line-height: 1.35;
+}
+.msg-agent-md h1 { font-size: 15px; }
+.msg-agent-md h2 { font-size: 14px; }
+.msg-agent-md h3 { font-size: 13px; }
+.msg-agent-md ul,.msg-agent-md ol {
+  padding-left: 18px;
+  margin: 4px 0 8px;
+}
+.msg-agent-md li { margin: 3px 0; }
+.msg-agent-md code {
+  font-family: "JetBrains Mono", "Fira Code", "Menlo", monospace;
+  font-size: 11px;
+  background: rgba(255,255,255,0.08);
+  color: #7dd3fc;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.msg-agent-md pre {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 7px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.msg-agent-md pre code {
+  background: none;
+  color: #e2e8f0;
+  padding: 0;
+  font-size: 11px;
+}
+.msg-agent-md blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 6px 0;
+  padding: 4px 10px;
+  color: var(--text-secondary);
+}
+.msg-agent-md strong { color: var(--text-primary); font-weight: 600; }
+.msg-agent-md em { color: var(--text-secondary); }
+.msg-agent-md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 10px 0;
+}
+.msg-agent-md a { color: var(--accent); text-decoration: none; }
+.msg-agent-md a:hover { text-decoration: underline; }
+.msg-agent-md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+  margin: 8px 0;
+}
+.msg-agent-md th,.msg-agent-md td {
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 5px 8px;
+  text-align: left;
+}
+.msg-agent-md th { background: rgba(255,255,255,0.06); color: var(--text-primary); font-weight: 600; }

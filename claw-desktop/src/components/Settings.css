@@ -438,6 +438,15 @@
   background: #22c55e; flex-shrink: 0; display: inline-block;
 }
 
+/* ── Exchange Connect Card ── */
+.exch-card { margin-bottom: 8px; }
+.exch-card:last-of-type { margin-bottom: 0; }
+.exch-form {
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
 /* ── Feature 4: Conflict Warning ── */
 .md-conflict-warn {
   display: flex; align-items: flex-start; gap: 7px;

@@ -8,6 +8,8 @@ use crate::llm::types::{
     AuthState, ChatMessage, StreamChunk, TestResult, built_in_providers,
 };
 
+const CODEX_PROVIDER: &str = "openai";
+
 struct OpenAiAuth {
     access_token: String,
     account_id: String,
@@ -17,7 +19,7 @@ async fn resolve_openai_auth(
     app: &AppHandle,
     store: &CredentialStore,
 ) -> Result<OpenAiAuth, String> {
-    if let Some(token) = store.get_bearer_token("openai") {
+    if let Some(token) = store.get_bearer_token(CODEX_PROVIDER) {
         if let Some(account_id) = codex::extract_account_id(Some(&token)) {
             return Ok(OpenAiAuth { access_token: token, account_id });
         }
@@ -26,7 +28,7 @@ async fn resolve_openai_auth(
     let auth = codex::load_and_refresh_codex_auth().await?;
     store.save_oauth_tokens(
         app,
-        "openai",
+        CODEX_PROVIDER,
         &auth.access_token,
         auth.refresh_token.as_deref(),
         auth.expires_at,
@@ -81,7 +83,7 @@ pub async fn test_connection(
     client: State<'_, LlmClient>,
     provider_id: String,
 ) -> Result<TestResult, String> {
-    if provider_id == "openai" {
+    if provider_id == CODEX_PROVIDER {
         let auth = resolve_openai_auth(&app, &store).await?;
         return Ok(client
             .test_codex_connection(&auth.access_token, &auth.account_id)
@@ -107,7 +109,7 @@ pub async fn start_oauth(
     store: State<'_, CredentialStore>,
     provider_id: String,
 ) -> Result<AuthState, String> {
-    if provider_id == "openai" {
+    if provider_id == CODEX_PROVIDER {
         if let Ok(auth) = codex::load_and_refresh_codex_auth().await {
             store.save_oauth_tokens(
                 &app,
@@ -161,7 +163,7 @@ pub async fn refresh_oauth_status(
     store: State<'_, CredentialStore>,
     provider_id: String,
 ) -> Result<AuthState, String> {
-    if provider_id == "openai" {
+    if provider_id == CODEX_PROVIDER {
         if let Ok(auth) = codex::load_and_refresh_codex_auth().await {
             store.save_oauth_tokens(
                 &app,
@@ -194,7 +196,7 @@ pub async fn get_provider_models(
     client: State<'_, LlmClient>,
     provider_id: String,
 ) -> Result<Vec<String>, String> {
-    if provider_id == "openai" {
+    if provider_id == CODEX_PROVIDER {
         let auth = resolve_openai_auth(&app, &store).await?;
         return client.fetch_codex_models(&auth.access_token, &auth.account_id).await;
     }
@@ -212,7 +214,7 @@ pub async fn chat_stream(
     messages: Vec<ChatMessage>,
     channel: Channel<StreamChunk>,
 ) -> Result<(), String> {
-    if provider_id == "openai" {
+    if provider_id == CODEX_PROVIDER {
         let auth = resolve_openai_auth(&app, &store).await?;
         client
             .chat_codex_stream(
