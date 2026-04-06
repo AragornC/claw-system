@@ -108,9 +108,9 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
 /* ── Default models per provider ── */
 const DEFAULT_MODELS: Record<string, ModelMeta[]> = {
   anthropic: [
-    { id: "claude-sonnet-4-6", badge: "推荐", badgeClass: "badge-green", ctx: "1M" },
-    { id: "claude-opus-4-6", badge: "旗舰", badgeClass: "badge-gold", ctx: "1M" },
-    { id: "claude-haiku-4-5", badge: "快速", badgeClass: "badge-blue", ctx: "200K" },
+    { id: "claude-sonnet-4.6", badge: "推荐", badgeClass: "badge-green", ctx: "1M" },
+    { id: "claude-opus-4.6", badge: "旗舰", badgeClass: "badge-gold", ctx: "1M" },
+    { id: "claude-haiku-4.5", badge: "快速", badgeClass: "badge-blue", ctx: "200K" },
   ],
   openai: [
     { id: "gpt-5.4", badge: "推荐", badgeClass: "badge-green", ctx: "1M" },
@@ -132,7 +132,7 @@ const DEFAULT_MODELS: Record<string, ModelMeta[]> = {
 };
 
 const DEFAULT_ENABLED: Record<string, string[]> = {
-  anthropic: ["claude-sonnet-4-6"],
+  anthropic: ["claude-sonnet-4.6"],
   openai: ["gpt-5.4", "gpt-5.4-mini"],
   deepseek: ["deepseek-chat"],
   google: ["gemini-2.5-pro"],

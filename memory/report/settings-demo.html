@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>Settings Demo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#0a1420;
+  color:#c2cee0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* ── TitleBar ── */
+.titlebar{
+  height:38px;display:flex;align-items:center;
+  background:#090d16;border-bottom:1px solid #182030;
+  padding:0 12px;flex-shrink:0;user-select:none;
+}
+.tb-traffic-spacer{width:72px;flex-shrink:0;}
+.tb-appname{
+  flex:1;text-align:center;
+  font-size:12px;font-weight:600;letter-spacing:.3px;color:#8a9ab0;
+}
+.tb-right{display:flex;align-items:center;gap:4px;}
+.tb-panel-btn{
+  width:28px;height:28px;border:none;border-radius:6px;
+  background:transparent;color:#6a7a90;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .12s;
+}
+.tb-panel-btn:hover{color:#c2cee0;background:rgba(255,255,255,.06);}
+.tb-divider{width:1px;height:16px;background:#1e2d40;margin:0 4px;}
+
+/* 方案 A 设置按钮 */
+.settings-btn{
+  width:28px;height:28px;border:none;border-radius:6px;
+  background:transparent;color:#6a7a90;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .12s;
+}
+.settings-btn:hover{color:#c2cee0;background:rgba(255,255,255,.06);}
+.settings-btn svg{width:17px;height:17px;}
+
+/* ── Workspace ── */
+.workspace{
+  flex:1;display:flex;overflow:hidden;position:relative;
+}
+.workspace-placeholder{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  color:#2a3d52;font-size:13px;
+}
+
+/* ══ SETTINGS PANEL ══ */
+.settings-overlay{
+  position:absolute;inset:0;display:flex;z-index:100;
+  animation:fadeIn .15s ease;
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* 左侧导航 */
+.settings-nav{
+  width:210px;flex-shrink:0;
+  background:#0c1520;border-right:1px solid #182030;
+  display:flex;flex-direction:column;overflow-y:auto;
+  padding:16px 0;
+}
+.settings-nav-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px 14px;
+  font-size:13px;font-weight:600;color:#c2cee0;
+  border-bottom:1px solid #182030;margin-bottom:8px;
+}
+.settings-nav-close{
+  width:22px;height:22px;border:none;border-radius:4px;
+  background:transparent;color:#6a7a90;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;transition:all .12s;
+}
+.settings-nav-close:hover{color:#c2cee0;background:rgba(255,255,255,.06);}
+
+.nav-group-label{
+  font-size:9px;letter-spacing:.7px;text-transform:uppercase;
+  color:#3a5068;padding:10px 16px 4px;
+}
+.nav-item{
+  display:flex;align-items:center;gap:9px;
+  padding:7px 16px;cursor:pointer;
+  font-size:12px;color:#7a90a8;
+  transition:background .1s,color .1s;position:relative;
+}
+.nav-item:hover{color:#c2cee0;background:rgba(255,255,255,.04);}
+.nav-item.active{color:#c2cee0;background:rgba(255,255,255,.06);}
+.nav-item.active::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;
+  width:2px;border-radius:0 1px 1px 0;background:#3cc87a;
+}
+.nav-item svg{width:14px;height:14px;flex-shrink:0;opacity:.7;}
+.nav-item.active svg{opacity:1;}
+.nav-divider{height:1px;background:#182030;margin:6px 0;}
+
+/* 右侧内容 */
+.settings-content{
+  flex:1;overflow-y:auto;background:#0a1420;padding:28px 36px;
+}
+.settings-content::-webkit-scrollbar{width:4px;}
+.settings-content::-webkit-scrollbar-thumb{background:#1e2d40;border-radius:2px;}
+
+.settings-section-title{
+  font-size:18px;font-weight:600;color:#c2cee0;
+  margin-bottom:20px;letter-spacing:-.2px;
+}
+.settings-group-label{
+  font-size:10px;letter-spacing:.6px;text-transform:uppercase;
+  color:#4a6080;margin:20px 0 8px;
+}
+.settings-card{
+  border:1px solid #182030;border-radius:8px;overflow:hidden;margin-bottom:4px;
+}
+.settings-row{
+  display:flex;align-items:center;padding:14px 16px;
+  border-bottom:1px solid #121e2c;transition:background .1s;
+}
+.settings-row:last-child{border-bottom:none;}
+.settings-row:hover{background:rgba(255,255,255,.02);}
+.settings-row-info{flex:1;}
+.settings-row-title{font-size:13px;color:#c2cee0;font-weight:500;}
+.settings-row-desc{font-size:11px;color:#4a6080;margin-top:2px;line-height:1.4;}
+
+/* Buttons */
+.btn{
+  height:28px;padding:0 14px;border-radius:6px;
+  font-size:11px;font-weight:500;cursor:pointer;
+  border:1px solid #2a3d52;
+  background:rgba(255,255,255,.04);color:#8a9ab0;transition:all .12s;
+}
+.btn:hover{color:#c2cee0;border-color:#3a5068;background:rgba(255,255,255,.07);}
+.btn-green{background:rgba(60,200,122,.1);color:#3cc87a;border-color:rgba(60,200,122,.25);}
+.btn-green:hover{background:rgba(60,200,122,.17);border-color:rgba(60,200,122,.4);}
+.btn-blue{background:rgba(91,141,239,.1);color:#5b8def;border-color:rgba(91,141,239,.25);}
+.btn-blue:hover{background:rgba(91,141,239,.17);border-color:rgba(91,141,239,.4);}
+.btn-red{background:rgba(220,60,60,.08);color:#e05050;border-color:rgba(220,60,60,.2);}
+
+/* Toggle */
+.toggle{
+  width:34px;height:18px;border-radius:9px;
+  background:#1e2d40;border:none;cursor:pointer;position:relative;transition:background .2s;
+  flex-shrink:0;
+}
+.toggle::after{
+  content:'';position:absolute;width:14px;height:14px;border-radius:50%;
+  background:#4a6080;top:2px;left:2px;transition:all .2s;
+}
+.toggle.on{background:rgba(60,200,122,.35);}
+.toggle.on::after{background:#3cc87a;left:18px;}
+
+/* Select */
+.sel{
+  height:28px;padding:0 10px;border-radius:6px;font-size:11px;cursor:pointer;
+  border:1px solid #2a3d52;background:#0c1520;color:#8a9ab0;outline:none;
+}
+.sel:hover{border-color:#3a5068;color:#c2cee0;}
+
+/* Model cards */
+.models-grid{display:flex;flex-direction:column;gap:6px;}
+.model-card{
+  border:1px solid #182030;border-radius:8px;padding:14px 16px;
+  cursor:pointer;transition:all .15s;position:relative;
+}
+.model-card:hover{border-color:#2a3d52;background:rgba(255,255,255,.02);}
+.model-card.selected{border-color:rgba(60,200,122,.35);background:rgba(60,200,122,.05);}
+.model-card-header{display:flex;align-items:center;gap:10px;}
+.model-name{font-size:12px;font-weight:600;color:#c2cee0;}
+.model-badge{font-size:9px;padding:2px 6px;border-radius:4px;}
+.badge-green{background:rgba(60,200,122,.1);color:#3cc87a;}
+.badge-blue{background:rgba(91,141,239,.1);color:#5b8def;}
+.model-desc{font-size:11px;color:#4a6080;margin-top:5px;line-height:1.4;}
+.model-check{
+  position:absolute;right:12px;top:14px;
+  width:16px;height:16px;border-radius:50%;
+  border:1.5px solid #2a3d52;
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;color:transparent;
+}
+.model-card.selected .model-check{border-color:#3cc87a;background:#3cc87a;color:#0a1420;}
+
+/* ── 通信平台卡片 ── */
+.channel-cards{display:flex;flex-direction:column;gap:6px;}
+.channel-card{
+  border:1px solid #182030;border-radius:8px;
+  padding:14px 16px;display:flex;align-items:center;gap:14px;
+  transition:background .12s;
+}
+.channel-card:hover{background:rgba(255,255,255,.02);}
+.channel-icon{
+  width:36px;height:36px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;font-size:18px;
+}
+.channel-icon.tg{background:rgba(40,160,230,.12);}
+.channel-icon.wechat{background:rgba(60,200,100,.12);}
+.channel-icon.slack{background:rgba(160,60,220,.12);}
+.channel-icon.dingtalk{background:rgba(255,120,0,.12);}
+.channel-info{flex:1;min-width:0;}
+.channel-name{font-size:13px;font-weight:600;color:#c2cee0;}
+.channel-desc{font-size:11px;color:#4a6080;margin-top:2px;}
+.channel-status{
+  font-size:10px;padding:2px 8px;border-radius:10px;
+  flex-shrink:0;
+}
+.status-connected{background:rgba(60,200,122,.1);color:#3cc87a;}
+.status-off{background:rgba(255,255,255,.04);color:#4a6080;}
+
+/* 通知触发器 */
+.trigger-list{display:flex;flex-direction:column;gap:0;}
+.trigger-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 16px;border-bottom:1px solid #121e2c;
+}
+.trigger-row:last-child{border-bottom:none;}
+.trigger-icon{
+  width:22px;height:22px;border-radius:5px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;flex-shrink:0;
+}
+.trigger-info{flex:1;}
+.trigger-name{font-size:12px;color:#c2cee0;}
+.trigger-desc{font-size:10px;color:#4a6080;margin-top:1px;}
+
+/* Model toggle rows */
+.model-toggle-row {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 16px;
+  border:1px solid #182030;border-radius:8px;
+  margin-bottom:6px;
+  transition:border-color .12s,background .12s;
+}
+.model-toggle-row.on { border-color:#1e3028;background:rgba(60,200,122,.03); }
+.mt-left { display:flex;align-items:center;gap:12px;flex:1;min-width:0; }
+.mt-dot {
+  width:7px;height:7px;border-radius:50%;
+  background:#3cc87a;box-shadow:0 0 5px rgba(60,200,122,.5);
+  flex-shrink:0;transition:background .2s,box-shadow .2s;
+}
+.mt-dot.off { background:#2a3d52;box-shadow:none; }
+.mt-info { min-width:0; }
+.mt-name { font-size:12px;font-weight:600;color:#c2cee0;display:flex;align-items:center;gap:7px; }
+.mt-desc { font-size:11px;color:#4a6080;margin-top:3px; }
+
+/* 对话预览区 */
+.model-switcher-preview {
+  background:#080f1a;
+  border:1px solid #182030;
+  border-radius:10px;
+  padding:14px 14px 10px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.preview-bubble {
+  align-self:flex-end;
+  background:rgba(60,200,122,.1);
+  border:1px solid rgba(60,200,122,.15);
+  color:#a8e6c4;
+  font-size:12px;line-height:1.5;
+  padding:8px 12px;border-radius:10px 10px 2px 10px;
+  max-width:80%;
+}
+.preview-input-row {
+  display:flex;align-items:center;gap:8px;
+  background:#0c1828;border:1px solid #1e2d40;
+  border-radius:8px;padding:7px 10px;
+}
+.preview-input-box {
+  flex:1;font-size:12px;color:#3a5068;
+}
+.preview-model-pills {
+  display:flex;gap:4px;flex-shrink:0;
+}
+.model-pill {
+  height:22px;padding:0 10px;border-radius:11px;
+  font-size:10px;font-weight:500;cursor:pointer;
+  border:1px solid #2a3d52;
+  background:transparent;color:#4a6080;
+  display:flex;align-items:center;
+  transition:all .12s;user-select:none;
+}
+.model-pill:hover { color:#8a9ab0;border-color:#3a5068; }
+.model-pill.active {
+  background:rgba(60,200,122,.12);
+  border-color:rgba(60,200,122,.3);
+  color:#3cc87a;
+}
+
+/* Provider cards */
+.provider-list { display:flex;flex-direction:column;gap:6px; }
+.provider-card {
+  border:1px solid #182030;border-radius:10px;overflow:hidden;
+  transition:border-color .12s;
+}
+.provider-card.connected { border-color:#1e3028; }
+.provider-header {
+  display:flex;align-items:center;gap:12px;
+  padding:13px 14px;cursor:pointer;
+  transition:background .1s;
+}
+.provider-header:hover { background:rgba(255,255,255,.02); }
+.provider-logo {
+  width:36px;height:36px;border-radius:8px;
+  border:1px solid #1e2d40;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.provider-info { flex:1;min-width:0; }
+.provider-name { font-size:13px;font-weight:600;color:#c2cee0; }
+.provider-status { font-size:11px;color:#4a6080;margin-top:2px; }
+.provider-status.connected { color:#3cc87a; }
+.provider-actions { display:flex;align-items:center;gap:8px;flex-shrink:0; }
+.provider-chev {
+  color:#3a5068;font-size:14px;
+  transition:transform .18s cubic-bezier(.4,0,.2,1);
+  display:inline-block;transform:rotate(90deg);
+}
+.provider-chev.collapsed { transform:rotate(0deg); }
+
+.btn-sm { height:24px;padding:0 10px;font-size:10px; }
+.btn-blue { background:rgba(91,141,239,.1);color:#5b8def;border-color:rgba(91,141,239,.25); }
+.btn-blue:hover { background:rgba(91,141,239,.17);border-color:rgba(91,141,239,.4);color:#7aaaf5; }
+
+/* Provider model list */
+.provider-models {
+  border-top:1px solid #182030;
+  overflow:hidden;
+  max-height:400px;
+  transition:max-height .22s cubic-bezier(.4,0,.2,1);
+}
+.provider-models.collapsed { max-height:0;border-top:none; }
+
+.pm-row {
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px 10px 62px;
+  border-bottom:1px solid #0e1a28;
+  transition:background .1s;
+}
+.pm-row:last-child { border-bottom:none; }
+.pm-row:hover { background:rgba(255,255,255,.02); }
+.pm-row.on { background:rgba(60,200,122,.025); }
+.pm-info { flex:1;display:flex;align-items:center;gap:7px;flex-wrap:wrap; }
+.pm-name { font-size:12px;font-weight:500;color:#c2cee0; }
+.pm-ctx { font-size:10px;color:#3a5068;margin-left:2px; }
+
+/* 内联配置区 */
+.provider-config {
+  border-top: 1px solid #182030;
+  padding: 14px 16px;
+  background: rgba(255,255,255,.015);
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height .22s cubic-bezier(.4,0,.2,1), padding .22s;
+  padding-top: 0; padding-bottom: 0;
+}
+.provider-config.open {
+  max-height: 160px;
+  padding: 14px 16px;
+}
+.config-field { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.config-field label { font-size:11px; color:#7a90a8; width:70px; flex-shrink:0; }
+.config-input-wrap { flex:1; position:relative; }
+.config-input {
+  width:100%; height:30px; padding:0 32px 0 10px;
+  border-radius:6px; border:1px solid #2a3d52;
+  background:#060e1a; color:#c2cee0; font-size:11px;
+  outline:none; font-family:inherit; transition:border-color .12s;
+  box-sizing:border-box;
+}
+.config-input:focus { border-color:#3a5570; }
+.config-input::placeholder { color:#3a5068; }
+.config-eye {
+  position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  background:none; border:none; color:#4a6080; cursor:pointer;
+  font-size:12px; padding:0; line-height:1;
+}
+.config-hint { font-size:10px; color:#3a5068; margin-bottom:10px; padding-left:80px; }
+.config-hint a { color:#5b8def; text-decoration:none; }
+.config-actions { display:flex; align-items:center; gap:8px; padding-left:80px; }
+.config-status { flex:1; font-size:10px; color:#4a6080; }
+
+/* ═══ 模型面板 — 方案 D 左右分栏 ═══ */
+.md-wrap{display:flex;border:1px solid #182030;border-radius:10px;overflow:hidden;min-height:320px;}
+.md-list{
+  width:180px;border-right:1px solid #182030;flex-shrink:0;background:#0c1520;
+  overflow-y:auto;
+}
+.md-list-item{
+  display:flex;align-items:center;gap:10px;padding:11px 12px;
+  cursor:pointer;transition:background .1s;font-size:12px;color:#7a90a8;
+  border-bottom:1px solid #121e2c;position:relative;
+}
+.md-list-item:last-child{border-bottom:none;}
+.md-list-item:hover{background:rgba(255,255,255,.03);}
+.md-list-item.active{background:rgba(255,255,255,.05);color:#c2cee0;}
+.md-list-item.active::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;
+  width:2px;border-radius:0 1px 1px 0;background:#3cc87a;
+}
+.md-list-logo{
+  width:26px;height:26px;border-radius:6px;border:1px solid #1e2d40;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;
+}
+.md-list-logo img{width:16px;height:16px;object-fit:contain;}
+.md-status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.md-status-dot.ok{background:#3cc87a;box-shadow:0 0 5px rgba(60,200,122,.5);}
+.md-status-dot.off{background:#2a3d52;}
+
+.md-detail{flex:1;padding:18px 20px;overflow-y:auto;}
+.md-detail::-webkit-scrollbar{width:3px;}
+.md-detail::-webkit-scrollbar-thumb{background:#1e2d40;border-radius:2px;}
+.md-detail-title{font-size:16px;font-weight:600;color:#c2cee0;margin-bottom:4px;}
+.md-detail-status{font-size:11px;color:#4a6080;display:flex;align-items:center;gap:6px;margin-bottom:16px;}
+.md-section-label{font-size:9px;color:#3a5068;text-transform:uppercase;letter-spacing:.6px;margin:16px 0 8px;}
+.md-section-label:first-of-type{margin-top:0;}
+.md-field{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.md-field label{font-size:11px;color:#7a90a8;width:68px;flex-shrink:0;}
+.md-field-hint{font-size:9px;color:#3a5068;padding-left:78px;margin-top:-6px;margin-bottom:8px;}
+.md-field-hint a{color:#5b8def;text-decoration:none;}
+
+.md-model-row{
+  display:flex;align-items:center;gap:10px;padding:9px 0;
+  border-bottom:1px solid #121e2c;
+}
+.md-model-row:last-child{border-bottom:none;}
+.md-model-name{
+  font-size:12px;font-weight:500;color:#c2cee0;flex:1;
+  display:flex;align-items:center;gap:7px;
+}
+.md-model-ctx{font-size:10px;color:#3a5068;}
+
+.oauth-btn-md{
+  height:28px;padding:0 14px;border-radius:6px;font-size:10px;font-weight:500;
+  cursor:pointer;border:1px solid #2a3d52;background:rgba(255,255,255,.04);color:#8a9ab0;
+  display:flex;align-items:center;gap:6px;transition:all .12s;
+}
+.oauth-btn-md:hover{background:rgba(255,255,255,.07);color:#c2cee0;}
+.oauth-btn-md img{width:14px;height:14px;border-radius:3px;}
+
+/* ── 连接方式：B=Tab / D=Dropdown 共用 ── */
+.md-auth-switch{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-bottom:14px;}
+.md-auth-switch-lbl{font-size:10px;color:#3a5068;}
+.md-ui-btn{
+  height:22px;padding:0 9px;border-radius:5px;
+  border:1px solid #2a3d52;background:transparent;
+  font-size:10px;color:#5a7290;cursor:pointer;transition:all .12s;
+}
+.md-ui-btn:hover{color:#a0b4cc;}
+.md-ui-btn.active{background:rgba(255,255,255,.07);color:#e3ebf8;border-color:#3a516a;}
+
+/* B – Tab 标签页 */
+.md-auth-tabs{display:flex;gap:0;border-bottom:1px solid #182030;margin-bottom:0;}
+.md-auth-tab{
+  padding:7px 16px;font-size:11px;font-weight:500;cursor:pointer;
+  color:#5a7290;border-bottom:2px solid transparent;transition:all .12s;user-select:none;
+}
+.md-auth-tab:hover{color:#a0b4cc;}
+.md-auth-tab.active{color:#e3ebf8;border-bottom-color:#3cc87a;}
+.md-auth-tab .tab-rec{
+  font-size:8px;padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:5px;
+  background:rgba(60,200,122,.12);color:#3cc87a;
+}
+/* 整个认证区块（Tab栏 + 内容）固定高度，切换时下方不跳动 */
+.md-auth-block{
+  height:168px;          /* Tab栏≈34px + 内容≈134px */
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.md-auth-body{
+  flex:1;
+  padding-top:14px;
+  overflow-y:auto;
+}
+.md-auth-body::-webkit-scrollbar{width:3px;}
+.md-auth-body::-webkit-scrollbar-thumb{background:#1e2d40;border-radius:2px;}
+
+/* D – 下拉菜单 */
+.md-auth-sel-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.md-auth-sel-row label{font-size:11px;color:#7b90ac;width:60px;flex-shrink:0;}
+.md-auth-select{
+  height:32px;padding:0 30px 0 12px;border-radius:7px;flex:1;
+  border:1px solid #2a3d52;background:#0c1520;color:#e3ebf8;
+  font-size:11px;cursor:pointer;outline:none;
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a7290' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;
+  transition:border-color .12s;
+}
+.md-auth-select:hover{border-color:#3a516a;}
+.md-auth-dd-panel{display:none;}
+.md-auth-dd-panel.active{display:block;}
+
+/* 共用 – 状态行 / 操作按钮 / 提示 */
+.md-conn-info{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;
+  border:1px solid #1a2a3a;border-radius:8px;background:rgba(60,200,122,.03);
+  margin-bottom:10px;font-size:11px;
+}
+.md-conn-info .ci-email{color:#e3ebf8;font-weight:500;}
+.md-conn-info .ci-badge{
+  font-size:9px;padding:2px 6px;border-radius:4px;
+  background:rgba(60,200,122,.12);color:#3cc87a;
+}
+.md-conn-info .ci-time{color:#4f637c;margin-left:auto;font-size:10px;}
+.md-conn-actions{display:flex;gap:8px;margin-bottom:0;}
+.md-oauth-big{
+  display:flex;align-items:center;gap:10px;
+  height:40px;padding:0 16px;border-radius:9px;
+  border:1px solid #2a3d52;background:rgba(255,255,255,.03);
+  color:#e3ebf8;font-size:12px;font-weight:500;cursor:pointer;transition:all .12s;width:100%;
+}
+.md-oauth-big:hover{background:rgba(255,255,255,.06);border-color:#3a5068;}
+.md-oauth-big img{width:18px;height:18px;border-radius:3px;}
+.md-oauth-big .arr{margin-left:auto;color:#3a5068;font-size:14px;}
+.md-note{
+  padding:9px 12px;border-radius:8px;margin-top:12px;
+  background:rgba(104,162,255,.06);color:#88b6ff;font-size:10px;line-height:1.6;
+}
+.md-key-row{display:flex;gap:6px;align-items:center;margin-bottom:10px;}
+.md-key-row .input-field{flex:1;}
+
+/* Panel 切换 */
+.panel{display:none;}
+.panel.active{display:block;}
+
+/* Input field */
+.input-field{
+  height:30px;padding:0 10px;border-radius:6px;
+  border:1px solid #2a3d52;background:#080f1a;
+  color:#c2cee0;font-size:11px;outline:none;
+  font-family:inherit;width:100%;max-width:260px;
+  transition:border-color .12s;
+}
+.input-field:focus{border-color:#3a5570;}
+.input-field::placeholder{color:#3a5068;}
+</style>
+</head>
+<body>
+
+<!-- TitleBar (只保留方案 A) -->
+<div class="titlebar">
+  <div class="tb-traffic-spacer"></div>
+  <span class="tb-appname">ThunderClaw</span>
+  <div class="tb-right">
+    <button class="tb-panel-btn" title="左侧栏">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <line x1="5.5" y1="2.5" x2="5.5" y2="13.5" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+    </button>
+    <button class="tb-panel-btn" title="交易栏">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+    </button>
+    <span class="tb-divider"></span>
+    <!-- 方案 A：大图标按钮 -->
+    <button class="settings-btn" onclick="openSettings()" title="设置">
+      <svg viewBox="0 0 20 20" fill="none">
+        <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M16.2 10c0-.34-.03-.67-.08-1l1.57-1.23a.4.4 0 0 0 .09-.5l-1.49-2.57a.4.4 0 0 0-.48-.17l-1.85.74a7.4 7.4 0 0 0-1.73-1L12 2.42A.4.4 0 0 0 11.6 2H8.4a.4.4 0 0 0-.4.42l-.23 1.85a7.4 7.4 0 0 0-1.73 1l-1.85-.74a.4.4 0 0 0-.48.17L2.22 7.27a.39.39 0 0 0 .09.5L3.88 9c-.05.33-.08.66-.08 1s.03.67.08 1l-1.57 1.23a.4.4 0 0 0-.09.5l1.49 2.57c.1.18.31.25.48.17l1.85-.74c.53.39 1.11.72 1.73 1l.23 1.85c.04.23.24.42.4.42h3.2c.18 0 .36-.19.4-.42l.23-1.85a7.4 7.4 0 0 0 1.73-1l1.85.74c.18.08.38 0 .48-.17l1.49-2.57a.39.39 0 0 0-.09-.5L16.12 11c.05-.33.08-.66.08-1Z" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- Workspace -->
+<div class="workspace" id="workspace">
+  <div class="workspace-placeholder">工作区 — 点击右上角齿轮打开设置</div>
+
+  <!-- Settings Panel -->
+  <div class="settings-overlay" id="settingsOverlay" style="display:none">
+
+    <!-- 左侧导航 -->
+    <div class="settings-nav">
+      <div class="settings-nav-header">
+        设置
+        <button class="settings-nav-close" onclick="closeSettings()">✕</button>
+      </div>
+
+      <div class="nav-group-label">应用</div>
+      <div class="nav-item active" onclick="switchPanel('general',this)">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M16.2 10c0-.34-.03-.67-.08-1l1.57-1.23a.4.4 0 0 0 .09-.5l-1.49-2.57a.4.4 0 0 0-.48-.17l-1.85.74a7.4 7.4 0 0 0-1.73-1L12 2.42A.4.4 0 0 0 11.6 2H8.4a.4.4 0 0 0-.4.42l-.23 1.85a7.4 7.4 0 0 0-1.73 1l-1.85-.74a.4.4 0 0 0-.48.17L2.22 7.27a.39.39 0 0 0 .09.5L3.88 9c-.05.33-.08.66-.08 1s.03.67.08 1l-1.57 1.23a.4.4 0 0 0-.09.5l1.49 2.57c.1.18.31.25.48.17l1.85-.74c.53.39 1.11.72 1.73 1l.23 1.85c.04.23.24.42.4.42h3.2c.18 0 .36-.19.4-.42l.23-1.85a7.4 7.4 0 0 0 1.73-1l1.85.74c.18.08.38 0 .48-.17l1.49-2.57a.39.39 0 0 0-.09-.5L16.12 11c.05-.33.08-.66.08-1Z" stroke="currentColor" stroke-width="1.3"/></svg>
+        通用
+      </div>
+      <div class="nav-item" onclick="switchPanel('model',this)">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 7h5M5.5 9.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        模型
+      </div>
+
+      <div class="nav-divider"></div>
+      <div class="nav-group-label">交易</div>
+      <div class="nav-item" onclick="switchPanel('trading',this)">
+        <svg viewBox="0 0 16 16" fill="none"><polyline points="2,12 5,7 8,9 11,4 14,6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="2" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        交易
+      </div>
+
+      <div class="nav-divider"></div>
+      <div class="nav-group-label">通知</div>
+      <div class="nav-item" onclick="switchPanel('notify',this)">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M8 2a5 5 0 0 0-5 5v2.5l-1 1.5h12l-1-1.5V7a5 5 0 0 0-5-5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.2"/></svg>
+        通信
+      </div>
+    </div>
+
+    <!-- 右侧内容 -->
+    <div class="settings-content">
+
+      <!-- 通用 -->
+      <div class="panel active" id="panel-general">
+        <div class="settings-section-title">通用</div>
+
+        <div class="settings-group-label">界面</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">启动时显示左侧栏</div>
+              <div class="settings-row-desc">默认打开策略/特征侧边栏</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">启动时显示交易栏</div>
+              <div class="settings-row-desc">默认打开底部实盘交易工作台</div>
+            </div>
+            <button class="toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">界面语言</div>
+            </div>
+            <select class="sel"><option>简体中文</option><option>English</option></select>
+          </div>
+        </div>
+
+        <div class="settings-group-label">通知</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">交易信号系统通知</div>
+              <div class="settings-row-desc">Agent 产生买卖信号时弹出系统通知</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">任务完成通知</div>
+              <div class="settings-row-desc">特征/策略生成任务完成后提醒</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+        </div>
+
+        <div class="settings-group-label">账户</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">账户管理</div>
+              <div class="settings-row-desc">查看订阅状态与使用量</div>
+            </div>
+            <button class="btn">打开</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 模型 -->
+      <div class="panel" id="panel-model">
+        <div class="settings-section-title">模型</div>
+        <div style="font-size:12px;color:#4a6080;margin-bottom:16px;line-height:1.6">
+          连接厂商账号或 API Key，开启所需模型后即可在对话框中切换使用。
+        </div>
+        <div class="md-wrap" id="modelPanel"></div>
+
+        <!-- 默认模型 -->
+        <div class="settings-group-label" style="margin-top:20px">默认模型</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">新建对话默认使用</div>
+              <div class="settings-row-desc">每次开启新 Agent 对话时默认选中的模型</div>
+            </div>
+            <select class="sel" id="defaultModelSel">
+              <option>Claude 4 Sonnet</option>
+              <option>GPT-4o</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 交易 -->
+      <div class="panel" id="panel-trading">
+        <div class="settings-section-title">交易</div>
+
+        <div class="settings-group-label">交易所连接</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">Binance</div>
+              <div class="settings-row-desc">未连接 — 点击配置 API Key</div>
+            </div>
+            <button class="btn">配置</button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">Bitget</div>
+              <div class="settings-row-desc" style="color:#3cc87a">已连接 · 只读模式</div>
+            </div>
+            <button class="btn btn-green">已连接</button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">OKX</div>
+              <div class="settings-row-desc">未连接 — 点击配置 API Key</div>
+            </div>
+            <button class="btn">配置</button>
+          </div>
+        </div>
+
+        <div class="settings-group-label">风控</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">单笔最大仓位</div>
+              <div class="settings-row-desc">每笔交易最多使用总资金比例</div>
+            </div>
+            <select class="sel"><option>5%</option><option>10%</option><option>20%</option></select>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">最大回撤止损</div>
+              <div class="settings-row-desc">达到阈值自动暂停所有策略</div>
+            </div>
+            <select class="sel"><option>10%</option><option>15%</option><option>20%</option></select>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">实盘下单二次确认</div>
+              <div class="settings-row-desc">每笔实盘下单前需手动确认</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+        </div>
+
+        <div class="settings-group-label">回测默认参数</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info"><div class="settings-row-title">默认回测周期</div></div>
+            <select class="sel"><option>近 3 个月</option><option>近 6 个月</option><option>近 1 年</option></select>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">手续费率</div>
+              <div class="settings-row-desc">回测时使用的默认手续费</div>
+            </div>
+            <select class="sel"><option>0.05%</option><option>0.1%</option><option>0.2%</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 通信 -->
+      <div class="panel" id="panel-notify">
+        <div class="settings-section-title">通信</div>
+        <div style="font-size:12px;color:#4a6080;margin-bottom:20px;line-height:1.6">
+          连接消息机器人，实时接收交易信号、Agent 任务状态和风控预警推送。
+        </div>
+
+        <div class="settings-group-label">连接平台</div>
+        <div class="channel-cards">
+
+          <!-- Telegram -->
+          <div class="channel-card">
+            <div class="channel-icon tg">
+              <!-- Telegram 纸飞机 -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M22 3 2 10.5l7 2.5M22 3l-6 18-5-5.5M22 3 9 13m0 0 3 8 2-4.5" stroke="#28a0e6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="channel-info">
+              <div class="channel-name">Telegram Bot</div>
+              <div class="channel-desc">通过 Bot Token 接收推送，支持命令交互</div>
+            </div>
+            <span class="channel-status status-connected">已连接</span>
+          </div>
+
+          <!-- 飞书 -->
+          <div class="channel-card">
+            <div class="channel-icon" style="background:rgba(50,130,255,.12);">
+              <!-- 飞书：两片叶子/羽翼 -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M5 19c2-4 5-7 9-9-2 4-5 7-9 9Z" stroke="#3282ff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="rgba(50,130,255,.15)"/>
+                <path d="M12 5c1 3 1 7-1 11 2-4 5-7 8-8-3 1-6 1-7-3Z" stroke="#3282ff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="rgba(50,130,255,.1)"/>
+              </svg>
+            </div>
+            <div class="channel-info">
+              <div class="channel-name">飞书</div>
+              <div class="channel-desc">通过飞书机器人 Webhook 推送消息</div>
+            </div>
+            <button class="btn" style="flex-shrink:0">配置</button>
+          </div>
+
+          <!-- Slack -->
+          <div class="channel-card">
+            <div class="channel-icon slack">
+              <!-- Slack 四色 # 图标简化版 -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="10" width="16" height="3.2" rx="1.6" stroke="#a03cdc" stroke-width="1.3"/>
+                <rect x="10" y="4" width="3.2" height="16" rx="1.6" stroke="#a03cdc" stroke-width="1.3"/>
+              </svg>
+            </div>
+            <div class="channel-info">
+              <div class="channel-name">Slack</div>
+              <div class="channel-desc">推送至指定 Slack 频道或私信</div>
+            </div>
+            <button class="btn" style="flex-shrink:0">配置</button>
+          </div>
+
+          <!-- 钉钉 -->
+          <div class="channel-card">
+            <div class="channel-icon dingtalk">
+              <!-- 钉钉：钉子形状 -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M12 3v10m0 0-5 8h10l-5-8Z" stroke="#ff7800" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="12" cy="8" r="2.5" stroke="#ff7800" stroke-width="1.3"/>
+              </svg>
+            </div>
+            <div class="channel-info">
+              <div class="channel-name">钉钉</div>
+              <div class="channel-desc">通过钉钉机器人 Webhook 推送</div>
+            </div>
+            <button class="btn" style="flex-shrink:0">配置</button>
+          </div>
+        </div>
+
+        <!-- Telegram 已连接详情 -->
+        <div class="settings-group-label">Telegram 配置</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">Bot Token</div>
+              <div class="settings-row-desc">在 @BotFather 处创建 Bot 获取</div>
+            </div>
+            <input class="input-field" type="password" value="7823401234:AAHxxx…" placeholder="粘贴 Bot Token"/>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">Chat ID</div>
+              <div class="settings-row-desc">接收消息的用户或群组 ID</div>
+            </div>
+            <input class="input-field" value="@my_trading_group" placeholder="Chat ID 或 @username"/>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-title">连接状态</div>
+              <div class="settings-row-desc" style="color:#3cc87a">已连接 · 最近推送 2 分钟前</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn" onclick="alert('测试消息已发送！')">发送测试</button>
+              <button class="btn btn-red">断开</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group-label">推送触发条件</div>
+        <div class="settings-card trigger-list">
+          <div class="trigger-row">
+            <div class="trigger-icon" style="background:rgba(60,200,122,.1);color:#3cc87a">↑</div>
+            <div class="trigger-info">
+              <div class="trigger-name">买入信号</div>
+              <div class="trigger-desc">Agent 发出 BUY 信号时推送</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="trigger-row">
+            <div class="trigger-icon" style="background:rgba(220,60,60,.1);color:#e05050">↓</div>
+            <div class="trigger-info">
+              <div class="trigger-name">卖出信号</div>
+              <div class="trigger-desc">Agent 发出 SELL 信号时推送</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="trigger-row">
+            <div class="trigger-icon" style="background:rgba(220,60,60,.12);color:#e05050">!</div>
+            <div class="trigger-info">
+              <div class="trigger-name">风控预警</div>
+              <div class="trigger-desc">回撤超阈值或强制平仓时立即推送</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="trigger-row">
+            <div class="trigger-icon" style="background:rgba(232,168,74,.1);color:#e8a84a">✓</div>
+            <div class="trigger-info">
+              <div class="trigger-name">任务完成</div>
+              <div class="trigger-desc">特征/策略生成任务完成时推送</div>
+            </div>
+            <button class="toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="trigger-row">
+            <div class="trigger-icon" style="background:rgba(91,141,239,.1);color:#5b8def">i</div>
+            <div class="trigger-info">
+              <div class="trigger-name">每日收益报告</div>
+              <div class="trigger-desc">每天 20:00 推送当日盈亏汇总</div>
+            </div>
+            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settings-content -->
+  </div><!-- /settings-overlay -->
+</div><!-- /workspace -->
+
+<!-- 连接弹窗 -->
+<div id="connectModal" style="display:none;position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;">
+  <div id="connectBackdrop" onclick="closeConnectModal()" style="position:absolute;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);"></div>
+  <div id="connectBox" style="
+    position:relative;z-index:1;
+    width:420px;
+    background:#0c1828;
+    border:1px solid #1e2d40;
+    border-radius:12px;
+    box-shadow:0 24px 60px rgba(0,0,0,.6);
+    animation:modalIn .18s cubic-bezier(.4,0,.2,1);
+  ">
+    <div id="modalHeader" style="display:flex;align-items:center;gap:12px;padding:20px 20px 0;"></div>
+    <div id="modalBody" style="padding:16px 20px 20px;"></div>
+  </div>
+</div>
+
+<style>
+@keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-title{font-size:15px;font-weight:600;color:#c2cee0;}
+.modal-subtitle{font-size:11px;color:#4a6080;margin-top:3px;}
+.modal-field{margin-bottom:14px;}
+.modal-field label{display:block;font-size:11px;color:#7a90a8;margin-bottom:6px;}
+.modal-input{
+  width:100%;height:34px;padding:0 36px 0 12px;
+  border-radius:7px;border:1px solid #2a3d52;
+  background:#080f1a;color:#c2cee0;font-size:12px;
+  outline:none;font-family:inherit;transition:border-color .12s;
+  box-sizing:border-box;
+}
+.modal-input:focus{border-color:#3a5570;}
+.modal-input-wrap{position:relative;}
+.modal-eye{
+  position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  background:none;border:none;color:#4a6080;cursor:pointer;font-size:13px;
+  padding:0;transition:color .12s;
+}
+.modal-eye:hover{color:#8a9ab0;}
+.modal-hint{font-size:10px;color:#3a5068;margin-top:5px;}
+.modal-hint a{color:#5b8def;text-decoration:none;}
+.modal-hint a:hover{text-decoration:underline;}
+.modal-footer{display:flex;align-items:center;gap:8px;padding-top:4px;}
+.modal-test{font-size:11px;color:#4a6080;flex:1;}
+.btn-cancel{background:transparent;border:1px solid #2a3d52;color:#7a90a8;}
+.btn-save{background:rgba(60,200,122,.15);border-color:rgba(60,200,122,.3);color:#3cc87a;font-weight:600;}
+.btn-save:hover{background:rgba(60,200,122,.22);}
+</style>
+
+<script>
+function openSettings(){
+  document.getElementById('settingsOverlay').style.display='flex';
+}
+function closeSettings(){
+  document.getElementById('settingsOverlay').style.display='none';
+}
+
+/* ═══ 模型面板 — B/D 双方案连接方式 ═══ */
+const MD_PROVS = [
+  { id:'anthropic', name:'Anthropic',
+    connected:true, activeMethod:'oauth', lastPing:'12s',
+    supportsOAuth:true, oauthLabel:'Anthropic 账号',
+    oauthConnected:true, oauthEmail:'aragorn@example.com', oauthVerify:'12s',
+    key:'sk-ant-api03-xxxx', placeholder:'sk-ant-api03-…', hint:'console.anthropic.com',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg',
+    logoBg:'background:#cc785c;', logoFilter:'filter:brightness(10);',
+    models:[{n:'Claude 4 Sonnet',b:'推荐',bc:'badge-green',c:'200K',on:true},
+            {n:'Claude 3.5 Sonnet',b:'',bc:'',c:'200K',on:true},
+            {n:'Claude 3.5 Haiku',b:'快速',bc:'badge-blue',c:'200K',on:false},
+            {n:'Claude 3 Opus',b:'',bc:'',c:'200K',on:false}]},
+  { id:'openai', name:'OpenAI',
+    connected:true, activeMethod:'oauth', lastPing:'8s',
+    supportsOAuth:true, oauthLabel:'OpenAI 账号',
+    oauthConnected:true, oauthEmail:'aragorn@example.com', oauthVerify:'8s',
+    key:'sk-proj-xxxx', placeholder:'sk-proj-…', hint:'platform.openai.com',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg',
+    logoBg:'background:#fff;', logoFilter:'',
+    models:[{n:'GPT-4o',b:'',bc:'',c:'128K',on:true},
+            {n:'GPT-4o mini',b:'快速',bc:'badge-blue',c:'128K',on:false},
+            {n:'o1',b:'推理',bc:'badge-gold',c:'128K',on:false},
+            {n:'o3-mini',b:'推理',bc:'badge-gold',c:'128K',on:false}]},
+  { id:'deepseek', name:'DeepSeek',
+    connected:false, activeMethod:'apikey', lastPing:'',
+    supportsOAuth:false, oauthLabel:'',
+    oauthConnected:false, oauthEmail:'', oauthVerify:'',
+    key:'', placeholder:'sk-…', hint:'platform.deepseek.com',
+    logo:'https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg',
+    logoBg:'background:#fff;', logoFilter:'',
+    models:[{n:'DeepSeek-V3',b:'低成本',bc:'badge-blue',c:'64K',on:false},
+            {n:'DeepSeek-R1',b:'推理',bc:'badge-gold',c:'64K',on:false}]},
+  { id:'google', name:'Google Gemini',
+    connected:false, activeMethod:'oauth', lastPing:'',
+    supportsOAuth:true, oauthLabel:'Google 账号',
+    oauthConnected:false, oauthEmail:'', oauthVerify:'',
+    key:'', placeholder:'AIza…', hint:'aistudio.google.com',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg',
+    logoBg:'background:#fff;', logoFilter:'',
+    models:[{n:'Gemini 2.0 Pro',b:'',bc:'',c:'1M',on:false},
+            {n:'Gemini 2.0 Flash',b:'快速',bc:'badge-blue',c:'1M',on:false}]},
+  { id:'xai', name:'xAI Grok',
+    connected:false, activeMethod:'apikey', lastPing:'',
+    supportsOAuth:false, oauthLabel:'',
+    oauthConnected:false, oauthEmail:'', oauthVerify:'',
+    key:'', placeholder:'xai-…', hint:'console.x.ai',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg',
+    logoBg:'background:#fff;', logoFilter:'',
+    models:[{n:'Grok-2',b:'',bc:'',c:'128K',on:false}]},
+];
+
+let currentMD = 'anthropic';
+let authUIMode = 'tab'; // 'tab'=方案B | 'dropdown'=方案D
+
+/* ── OAuth 内容块 ── */
+function buildOAuthContent(dp) {
+  if (dp.oauthConnected) {
+    return '<div class="md-conn-info">' +
+        '<span class="md-status-dot ok"></span>' +
+        '<span class="ci-email">' + dp.oauthEmail + '</span>' +
+        '<span class="ci-badge">已授权</span>' +
+        '<span class="ci-time">上次验证 ' + dp.oauthVerify + ' 前</span>' +
+      '</div>' +
+      '<div class="md-conn-actions">' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px">重新授权</button>' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px">刷新状态</button>' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px;color:#e05050;border-color:rgba(220,60,60,.2);background:rgba(220,60,60,.06)">断开授权</button>' +
+      '</div>' +
+      '<div class="md-note">当前通过 OAuth 主账号连接，令牌自动续期。若需切换到 API Key，可在右侧 Tab / 上方下拉菜单中选择。</div>';
+  }
+  return '<button class="md-oauth-big" onclick="alert(\'跳转 ' + dp.oauthLabel + ' OAuth 授权页…\')">' +
+      '<img src="' + dp.logo + '" style="object-fit:contain;' + dp.logoFilter + '"/>' +
+      dp.oauthLabel + ' 登录授权<span class="arr">↗</span>' +
+    '</button>' +
+    '<div class="md-note">点击后将在浏览器中打开授权页，授权完成后自动返回。令牌自动续期，可随时撤销。</div>';
+}
+
+/* ── API Key 内容块 ── */
+function buildApiKeyContent(dp, isActiveMethod) {
+  if (dp.connected && isActiveMethod) {
+    return '<div class="md-conn-info">' +
+        '<span class="md-status-dot ok"></span>' +
+        '<span style="font-family:monospace;font-size:10px;color:#e3ebf8;font-weight:500">sk-ant-api03-••••••••xxxx</span>' +
+        '<span class="ci-badge">有效</span>' +
+        '<span class="ci-time">上次测试 ' + dp.lastPing + ' 前</span>' +
+      '</div>' +
+      '<div class="md-conn-actions">' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px">修改 Key</button>' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px">测试连接</button>' +
+        '<button class="btn" style="height:28px;padding:0 10px;font-size:10px;color:#e05050;border-color:rgba(220,60,60,.2);background:rgba(220,60,60,.06)">断开</button>' +
+      '</div>';
+  }
+  return '<div class="md-key-row">' +
+      '<input class="input-field" type="password" placeholder="' + dp.placeholder + '" style="flex:1;height:30px;padding:0 10px;border-radius:6px;"/>' +
+      '<button class="btn btn-green" style="height:30px;padding:0 12px;font-size:10px;flex-shrink:0">连接</button>' +
+      '<button class="btn" style="height:30px;padding:0 10px;font-size:10px;flex-shrink:0">测试</button>' +
+    '</div>' +
+    '<div style="font-size:9px;color:#3a5068;margin-top:-4px;margin-bottom:10px">在 <a href="#" onclick="return false" style="color:#5b8def">' + dp.hint + '</a> 获取 API Key</div>';
+}
+
+/* ── 方案 B：Tab 标签页 ── */
+function buildTabAuth(dp) {
+  const oauthActive = dp.activeMethod === 'oauth';
+  if (!dp.supportsOAuth) {
+    return '<div class="md-auth-block">' +
+      '<div style="font-size:11px;color:#7a90a8;margin-bottom:8px">仅支持 API Key 连接方式</div>' +
+      '<div class="md-auth-body">' + buildApiKeyContent(dp, true) + '</div>' +
+    '</div>';
+  }
+  const tabs =
+    '<div class="md-auth-tabs">' +
+      '<div class="md-auth-tab ' + (oauthActive ? 'active' : '') + '" onclick="setAuthMode(\'' + dp.id + '\',\'oauth\')">' +
+        'OAuth 登录' +
+        (oauthActive ? '<span class="tab-rec">当前</span>' : '<span class="tab-rec" style="background:rgba(90,130,200,.1);color:#7aabff">推荐</span>') +
+      '</div>' +
+      '<div class="md-auth-tab ' + (!oauthActive ? 'active' : '') + '" onclick="setAuthMode(\'' + dp.id + '\',\'apikey\')">' +
+        'API Key' +
+        (!oauthActive && dp.connected ? '<span class="tab-rec">当前</span>' : '') +
+      '</div>' +
+    '</div>';
+  const panel = oauthActive
+    ? '<div class="md-auth-body">' + buildOAuthContent(dp) + '</div>'
+    : '<div class="md-auth-body">' + buildApiKeyContent(dp, !oauthActive) + '</div>';
+  return '<div class="md-auth-block">' + tabs + panel + '</div>';
+}
+
+/* ── 方案 D：下拉选择 ── */
+function buildDropdownAuth(dp) {
+  const oauthActive = dp.activeMethod === 'oauth';
+  const selectOptions = dp.supportsOAuth
+    ? '<option value="oauth"' + (oauthActive ? ' selected' : '') + '>OAuth 登录' + (dp.oauthConnected ? ' (当前)' : ' (推荐)') + '</option>' +
+      '<option value="apikey"' + (!oauthActive ? ' selected' : '') + '>API Key' + (!oauthActive && dp.connected ? ' (当前)' : '') + '</option>'
+    : '<option value="apikey" selected>API Key</option>';
+  const sel = '<div class="md-auth-sel-row">' +
+    '<label>连接方式</label>' +
+    '<select class="md-auth-select" onchange="setAuthMode(\'' + dp.id + '\',this.value)">' + selectOptions + '</select>' +
+  '</div>';
+  const panel = (dp.supportsOAuth && oauthActive)
+    ? buildOAuthContent(dp)
+    : buildApiKeyContent(dp, !oauthActive || !dp.supportsOAuth);
+  return sel + panel;
+}
+
+/* ── 切换连接方式 ── */
+function setAuthMode(id, mode) {
+  const dp = MD_PROVS.find(x => x.id === id);
+  dp.activeMethod = mode;
+  renderModelPanel();
+}
+
+function renderModelPanel() {
+  const dp = MD_PROVS.find(x => x.id === currentMD);
+
+  const statusHtml = dp.connected
+    ? '<span class="md-status-dot ok"></span><span style="color:#3cc87a">已连接</span><span style="color:#3a5068;font-size:9px;margin-left:3px">· 延迟 ' + dp.lastPing + '</span>'
+    : '<span class="md-status-dot off"></span><span style="color:#4a6080">未连接</span>';
+
+  const authHtml = buildTabAuth(dp);
+
+  const modelsHtml = dp.models.map(function(m) {
+    const badge = m.b ? '<span class="model-badge ' + m.bc + '">' + m.b + '</span>' : '';
+    const disabled = dp.connected ? '' : 'disabled style="opacity:.4"';
+    return '<div class="md-model-row"><div class="md-model-name">' + m.n + ' ' + badge +
+      '<span class="md-model-ctx">' + m.c + ' ctx</span></div>' +
+      '<button class="toggle ' + (m.on?'on':'') + '" onclick="this.classList.toggle(\'on\')" ' + disabled + '></button></div>';
+  }).join('');
+
+  const listHtml = MD_PROVS.map(function(p) {
+    return '<div class="md-list-item ' + (p.id===currentMD?'active':'') +
+      '" onclick="currentMD=\'' + p.id + '\';renderModelPanel()">' +
+      '<div class="md-list-logo" style="' + p.logoBg + 'border-color:' + (p.connected?'#1e3028':'#1e2d40') + ';">' +
+        '<img src="' + p.logo + '" width="16" height="16" style="object-fit:contain;' + p.logoFilter + '"/>' +
+      '</div>' +
+      '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:500">' + p.name + '</div>' +
+      '<span class="md-status-dot ' + (p.connected?'ok':'off') + '"></span>' +
+    '</div>';
+  }).join('');
+
+  document.getElementById('modelPanel').innerHTML =
+    '<div class="md-list">' + listHtml + '</div>' +
+    '<div class="md-detail">' +
+      '<div class="md-detail-title">' + dp.name + '</div>' +
+      '<div class="md-detail-status" style="margin-bottom:16px;">' + statusHtml + '</div>' +
+      '<div class="md-section-label" style="margin-top:0">连接方式</div>' +
+      authHtml +
+      '<div class="md-section-label" style="margin-top:18px;">可用模型</div>' +
+      modelsHtml +
+      (!dp.connected ? '<div style="font-size:10px;color:#3a5068;margin-top:8px">连接成功后方可启用模型</div>' : '') +
+    '</div>';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  renderModelPanel();
+});
+
+function switchPanel(id,el){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+}
+// 旧代码已移除，使用方案 D
+// unused below - kept to avoid syntax errors
+if(false){var PROVIDERS_UNUSED = [
+  { id:'anthropic', name:'Anthropic',     placeholder:'sk-ant-api03-…', hint:'console.anthropic.com', connected:true,
+    logo:'<img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg" width="22" height="22" style="filter:brightness(10);object-fit:contain;"/>',
+    logoBg:'background:#cc785c;border-color:#b05a38;',
+    models:[{n:'Claude 3.5 Sonnet',b:'推荐',bc:'badge-green',c:'200K',pill:'Claude 3.5',on:true},{n:'Claude 3.5 Haiku',b:'快速',bc:'badge-blue',c:'200K',pill:'Claude Haiku'},{n:'Claude 3 Opus',b:'',bc:'',c:'200K',pill:'Claude Opus'}] },
+  { id:'openai',    name:'OpenAI',        placeholder:'sk-proj-…',      hint:'platform.openai.com',  connected:true,
+    logo:'<img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg" width="22" height="22" style="object-fit:contain;"/>',
+    logoBg:'background:#fff;border-color:#e0e0e0;',
+    models:[{n:'GPT-4o',b:'',bc:'',c:'128K',pill:'GPT-4o',on:true},{n:'GPT-4o mini',b:'快速',bc:'badge-blue',c:'128K',pill:'GPT-4o mini'},{n:'o1',b:'推理',bc:'',c:'128K',pill:'o1'}] },
+  { id:'deepseek',  name:'DeepSeek',      placeholder:'sk-…',           hint:'platform.deepseek.com',connected:false,
+    logo:'<img src="https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg" width="24" height="24" style="object-fit:contain;"/>',
+    logoBg:'background:#fff;border-color:#dde5ff;padding:2px;',
+    models:[{n:'DeepSeek-V3',b:'低成本',bc:'badge-blue',c:'64K',pill:'DeepSeek-V3'},{n:'DeepSeek-R1',b:'推理',bc:'',c:'64K',pill:'DeepSeek-R1'}] },
+  { id:'google',    name:'Google Gemini', placeholder:'AIza…',          hint:'aistudio.google.com',  connected:false,
+    logo:'<img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg" width="22" height="22" style="object-fit:contain;"/>',
+    logoBg:'background:#fff;border-color:#e8eaf0;',
+    models:[{n:'Gemini 1.5 Pro',b:'',bc:'',c:'1M',pill:'Gemini Pro'},{n:'Gemini Flash',b:'快速',bc:'badge-blue',c:'1M',pill:'Gemini Flash'}] },
+  { id:'xai',       name:'xAI Grok',      placeholder:'xai-…',          hint:'console.x.ai',         connected:false,
+    logo:'<img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg" width="22" height="22" style="object-fit:contain;"/>',
+    logoBg:'background:#fff;border-color:#e0e0e0;',
+    models:[{n:'Grok-2',b:'',bc:'',c:'128K',pill:'Grok-2'}] },
+];
+
+function renderProviders() {
+  const list = document.getElementById('providerList');
+  list.innerHTML = PROVIDERS.map(p => {
+    const modelsHtml = p.models.map(m => {
+      const badge = m.b ? `<span class="model-badge ${m.bc}">${m.b}</span>` : '';
+      return `<div class="pm-row ${m.on?'on':''}">
+        <div class="pm-info"><span class="pm-name">${m.n}</span>${badge}<span class="pm-ctx">${m.c} ctx</span></div>
+        <button class="toggle ${m.on?'on':''}" onclick="togglePM(this,'${m.pill}')"></button>
+      </div>`;
+    }).join('');
+
+    return `<div class="provider-card ${p.connected?'connected':''}" id="prov-${p.id}">
+      <div class="provider-header" onclick="toggleProvider('${p.id}')">
+        <div class="provider-logo" style="${p.logoBg}padding:${p.id==='deepseek'?'2':'3'}px;">${p.logo}</div>
+        <div class="provider-info">
+          <div class="provider-name">${p.name}</div>
+          <div class="provider-status ${p.connected?'connected':''}" id="status-${p.id}">
+            ${p.connected ? '已连接 · API Key' : '未连接 — 点击配置 API Key'}
+          </div>
+        </div>
+        <div class="provider-actions">
+          <span class="provider-chev ${p.connected?'':'collapsed'}" id="chev-${p.id}">›</span>
+        </div>
+      </div>
+      <!-- 内联配置区 -->
+      <div class="provider-config" id="cfg-${p.id}" data-open="0" style="max-height:0;padding-top:0;padding-bottom:0;">
+        <div class="config-field">
+          <label>API Key</label>
+          <div class="config-input-wrap">
+            <input class="config-input" id="key-${p.id}" type="password" placeholder="${p.placeholder}" value="${p.connected?'sk-••••••••••••••••••••••':''}" autocomplete="off"/>
+            <button class="config-eye" onclick="event.stopPropagation();toggleEye('${p.id}')">👁</button>
+          </div>
+        </div>
+        <div class="config-hint">在 <a href="#" onclick="return false">${p.hint}</a> 获取 API Key</div>
+        <div class="config-actions">
+          <span class="config-status" id="cfg-status-${p.id}"></span>
+          <button class="btn btn-sm" onclick="event.stopPropagation();testCfg('${p.id}')">测试</button>
+          <button class="btn btn-sm btn-save" onclick="event.stopPropagation();saveCfg('${p.id}')">保存</button>
+          ${p.connected ? `<button class="btn btn-sm" style="color:#e05050;border-color:rgba(220,60,60,.2);background:rgba(220,60,60,.06);" onclick="event.stopPropagation();disconnect('${p.id}')">断开</button>` : ''}
+        </div>
+      </div>
+      <!-- 模型列表 -->
+      <div class="provider-models collapsed" id="models-${p.id}">${modelsHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleProvider(id) {
+  const cfg = document.getElementById('cfg-'+id);
+  const models = document.getElementById('models-'+id);
+  const chev = document.getElementById('chev-'+id);
+  const isOpen = cfg.dataset.open === '1';
+  if (isOpen) {
+    // 收起
+    cfg.style.maxHeight = '0'; cfg.style.paddingTop='0'; cfg.style.paddingBottom='0';
+    if (models) models.classList.add('collapsed');
+    chev.classList.add('collapsed');
+    cfg.dataset.open = '0';
+  } else {
+    // 展开
+    cfg.style.maxHeight = '200px'; cfg.style.paddingTop='14px'; cfg.style.paddingBottom='14px';
+    if (models) models.classList.remove('collapsed');
+    chev.classList.remove('collapsed');
+    cfg.dataset.open = '1';
+  }
+}
+
+function toggleEye(id) {
+  const inp = document.getElementById('key-'+id);
+  inp.type = inp.type==='password'?'text':'password';
+}
+
+function testCfg(id) {
+  const st = document.getElementById('cfg-status-'+id);
+  const val = document.getElementById('key-'+id).value.trim();
+  if (!val) { st.style.color='#e05050'; st.textContent='请输入 API Key'; return; }
+  st.style.color='#e8a84a'; st.textContent='验证中…';
+  setTimeout(()=>{ st.style.color='#3cc87a'; st.textContent='✓ 连接成功'; }, 1200);
+}
+
+function saveCfg(id) {
+  const val = document.getElementById('key-'+id).value.trim();
+  const st = document.getElementById('cfg-status-'+id);
+  if (!val) { st.style.color='#e05050'; st.textContent='请输入 API Key'; return; }
+  const p = PROVIDERS.find(x=>x.id===id);
+  p.connected = true;
+  renderProviders();
+  setTimeout(()=>toggleProvider(id), 50);
+}
+
+function disconnect(id) {
+  const p = PROVIDERS.find(x=>x.id===id);
+  p.connected = false;
+  p.models.forEach(m=>{ if(m.on){ m.on=false; removePill(m.pill); } });
+  renderProviders();
+}
+
+function openConnectModal(){} // 保留空函数防报错
+
+// 模拟连接厂商
+function connectProvider(id, btn) {
+  const card = document.getElementById('prov-'+id);
+  card.classList.add('connected');
+  const status = card.querySelector('.provider-status');
+  if (status) { status.textContent='已连接 · API Key'; status.classList.add('connected'); }
+  const actBtn = card.querySelector('.btn-blue');
+  if (actBtn) { actBtn.textContent='修改 Key'; actBtn.className='btn btn-sm'; actBtn.setAttribute('onclick',`event.stopPropagation();openConnectModal('${id}')`); }
+  if (document.getElementById('models-'+id)) { toggleProvider(id); return; }
+  const pInfo = PROVIDERS[id];
+  const defs = pInfo ? pInfo.models.map(m=>({name:m.n,badge:m.b,badgeCls:m.bc,ctx:m.c,pill:m.pill})) : [];
+  if (!defs.length) return;
+  let html = '';
+  defs.forEach(m => {
+    const badge = m.badge ? `<span class="model-badge ${m.badgeCls}">${m.badge}</span>` : '';
+    html += `<div class="pm-row"><div class="pm-info"><span class="pm-name">${m.name}</span>${badge}<span class="pm-ctx">${m.ctx}</span></div><button class="toggle" onclick="togglePM(this,'${m.pill}')"></button></div>`;
+  });
+  const chevId = 'chev-'+id;
+  const modelsDiv = document.createElement('div');
+  modelsDiv.className='provider-models collapsed';
+  modelsDiv.id='models-'+id;
+  modelsDiv.innerHTML=html;
+  // 加展开箭头
+  const actions = card.querySelector('.provider-actions');
+  const span = document.createElement('span');
+  span.className='provider-chev collapsed';
+  span.id=chevId;
+  span.textContent='›';
+  actions.appendChild(span);
+  card.querySelector('.provider-header').setAttribute('onclick',`toggleProvider('${id}')`);
+  card.appendChild(modelsDiv);
+  setTimeout(()=>toggleProvider(id),50);
+}
+
+// 开关单个模型并同步预览 pill
+function togglePM(btn, pillName) {
+  btn.classList.toggle('on');
+  const row = btn.closest('.pm-row');
+  row.classList.toggle('on');
+  const pills = document.getElementById('previewPills');
+  const existing = [...pills.querySelectorAll('.model-pill')].find(p=>p.dataset.name===pillName);
+  if (btn.classList.contains('on')) {
+    if (!existing) {
+      const p = document.createElement('div');
+      p.className = 'model-pill';
+      p.dataset.name = pillName;
+      p.textContent = pillName;
+      p.onclick = ()=>selectPill(p);
+      pills.appendChild(p);
+    }
+  } else {
+    existing && existing.remove();
+    if (!pills.querySelector('.model-pill.active') && pills.firstChild)
+      pills.firstChild.classList.add('active');
+  }
+}
+
+function selectPill(el){
+  document.querySelectorAll('.model-pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// 初始化已有 pill 的 data-name
+function removePill(name) {
+  const pills = document.getElementById('previewPills');
+  const el = [...pills.querySelectorAll('.model-pill')].find(p=>p.dataset.name===name);
+  if (el) { el.remove(); if (!pills.querySelector('.model-pill.active')&&pills.firstChild) pills.firstChild.classList.add('active'); }
+}
+
+} // end if(false)
+</script>
+</body>
+</html>

@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThunderClaw - Cursor Feel Demos</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #0d1118;
+      color: #c7d0e0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+    h1 { margin: 0; font-size: 14px; color: #95a4bd; font-weight: 600; letter-spacing: .2px; }
+    .desc { margin: 0; font-size: 12px; color: #73819a; }
+    .block { display: flex; flex-direction: column; gap: 8px; }
+    .title { font-size: 11px; color: #7d8ca4; letter-spacing: .35px; text-transform: uppercase; }
+
+    :root {
+      --bg: #0f141d;
+      --bg2: #111826;
+      --line: #232c3a;
+      --line-soft: #1c2433;
+      --text: #c7d0e0;
+      --muted: #7d8ca4;
+      --green: #32c87b;
+      --red: #ff5e7a;
+      --yellow: #f2be58;
+      --chip: #141e2f;
+    }
+
+    .bar {
+      height: 170px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .02);
+    }
+    .hd {
+      height: 32px;
+      min-height: 32px;
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid var(--line);
+      background: #0d1420;
+      user-select: none;
+    }
+    .hd-l, .hd-r {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .hd-l { width: 262px; flex-shrink: 0; }
+    .hd-r {
+      flex: 1;
+      border-left: 1px solid var(--line);
+      justify-content: space-between;
+      padding: 0 8px;
+    }
+    .tab {
+      height: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 11px;
+      border-right: 1px solid var(--line-soft);
+      white-space: nowrap;
+    }
+    .tab.active {
+      color: var(--text);
+      background: #111a28;
+    }
+    .tab .x { margin-left: 2px; color: #62718b; font-size: 10px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #4b5a73; }
+    .dot.g { background: var(--green); box-shadow: 0 0 4px rgba(50,200,123,.45); }
+
+    .vt {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #111a28;
+      padding: 2px;
+      gap: 2px;
+    }
+    .vt b {
+      width: 22px;
+      height: 18px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      color: #6f809c;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .vt b.on { background: rgba(255,255,255,.08); color: #c7d0e0; }
+    .body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      overflow: hidden;
+    }
+    .sec-pnl {
+      width: 262px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--line);
+      padding: 8px 12px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: #0e151f;
+    }
+    .big { font-size: 31px; line-height: 1; font-weight: 700; color: var(--green); letter-spacing: -.6px; }
+    .pct { font-size: 12px; color: var(--green); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: -1px; }
+    .kv4 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 2px 10px;
+      font-size: 10px;
+    }
+    .k { color: var(--muted); }
+    .v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); font-weight: 600; }
+    .v.neg { color: var(--red); }
+    .spark {
+      margin-top: auto;
+      height: 34px;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      background: linear-gradient(to bottom, rgba(50,200,123,.08), rgba(50,200,123,0));
+      padding: 3px 6px 2px;
+    }
+    .spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+    .sec-main {
+      flex: 1;
+      min-width: 0;
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    .sec-main::-webkit-scrollbar { height: 4px; }
+    .sec-main::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 3px; }
+    .card {
+      min-width: 190px;
+      flex: 0 0 190px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0d1624;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .card.buy { border-color: #204831; }
+    .card.sell { border-color: #4e2a34; }
+    .card.hold { border-color: #4f4324; }
+    .t1 { display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #7f90ab; }
+    .badge { font-size: 9px; padding: 1px 6px; border-radius: 4px; background: var(--chip); }
+    .sym { font-size: 27px; font-weight: 700; letter-spacing: -.6px; line-height: 1; }
+    .dir { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .t3 { display: flex; justify-content: space-between; align-items: flex-end; }
+    .sig { font-size: 13px; font-weight: 700; }
+    .g { color: var(--green); }
+    .r { color: var(--red); }
+    .y { color: var(--yellow); }
+
+    /* D2: Cursor 极简行 */
+    .mini-row {
+      height: 170px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0f141d;
+      display: flex;
+      flex-direction: column;
+    }
+    .mini-hd {
+      height: 32px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      background: #0d1420;
+    }
+    .mini-body { flex: 1; min-height: 0; display: flex; }
+    .mini-col {
+      width: 250px;
+      border-right: 1px solid var(--line);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: #0f1823;
+    }
+    .mini-main {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 108px 64px 54px 1fr 70px 65px;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      background: #0f1827;
+      font-size: 11px;
+    }
+    .row .small { color: var(--muted); font-size: 10px; }
+    .row .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    /* D3: Header 与 body 共网格线 */
+    .grid-bar {
+      height: 170px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 262px 1fr;
+      grid-template-rows: 32px 1fr;
+      background: #0f141d;
+    }
+    .g-h-l, .g-h-r, .g-b-l, .g-b-r { min-width: 0; min-height: 0; }
+    .g-h-l {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: #0d1420;
+      display: flex;
+      align-items: center;
+    }
+    .g-h-r {
+      border-bottom: 1px solid var(--line);
+      background: #0d1420;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+    }
+    .g-b-l {
+      border-right: 1px solid var(--line);
+      padding: 8px 12px;
+      background: #0e151f;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .g-b-r {
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      overflow: auto hidden;
+    }
+
+    /* D4: Cursor 选项卡感（隐藏分区时平滑） */
+    .soft {
+      height: 170px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0f141d;
+      display: flex;
+      flex-direction: column;
+    }
+    .soft-hd {
+      height: 32px;
+      border-bottom: 1px solid var(--line);
+      background: #0d1420;
+      display: flex;
+      align-items: stretch;
+    }
+    .soft-p, .soft-m {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      transition: width .18s ease, opacity .18s ease;
+    }
+    .soft-p { width: 262px; border-right: 1px solid var(--line); }
+    .soft-m { flex: 1; justify-content: space-between; padding: 0 8px; }
+    .soft-body { flex: 1; min-height: 0; display: flex; }
+    .soft-l {
+      width: 262px;
+      border-right: 1px solid var(--line);
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .soft-r {
+      flex: 1;
+      min-width: 0;
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      overflow: auto hidden;
+    }
+  </style>
+</head>
+<body>
+  <h1>Cursor Feeling · 底部交易栏新批次</h1>
+  <p class="desc">重点：弱对比、统一竖线、紧凑信息层次、tab 与内容边界一体化。</p>
+
+  <section class="block">
+    <div class="title">F1 - 标准 Cursor 比例（严格对齐版）</div>
+    <div class="bar">
+      <div class="hd">
+        <div class="hd-l">
+          <div class="tab active"><span class="dot g"></span>收益 <span class="x">×</span></div>
+        </div>
+        <div class="hd-r">
+          <div class="tab active"><span class="dot"></span>持仓策略 <span class="x">×</span></div>
+          <div class="vt"><b class="on">▦</b><b>≡</b></div>
+        </div>
+      </div>
+      <div class="body">
+        <div class="sec-pnl">
+          <div class="big">+$312</div>
+          <div class="pct">+1.50%</div>
+          <div class="kv4">
+            <div class="k">总资产</div><div class="v">$20,800</div>
+            <div class="k">回撤</div><div class="v neg">-4.2%</div>
+            <div class="k">胜率</div><div class="v">63%</div>
+            <div class="k">可用</div><div class="v">$8,736</div>
+          </div>
+          <div class="spark">
+            <svg viewBox="0 0 220 28" preserveAspectRatio="none">
+              <path d="M0,23 C18,19 32,16 49,14 C66,12 74,16 92,11 C110,7 123,10 141,6 C159,3 174,7 193,4 C203,2 213,2 220,1" stroke="#32c87b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sec-main">
+          <div class="card buy">
+            <div class="t1"><span>趋势跟随 V2</span><span class="badge">自动</span></div>
+            <div><div class="sym g">BTC</div><div class="dir">多 0.12</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">82,340</div></div><div><div class="k">盈亏</div><div class="v g">+$218</div></div><div class="sig g">BUY</div></div>
+          </div>
+          <div class="card sell">
+            <div class="t1"><span>均值回归 α</span><span class="badge">半自动</span></div>
+            <div><div class="sym r">ETH</div><div class="dir">空 1.50</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">1,923</div></div><div><div class="k">盈亏</div><div class="v r">-$38</div></div><div class="sig r">SELL</div></div>
+          </div>
+          <div class="card hold">
+            <div class="t1"><span>突破追单 B</span><span class="badge">建议</span></div>
+            <div><div class="sym y">SOL</div><div class="dir">多 12.0</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">138</div></div><div><div class="k">盈亏</div><div class="v g">+$73</div></div><div class="sig y">HOLD</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="title">F2 - Cursor 紧凑模式（上轻下密）</div>
+    <div class="mini-row">
+      <div class="mini-hd">
+        <div style="display:flex;align-items:center;gap:6px;color:#8b9bb6;font-size:11px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#4f607a;"></span>交易工作台
+        </div>
+        <div class="vt"><b class="on">▤</b><b>≡</b></div>
+      </div>
+      <div class="mini-body">
+        <div class="mini-col">
+          <div class="big" style="font-size:25px;">+$312</div>
+          <div class="pct">+1.50%</div>
+          <div class="kv4" style="grid-template-columns:1fr 1fr;font-size:9px;">
+            <div class="k">资产</div><div class="v">$20.8k</div>
+            <div class="k">回撤</div><div class="v neg">-4.2%</div>
+            <div class="k">胜率</div><div class="v">63%</div>
+            <div class="k">可用</div><div class="v">$8.7k</div>
+          </div>
+          <div class="spark" style="height:30px;">
+            <svg viewBox="0 0 220 28" preserveAspectRatio="none">
+              <path d="M0,24 C16,20 30,16 46,15 C62,14 70,17 86,12 C102,8 120,10 136,7 C152,4 169,7 186,4 C198,2 209,3 220,2" stroke="#32c87b" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <div class="mini-main">
+          <div class="row">
+            <div><div class="small">策略</div><div>趋势跟随 V2</div></div>
+            <div><div class="small">标的</div><div class="g mono">BTC</div></div>
+            <div><div class="small">方向</div><div class="g">多</div></div>
+            <div class="small mono">入场 82,340</div>
+            <div class="small">自动</div>
+            <div class="mono g">+$218</div>
+          </div>
+          <div class="row">
+            <div><div class="small">策略</div><div>均值回归 α</div></div>
+            <div><div class="small">标的</div><div class="r mono">ETH</div></div>
+            <div><div class="small">方向</div><div class="r">空</div></div>
+            <div class="small mono">入场 1,923</div>
+            <div class="small">半自动</div>
+            <div class="mono r">-$38</div>
+          </div>
+          <div class="row">
+            <div><div class="small">策略</div><div>突破追单 B</div></div>
+            <div><div class="small">标的</div><div class="y mono">SOL</div></div>
+            <div><div class="small">方向</div><div class="y">多</div></div>
+            <div class="small mono">入场 138</div>
+            <div class="small">建议</div>
+            <div class="mono g">+$73</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="title">F3 - Header / Body 共网格线（分割线 100% 垂直贯穿）</div>
+    <div class="grid-bar">
+      <div class="g-h-l">
+        <div class="tab active" style="width:100%;border-right:none;"><span class="dot g"></span>收益 <span class="x">×</span></div>
+      </div>
+      <div class="g-h-r">
+        <div class="tab active" style="border-right:none;"><span class="dot"></span>持仓策略 <span class="x">×</span></div>
+        <div class="vt"><b class="on">▦</b><b>≡</b></div>
+      </div>
+      <div class="g-b-l">
+        <div class="big">+$312</div>
+        <div class="pct">+1.50%</div>
+        <div class="kv4">
+          <div class="k">总资产</div><div class="v">$20,800</div>
+          <div class="k">回撤</div><div class="v neg">-4.2%</div>
+          <div class="k">胜率</div><div class="v">63%</div>
+          <div class="k">可用</div><div class="v">$8,736</div>
+        </div>
+        <div class="spark">
+          <svg viewBox="0 0 220 28" preserveAspectRatio="none">
+            <path d="M0,24 C18,20 35,17 52,14 C69,11 78,16 95,10 C112,5 127,9 145,6 C163,4 178,7 195,3 C204,2 214,2 220,1" stroke="#32c87b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+      <div class="g-b-r">
+        <div class="card buy">
+          <div class="t1"><span>趋势跟随 V2</span><span class="badge">自动</span></div>
+          <div><div class="sym g">BTC</div><div class="dir">多 0.12</div></div>
+          <div class="t3"><div><div class="k">入场</div><div class="v">82,340</div></div><div><div class="k">盈亏</div><div class="v g">+$218</div></div><div class="sig g">BUY</div></div>
+        </div>
+        <div class="card sell">
+          <div class="t1"><span>均值回归 α</span><span class="badge">半自动</span></div>
+          <div><div class="sym r">ETH</div><div class="dir">空 1.50</div></div>
+          <div class="t3"><div><div class="k">入场</div><div class="v">1,923</div></div><div><div class="k">盈亏</div><div class="v r">-$38</div></div><div class="sig r">SELL</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="title">F4 - Soft Tab 感（更像 Cursor 的轻量边界）</div>
+    <div class="soft">
+      <div class="soft-hd">
+        <div class="soft-p">
+          <div class="tab active" style="width:100%;border-right:none;"><span class="dot g"></span>收益 <span class="x">×</span></div>
+        </div>
+        <div class="soft-m">
+          <div class="tab active" style="border-right:none;"><span class="dot"></span>持仓策略 <span class="x">×</span></div>
+          <div class="vt"><b class="on">▥</b><b>≡</b></div>
+        </div>
+      </div>
+      <div class="soft-body">
+        <div class="soft-l">
+          <div class="big">+$312</div>
+          <div class="pct">+1.50%</div>
+          <div class="kv4">
+            <div class="k">总资产</div><div class="v">$20,800</div>
+            <div class="k">回撤</div><div class="v neg">-4.2%</div>
+            <div class="k">胜率</div><div class="v">63%</div>
+            <div class="k">可用</div><div class="v">$8,736</div>
+          </div>
+          <div class="spark">
+            <svg viewBox="0 0 220 28" preserveAspectRatio="none">
+              <path d="M0,23 C17,19 34,16 51,14 C68,12 77,16 94,11 C111,7 127,10 144,6 C161,3 178,7 196,4 C206,2 214,2 220,1" stroke="#32c87b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <div class="soft-r">
+          <div class="card buy">
+            <div class="t1"><span>趋势跟随 V2</span><span class="badge">自动</span></div>
+            <div><div class="sym g">BTC</div><div class="dir">多 0.12</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">82,340</div></div><div><div class="k">盈亏</div><div class="v g">+$218</div></div><div class="sig g">BUY</div></div>
+          </div>
+          <div class="card sell">
+            <div class="t1"><span>均值回归 α</span><span class="badge">半自动</span></div>
+            <div><div class="sym r">ETH</div><div class="dir">空 1.50</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">1,923</div></div><div><div class="k">盈亏</div><div class="v r">-$38</div></div><div class="sig r">SELL</div></div>
+          </div>
+          <div class="card hold">
+            <div class="t1"><span>突破追单 B</span><span class="badge">建议</span></div>
+            <div><div class="sym y">SOL</div><div class="dir">多 12.0</div></div>
+            <div class="t3"><div><div class="k">入场</div><div class="v">138</div></div><div><div class="k">盈亏</div><div class="v g">+$73</div></div><div class="sig y">HOLD</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

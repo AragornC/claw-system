@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Trading Bar — 对齐方案对比</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0f1a;color:#d4d8e8;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;padding:24px;display:flex;flex-direction:column;gap:40px}
+h3{font-size:11px;font-weight:500;color:#5a6080;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px}
+
+:root{
+  --bg:#0e1628;--bg2:#111827;--border:#1e2d4a;
+  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+  --muted:#5a6080;--dim:#3a4060;--txt:#d4d8e8;
+  --h:160px;
+}
+
+/* ───── 公共外壳 ───── */
+.bar{
+  background:var(--bg);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;height:var(--h);display:flex;flex-direction:column;
+}
+.bar-hd{
+  height:32px;min-height:32px;display:flex;align-items:center;
+  border-bottom:1px solid var(--border);padding:0 10px;gap:6px;flex-shrink:0;
+}
+.bar-body{flex:1;min-height:0;display:flex;overflow:hidden;}
+
+/* tabs */
+.tab{
+  display:flex;align-items:center;gap:5px;height:22px;padding:0 10px;border-radius:5px;
+  font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap;
+  border:1px solid transparent;transition:all .15s;
+}
+.tab.on{color:var(--txt);background:#192338;border-color:var(--border);}
+.tab svg{opacity:.7}
+
+/* section 分割 */
+.sec{display:flex;flex-direction:column;overflow:hidden;border-left:1px solid var(--border);}
+.sec:first-child{border-left:none;}
+
+/* 卡片通用 */
+.cards{display:flex;gap:8px;padding:8px 10px;overflow-x:auto;overflow-y:hidden;align-items:stretch;height:100%;}
+.cards::-webkit-scrollbar{height:3px}
+.cards::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+.card{
+  flex:0 0 160px;background:#0a1525;border:1px solid var(--border);border-radius:7px;
+  padding:8px 10px;display:flex;flex-direction:column;justify-content:space-between;
+  transition:border-color .15s;
+}
+.card:hover{border-color:#2a4a7a}
+.card.buy{border-color:#16451e}
+.card.sell{border-color:#4a1a1a}
+.card.hold{border-color:#3a3010}
+.c-top{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--muted)}
+.c-strat{font-weight:600;font-size:10px}
+.c-badge{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600}
+.badge-auto{background:#0e2d1e;color:var(--green)}
+.badge-semi{background:#2d200e;color:var(--yellow)}
+.badge-sug{background:#1a1a2d;color:#8888cc}
+.c-sym{font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1.1}
+.c-dir{font-size:11px;color:var(--muted)}
+.c-bot{display:flex;justify-content:space-between;font-size:10px}
+.c-k{color:var(--muted)}
+.c-v{font-weight:600}
+.c-sig{font-size:12px;font-weight:700}
+.buy-c{color:var(--green)}.sell-c{color:var(--red)}.hold-c{color:var(--yellow)}.neu-c{color:var(--muted)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+
+/* SVG sparkline */
+svg.spark{width:100%;overflow:visible}
+
+/* ═══════════════════════════════════════
+   方案 P1：PnL 等宽卡片，混入卡片流
+   ═══════════════════════════════════════ */
+.p1-pnl-card{
+  flex:0 0 148px;background:#0a1525;border:1px solid #1a3a5a;border-radius:7px;
+  padding:8px 10px;display:flex;flex-direction:column;justify-content:space-between;
+}
+.p1-big{font-size:22px;font-weight:700;color:var(--green);line-height:1}
+.p1-pct{font-size:11px;color:var(--green);margin-top:2px}
+.p1-stats{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:9px;}
+.p1-stats .k{color:var(--muted)}.p1-stats .v{font-weight:600;font-size:10px}
+.p1-spark{height:28px;width:100%;margin-top:4px}
+
+/* ═══════════════════════════════════════
+   方案 P2：PnL 嵌入表头
+   ═══════════════════════════════════════ */
+.p2-hd-pnl{
+  display:flex;align-items:center;gap:8px;margin-left:6px;
+  padding-left:10px;border-left:1px solid var(--border);
+}
+.p2-big{font-size:14px;font-weight:700;color:var(--green)}
+.p2-pct{font-size:11px;color:var(--green)}
+.p2-kv{font-size:10px;color:var(--muted);display:flex;gap:10px;}
+.p2-kv span b{color:var(--txt);font-weight:600}
+.p2-sep{width:1px;height:14px;background:var(--border);margin:0 2px}
+
+/* ═══════════════════════════════════════
+   方案 P3：统一列表行
+   ═══════════════════════════════════════ */
+.p3-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+.p3-sum{
+  display:flex;align-items:center;gap:16px;padding:6px 14px;
+  border-bottom:1px solid var(--border);flex-shrink:0;background:#0a1220;
+}
+.p3-sum-big{font-size:18px;font-weight:700;color:var(--green)}
+.p3-sum-pct{font-size:11px;color:var(--green)}
+.p3-sum-kv{display:flex;gap:12px;font-size:10px;color:var(--muted);margin-left:auto}
+.p3-sum-kv span b{color:var(--txt);font-weight:600}
+.p3-spark-inline{width:80px;height:28px;}
+.p3-rows{flex:1;overflow-y:auto;padding:4px 0;}
+.p3-rows::-webkit-scrollbar{width:3px}
+.p3-rows::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+.p3-row{
+  display:grid;grid-template-columns:110px 60px 50px 1fr 70px 70px;
+  align-items:center;padding:5px 14px;gap:8px;font-size:11px;
+  border-bottom:1px solid #141e30;transition:background .12s;
+}
+.p3-row:hover{background:#0e1828}
+.p3-row:last-child{border-bottom:none}
+.p3-strat{font-weight:600;font-size:10px;color:var(--txt)}
+.p3-sym{font-weight:700;font-size:13px}
+.p3-dir{font-size:10px}
+.p3-size{color:var(--muted);font-size:10px}
+.p3-entry{color:var(--muted);font-size:10px}text-align:right
+.p3-pnl{text-align:right;font-weight:600}
+.p3-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-buy{background:var(--green)}.dot-sell{background:var(--red)}.dot-hold{background:var(--yellow)}
+
+/* ═══════════════════════════════════════
+   方案 P4：顶部 PnL 数据条 + 下方卡片
+   ═══════════════════════════════════════ */
+.p4-strip{
+  display:flex;align-items:center;gap:0;
+  border-bottom:1px solid var(--border);flex-shrink:0;
+  height:38px;
+}
+.p4-strip-pnl{
+  display:flex;align-items:baseline;gap:6px;
+  padding:0 14px;border-right:1px solid var(--border);
+}
+.p4-big{font-size:18px;font-weight:700;color:var(--green)}
+.p4-pct{font-size:11px;color:var(--green)}
+.p4-strip-kv{
+  display:flex;align-items:center;gap:0;flex:1;
+}
+.p4-kv-item{
+  display:flex;flex-direction:column;align-items:center;
+  padding:0 14px;border-right:1px solid var(--border);height:38px;justify-content:center;
+}
+.p4-kv-item:last-child{border-right:none;flex:1}
+.p4-k{font-size:9px;color:var(--muted);margin-bottom:1px}
+.p4-v{font-size:11px;font-weight:600}
+.p4-spark-item{
+  padding:0 10px 0 14px;display:flex;align-items:center;flex:1;border-right:none;
+}
+.p4-spark-item svg{height:26px;width:100%;overflow:visible}
+.p4-cards{flex:1;min-height:0;display:flex;gap:8px;padding:8px 10px;overflow-x:auto;overflow-y:hidden;align-items:stretch;}
+.p4-cards::-webkit-scrollbar{height:3px}
+.p4-cards::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+
+</style>
+</head>
+<body>
+
+<!-- ═══ 方案 P1：PnL 以同等卡片混入持仓流 ═══ -->
+<div>
+  <h3>P1 — PnL 变成第一张卡片，统一混入卡片流（无分区）</h3>
+  <div class="bar">
+    <div class="bar-hd">
+      <div class="tab on">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+        持仓策略
+      </div>
+    </div>
+    <div class="bar-body">
+      <div class="cards" style="border:none">
+        <!-- PnL 卡 -->
+        <div class="p1-pnl-card">
+          <div>
+            <div class="p1-big">+$312</div>
+            <div class="p1-pct">+1.50%</div>
+          </div>
+          <div class="p1-stats">
+            <span class="k">总资产</span><span class="v">$20,800</span>
+            <span class="k">回撤</span><span class="v neg">-4.2%</span>
+            <span class="k">胜率</span><span class="v">63%</span>
+            <span class="k">可用</span><span class="v">$8,736</span>
+          </div>
+          <div class="p1-spark">
+            <svg class="spark" viewBox="0 0 148 28" preserveAspectRatio="none">
+              <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#22c55e" stop-opacity=".25"/>
+                <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+              </linearGradient></defs>
+              <path d="M0,22 C10,20 20,18 30,16 C40,14 45,19 55,15 C65,11 70,14 80,10 C90,6 100,8 110,5 C120,2 130,4 148,2" stroke="#22c55e" stroke-width="1.5" fill="none"/>
+              <path d="M0,22 C10,20 20,18 30,16 C40,14 45,19 55,15 C65,11 70,14 80,10 C90,6 100,8 110,5 C120,2 130,4 148,2 L148,28 L0,28 Z" fill="url(#g1)"/>
+            </svg>
+          </div>
+        </div>
+        <!-- 策略卡 -->
+        <div class="card buy">
+          <div class="c-top"><span class="c-strat">趋势跟随 V2</span><span class="c-badge badge-auto">自动</span></div>
+          <div><div class="c-sym">BTC</div><div class="c-dir">多 0.12</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">82,340</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$218</div></div>
+            <div class="c-sig buy-c">BUY</div>
+          </div>
+        </div>
+        <div class="card sell">
+          <div class="c-top"><span class="c-strat">均值回归 α</span><span class="c-badge badge-semi">半自动</span></div>
+          <div><div class="c-sym">ETH</div><div class="c-dir">空 1.50</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">1,923</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v neg">-$38</div></div>
+            <div class="c-sig sell-c">SELL</div>
+          </div>
+        </div>
+        <div class="card hold">
+          <div class="c-top"><span class="c-strat">突破追单 B</span><span class="c-badge badge-sug">建议</span></div>
+          <div><div class="c-sym">SOL</div><div class="c-dir">多 12.0</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">138</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$73</div></div>
+            <div class="c-sig hold-c">HOLD</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 方案 P2：PnL 数字直接放进表头，正文只有卡片 ═══ -->
+<div>
+  <h3>P2 — PnL 压缩进表头 tab 行，正文只有持仓卡片（无分区对齐问题）</h3>
+  <div class="bar">
+    <div class="bar-hd" style="gap:0">
+      <div class="tab on" style="margin-right:4px">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+        持仓策略
+      </div>
+      <!-- PnL 嵌入表头 -->
+      <div class="p2-hd-pnl">
+        <span class="p2-big">+$312</span>
+        <span class="p2-pct">+1.50%</span>
+        <div class="p2-sep"></div>
+        <div class="p2-kv">
+          <span>总资产 <b>$20,800</b></span>
+          <span>回撤 <b style="color:var(--red)">-4.2%</b></span>
+          <span>胜率 <b>63%</b></span>
+          <span>可用 <b>$8,736</b></span>
+        </div>
+        <svg class="p3-spark-inline" viewBox="0 0 80 28" preserveAspectRatio="none" style="margin-left:6px">
+          <path d="M0,22 C8,19 16,17 24,14 C32,11 36,16 44,12 C52,8 58,11 64,7 C70,3 74,5 80,2" stroke="#22c55e" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="bar-body">
+      <div class="cards">
+        <div class="card buy">
+          <div class="c-top"><span class="c-strat">趋势跟随 V2</span><span class="c-badge badge-auto">自动</span></div>
+          <div><div class="c-sym">BTC</div><div class="c-dir">多 0.12</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">82,340</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$218</div></div>
+            <div class="c-sig buy-c">BUY</div>
+          </div>
+        </div>
+        <div class="card sell">
+          <div class="c-top"><span class="c-strat">均值回归 α</span><span class="c-badge badge-semi">半自动</span></div>
+          <div><div class="c-sym">ETH</div><div class="c-dir">空 1.50</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">1,923</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v neg">-$38</div></div>
+            <div class="c-sig sell-c">SELL</div>
+          </div>
+        </div>
+        <div class="card hold">
+          <div class="c-top"><span class="c-strat">突破追单 B</span><span class="c-badge badge-sug">建议</span></div>
+          <div><div class="c-sym">SOL</div><div class="c-dir">多 12.0</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">138</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$73</div></div>
+            <div class="c-sig hold-c">HOLD</div>
+          </div>
+        </div>
+        <div class="card" style="border-style:dashed;opacity:.4;justify-content:center;align-items:center;color:var(--muted);font-size:11px">+ 添加策略</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 方案 P3：统一列表行，PnL 在顶部汇总行 ═══ -->
+<div>
+  <h3>P3 — 统一列表视图，顶部汇总行 + 每行一个策略（无并排，无对齐问题）</h3>
+  <div class="bar">
+    <div class="bar-hd">
+      <div class="tab on">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+        持仓策略
+      </div>
+    </div>
+    <div class="p3-body">
+      <!-- 汇总行 -->
+      <div class="p3-sum">
+        <svg class="p3-spark-inline" viewBox="0 0 80 28" preserveAspectRatio="none">
+          <path d="M0,22 C8,19 16,17 24,14 C32,11 36,16 44,12 C52,8 58,11 64,7 C70,3 74,5 80,2" stroke="#22c55e" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span class="p3-sum-big">+$312</span>
+        <span class="p3-sum-pct">+1.50%</span>
+        <div class="p3-sum-kv">
+          <span>总资产 <b>$20,800</b></span>
+          <span>回撤 <b style="color:var(--red)">-4.2%</b></span>
+          <span>胜率 <b>63%</b></span>
+          <span>可用 <b>$8,736</b></span>
+        </div>
+      </div>
+      <!-- 策略行列表 -->
+      <div class="p3-rows">
+        <div class="p3-row">
+          <span class="p3-strat"><span class="p3-dot dot-buy" style="display:inline-block;margin-right:5px"></span>趋势跟随 V2</span>
+          <span class="p3-sym buy-c">BTC</span>
+          <span class="p3-dir buy-c">多 0.12</span>
+          <span class="p3-size" style="color:var(--muted)">入场 82,340</span>
+          <span class="c-badge badge-auto" style="justify-self:center">自动</span>
+          <span class="p3-pnl pos">+$218</span>
+        </div>
+        <div class="p3-row">
+          <span class="p3-strat"><span class="p3-dot dot-sell" style="display:inline-block;margin-right:5px"></span>均值回归 α</span>
+          <span class="p3-sym sell-c">ETH</span>
+          <span class="p3-dir sell-c">空 1.50</span>
+          <span class="p3-size" style="color:var(--muted)">入场 1,923</span>
+          <span class="c-badge badge-semi" style="justify-self:center">半自动</span>
+          <span class="p3-pnl neg">-$38</span>
+        </div>
+        <div class="p3-row">
+          <span class="p3-strat"><span class="p3-dot dot-hold" style="display:inline-block;margin-right:5px"></span>突破追单 B</span>
+          <span class="p3-sym hold-c">SOL</span>
+          <span class="p3-dir hold-c">多 12.0</span>
+          <span class="p3-size" style="color:var(--muted)">入场 138</span>
+          <span class="c-badge badge-sug" style="justify-self:center">建议</span>
+          <span class="p3-pnl pos">+$73</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 方案 P4：顶部 PnL 数据条 + 下方全宽卡片 ═══ -->
+<div>
+  <h3>P4 — PnL 做成顶部数据条（横向铺满），下方全宽卡片流（两层垂直堆叠）</h3>
+  <div class="bar" style="--h:180px">
+    <div class="bar-hd">
+      <div class="tab on">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+        持仓策略
+      </div>
+    </div>
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+      <!-- PnL 数据条 -->
+      <div class="p4-strip">
+        <div class="p4-strip-pnl">
+          <span class="p4-big">+$312</span>
+          <span class="p4-pct">+1.50%</span>
+        </div>
+        <div class="p4-strip-kv">
+          <div class="p4-kv-item">
+            <span class="p4-k">总资产</span><span class="p4-v">$20,800</span>
+          </div>
+          <div class="p4-kv-item">
+            <span class="p4-k">回撤</span><span class="p4-v neg">-4.2%</span>
+          </div>
+          <div class="p4-kv-item">
+            <span class="p4-k">胜率</span><span class="p4-v">63%</span>
+          </div>
+          <div class="p4-kv-item">
+            <span class="p4-k">可用</span><span class="p4-v">$8,736</span>
+          </div>
+          <div class="p4-spark-item">
+            <svg viewBox="0 0 100 26" preserveAspectRatio="none">
+              <path d="M0,22 C10,19 20,17 30,14 C40,11 45,17 55,13 C65,9 72,12 80,8 C88,4 93,6 100,2" stroke="#22c55e" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <!-- 下层卡片 -->
+      <div class="p4-cards">
+        <div class="card buy" style="flex:1;min-width:140px;max-width:220px">
+          <div class="c-top"><span class="c-strat">趋势跟随 V2</span><span class="c-badge badge-auto">自动</span></div>
+          <div><div class="c-sym">BTC</div><div class="c-dir">多 0.12</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">82,340</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$218</div></div>
+            <div class="c-sig buy-c">BUY</div>
+          </div>
+        </div>
+        <div class="card sell" style="flex:1;min-width:140px;max-width:220px">
+          <div class="c-top"><span class="c-strat">均值回归 α</span><span class="c-badge badge-semi">半自动</span></div>
+          <div><div class="c-sym">ETH</div><div class="c-dir">空 1.50</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">1,923</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v neg">-$38</div></div>
+            <div class="c-sig sell-c">SELL</div>
+          </div>
+        </div>
+        <div class="card hold" style="flex:1;min-width:140px;max-width:220px">
+          <div class="c-top"><span class="c-strat">突破追单 B</span><span class="c-badge badge-sug">建议</span></div>
+          <div><div class="c-sym">SOL</div><div class="c-dir">多 12.0</div></div>
+          <div class="c-bot">
+            <div><div class="c-k">入场</div><div class="c-v">138</div></div>
+            <div style="text-align:right"><div class="c-k">盈亏</div><div class="c-v pos">+$73</div></div>
+            <div class="c-sig hold-c">HOLD</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

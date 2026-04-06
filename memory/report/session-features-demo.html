@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 对话功能优化 Demo</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-base:      #0d1117;
+  --bg-panel:     #111722;
+  --bg-hover:     #1a2332;
+  --bg-active:    #1e2d42;
+  --border:       #1e2d42;
+  --border-soft:  #192438;
+  --text-primary: #cdd9e5;
+  --text-muted:   #4a6580;
+  --text-dim:     #2a3f55;
+  --accent:       #3cc87a;
+  --accent-dim:   rgba(60,200,122,0.12);
+  --accent-gold:  #e8a84a;
+  --red:          #e05050;
+  --info:         #5b8def;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", Consolas, monospace;
+}
+
+html, body { height: 100%; background: #080d14; font-family: var(--font); color: var(--text-primary); font-size: 13px; -webkit-font-smoothing: antialiased; }
+
+/* ── 页面总布局 ── */
+.page { display: flex; flex-direction: column; min-height: 100vh; padding: 32px 24px; gap: 40px; max-width: 1280px; margin: 0 auto; }
+
+/* ── 页面标题 ── */
+.page-title { display: flex; align-items: center; gap: 16px; }
+.page-title h1 { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.page-title p { color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+.badge-green { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(60,200,122,0.25); }
+.badge-blue { background: rgba(91,141,239,0.1); color: var(--info); border: 1px solid rgba(91,141,239,0.25); }
+
+/* ── Section 卡片 ── */
+.section { display: flex; flex-direction: column; gap: 16px; }
+.section-header { display: flex; align-items: center; gap: 10px; }
+.section-num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent-dim); border: 1px solid rgba(60,200,122,0.3); color: var(--accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.section-header h2 { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.section-header p { color: var(--text-muted); font-size: 12px; margin-left: auto; }
+
+.section-desc { color: var(--text-muted); font-size: 12.5px; line-height: 1.7; padding: 10px 14px; background: rgba(30,45,66,0.4); border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0; }
+.section-desc b { color: var(--text-primary); }
+
+/* ── Demo 容器 ── */
+.demo-wrap { display: grid; gap: 20px; }
+.demo-wrap.two-col { grid-template-columns: 1fr 1fr; }
+
+/* ── App 窗口外壳 ── */
+.app-window {
+  background: var(--bg-base);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.07);
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+.app-window-label {
+  font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase;
+  margin-bottom: 8px; padding-left: 2px;
+}
+
+/* ── 模拟 SubHeader（session tab 区域） ── */
+.mock-subheader {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  gap: 4px;
+}
+.mock-sh-spacer { flex: 1; }
+
+/* session tab */
+.mock-tab {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 8px 0 10px; height: 26px; border-radius: 5px;
+  font-size: 11.5px; color: var(--text-muted); cursor: pointer;
+  border: 1px solid transparent; transition: all 0.2s; white-space: nowrap; max-width: 160px;
+  position: relative; user-select: none;
+}
+.mock-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.mock-tab.active {
+  background: var(--bg-active); color: var(--text-primary);
+  border-color: var(--border);
+}
+.mock-tab-close {
+  width: 14px; height: 14px; border-radius: 3px; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--text-dim); transition: all 0.15s; margin-left: 2px; flex-shrink: 0;
+}
+.mock-tab:hover .mock-tab-close { color: var(--text-muted); background: rgba(255,255,255,0.06); }
+.mock-tab-new {
+  width: 24px; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 14px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent;
+}
+.mock-tab-new:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* history icon */
+.mock-hist-icon {
+  width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.mock-hist-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Agent Panel 消息区 ── */
+.mock-agent {
+  display: flex; flex-direction: column; height: 340px; background: #0a1420;
+}
+.mock-messages {
+  flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.mock-msg-user { align-self: center; max-width: 85%; }
+.mock-bubble-user {
+  background: var(--bg-active); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 12px; font-size: 12.5px; line-height: 1.6; color: var(--text-primary);
+}
+.mock-msg-agent { align-self: flex-start; max-width: 95%; }
+.mock-bubble-agent {
+  background: transparent; font-size: 12.5px; line-height: 1.7; color: var(--text-primary);
+  padding: 4px 0;
+}
+.mock-bubble-agent .agent-icon-sm {
+  width: 18px; height: 18px; border-radius: 4px; background: var(--accent-dim);
+  border: 1px solid rgba(60,200,122,0.2); display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--accent); margin-right: 6px; vertical-align: middle;
+}
+
+/* 底部输入框 */
+.mock-input-area {
+  padding: 10px 14px 14px; border-top: 1px solid var(--border-soft);
+  display: flex; gap: 8px; align-items: flex-end;
+}
+.mock-input {
+  flex: 1; background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text-primary); font-family: var(--font); font-size: 12px;
+  resize: none; outline: none; line-height: 1.5;
+}
+.mock-input:focus { border-color: rgba(60,200,122,0.4); }
+.mock-send-btn {
+  width: 30px; height: 30px; border-radius: 7px; background: var(--accent); border: none;
+  color: #000; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.mock-send-btn:hover { background: #4de891; }
+.mock-send-btn:disabled { background: var(--bg-active); color: var(--text-dim); cursor: not-allowed; }
+
+/* ── 自动命名动画 ── */
+.tab-name-changing {
+  animation: nameChange 0.3s ease;
+}
+@keyframes nameChange {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.typing-dots span {
+  display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted);
+  margin: 0 1px; animation: blink 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%,100%{ opacity:0.3; } 50%{ opacity:1; } }
+
+/* AI 生成标签动画 */
+.ai-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 5px; border-radius: 3px; font-size: 9px;
+  background: rgba(60,200,122,0.15); color: var(--accent); border: 1px solid rgba(60,200,122,0.2);
+  animation: fadeInScale 0.3s ease;
+}
+@keyframes fadeInScale {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* 重命名 input */
+.tab-rename-input {
+  background: transparent; border: none; outline: none; color: var(--text-primary);
+  font-family: var(--font); font-size: 11.5px; width: 110px;
+  border-bottom: 1px solid var(--accent);
+}
+
+/* ── 步骤说明 ── */
+.steps { display: flex; flex-direction: column; gap: 6px; }
+.step-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px;
+  border-radius: 7px; background: rgba(30,45,66,0.3); border: 1px solid transparent;
+  transition: all 0.25s; cursor: default;
+}
+.step-row.active { background: rgba(30,45,66,0.7); border-color: var(--border); }
+.step-row.done { border-color: rgba(60,200,122,0.15); }
+.step-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+.step-icon.pending { background: var(--bg-hover); color: var(--text-dim); border: 1px solid var(--border); }
+.step-icon.active { background: rgba(91,141,239,0.15); color: var(--info); border: 1px solid rgba(91,141,239,0.3); animation: pulse 1s infinite; }
+.step-icon.done { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(60,200,122,0.3); }
+@keyframes pulse { 0%,100%{ opacity:0.7; } 50%{ opacity:1; } }
+.step-text { font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.step-text.active { color: var(--text-primary); }
+.step-text b { color: var(--accent); }
+.step-text code { font-family: var(--font-mono); font-size: 10.5px; background: rgba(60,200,122,0.08); padding: 1px 5px; border-radius: 3px; color: var(--accent); }
+
+/* 控制按钮 */
+.demo-controls { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.ctrl-btn {
+  padding: 6px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-hover);
+  color: var(--text-primary); font-size: 12px; cursor: pointer; transition: all 0.15s; font-family: var(--font);
+}
+.ctrl-btn:hover { background: var(--bg-active); border-color: rgba(60,200,122,0.3); color: var(--accent); }
+.ctrl-btn.primary { background: var(--accent-dim); border-color: rgba(60,200,122,0.4); color: var(--accent); }
+.ctrl-btn.primary:hover { background: rgba(60,200,122,0.2); }
+.ctrl-note { font-size: 11px; color: var(--text-dim); }
+
+/* ── 历史面板（Feature 2） ── */
+.hist-panel {
+  width: 220px; height: 100%; background: #090e17; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+.hist-panel-head {
+  padding: 0 14px; height: 36px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.hist-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.hist-search {
+  margin: 10px 10px 6px; padding: 5px 10px; border-radius: 6px;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11.5px; font-family: var(--font); outline: none;
+}
+.hist-search::placeholder { color: var(--text-dim); }
+.hist-list { flex: 1; overflow-y: auto; padding: 0 0 8px; }
+.hist-group-label { padding: 8px 12px 4px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.hist-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer;
+  transition: background 0.12s; border-radius: 5px; margin: 1px 6px; position: relative;
+}
+.hist-item:hover { background: var(--bg-hover); }
+.hist-item.active { background: var(--bg-active); }
+.hist-item-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+.hist-item.active .hist-item-dot { background: var(--accent); }
+.hist-item-info { flex: 1; min-width: 0; }
+.hist-item-name { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-item.active .hist-item-name { color: var(--text-primary); }
+.hist-item-meta { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+.hist-item-count { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+.hist-item:hover .hist-item-actions { display: flex; }
+.hist-item-actions {
+  display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  align-items: center; gap: 3px; background: var(--bg-hover); border-radius: 4px; padding: 2px;
+}
+.hist-action-btn {
+  width: 20px; height: 20px; border-radius: 3px; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--text-muted); cursor: pointer; transition: all 0.12s;
+}
+.hist-action-btn:hover { background: var(--bg-active); color: var(--text-primary); }
+.hist-action-btn.danger:hover { color: var(--red); }
+
+/* ── Feature 2 Demo 右侧区域 ── */
+.feat2-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.feat2-subheader {
+  height: 34px; background: var(--bg-panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 12px; gap: 6px;
+}
+.feat2-chat { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; background: #0a1420; }
+.feat2-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); gap: 8px; }
+.feat2-empty-icon { font-size: 28px; opacity: 0.4; }
+.feat2-empty-text { font-size: 12px; }
+
+/* ── 主容器布局 Feature2 ── */
+.feat2-window { display: flex; height: 420px; }
+
+/* ── 标注说明 ── */
+.annotation-wrap { display: flex; flex-direction: column; gap: 10px; }
+.annotation {
+  display: flex; gap: 10px; padding: 10px 14px; border-radius: 8px;
+  background: rgba(30,45,66,0.35); border: 1px solid var(--border-soft);
+}
+.annotation-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+.annotation-content { flex: 1; min-width: 0; }
+.annotation-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
+.annotation-body { font-size: 12px; color: var(--text-muted); line-height: 1.65; }
+.annotation-body code { font-family: var(--font-mono); font-size: 10.5px; background: rgba(60,200,122,0.08); padding: 1px 5px; border-radius: 3px; color: var(--accent); }
+.annotation-body b { color: var(--text-primary); }
+
+/* ── 技术方案 ── */
+.tech-section {
+  padding: 20px 24px; border-radius: 10px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+}
+.tech-section h3 { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.tech-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tech-card { padding: 12px 14px; border-radius: 8px; background: var(--bg-hover); border: 1px solid var(--border-soft); }
+.tech-card-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.tech-card-body { font-size: 11.5px; color: var(--text-muted); line-height: 1.7; }
+.tech-card-body code { font-family: var(--font-mono); font-size: 10px; background: rgba(60,200,122,0.08); padding: 1px 4px; border-radius: 3px; color: var(--accent); }
+.tc-green { color: var(--accent); }
+.tc-gold { color: var(--accent-gold); }
+.tc-blue { color: var(--info); }
+.tc-red { color: var(--red); }
+
+/* ── scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── 分割线 ── */
+.divider { height: 1px; background: var(--border-soft); margin: 8px 0; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-active); border: 1px solid rgba(60,200,122,0.3); color: var(--accent);
+  padding: 8px 20px; border-radius: 8px; font-size: 12px;
+  opacity: 0; transition: all 0.3s; pointer-events: none; z-index: 999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* 名称生成指示器 */
+.name-generating {
+  display: flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 11px;
+}
+.name-gen-spinner {
+  width: 10px; height: 10px; border: 1.5px solid var(--text-dim); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- 页面标题 -->
+  <div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+      <h1 style="font-size:20px;font-weight:700;">Agent 对话框功能优化</h1>
+      <span class="badge badge-green">✦ Demo</span>
+      <span class="badge badge-blue">交互演示</span>
+    </div>
+    <p style="color:var(--text-muted);font-size:13px;line-height:1.8;max-width:680px;">
+      针对 <b style="color:var(--text-primary)">AgentPanel + SubHeader</b> 的两个核心优化：
+      <b style="color:var(--accent)">① 对话后自动提炼生成 Session 标题</b>（支持手动修改）；
+      <b style="color:var(--info)">② 会话历史持久化</b>，重启后仍可查看历史对话。
+    </p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Feature 1：自动命名                                      -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">1</div>
+      <h2>对话自动命名</h2>
+      <span class="badge badge-green" style="margin-left:8px;">Auto Title</span>
+    </div>
+
+    <div class="section-desc">
+      首次发送消息后，后台自动调用 LLM 根据<b>用户首条消息 + 模型首次回复</b>提炼 6-12 字的标题，异步写回 session.name。
+      标题生成期间 tab 显示加载状态，生成后平滑切换并附 <b style="color:var(--accent)">✦ AI</b> 角标。
+      用户仍可右键「重命名」覆盖 AI 生成的名字。
+    </div>
+
+    <div class="demo-wrap two-col">
+      <!-- 左：交互 Demo -->
+      <div>
+        <div class="app-window-label">交互演示 — 点击「发送」触发自动命名流程</div>
+        <div class="app-window">
+          <!-- SubHeader 中的 session tabs（动态渲染） -->
+          <div class="mock-subheader">
+            <div id="tabs1-container" style="display:flex;gap:4px;align-items:center;"></div>
+            <div class="mock-tab-new" title="新建会话" onclick="addTab1()">+</div>
+            <div class="mock-sh-spacer"></div>
+            <div class="mock-hist-icon" title="历史记录">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.5V7L8.8 8.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <!-- 消息区（随 active session 切换） -->
+          <div class="mock-agent">
+            <div class="mock-messages" id="msg-area"></div>
+            <div class="mock-input-area">
+              <textarea class="mock-input" id="main-input" rows="1" placeholder="描述你的需求…"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg1();}"
+                oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+              <button class="mock-send-btn" id="send-btn" onclick="sendMsg1()">↑</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 控制 -->
+        <div class="demo-controls" style="margin-top:12px;">
+          <button class="ctrl-btn primary" onclick="sendPreset1('解释一下移动平均线在量化策略中的用法')">▶ 预设消息 1</button>
+          <button class="ctrl-btn" onclick="sendPreset1('帮我写一个基于RSI指标的Python交易信号函数')">预设消息 2</button>
+          <button class="ctrl-btn" onclick="resetDemo1()">↺ 重置</button>
+        </div>
+      </div>
+
+      <!-- 右：步骤说明 -->
+      <div>
+        <div class="app-window-label">实现流程说明</div>
+        <div class="steps" id="steps-panel">
+          <div class="step-row" id="step-1">
+            <div class="step-icon pending" id="step-icon-1">1</div>
+            <div class="step-text" id="step-text-1">
+              用户发送第一条消息，<code>handleSendMessage</code> 检测到 <code>messages.length === 0</code>，tab 切换为 <b>生成中…</b> 动画
+            </div>
+          </div>
+          <div class="step-row" id="step-2">
+            <div class="step-icon pending" id="step-icon-2">2</div>
+            <div class="step-text" id="step-text-2">
+              <b>同时并行</b>启动两个异步任务：① 正常对话流（流式输出回复）；
+              ② 仅凭用户这条消息，立刻向 LLM 发起标题生成请求
+            </div>
+          </div>
+          <div class="step-row" id="step-3">
+            <div class="step-icon pending" id="step-icon-3">3</div>
+            <div class="step-text" id="step-text-3">
+              标题请求仅需用户一句话，通常 <b style="color:var(--accent)">几百毫秒</b> 就返回，
+              远早于对话流结束——用户还没读完回复，标题已悄悄写好
+            </div>
+          </div>
+          <div class="step-row" id="step-4">
+            <div class="step-icon pending" id="step-icon-4">4</div>
+            <div class="step-text" id="step-text-4">
+              收到标题后调用 <code>handleRenameSession(id, title)</code>，
+              tab 标签平滑更新并附上 <b style="color:var(--accent)">✦ AI</b> 角标
+            </div>
+          </div>
+          <div class="step-row" id="step-5">
+            <div class="step-icon pending" id="step-icon-5">5</div>
+            <div class="step-text" id="step-text-5">
+              用户仍可右键「重命名」手动修改，修改后 AI 角标消失，标记为用户自定义名称
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;" class="annotation-wrap">
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(232,168,74,0.1);color:var(--accent-gold);">⚡</div>
+            <div class="annotation-content">
+              <div class="annotation-title">Title 生成 System Prompt</div>
+              <div class="annotation-body">
+                <code>你是一个对话标题生成器。根据以下对话内容，用6-12个中文字提炼一个简洁、准确的标题。只返回标题文本，不加引号或其他内容。</code>
+              </div>
+            </div>
+          </div>
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(91,141,239,0.1);color:var(--info);">🔒</div>
+            <div class="annotation-content">
+              <div class="annotation-title">手动修改优先</div>
+              <div class="annotation-body">
+                session 增加 <code>isNameCustomized: boolean</code> 字段。一旦用户手动重命名，不再触发 AI 覆盖，已标记的 AI 角标也移除。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Feature 2：会话历史持久化                                 -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:rgba(91,141,239,0.1);border-color:rgba(91,141,239,0.3);color:var(--info);">2</div>
+      <h2>会话历史持久化</h2>
+      <span class="badge badge-blue" style="margin-left:8px;">Persistent History</span>
+    </div>
+
+    <div class="section-desc" style="border-left-color:var(--info);">
+      将 sessions 数据持久化到 <b>localStorage</b>（或通过 Tauri invoke 写入本地文件），重启后自动恢复。
+      左侧历史面板按<b>日期分组</b>展示所有 session，支持搜索、点击切换、右键删除/重命名。
+    </div>
+
+    <div class="demo-wrap two-col">
+      <!-- 左：演示窗口 -->
+      <div>
+        <div class="app-window-label">历史面板演示 — 点击历史条目切换会话</div>
+        <div class="app-window">
+          <div class="feat2-window">
+            <!-- 历史侧栏 -->
+            <div class="hist-panel">
+              <div class="hist-panel-head">
+                <span class="hist-panel-title">历史对话</span>
+                <div style="display:flex;gap:4px;">
+                  <div style="width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);cursor:pointer;font-size:13px;" title="新建" onclick="newHistSession()">+</div>
+                </div>
+              </div>
+              <input class="hist-search" placeholder="搜索对话…" oninput="filterHist(this.value)" />
+              <div class="hist-list" id="hist-list"></div>
+            </div>
+            <!-- 右侧会话区 -->
+            <div class="feat2-right">
+              <div class="feat2-subheader">
+                <span id="feat2-session-name" style="font-size:12px;color:var(--text-primary);font-weight:600;">选择一个历史对话</span>
+              </div>
+              <div class="feat2-chat" id="feat2-chat">
+                <div class="feat2-empty" id="feat2-empty">
+                  <div class="feat2-empty-icon">📂</div>
+                  <div class="feat2-empty-text">从左侧选择一个历史会话</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="demo-controls" style="margin-top:12px;">
+          <button class="ctrl-btn primary" onclick="simulateRestart()">⟳ 模拟重启应用</button>
+          <button class="ctrl-btn" onclick="addMockSession()">+ 添加模拟会话</button>
+          <span class="ctrl-note" id="restart-note">— 重启后历史依然存在</span>
+        </div>
+      </div>
+
+      <!-- 右：说明 -->
+      <div>
+        <div class="app-window-label">持久化方案说明</div>
+        <div class="annotation-wrap">
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(60,200,122,0.1);color:var(--accent);">💾</div>
+            <div class="annotation-content">
+              <div class="annotation-title">存储方案：Zustand chatStore + persist</div>
+              <div class="annotation-body">
+                新增 <code>chatStore.ts</code>，将 sessions 数组（含 id、name、messages、createAt 等）
+                通过 Zustand <code>persist</code> 写入 <b>localStorage</b>。
+                App.tsx 中的 sessions state 替换为从 chatStore 读取，删除原 useState。
+              </div>
+            </div>
+          </div>
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(91,141,239,0.1);color:var(--info);">📋</div>
+            <div class="annotation-content">
+              <div class="annotation-title">数据结构扩展</div>
+              <div class="annotation-body">
+                Session 增加 <code>createdAt: number</code>、<code>updatedAt: number</code>、
+                <code>isNameCustomized: boolean</code>，用于日期分组排序和命名策略判断。
+              </div>
+            </div>
+          </div>
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(232,168,74,0.1);color:var(--accent-gold);">🗂</div>
+            <div class="annotation-content">
+              <div class="annotation-title">历史面板 UI 入口</div>
+              <div class="annotation-body">
+                SubHeader 右侧历史图标点击展开 <b>侧边抽屉</b>（或 dropdown），
+                按今天 / 昨天 / 本周 / 更早分组。支持关键词搜索 session 名称与消息内容。
+                右键菜单提供重命名、删除操作，已删除数据移入回收站或直接清除。
+              </div>
+            </div>
+          </div>
+          <div class="annotation">
+            <div class="annotation-icon" style="background:rgba(224,80,80,0.1);color:var(--red);">⚠</div>
+            <div class="annotation-content">
+              <div class="annotation-title">存储容量兜底</div>
+              <div class="annotation-body">
+                localStorage 单域名上限约 5MB。长期使用后需做<b>消息截断</b>（每条 session 仅保留最近 N 轮）
+                或提供「清理 60 天前对话」的设置项。未来可迁移到 Tauri 文件系统（<code>fs</code> plugin）以突破限制。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- 技术方案总览                                              -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="tech-section">
+    <h3>
+      <span style="width:20px;height:20px;border-radius:5px;background:rgba(60,200,122,0.1);border:1px solid rgba(60,200,122,0.2);display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--accent);">✦</span>
+      实施方案总览 — 最小改动原则
+    </h3>
+    <div class="tech-grid">
+      <div class="tech-card">
+        <div class="tech-card-title"><span class="tc-green">①</span> 新增 chatStore.ts</div>
+        <div class="tech-card-body">
+          基于 Zustand + persist 新建 <code>src/store/chatStore.ts</code>，
+          接管 App.tsx 中的 sessions / activeId 状态，key 设为 <code>claw-chat-store</code>。
+          持久化 partialize 仅保存必要字段，messages text 做长度截断。
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-title"><span class="tc-blue">②</span> App.tsx 最小修改</div>
+        <div class="tech-card-body">
+          用 <code>useChatStore</code> 替换原 useState 的 sessions/activeId，
+          handleSendMessage 中检测首条消息后异步触发 <code>generateSessionTitle()</code>，
+          其余逻辑基本不动。
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-title"><span class="tc-gold">③</span> generateSessionTitle()</div>
+        <div class="tech-card-body">
+          接收 providerId + modelId + <b>firstUserMsg</b>（只需用户一句话），
+          与对话流<b>并行</b>调用 <code>chatStream</code> 发 title prompt。
+          通常几百毫秒先于对话流完成，回调 <code>renameSession(id, title)</code>。
+          无需等待 AI 回复，用户问题本身已足够提炼标题。
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-title"><span class="tc-red">④</span> SubHeader 历史面板</div>
+        <div class="tech-card-body">
+          历史图标点击展开 Dropdown，读取 chatStore 全量 sessions 按 updatedAt 倒序排列，
+          按日期分组。点击条目调 <code>setActiveId</code>，右键菜单调 <code>deleteSession</code>。
+          搜索框过滤 session name（可选：也搜 messages 文本）。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// Feature 1：自动命名交互逻辑（数据驱动，多 session 隔离）
+// ══════════════════════════════════════════════
+
+const PRESET_RESPONSES = {
+  '解释一下移动平均线在量化策略中的用法': '移动平均线（MA）是量化策略中最基础的趋势跟踪工具。常见用法包括：\n\n1. 趋势判断：价格在 MA 上方为多头趋势，下方为空头趋势。\n\n2. 金叉死叉：短期 MA 上穿长期 MA 为买入信号（金叉），下穿为卖出信号（死叉）。例如 MA5 上穿 MA20。\n\n3. 动态支撑阻力：MA 线本身可作为动态支撑或阻力位。\n\n常用参数：5日、10日、20日、60日、120日、250日。',
+  '帮我写一个基于RSI指标的Python交易信号函数': 'def rsi_signal(close, period=14, overbought=70, oversold=30):\n    """基于 RSI 生成交易信号\n    Returns: 1=买入, -1=卖出, 0=持仓\n    """\n    delta = close.diff()\n    gain = delta.clip(lower=0)\n    loss = -delta.clip(upper=0)\n    avg_gain = gain.ewm(com=period-1, adjust=False).mean()\n    avg_loss = loss.ewm(com=period-1, adjust=False).mean()\n    rs = avg_gain / avg_loss\n    rsi = 100 - (100 / (1 + rs))\n    signal = pd.Series(0, index=close.index)\n    signal[rsi < oversold] = 1\n    signal[rsi > overbought] = -1\n    return signal'
+};
+
+const AI_TITLES = {
+  '解释一下移动平均线在量化策略中的用法': '移动平均线量化策略解析',
+  '帮我写一个基于RSI指标的Python交易信号函数': 'RSI信号函数Python实现'
+};
+
+// sessions1: Map<id, { id, name, messages[], isFirst, isStreaming, generatingTitle, hasAiBadge, isCustomNamed }>
+let sessions1 = {};
+let activeTabId1 = null;
+let tabOrder1 = [];   // 保持 tab 显示顺序
+
+function createSession1() {
+  const id = 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  sessions1[id] = { id, name: '新对话', messages: [], isFirst: true, isStreaming: false, generatingTitle: false, hasAiBadge: false, isCustomNamed: false };
+  tabOrder1.push(id);
+  return id;
+}
+
+function switchTab1(id) {
+  if (sessions1[activeTabId1]?.isStreaming) return; // 正在流式中不允许切换
+  activeTabId1 = id;
+  renderTabs1();
+  renderMessages1();
+  resetSteps();
+}
+
+function renderTabs1() {
+  const container = document.getElementById('tabs1-container');
+  container.innerHTML = tabOrder1.map(id => {
+    const s = sessions1[id];
+    const isActive = id === activeTabId1;
+    let nameHtml;
+    if (s.generatingTitle) {
+      nameHtml = `<span class="name-generating"><span class="name-gen-spinner"></span> 生成中…</span>`;
+    } else {
+      nameHtml = escHtml(s.name);
+    }
+    const badge = s.hasAiBadge ? `<span class="ai-badge" style="margin-left:3px;">✦ AI</span>` : '';
+    return `<div class="mock-tab ${isActive ? 'active' : ''}" onclick="switchTab1('${id}')">
+      <span>${nameHtml}</span>${badge}
+      <span class="mock-tab-close" onclick="event.stopPropagation();closeTab1('${id}')">×</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMessages1() {
+  const area = document.getElementById('msg-area');
+  const s = sessions1[activeTabId1];
+  if (!s || s.messages.length === 0) {
+    area.innerHTML = `<div class="feat2-empty"><div class="feat2-empty-icon">💬</div><div class="feat2-empty-text">开始一个新的对话</div></div>`;
+    return;
+  }
+  area.innerHTML = s.messages.map((m, i) => {
+    if (m.role === 'user') {
+      return `<div class="mock-msg-user"><div class="mock-bubble-user">${escHtml(m.text)}</div></div>`;
+    } else {
+      return `<div class="mock-msg-agent"><div class="mock-bubble-agent"><span class="agent-icon-sm">✦</span><span id="ai-stream-${i}">${escHtml(m.text)}</span></div></div>`;
+    }
+  }).join('');
+  area.scrollTop = area.scrollHeight;
+}
+
+function closeTab1(id) {
+  tabOrder1 = tabOrder1.filter(t => t !== id);
+  delete sessions1[id];
+  if (tabOrder1.length === 0) {
+    const newId = createSession1();
+    activeTabId1 = newId;
+  } else if (activeTabId1 === id) {
+    activeTabId1 = tabOrder1[tabOrder1.length - 1];
+  }
+  renderTabs1();
+  renderMessages1();
+  resetSteps();
+}
+
+function addTab1() {
+  const newId = createSession1();
+  activeTabId1 = newId;
+  renderTabs1();
+  renderMessages1();
+  resetSteps();
+  showToast('已新建对话');
+}
+
+function setStep(n, state) {
+  const icon = document.getElementById(`step-icon-${n}`);
+  const text = document.getElementById(`step-text-${n}`);
+  const row  = document.getElementById(`step-${n}`);
+  if (!icon) return;
+  icon.className = `step-icon ${state}`;
+  text.className = `step-text ${state === 'active' ? 'active' : ''}`;
+  row.classList.toggle('done', state === 'done');
+  row.classList.toggle('active', state === 'active');
+  if (state === 'done') icon.textContent = '✓';
+  else icon.textContent = n;
+}
+
+function resetSteps() {
+  for (let i = 1; i <= 5; i++) setStep(i, 'pending');
+}
+
+function escHtml(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function sendPreset1(msg) {
+  document.getElementById('main-input').value = msg;
+  sendMsg1();
+}
+
+function sendMsg1() {
+  const input = document.getElementById('main-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const s = sessions1[activeTabId1];
+  if (!s || s.isStreaming) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  const isFirst = s.isFirst;
+  s.isFirst = false;
+  s.isStreaming = true;
+
+  document.getElementById('send-btn').disabled = true;
+
+  // 把用户消息和空 assistant 占位加入 session
+  s.messages.push({ role: 'user', text });
+  s.messages.push({ role: 'assistant', text: '' });
+  const assistantIdx = s.messages.length - 1;
+
+  if (isFirst) setStep(1, 'active');
+  renderMessages1();
+
+  setTimeout(() => {
+    if (isFirst) { setStep(1, 'done'); setStep(2, 'active'); }
+
+    // ── 并行①：立刻启动标题生成（只用用户这条消息）
+    if (isFirst) {
+      s.generatingTitle = true;
+      renderTabs1();
+      setStep(2, 'done'); setStep(3, 'active');
+
+      setTimeout(() => {
+        const title = AI_TITLES[text] || text.slice(0, 14) + (text.length > 14 ? '…' : '');
+        s.name = title;
+        s.hasAiBadge = true;
+        s.generatingTitle = false;
+        renderTabs1();
+        setStep(3, 'done'); setStep(4, 'active');
+        showToast(`✦ 标题已生成（对话流仍在继续）：${title}`);
+        setTimeout(() => { setStep(4, 'done'); setStep(5, 'active'); }, 600);
+      }, 420);
+    }
+
+    // ── 并行②：正常对话流式输出
+    setTimeout(() => {
+      const fullResponse = PRESET_RESPONSES[text] || '好的，我来帮你分析一下这个问题…';
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < fullResponse.length) {
+          s.messages[assistantIdx].text += fullResponse[i];
+          // 只更新流式文字节点，不重绘整个列表
+          const streamEl = document.getElementById(`ai-stream-${assistantIdx}`);
+          if (streamEl) streamEl.textContent = s.messages[assistantIdx].text;
+          document.getElementById('msg-area').scrollTop = 99999;
+          i++;
+        } else {
+          clearInterval(interval);
+          if (isFirst) setTimeout(() => setStep(5, 'done'), 200);
+          s.isStreaming = false;
+          document.getElementById('send-btn').disabled = false;
+        }
+      }, 18);
+    }, 400);
+
+  }, 300);
+}
+
+function resetDemo1() {
+  sessions1 = {};
+  tabOrder1 = [];
+  const id = createSession1();
+  activeTabId1 = id;
+  renderTabs1();
+  renderMessages1();
+  resetSteps();
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('main-input').value = '';
+}
+
+// ══════════════════════════════════════════════
+// Feature 2：历史持久化交互逻辑
+// ══════════════════════════════════════════════
+
+const MOCK_SESSIONS = [
+  {
+    id: 'today-1', name: 'RSI信号函数Python实现', createdAt: Date.now() - 3600000,
+    messages: [
+      { role: 'user', text: '帮我写一个基于RSI指标的Python交易信号函数' },
+      { role: 'assistant', text: '好的，这里是RSI信号函数的Python实现，包含标准EWM平滑算法，返回1/-1/0三态信号…' }
+    ]
+  },
+  {
+    id: 'today-2', name: '移动平均线量化策略解析', createdAt: Date.now() - 7200000,
+    messages: [
+      { role: 'user', text: '解释一下移动平均线在量化策略中的用法' },
+      { role: 'assistant', text: '移动平均线（MA）是量化策略中最基础的趋势跟踪工具，常用于趋势判断、金叉死叉信号…' }
+    ]
+  },
+  {
+    id: 'yesterday-1', name: '布林带参数优化', createdAt: Date.now() - 90000000,
+    messages: [
+      { role: 'user', text: '布林带的参数怎么优化？' },
+      { role: 'assistant', text: '布林带默认参数是20日均线±2倍标准差。优化方向包括调整周期、倍数，以及根据市场波动率自适应调整…' }
+    ]
+  },
+  {
+    id: 'yesterday-2', name: '特征工程回测框架', createdAt: Date.now() - 100000000,
+    messages: [
+      { role: 'user', text: '怎么搭建特征工程的回测框架？' },
+      { role: 'assistant', text: '特征工程回测框架需要包含数据预处理、特征计算、滑动窗口回测、绩效评估四个核心模块…' }
+    ]
+  },
+  {
+    id: 'week-1', name: 'VWAP均线偏差策略', createdAt: Date.now() - 400000000,
+    messages: [
+      { role: 'user', text: 'VWAP在日内策略里怎么用？' },
+      { role: 'assistant', text: 'VWAP作为日内参考价，可以用于均值回归策略：价格偏离VWAP超过阈值时做反向操作…' }
+    ]
+  },
+];
+
+let histSessions = [...MOCK_SESSIONS];
+let activeHistId = 'today-1';
+
+function groupByDate(sessions) {
+  const now = Date.now();
+  const ONE_DAY = 86400000;
+  const groups = { today: [], yesterday: [], week: [], older: [] };
+  sessions.forEach(s => {
+    const diff = now - s.createdAt;
+    if (diff < ONE_DAY) groups.today.push(s);
+    else if (diff < 2 * ONE_DAY) groups.yesterday.push(s);
+    else if (diff < 7 * ONE_DAY) groups.week.push(s);
+    else groups.older.push(s);
+  });
+  return groups;
+}
+
+function renderHistList(filter = '') {
+  const list = document.getElementById('hist-list');
+  const filtered = filter ? histSessions.filter(s => s.name.includes(filter) || s.messages.some(m => m.text.includes(filter))) : histSessions;
+  const groups = groupByDate(filtered);
+  const labels = { today: '今天', yesterday: '昨天', week: '本周', older: '更早' };
+
+  let html = '';
+  Object.entries(groups).forEach(([key, sessions]) => {
+    if (sessions.length === 0) return;
+    html += `<div class="hist-group-label">${labels[key]}</div>`;
+    sessions.forEach(s => {
+      html += `
+        <div class="hist-item ${s.id === activeHistId ? 'active' : ''}" onclick="switchHistSession('${s.id}')" oncontextmenu="histCtx(event,'${s.id}')">
+          <div class="hist-item-dot"></div>
+          <div class="hist-item-info">
+            <div class="hist-item-name">${escHtml(s.name)}</div>
+            <div class="hist-item-meta">${s.messages.length} 条消息</div>
+          </div>
+          <div class="hist-item-actions">
+            <div class="hist-action-btn" title="重命名" onclick="event.stopPropagation();renameHistItem('${s.id}')">✎</div>
+            <div class="hist-action-btn danger" title="删除" onclick="event.stopPropagation();deleteHistItem('${s.id}')">✕</div>
+          </div>
+        </div>`;
+    });
+  });
+  if (!html) html = '<div style="padding:20px 14px;color:var(--text-dim);font-size:12px;text-align:center;">无匹配结果</div>';
+  list.innerHTML = html;
+}
+
+function switchHistSession(id) {
+  activeHistId = id;
+  const session = histSessions.find(s => s.id === id);
+  if (!session) return;
+
+  document.getElementById('feat2-session-name').textContent = session.name;
+
+  const chat = document.getElementById('feat2-chat');
+  let html = '';
+  session.messages.forEach(m => {
+    if (m.role === 'user') {
+      html += `<div class="mock-msg-user"><div class="mock-bubble-user">${escHtml(m.text)}</div></div>`;
+    } else {
+      html += `<div class="mock-msg-agent"><div class="mock-bubble-agent"><span class="agent-icon-sm">✦</span>${escHtml(m.text)}</div></div>`;
+    }
+  });
+  chat.innerHTML = html;
+  renderHistList();
+}
+
+function filterHist(val) { renderHistList(val); }
+
+function renameHistItem(id) {
+  const s = histSessions.find(s => s.id === id);
+  if (!s) return;
+  const newName = prompt('重命名对话：', s.name);
+  if (newName && newName.trim()) {
+    s.name = newName.trim();
+    if (id === activeHistId) document.getElementById('feat2-session-name').textContent = s.name;
+    renderHistList();
+    showToast('✓ 已重命名');
+  }
+}
+
+function deleteHistItem(id) {
+  histSessions = histSessions.filter(s => s.id !== id);
+  if (activeHistId === id) {
+    activeHistId = histSessions[0]?.id ?? null;
+    if (activeHistId) switchHistSession(activeHistId);
+    else {
+      document.getElementById('feat2-chat').innerHTML = `<div class="feat2-empty"><div class="feat2-empty-icon">📂</div><div class="feat2-empty-text">从左侧选择一个历史会话</div></div>`;
+      document.getElementById('feat2-session-name').textContent = '选择一个历史对话';
+    }
+  }
+  renderHistList();
+  showToast('已删除对话');
+}
+
+function histCtx(e, id) { e.preventDefault(); renameHistItem(id); }
+
+function newHistSession() {
+  const id = 'new-' + Date.now();
+  const s = { id, name: '新对话', createdAt: Date.now(), messages: [] };
+  histSessions.unshift(s);
+  activeHistId = id;
+  document.getElementById('feat2-session-name').textContent = '新对话';
+  document.getElementById('feat2-chat').innerHTML = `<div class="feat2-empty"><div class="feat2-empty-icon">💬</div><div class="feat2-empty-text">开始一个新的对话</div></div>`;
+  renderHistList();
+  showToast('已新建会话');
+}
+
+let restartCount = 0;
+function simulateRestart() {
+  restartCount++;
+  const note = document.getElementById('restart-note');
+  const list = document.getElementById('hist-list');
+
+  // 动画：闪烁一下然后恢复
+  list.style.opacity = '0.2';
+  list.style.transition = 'opacity 0.2s';
+  document.getElementById('feat2-chat').style.opacity = '0.2';
+  note.textContent = '重启中…';
+
+  setTimeout(() => {
+    list.style.opacity = '1';
+    document.getElementById('feat2-chat').style.opacity = '1';
+    renderHistList();
+    if (activeHistId) switchHistSession(activeHistId);
+    note.textContent = `✓ 第${restartCount}次重启 — 历史数据完整恢复（${histSessions.length} 个会话）`;
+    showToast(`✓ 应用重启完成，恢复 ${histSessions.length} 个历史会话`);
+  }, 600);
+}
+
+let mockCount = 0;
+function addMockSession() {
+  mockCount++;
+  const titles = ['MACD背离识别策略', '成交量分析模型', 'Backtrader回测搭建', '因子挖掘流程讲解', '期货CTA策略框架'];
+  const id = 'mock-' + Date.now();
+  const s = {
+    id, name: titles[mockCount % titles.length],
+    createdAt: Date.now(),
+    messages: [
+      { role: 'user', text: '帮我介绍一下' + titles[mockCount % titles.length] },
+      { role: 'assistant', text: '好的，这是一个关于' + titles[mockCount % titles.length] + '的详细解析…' }
+    ]
+  };
+  histSessions.unshift(s);
+  activeHistId = id;
+  renderHistList();
+  switchHistSession(id);
+  showToast(`已添加：${s.name}`);
+}
+
+// Toast
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// 初始化
+window.addEventListener('DOMContentLoaded', () => {
+  // Feature 1 初始化
+  const initId = createSession1();
+  activeTabId1 = initId;
+  renderTabs1();
+  renderMessages1();
+
+  // Feature 2 初始化
+  renderHistList();
+  switchHistSession(activeHistId);
+});
+</script>
+</body>
+</html>

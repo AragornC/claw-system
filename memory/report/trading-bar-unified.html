@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trading Bar — 持仓 × 策略 合并 Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:     #0b1017;
+      --panel:  #101720;
+      --panel2: #0d1520;
+      --border: #1d2d40;
+      --text:   #c8d8e8;
+      --muted:  #4e6880;
+      --dim:    #7a9ab8;
+      --green:  #2ecc78;
+      --red:    #f04a62;
+      --yellow: #f0c040;
+      --blue:   #4a8fff;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --mono: "SF Mono", "Fira Code", Menlo, monospace;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 12px/1.5 var(--font);
+      padding: 28px 20px 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+    }
+    h1 { font-size: 11px; color: var(--muted); letter-spacing: 0.6px; text-transform: uppercase; }
+    .section-label {
+      width: 100%; max-width: 1400px;
+      display: flex; align-items: center; gap: 10px;
+      color: var(--muted); font-size: 11px;
+    }
+    .section-label::after { content:""; flex:1; height:1px; background:var(--border); }
+    .vtag {
+      background: rgba(255,255,255,0.04); border:1px solid var(--border);
+      border-radius:4px; padding:2px 8px; font-size:10px; color:var(--dim);
+      white-space: nowrap;
+    }
+    .desc { font-size:10px; color:var(--muted); }
+
+    /* ── Bar shell ── */
+    .bar {
+      width: 100%; max-width: 1400px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: grid;
+    }
+    .bar-2col { grid-template-columns: 1fr 320px; gap: 1px; }
+    .bar-3col { grid-template-columns: 1fr 1fr 280px; gap: 1px; }
+    .cell { background: var(--panel); display:flex; flex-direction:column; overflow:hidden; }
+
+    .cell-hd {
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 7px 12px 6px; border-bottom:1px solid var(--border);
+      flex-shrink:0;
+    }
+    .cell-hd .lbl { font-size:10px; color:var(--muted); letter-spacing:.4px; text-transform:uppercase; }
+    .cell-hd .meta { font-size:10px; color:var(--muted); font-family:var(--mono); }
+    .cell-body { flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+
+    /* ── 通用 util ── */
+    .up{color:var(--green)} .dn{color:var(--red)} .hl{color:var(--yellow)}
+    .signal {
+      font-size:10px; font-weight:700; padding:1px 6px; border-radius:3px;
+    }
+    .signal.buy  { background:rgba(46,204,120,.12); color:var(--green); }
+    .signal.sell { background:rgba(240,74,98,.12);  color:var(--red); }
+    .signal.hold { background:rgba(255,255,255,.05); color:var(--muted); }
+
+    /* ── PnL card (right, shared) ── */
+    .pnl-wrap { padding:8px 12px; display:flex; flex-direction:column; gap:6px; flex:1; }
+    .pnl-main { font-size:22px; font-weight:700; font-family:var(--mono); }
+    .pnl-pct  { font-size:12px; font-family:var(--mono); }
+    .pnl-sub  { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .kv .k { font-size:9px; color:var(--muted); }
+    .kv .v { font-size:12px; font-weight:600; font-family:var(--mono); }
+    .spark-wrap { flex:1; min-height:0; height:36px; }
+    svg.spark { width:100%; height:100%; display:block; }
+
+    /* ═══════════════ VARIANT A ═══════════════
+       主从面板：左=合并列表，点击展开策略详情 */
+    .va-list {
+      overflow-y:auto; scrollbar-width:none; flex:1;
+    }
+    .va-list::-webkit-scrollbar { display:none; }
+    .va-row {
+      display:grid;
+      grid-template-columns: 54px 40px 1fr 64px 72px 60px;
+      align-items:center; gap:8px;
+      padding:5px 12px;
+      border-bottom:1px solid rgba(255,255,255,.03);
+      cursor:pointer;
+      transition:background .12s;
+      position:relative;
+    }
+    .va-row:hover { background:rgba(255,255,255,.03); }
+    .va-row.active { background:rgba(74,143,255,.07); border-bottom-color:rgba(74,143,255,.15); }
+    .va-row .sym { font-weight:600; font-size:12px; }
+    .va-row .dir { font-size:10px; font-weight:600; }
+    .va-row .dir.long { color:var(--green); }
+    .va-row .dir.short { color:var(--red); }
+    .va-row .stname { font-size:10px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .va-row .pnl { font-family:var(--mono); font-size:12px; font-weight:600; text-align:right; }
+    .va-row .conf-bar { height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .va-row .conf-fill { height:100%; border-radius:2px; transition:width .4s; }
+    .va-detail {
+      display:none; padding:8px 12px 10px;
+      background:rgba(74,143,255,.04);
+      border-bottom:1px solid rgba(74,143,255,.1);
+      font-size:11px;
+    }
+    .va-detail.show { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+    .va-detail .dk { font-size:9px; color:var(--muted); margin-bottom:2px; }
+    .va-detail .dv { font-size:12px; font-weight:600; font-family:var(--mono); }
+
+    /* ═══════════════ VARIANT B ═══════════════
+       Inline 合并行：每行左半仓位、右半策略 */
+    .vb-list { overflow-y:auto; scrollbar-width:none; flex:1; }
+    .vb-list::-webkit-scrollbar { display:none; }
+    .vb-row {
+      display:grid;
+      grid-template-columns: 1fr 1px 1fr;
+      border-bottom:1px solid rgba(255,255,255,.03);
+      min-height:38px;
+    }
+    .vb-pos, .vb-strat {
+      display:flex; align-items:center; gap:8px;
+      padding:5px 10px;
+    }
+    .vb-div { background:var(--border); }
+    .vb-pos .sym { font-weight:600; font-size:12px; min-width:34px; }
+    .vb-pos .dir { font-size:10px; font-weight:600; min-width:18px; }
+    .vb-pos .entry { font-size:10px; color:var(--dim); font-family:var(--mono); flex:1; }
+    .vb-pos .pnl { font-family:var(--mono); font-size:12px; font-weight:600; text-align:right; white-space:nowrap; }
+    .vb-strat .stname { font-size:10px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); }
+    .vb-strat .conf { font-size:10px; font-family:var(--mono); color:var(--muted); }
+    .vb-strat .mode { font-size:9px; color:var(--muted); white-space:nowrap; }
+    .vb-strat .cbar { flex:1; min-width:30px; height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .vb-strat .cfill { height:100%; border-radius:2px; transition:width .4s; }
+
+    /* ═══════════════ VARIANT C ═══════════════
+       左列：策略卡片，右列：该策略的仓位 */
+    .vc-wrap { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); flex:1; min-height:0; }
+    .vc-side { background:var(--panel); display:flex; flex-direction:column; overflow:hidden; }
+    .vc-side-hd { padding:5px 10px; border-bottom:1px solid var(--border); font-size:10px; color:var(--muted); letter-spacing:.3px; text-transform:uppercase; flex-shrink:0; }
+    .vc-list { overflow-y:auto; scrollbar-width:none; flex:1; }
+    .vc-list::-webkit-scrollbar { display:none; }
+    .vc-card {
+      padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.03);
+      cursor:pointer; transition:background .12s;
+    }
+    .vc-card:hover { background:rgba(255,255,255,.03); }
+    .vc-card.active { background:rgba(74,143,255,.07); border-left:2px solid var(--blue); padding-left:8px; }
+    .vc-card .row1 { display:flex; align-items:center; gap:8px; }
+    .vc-card .sname { font-size:11px; font-weight:500; flex:1; }
+    .vc-card .row2 { display:flex; align-items:center; gap:6px; margin-top:4px; }
+    .vc-card .sym-tag { font-size:9px; color:var(--dim); background:rgba(255,255,255,.04); border-radius:3px; padding:1px 4px; }
+    .vc-card .cbar2 { flex:1; height:2px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .vc-card .cfill2 { height:100%; border-radius:2px; transition:width .5s; }
+    .vc-card .modeTag { font-size:9px; }
+
+    .vc-pos-card {
+      padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.03);
+    }
+    .vc-pos-card.dim { opacity:.3; }
+    .vc-pos-card .row1 { display:flex; align-items:center; gap:8px; }
+    .vc-pos-card .sym { font-weight:600; font-size:12px; }
+    .vc-pos-card .pnl { font-family:var(--mono); font-size:12px; font-weight:600; margin-left:auto; }
+    .vc-pos-card .row2 { display:flex; align-items:center; gap:6px; margin-top:3px; }
+    .vc-pos-card .info { font-size:10px; color:var(--dim); font-family:var(--mono); }
+    .vc-pos-card .pbar { flex:1; height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .vc-pos-card .pfill { height:100%; border-radius:2px; transition:width .4s; }
+
+    /* ═══════════════ VARIANT D ═══════════════
+       Tab 切换：[持仓] [策略] 共享面板，互相高亮 */
+    .vd-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .vd-tab {
+      padding:5px 14px; font-size:11px; color:var(--muted);
+      cursor:pointer; border-bottom:2px solid transparent;
+      transition:color .12s, border-color .12s;
+    }
+    .vd-tab.active { color:var(--text); border-bottom-color:var(--blue); }
+    .vd-pane { display:none; flex:1; overflow-y:auto; scrollbar-width:none; }
+    .vd-pane::-webkit-scrollbar { display:none; }
+    .vd-pane.show { display:block; }
+
+    .vd-pos-row {
+      display:grid; grid-template-columns:54px 36px 1fr 64px 64px;
+      align-items:center; gap:8px; padding:6px 12px;
+      border-bottom:1px solid rgba(255,255,255,.03);
+      cursor:pointer; transition:background .12s;
+    }
+    .vd-pos-row:hover { background:rgba(255,255,255,.03); }
+    .vd-pos-row.hl { background:rgba(74,143,255,.08); }
+    .vd-pos-row .sym { font-weight:600; font-size:12px; }
+    .vd-pos-row .dir { font-size:10px; font-weight:600; }
+    .vd-pos-row .link { font-size:10px; color:var(--blue); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .vd-pos-row .pnl { font-family:var(--mono); font-size:12px; font-weight:600; text-align:right; }
+    .vd-pos-row .cbar { height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .vd-pos-row .cfill { height:100%; border-radius:2px; transition:width .4s; }
+
+    .vd-strat-row {
+      display:grid; grid-template-columns:100px 48px 1fr 60px 52px;
+      align-items:center; gap:8px; padding:6px 12px;
+      border-bottom:1px solid rgba(255,255,255,.03);
+      cursor:pointer; transition:background .12s;
+    }
+    .vd-strat-row:hover { background:rgba(255,255,255,.03); }
+    .vd-strat-row.hl { background:rgba(74,143,255,.08); }
+    .vd-strat-row .sname { font-size:11px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .vd-strat-row .ssym { font-size:10px; color:var(--dim); font-family:var(--mono); }
+    .vd-strat-row .cbar { height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+    .vd-strat-row .cfill { height:100%; border-radius:2px; transition:width .4s; }
+    .vd-strat-row .mode { font-size:9px; text-align:right; }
+  </style>
+</head>
+<body>
+
+<h1>ThunderClaw — 持仓 × 策略 合并方案</h1>
+
+<!-- ══ VARIANT A ══ -->
+<div class="section-label">
+  <span class="vtag">方案 A</span>
+  <span class="desc">合并列表 · 点击行内展开策略详情（最紧凑）</span>
+</div>
+<div class="bar bar-2col" style="height:160px">
+  <div class="cell">
+    <div class="cell-hd"><span class="lbl">持仓 × 策略</span><span class="meta" id="aCount">3 个</span></div>
+    <div class="cell-body">
+      <div class="va-list" id="vaList"></div>
+    </div>
+  </div>
+  <div class="cell" id="aPnl"></div>
+</div>
+
+<!-- ══ VARIANT B ══ -->
+<div class="section-label">
+  <span class="vtag">方案 B</span>
+  <span class="desc">左半仓位 / 右半策略 · 同行对照（最直觉）</span>
+</div>
+<div class="bar bar-2col" style="height:148px">
+  <div class="cell">
+    <div class="cell-hd">
+      <span class="lbl">持仓</span>
+      <span style="width:1px;background:var(--border);height:12px;display:inline-block;margin:0 8px"></span>
+      <span class="lbl">策略</span>
+      <span class="meta" style="margin-left:auto" id="bCount">3 个</span>
+    </div>
+    <div class="cell-body">
+      <div class="vb-list" id="vbList"></div>
+    </div>
+  </div>
+  <div class="cell" id="bPnl"></div>
+</div>
+
+<!-- ══ VARIANT C ══ -->
+<div class="section-label">
+  <span class="vtag">方案 C</span>
+  <span class="desc">策略列表 + 点击高亮关联仓位（双栏关联）</span>
+</div>
+<div class="bar bar-2col" style="height:172px">
+  <div class="cell">
+    <div class="cell-hd"><span class="lbl">策略 → 仓位</span><span class="meta" id="cCount">3 策略</span></div>
+    <div class="cell-body">
+      <div class="vc-wrap" id="vcWrap">
+        <div class="vc-side">
+          <div class="vc-side-hd">策略</div>
+          <div class="vc-list" id="vcStratList"></div>
+        </div>
+        <div class="vc-side">
+          <div class="vc-side-hd">对应仓位</div>
+          <div class="vc-list" id="vcPosList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cell" id="cPnl"></div>
+</div>
+
+<!-- ══ VARIANT D ══ -->
+<div class="section-label">
+  <span class="vtag">方案 D</span>
+  <span class="desc">Tab 切换 · 点击持仓跳到对应策略（互相呼应）</span>
+</div>
+<div class="bar bar-2col" style="height:168px">
+  <div class="cell">
+    <div class="cell-hd" style="padding:0">
+      <div class="vd-tabs" style="width:100%">
+        <div class="vd-tab active" data-pane="pos">持仓</div>
+        <div class="vd-tab" data-pane="strat">策略</div>
+      </div>
+    </div>
+    <div class="cell-body" style="position:relative">
+      <div class="vd-pane show" id="vdPos"></div>
+      <div class="vd-pane" id="vdStrat"></div>
+    </div>
+  </div>
+  <div class="cell" id="dPnl"></div>
+</div>
+
+<script>
+/* ═══════ Data ═══════ */
+const DATA = {
+  pnl: 312,
+  equity: 20800,
+  winRate: 63,
+  maxDD: -4.2,
+  pnlHist: Array.from({length:36},(_,i)=>200+Math.sin(i/4)*40+i*2.1+(Math.random()-.5)*14),
+
+  items: [
+    {
+      sym:"BTC",  dir:"long",  size:"0.12", entry:82340,
+      pnl:+218, maxPnl:280,
+      stName:"趋势跟随 V2", signal:"buy",  conf:82, mode:"自动",   modeClr:"var(--blue)"
+    },
+    {
+      sym:"ETH",  dir:"short", size:"1.50", entry:1923,
+      pnl:-38,  maxPnl:80,
+      stName:"均值回归 α",  signal:"sell", conf:68, mode:"半自动", modeClr:"var(--yellow)"
+    },
+    {
+      sym:"SOL",  dir:"long",  size:"12.0", entry:138.2,
+      pnl:+73,  maxPnl:120,
+      stName:"突破追单 B",  signal:"hold", conf:45, mode:"建议",   modeClr:"var(--muted)"
+    },
+  ]
+};
+
+function fmt(n,d=0){return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});}
+function confClr(s){ return s==="buy"?"var(--green)":s==="sell"?"var(--red)":"var(--muted)"; }
+function sigLabel(s){ return s==="buy"?"BUY":s==="sell"?"SELL":"HOLD"; }
+function pnlCls(v){ return v>=0?"up":"dn"; }
+function pnlStr(v){ return (v>=0?"+":"-")+"$"+fmt(Math.abs(v),0); }
+
+/* ═══════ PnL Card ═══════ */
+function buildPnlCard(id) {
+  const el = document.getElementById(id);
+  el.innerHTML = `
+    <div class="cell-hd"><span class="lbl">收益</span><span class="meta">今日</span></div>
+    <div class="cell-body">
+      <div class="pnl-wrap">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span class="pnl-main ${pnlCls(DATA.pnl)}" data-pnlmain>${pnlStr(DATA.pnl)}</span>
+          <span class="pnl-pct ${pnlCls(DATA.pnl)}" data-pnlpct>${DATA.pnl>=0?"+":""}${(DATA.pnl/DATA.equity*100).toFixed(2)}%</span>
+        </div>
+        <div class="pnl-sub">
+          <div class="kv"><div class="k">总资产</div><div class="v" data-eq>$${fmt(DATA.equity,0)}</div></div>
+          <div class="kv"><div class="k">最大回撤</div><div class="v dn" data-dd>${DATA.maxDD.toFixed(1)}%</div></div>
+          <div class="kv"><div class="k">胜率</div><div class="v" data-wr>${DATA.winRate}%</div></div>
+          <div class="kv"><div class="k">可用</div><div class="v" data-av>$${fmt(DATA.equity*.42,0)}</div></div>
+        </div>
+        <div class="spark-wrap"><svg class="spark" viewBox="0 0 300 40" preserveAspectRatio="none" data-spark></svg></div>
+      </div>
+    </div>`;
+}
+["aPnl","bPnl","cPnl","dPnl"].forEach(buildPnlCard);
+
+function renderSparks() {
+  const arr = DATA.pnlHist;
+  const mn=Math.min(...arr), mx=Math.max(...arr);
+  const pts = arr.map((v,i)=>`${(i/(arr.length-1)*300).toFixed(1)},${(40-(v-mn)/Math.max(1,mx-mn)*38-1).toFixed(1)}`).join(" ");
+  const clr = DATA.pnl>=0?"var(--green)":"var(--red)";
+  const fill = DATA.pnl>=0?"rgba(46,204,120,.08)":"rgba(240,74,98,.08)";
+  document.querySelectorAll("[data-spark]").forEach(svg=>{
+    svg.innerHTML=`<polygon points="${pts} 300,40 0,40" fill="${fill}"/>
+      <polyline points="${pts}" stroke="${clr}" stroke-width="1.5" fill="none" stroke-linejoin="round"/>`;
+  });
+}
+
+function updatePnlCards() {
+  document.querySelectorAll("[data-pnlmain]").forEach(el=>{
+    el.textContent=pnlStr(DATA.pnl); el.className=`pnl-main ${pnlCls(DATA.pnl)}`;
+  });
+  document.querySelectorAll("[data-pnlpct]").forEach(el=>{
+    el.textContent=`${DATA.pnl>=0?"+":""}${(DATA.pnl/DATA.equity*100).toFixed(2)}%`;
+    el.className=`pnl-pct ${pnlCls(DATA.pnl)}`;
+  });
+  document.querySelectorAll("[data-eq]").forEach(el=>el.textContent=`$${fmt(DATA.equity,0)}`);
+  document.querySelectorAll("[data-dd]").forEach(el=>el.textContent=`${DATA.maxDD.toFixed(1)}%`);
+  document.querySelectorAll("[data-wr]").forEach(el=>el.textContent=`${DATA.winRate}%`);
+  document.querySelectorAll("[data-av]").forEach(el=>el.textContent=`$${fmt(DATA.equity*.42,0)}`);
+  renderSparks();
+}
+
+/* ═══════ VARIANT A ═══════ */
+function renderA() {
+  const list = document.getElementById("vaList");
+  list.innerHTML = DATA.items.map((d,i)=>{
+    const bw = Math.round(Math.min(100,Math.abs(d.pnl)/Math.max(1,d.maxPnl)*100));
+    return `
+      <div class="va-row" data-idx="${i}" onclick="toggleA(${i})">
+        <span class="sym">${d.sym}</span>
+        <span class="dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+        <span class="stname">${d.stName}</span>
+        <span class="signal ${d.signal}">${sigLabel(d.signal)} ${d.conf}%</span>
+        <span class="pnl ${pnlCls(d.pnl)}">${pnlStr(d.pnl)}</span>
+        <div class="conf-bar"><div class="conf-fill" style="width:${bw}%;background:${confClr(d.signal)}"></div></div>
+      </div>
+      <div class="va-detail" id="va-detail-${i}">
+        <div><div class="dk">入场价</div><div class="dv">${fmt(d.entry,1)}</div></div>
+        <div><div class="dk">仓量</div><div class="dv">${d.size}</div></div>
+        <div><div class="dk">置信度</div><div class="dv">${d.conf}%</div></div>
+        <div><div class="dk">执行模式</div><div class="dv" style="color:${d.modeClr}">${d.mode}</div></div>
+        <div><div class="dk">策略信号</div><div class="dv"><span class="signal ${d.signal}">${sigLabel(d.signal)}</span></div></div>
+      </div>`;
+  }).join("");
+}
+window.toggleA = function(i) {
+  const row = document.querySelector(`.va-row[data-idx="${i}"]`);
+  const det = document.getElementById(`va-detail-${i}`);
+  const open = det.classList.contains("show");
+  document.querySelectorAll(".va-row").forEach(r=>r.classList.remove("active"));
+  document.querySelectorAll(".va-detail").forEach(d=>d.classList.remove("show"));
+  if (!open) { row.classList.add("active"); det.classList.add("show"); }
+};
+renderA();
+
+/* ═══════ VARIANT B ═══════ */
+function renderB() {
+  const list = document.getElementById("vbList");
+  list.innerHTML = DATA.items.map(d=>{
+    const bw = Math.round(Math.min(100,Math.abs(d.pnl)/Math.max(1,d.maxPnl)*100));
+    const cclr = confClr(d.signal);
+    return `
+      <div class="vb-row">
+        <div class="vb-pos">
+          <span class="sym">${d.sym}</span>
+          <span class="dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+          <span class="entry">${fmt(d.entry,1)}</span>
+          <span class="pnl ${pnlCls(d.pnl)}">${pnlStr(d.pnl)}</span>
+        </div>
+        <div class="vb-div"></div>
+        <div class="vb-strat">
+          <span class="signal ${d.signal}">${sigLabel(d.signal)}</span>
+          <span class="stname">${d.stName}</span>
+          <div class="cbar"><div class="cfill" style="width:${d.conf}%;background:${cclr}"></div></div>
+          <span class="conf">${d.conf}%</span>
+          <span class="mode" style="color:${d.modeClr}">${d.mode}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+renderB();
+
+/* ═══════ VARIANT C ═══════ */
+let vcActive = 0;
+function renderC() {
+  const sl = document.getElementById("vcStratList");
+  const pl = document.getElementById("vcPosList");
+  sl.innerHTML = DATA.items.map((d,i)=>{
+    const cclr = confClr(d.signal);
+    return `
+      <div class="vc-card ${i===vcActive?"active":""}" onclick="selectC(${i})">
+        <div class="row1">
+          <span class="sname">${d.stName}</span>
+          <span class="signal ${d.signal}">${sigLabel(d.signal)}</span>
+        </div>
+        <div class="row2">
+          <span class="sym-tag">${d.sym}</span>
+          <div class="cbar2"><div class="cfill2" style="width:${d.conf}%;background:${cclr}"></div></div>
+          <span class="modeTag" style="color:${d.modeClr}">${d.mode}</span>
+          <span class="conf" style="font-size:10px;color:var(--dim);font-family:var(--mono)">${d.conf}%</span>
+        </div>
+      </div>`;
+  }).join("");
+  pl.innerHTML = DATA.items.map((d,i)=>{
+    const bw = Math.round(Math.min(100,Math.abs(d.pnl)/Math.max(1,d.maxPnl)*100));
+    const pclr = d.pnl>=0?"var(--green)":"var(--red)";
+    const isDim = i !== vcActive;
+    return `
+      <div class="vc-pos-card ${isDim?"dim":""}">
+        <div class="row1">
+          <span class="sym">${d.sym}</span>
+          <span class="dir ${d.dir}" style="font-size:10px;font-weight:600">${d.dir==="long"?"多 "+d.size:"空 "+d.size}</span>
+          <span class="pnl ${pnlCls(d.pnl)}">${pnlStr(d.pnl)}</span>
+        </div>
+        <div class="row2">
+          <span class="info">入场 ${fmt(d.entry,1)}</span>
+          <div class="pbar"><div class="pfill" style="width:${bw}%;background:${pclr}"></div></div>
+        </div>
+      </div>`;
+  }).join("");
+}
+window.selectC = function(i) { vcActive = i; renderC(); };
+renderC();
+
+/* ═══════ VARIANT D ═══════ */
+let vdHL = -1;
+function renderD() {
+  const posEl  = document.getElementById("vdPos");
+  const stratEl= document.getElementById("vdStrat");
+
+  posEl.innerHTML = DATA.items.map((d,i)=>{
+    const bw = Math.round(Math.min(100,Math.abs(d.pnl)/Math.max(1,d.maxPnl)*100));
+    return `
+      <div class="vd-pos-row ${vdHL===i?"hl":""}" onclick="hlD(${i},'pos')">
+        <span class="sym">${d.sym}</span>
+        <span class="dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+        <span class="link">${d.stName}</span>
+        <span class="pnl ${pnlCls(d.pnl)}">${pnlStr(d.pnl)}</span>
+        <div class="cbar"><div class="cfill" style="width:${bw}%;background:${d.pnl>=0?"var(--green)":"var(--red)"}"></div></div>
+      </div>`;
+  }).join("");
+
+  stratEl.innerHTML = DATA.items.map((d,i)=>{
+    const cclr = confClr(d.signal);
+    return `
+      <div class="vd-strat-row ${vdHL===i?"hl":""}" onclick="hlD(${i},'strat')">
+        <span class="sname">${d.stName}</span>
+        <span class="ssym">${d.sym}</span>
+        <div class="cbar"><div class="cfill" style="width:${d.conf}%;background:${cclr}"></div></div>
+        <span class="signal ${d.signal}">${sigLabel(d.signal)} ${d.conf}%</span>
+        <span class="mode" style="color:${d.modeClr}">${d.mode}</span>
+      </div>`;
+  }).join("");
+}
+
+window.hlD = function(i, from) {
+  vdHL = vdHL === i ? -1 : i;
+  renderD();
+  if (vdHL >= 0) {
+    const to = from === "pos" ? "strat" : "pos";
+    document.querySelectorAll(".vd-tab").forEach(t=>{
+      const active = t.dataset.pane === to;
+      t.classList.toggle("active", active);
+    });
+    document.getElementById("vdPos").classList.toggle("show", to === "pos");
+    document.getElementById("vdStrat").classList.toggle("show", to === "strat");
+  }
+};
+
+document.querySelectorAll(".vd-tab").forEach(tab=>{
+  tab.addEventListener("click", ()=>{
+    document.querySelectorAll(".vd-tab").forEach(t=>t.classList.remove("active"));
+    tab.classList.add("active");
+    const pane = tab.dataset.pane;
+    document.getElementById("vdPos").classList.toggle("show", pane==="pos");
+    document.getElementById("vdStrat").classList.toggle("show", pane==="strat");
+  });
+});
+renderD();
+
+/* ═══════ Tick ═══════ */
+updatePnlCards();
+setInterval(()=>{
+  DATA.pnl    += (Math.random()-.5)*9;
+  DATA.equity += (Math.random()-.5)*7;
+  DATA.winRate = Math.max(50,Math.min(78,DATA.winRate+(Math.random()-.5)*.3));
+  DATA.maxDD   = Math.max(-12,Math.min(-1,DATA.maxDD+(Math.random()-.5)*.1));
+  DATA.pnlHist.push(DATA.pnl);
+  DATA.pnlHist = DATA.pnlHist.slice(-36);
+
+  DATA.items.forEach(d=>{
+    d.pnl  += (Math.random()-.5)*5;
+    d.conf  = Math.max(28,Math.min(96,d.conf+Math.round((Math.random()-.5)*4)));
+    const r = Math.random();
+    if (r<.05) d.signal="buy";
+    else if (r<.1) d.signal="sell";
+    else if (r<.14) d.signal="hold";
+  });
+
+  renderA(); renderB(); renderC(); renderD();
+  updatePnlCards();
+}, 900);
+</script>
+</body>
+</html>

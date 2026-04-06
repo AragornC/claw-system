@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>ThunderClaw · 左侧工具栏 Demo A</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0c1017;
+  color: #c2cee0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+  padding: 40px 24px;
+}
+
+:root {
+  --bg:       #090d16;
+  --bg-hov:   #131d2c;
+  --bg-act:   #182a40;
+  --border:   #1e2d42;
+  --border-s: #192438;
+  --text:     #c2cee0;
+  --muted:    #4a6580;
+  --dim:      #2a3f55;
+  --accent:   #3cc87a;
+  --gold:     #e8a84a;
+  --red:      #e05050;
+  --blue:     #5b8def;
+  --mono:     ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.sb {
+  width: 220px;
+  height: 560px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+/* ═══ Nav ═══ */
+.sb-nav {
+  display: flex;
+  align-items: center;
+  padding: 8px 8px 6px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.sb-nav .n-btn {
+  width: 30px; height: 30px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .12s;
+}
+.sb-nav .n-btn:hover { color: var(--text); background: var(--bg-hov); }
+.sb-nav .n-btn.active { color: var(--text); background: var(--bg-act); }
+
+/* ═══ Search bar ═══ */
+.sb-search {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 10px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-s);
+  border-radius: 6px;
+  background: rgba(255,255,255,.02);
+  animation: searchSlide .15s ease;
+}
+@keyframes searchSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sb-search input {
+  background: none; border: none; outline: none;
+  color: var(--text); font-size: 11px; flex: 1;
+  font-family: inherit;
+}
+.sb-search input::placeholder { color: var(--dim); }
+.sb-search .search-close {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; padding: 2px;
+  display: flex; align-items: center; justify-content: center;
+  transition: color .12s;
+}
+.sb-search .search-close:hover { color: var(--text); }
+
+/* ═══ Body ═══ */
+.sb-body { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.sb-body::-webkit-scrollbar { width: 3px; }
+.sb-body::-webkit-scrollbar-thumb { background: #1e2d42; border-radius: 2px; }
+
+/* ═══ Collapsible sections ═══ */
+.sb-sec {
+  padding: 0;
+  border-bottom: 1px solid var(--border-s);
+}
+.sb-sec:last-child { border-bottom: none; }
+
+.sb-sec-hd {
+  display: flex; align-items: center;
+  padding: 8px 12px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .8px; color: var(--muted);
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  transition: color .12s;
+}
+.sb-sec-hd:hover { color: var(--text); }
+
+.sb-sec-hd .chev {
+  width: 14px; height: 14px;
+  display: flex; align-items: center; justify-content: center;
+  margin-right: 4px;
+  transition: transform .15s ease;
+  flex-shrink: 0;
+}
+.sb-sec-hd .chev svg { display: block; }
+.sb-sec.collapsed .chev { transform: rotate(-90deg); }
+
+.sb-sec-hd .sec-label { flex: 1; }
+
+.sb-sec-hd .plus {
+  background: none; border: none; color: var(--muted);
+  font-size: 14px; cursor: pointer; padding: 0 2px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity .12s, color .12s;
+}
+.sb-sec-hd:hover .plus { opacity: 1; }
+.sb-sec-hd .plus:hover { color: var(--accent); }
+
+.sb-sec-body {
+  overflow: hidden;
+  transition: max-height .2s ease, opacity .15s ease;
+  max-height: 500px;
+  opacity: 1;
+}
+.sb-sec.collapsed .sb-sec-body {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* ═══ Items ═══ */
+.sb-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 30px;
+  cursor: pointer;
+  transition: background .1s;
+}
+.sb-item:hover { background: var(--bg-hov); }
+.sb-item.active { background: var(--bg-act); }
+
+.sb-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; background: var(--dim);
+}
+.sb-dot.g { background: var(--accent); }
+.sb-dot.y { background: var(--gold); }
+.sb-dot.r { background: var(--red); }
+.sb-dot.b { background: var(--blue); }
+
+.sb-name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+.sb-badge {
+  margin-left: auto; font-size: 9px; padding: 1px 6px;
+  border-radius: 8px; flex-shrink: 0;
+}
+.sb-badge.green { background: rgba(60,200,122,.12); color: var(--accent); }
+.sb-badge.gold  { background: rgba(232,168,74,.12); color: var(--gold); }
+.sb-badge.red   { background: rgba(224,80,80,.12); color: var(--red); }
+.sb-badge.blue  { background: rgba(91,141,239,.12); color: var(--blue); }
+.sb-badge.muted { background: rgba(74,101,128,.12); color: var(--muted); }
+
+/* ═══ Market items ═══ */
+.sb-mkt {
+  display: flex; align-items: center;
+  padding: 6px 12px 6px 30px; cursor: pointer;
+  transition: background .1s;
+}
+.sb-mkt:hover { background: var(--bg-hov); }
+.sb-mkt .m-sym { font-size: 12px; font-weight: 600; width: 48px; flex-shrink: 0; }
+.sb-mkt .m-price { font-family: var(--mono); font-size: 11px; flex: 1; }
+.sb-mkt .m-chg { font-family: var(--mono); font-size: 10px; font-weight: 600; text-align: right; padding: 1px 6px; border-radius: 4px; }
+.sb-mkt .m-chg.up { color: var(--accent); background: rgba(60,200,122,.1); }
+.sb-mkt .m-chg.dn { color: var(--red); background: rgba(224,80,80,.1); }
+
+/* ═══ Community items ═══ */
+.sb-comm {
+  padding: 8px 12px 8px 30px; cursor: pointer;
+  transition: background .1s;
+  border-bottom: 1px solid #111a28;
+}
+.sb-comm:last-child { border-bottom: none; }
+.sb-comm:hover { background: var(--bg-hov); }
+.sb-comm .cm-top { display: flex; align-items: center; gap: 6px; }
+.sb-comm .cm-avatar {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #1e2d42; display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: var(--muted); flex-shrink: 0;
+}
+.sb-comm .cm-user { font-size: 10px; color: var(--muted); }
+.sb-comm .cm-title { font-size: 11px; color: var(--text); margin-top: 4px; line-height: 1.4; }
+.sb-comm .cm-tags { display: flex; gap: 4px; margin-top: 4px; }
+.sb-comm .cm-tag {
+  font-size: 8px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(91,141,239,.1); color: var(--blue);
+}
+.sb-comm .cm-stat { display: flex; gap: 10px; margin-top: 4px; font-size: 9px; color: var(--muted); }
+
+/* ═══ Task items ═══ */
+.sb-task {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 30px; cursor: pointer;
+  transition: background .1s;
+}
+.sb-task:hover { background: var(--bg-hov); }
+.sb-task .t-icon { flex-shrink: 0; }
+.sb-task .t-info { min-width: 0; flex: 1; }
+.sb-task .t-name { font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-task .t-sub { font-size: 9px; color: var(--muted); margin-top: 1px; }
+.sb-task .t-time { font-size: 9px; color: var(--muted); flex-shrink: 0; font-family: var(--mono); }
+
+/* ═══ Overview stats ═══ */
+.sb-stats {
+  padding: 6px 12px 6px 30px;
+  font-size: 10px; color: var(--muted);
+}
+.sb-stats .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.sb-stats .row:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="sb">
+  <!-- ═══ Nav ═══ -->
+  <div class="sb-nav">
+    <button class="n-btn active" onclick="switchTab(0)" id="n0" title="策略管理">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+    </button>
+    <button class="n-btn" onclick="switchTab(1)" id="n1" title="大盘">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <polyline points="2,12 5,7 8,9 11,4 14,6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="2" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <button class="n-btn" onclick="switchTab(2)" id="n2" title="社区">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+      </svg>
+    </button>
+    <button class="n-btn" onclick="switchTab(3)" id="n3" title="任务">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <line x1="6" y1="5.5" x2="11" y2="5.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+        <line x1="6" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+        <line x1="6" y1="10.5" x2="9" y2="10.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div style="flex:1"></div>
+    <button class="n-btn" title="搜索" onclick="toggleSearch()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="5.8" cy="5.8" r="4" stroke="currentColor" stroke-width="1.2"/>
+        <line x1="8.6" y1="8.6" x2="12" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="sb-search" id="searchBar" style="display:none">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0">
+      <circle cx="5" cy="5" r="3.5" stroke="#4a6580" stroke-width="1.1"/>
+      <line x1="7.5" y1="7.5" x2="10.5" y2="10.5" stroke="#4a6580" stroke-width="1.1" stroke-linecap="round"/>
+    </svg>
+    <input placeholder="搜索策略、特征、任务…" />
+    <button class="search-close" onclick="toggleSearch()">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        <line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="sb-body" id="body"></div>
+</div>
+
+<script>
+const CHEV_SVG = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function secHd(label, hasPlus) {
+  const plus = hasPlus ? `<button class="plus" onclick="event.stopPropagation()">+</button>` : '';
+  return `<div class="sb-sec-hd" onclick="toggleSec(this)"><span class="chev">${CHEV_SVG}</span><span class="sec-label">${label}</span>${plus}</div>`;
+}
+
+function stratContent() {
+  return `
+    <div class="sb-sec">
+      ${secHd('特征库', true)}
+      <div class="sb-sec-body">
+        <div class="sb-item active">
+          <span class="sb-dot g"></span>
+          <div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot g"></span>
+          <div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot y"></span>
+          <div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot"></span>
+          <div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot"></span>
+          <div><div class="sb-name">trend_strength</div><div class="sb-meta">趋势类</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="sb-sec">
+      ${secHd('策略', true)}
+      <div class="sb-sec-body">
+        <div class="sb-item active">
+          <span class="sb-dot g"></span>
+          <div><div class="sb-name">均线交叉策略</div></div>
+          <span class="sb-badge green">运行中</span>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot"></span>
+          <div><div class="sb-name">波动率套利</div></div>
+          <span class="sb-badge muted">暂停</span>
+        </div>
+        <div class="sb-item">
+          <span class="sb-dot"></span>
+          <div><div class="sb-name">动量跟随</div></div>
+          <span class="sb-badge muted">草稿</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function marketContent() {
+  return `
+    <div class="sb-sec">
+      ${secHd('关注列表', true)}
+      <div class="sb-sec-body">
+        <div class="sb-mkt">
+          <span class="m-sym" style="color:var(--text)">BTC</span>
+          <span class="m-price">$82,340</span>
+          <span class="m-chg up">+2.4%</span>
+        </div>
+        <div class="sb-mkt">
+          <span class="m-sym" style="color:var(--text)">ETH</span>
+          <span class="m-price">$1,923</span>
+          <span class="m-chg dn">-1.2%</span>
+        </div>
+        <div class="sb-mkt">
+          <span class="m-sym" style="color:var(--text)">SOL</span>
+          <span class="m-price">$138.2</span>
+          <span class="m-chg up">+5.1%</span>
+        </div>
+        <div class="sb-mkt">
+          <span class="m-sym" style="color:var(--text)">BNB</span>
+          <span class="m-price">$586.4</span>
+          <span class="m-chg dn">-0.3%</span>
+        </div>
+        <div class="sb-mkt">
+          <span class="m-sym" style="color:var(--text)">DOGE</span>
+          <span class="m-price">$0.162</span>
+          <span class="m-chg up">+8.7%</span>
+        </div>
+      </div>
+    </div>
+    <div class="sb-sec">
+      ${secHd('市场概览', false)}
+      <div class="sb-sec-body">
+        <div class="sb-stats">
+          <div class="row"><span>24h 涨跌比</span><span style="color:var(--accent)">62% 涨</span></div>
+          <div class="row"><span>BTC 主导</span><span style="color:var(--text)">54.2%</span></div>
+          <div class="row"><span>恐惧贪婪指数</span><span style="color:var(--gold)">68 贪婪</span></div>
+          <div class="row"><span>全网资金费率</span><span style="color:var(--accent)">+0.012%</span></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function communityContent() {
+  return `
+    <div class="sb-sec">
+      ${secHd('热门推荐', false)}
+      <div class="sb-sec-body">
+        <div class="sb-comm">
+          <div class="cm-top"><div class="cm-avatar">T</div><span class="cm-user">@trader_mike · 2h</span></div>
+          <div class="cm-title">基于 LSTM 的 BTC 波动率预测特征，胜率 73%</div>
+          <div class="cm-tags"><span class="cm-tag">ML</span><span class="cm-tag">波动率</span></div>
+          <div class="cm-stat"><span>⬆ 24</span><span>💬 8</span><span>★ 12</span></div>
+        </div>
+        <div class="sb-comm">
+          <div class="cm-top"><div class="cm-avatar">A</div><span class="cm-user">@alpha_gen · 5h</span></div>
+          <div class="cm-title">均值回归策略 v3，支持 ETH/SOL 双标的</div>
+          <div class="cm-tags"><span class="cm-tag">策略</span><span class="cm-tag">回归</span></div>
+          <div class="cm-stat"><span>⬆ 41</span><span>💬 15</span><span>★ 28</span></div>
+        </div>
+        <div class="sb-comm">
+          <div class="cm-top"><div class="cm-avatar">Q</div><span class="cm-user">@quant_fox · 8h</span></div>
+          <div class="cm-title">趋势强度指标，适配 15min K线</div>
+          <div class="cm-tags"><span class="cm-tag">趋势</span><span class="cm-tag">K线</span></div>
+          <div class="cm-stat"><span>⬆ 16</span><span>💬 4</span><span>★ 9</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="sb-sec">
+      ${secHd('最新发布', false)}
+      <div class="sb-sec-body">
+        <div class="sb-comm">
+          <div class="cm-top"><div class="cm-avatar">Z</div><span class="cm-user">@zero_hedge · 12h</span></div>
+          <div class="cm-title">资金费率套利机器人策略模板</div>
+          <div class="cm-tags"><span class="cm-tag">套利</span><span class="cm-tag">模板</span></div>
+          <div class="cm-stat"><span>⬆ 33</span><span>💬 11</span><span>★ 20</span></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function taskContent() {
+  return `
+    <div class="sb-sec">
+      ${secHd('进行中', false)}
+      <div class="sb-sec-body">
+        <div class="sb-task">
+          <div class="t-icon"><span class="sb-dot y" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">生成 MACD 动量特征</div><div class="t-sub">Agent 执行中 · 第 3/5 步</div></div>
+          <span class="t-time">2m</span>
+        </div>
+        <div class="sb-task">
+          <div class="t-icon"><span class="sb-dot b" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">均线交叉策略 — 模拟盘</div><div class="t-sub">模拟交易运行中 · 2/10 单</div></div>
+          <span class="t-time">15m</span>
+        </div>
+      </div>
+    </div>
+    <div class="sb-sec">
+      ${secHd('队列中', false)}
+      <div class="sb-sec-body">
+        <div class="sb-task">
+          <div class="t-icon"><span class="sb-dot" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">回测 波动率套利策略</div><div class="t-sub">等待中 · 优先级 2</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="sb-sec">
+      ${secHd('已完成', false)}
+      <div class="sb-sec-body">
+        <div class="sb-task" style="opacity:.5">
+          <div class="t-icon"><span class="sb-dot g" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">生成 dead_cross_risk 特征</div><div class="t-sub">完成 · 12 分钟前</div></div>
+          <span class="sb-badge green">✓</span>
+        </div>
+        <div class="sb-task" style="opacity:.5">
+          <div class="t-icon"><span class="sb-dot g" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">趋势跟随 V2 — 实盘上线</div><div class="t-sub">完成 · 1 小时前</div></div>
+          <span class="sb-badge green">✓</span>
+        </div>
+        <div class="sb-task" style="opacity:.5">
+          <div class="t-icon"><span class="sb-dot r" style="width:7px;height:7px"></span></div>
+          <div class="t-info"><div class="t-name">RSI 特征生成</div><div class="t-sub">失败 · 回归测试不通过</div></div>
+          <span class="sb-badge red">✗</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+const CONTENTS = [stratContent, marketContent, communityContent, taskContent];
+
+function switchTab(i) {
+  for (let j = 0; j < 4; j++) document.getElementById('n'+j).classList.toggle('active', j===i);
+  document.getElementById('body').innerHTML = CONTENTS[i]();
+}
+
+function toggleSec(hdEl) {
+  hdEl.parentElement.classList.toggle('collapsed');
+}
+
+function toggleSearch() {
+  const bar = document.getElementById('searchBar');
+  if (bar.style.display === 'none') {
+    bar.style.display = 'flex';
+    bar.querySelector('input').focus();
+  } else {
+    bar.style.display = 'none';
+    bar.querySelector('input').value = '';
+  }
+}
+
+switchTab(0);
+</script>
+</body>
+</html>

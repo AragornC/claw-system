@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Exchange Connect Demo v3</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#0a1420;color:#c2cee0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden;
+}
+
+/* ── TitleBar ── */
+.titlebar{
+  height:38px;display:flex;align-items:center;
+  background:#090d16;border-bottom:1px solid #182030;
+  padding:0 12px;flex-shrink:0;user-select:none;
+}
+.tb-traffic{width:72px;flex-shrink:0;}
+.tb-name{flex:1;text-align:center;font-size:12px;font-weight:600;letter-spacing:.3px;color:#8a9ab0;}
+
+/* ── Layout ── */
+.main{flex:1;display:flex;overflow:hidden;}
+.nav{
+  width:210px;flex-shrink:0;background:#0c1520;border-right:1px solid #182030;
+  padding:16px 0;overflow-y:auto;
+}
+.nav-hd{display:flex;align-items:center;justify-content:space-between;padding:0 16px 14px;font-size:13px;font-weight:600;color:#c2cee0;border-bottom:1px solid #182030;margin-bottom:8px;}
+.nav-close{width:22px;height:22px;border:none;border-radius:4px;background:transparent;color:#6a7a90;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .12s;}
+.nav-close:hover{color:#c2cee0;background:rgba(255,255,255,.06);}
+.nav-label{font-size:9px;letter-spacing:.7px;text-transform:uppercase;color:#3a5068;padding:10px 16px 4px;}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 16px;cursor:pointer;font-size:12px;color:#7a90a8;transition:background .1s,color .1s;position:relative;}
+.nav-item:hover{color:#c2cee0;background:rgba(255,255,255,.04);}
+.nav-item.active{color:#c2cee0;background:rgba(255,255,255,.06);}
+.nav-item.active::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:2px;border-radius:0 1px 1px 0;background:#3cc87a;}
+.nav-item svg{width:14px;height:14px;flex-shrink:0;opacity:.7;}
+.nav-item.active svg{opacity:1;}
+.nav-div{height:1px;background:#182030;margin:6px 0;}
+
+/* ── Content ── */
+.content{flex:1;overflow-y:auto;background:#0a1420;padding:28px 36px;}
+.content::-webkit-scrollbar{width:4px;}
+.content::-webkit-scrollbar-thumb{background:#1e2d40;border-radius:2px;}
+.s-title{font-size:18px;font-weight:600;color:#c2cee0;margin-bottom:20px;letter-spacing:-.2px;}
+.g-label{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:#4a6080;margin:22px 0 10px;}
+.g-label:first-of-type{margin-top:0;}
+
+/* ── Exchange Card ── */
+.ex-list{display:flex;flex-direction:column;gap:8px;}
+.ex-card{
+  border:1px solid #182030;border-radius:10px;overflow:hidden;
+  background:#0c1520;transition:border-color .15s;
+}
+.ex-card.connected{border-color:#1a3028;}
+
+.ex-hd{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 18px;cursor:pointer;transition:background .1s;
+}
+.ex-hd:hover{background:rgba(255,255,255,.02);}
+.ex-logo{
+  width:36px;height:36px;border-radius:8px;
+  border:1px solid #1e2d40;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  overflow:hidden;
+}
+.ex-logo img{width:22px;height:22px;object-fit:contain;}
+.ex-info{flex:1;min-width:0;}
+.ex-name{font-size:13px;font-weight:600;color:#c2cee0;display:flex;align-items:center;gap:8px;}
+.ex-badge{font-size:9px;padding:2px 7px;border-radius:4px;}
+.badge-on{background:rgba(60,200,122,.12);color:#3cc87a;}
+.badge-off{background:rgba(255,255,255,.04);color:#4a6080;}
+.ex-sub{font-size:11px;color:#4a6080;margin-top:3px;line-height:1.4;}
+.ex-sub .green{color:#3cc87a;}
+.ex-acts{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+
+/* buttons */
+.btn{
+  height:28px;padding:0 14px;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;
+  border:1px solid #2a3d52;background:rgba(255,255,255,.04);color:#8a9ab0;transition:all .12s;
+}
+.btn:hover{color:#c2cee0;border-color:#3a5068;background:rgba(255,255,255,.07);}
+.btn-sm{height:26px;padding:0 10px;font-size:10px;}
+.btn-green{color:#3cc87a;border-color:rgba(60,200,122,.3);background:rgba(60,200,122,.08);}
+.btn-green:hover{color:#4fe89a;background:rgba(60,200,122,.15);border-color:rgba(60,200,122,.45);}
+.btn-red{color:#e05050;border-color:rgba(220,60,60,.25);background:rgba(220,60,60,.06);}
+.btn-red:hover{background:rgba(220,60,60,.12);}
+.btn:disabled{opacity:.45;cursor:default;pointer-events:none;}
+.chev{color:#3a5068;font-size:14px;transition:transform .18s;display:inline-block;}
+.chev.open{transform:rotate(90deg);}
+
+/* ═══ Expand body ═══ */
+.ex-body{
+  border-top:1px solid #182030;
+  overflow:hidden;max-height:0;opacity:0;
+  transition:max-height .22s cubic-bezier(.4,0,.2,1),opacity .18s,padding .22s;
+  padding:0 22px;
+}
+.ex-body.open{max-height:600px;opacity:1;padding:20px 22px 22px;}
+
+/* ── Form ── */
+.f-row{margin-bottom:14px;}
+.f-row:last-of-type{margin-bottom:0;}
+.f-label{font-size:10px;color:#5a7088;margin-bottom:5px;display:block;letter-spacing:.2px;}
+.f-input{
+  width:100%;height:38px;padding:0 14px;border-radius:8px;
+  border:1px solid #243448;background:#080f1a;color:#c2cee0;
+  font-size:12px;outline:none;transition:border-color .12s;
+}
+.f-input::placeholder{color:#3a5068;}
+.f-input:focus{border-color:rgba(91,141,239,.5);}
+
+.f-footer{
+  display:flex;align-items:center;gap:14px;
+  margin-top:18px;padding-top:16px;
+  border-top:1px solid #182030;
+}
+.f-footer .btn-primary{
+  min-width:110px;height:36px;font-size:12px;font-weight:500;
+  background:rgba(60,200,122,.1);color:#3cc87a;border-color:rgba(60,200,122,.35);
+}
+.f-footer .btn-primary:hover{background:rgba(60,200,122,.18);}
+.f-link{font-size:11px;color:#4a6080;}
+.f-link a{color:#5b8def;text-decoration:none;}
+.f-link a:hover{text-decoration:underline;}
+
+/* ── Balance ── */
+.bal{display:flex;flex-direction:column;gap:14px;}
+.bal-tabs{display:flex;gap:0;border-bottom:1px solid #182030;margin-bottom:2px;}
+.bal-tab{
+  padding:7px 16px;font-size:11px;font-weight:500;cursor:pointer;
+  color:#5a7290;border-bottom:2px solid transparent;transition:all .12s;user-select:none;
+}
+.bal-tab:hover{color:#a0b4cc;}
+.bal-tab.active{color:#e3ebf8;border-bottom-color:#3cc87a;}
+.bal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.bal-cell{padding:12px 14px;border-radius:8px;border:1px solid #182030;background:rgba(255,255,255,.015);}
+.bal-cell .k{font-size:10px;color:#4a6080;margin-bottom:4px;}
+.bal-cell .v{font-size:15px;font-weight:600;color:#c2cee0;letter-spacing:-.3px;}
+.bal-cell .v.green{color:#3cc87a;}
+.asset-table{width:100%;border-collapse:collapse;}
+.asset-table th{font-size:10px;color:#3a5068;text-align:left;padding:6px 8px;border-bottom:1px solid #182030;font-weight:500;letter-spacing:.3px;}
+.asset-table td{font-size:12px;color:#c2cee0;padding:8px 8px;border-bottom:1px solid #0e1a28;}
+.asset-table tr:last-child td{border-bottom:none;}
+.asset-table .num{text-align:right;font-variant-numeric:tabular-nums;}
+.asset-table .muted{color:#4a6080;}
+
+/* Settings rows */
+.s-card{border:1px solid #182030;border-radius:8px;overflow:hidden;margin-bottom:4px;}
+.s-row{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid #121e2c;transition:background .1s;}
+.s-row:last-child{border-bottom:none;}
+.s-row:hover{background:rgba(255,255,255,.02);}
+.s-row-info{flex:1;}
+.s-row-title{font-size:13px;color:#c2cee0;font-weight:500;}
+.s-row-desc{font-size:11px;color:#4a6080;margin-top:2px;line-height:1.4;}
+.sel{height:28px;padding:0 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #2a3d52;background:#0c1520;color:#8a9ab0;outline:none;}
+.sel:hover{border-color:#3a5068;color:#c2cee0;}
+.toggle{width:34px;height:18px;border-radius:9px;background:#1e2d40;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+.toggle::after{content:'';position:absolute;width:14px;height:14px;border-radius:50%;background:#4a6080;top:2px;left:2px;transition:all .2s;}
+.toggle.on{background:rgba(60,200,122,.35);}
+.toggle.on::after{background:#3cc87a;left:18px;}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(60,200,122,.2);border-top-color:#3cc87a;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px;}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="tb-traffic"></div>
+  <div class="tb-name">ThunderClaw · Settings</div>
+</div>
+
+<div class="main">
+  <div class="nav">
+    <div class="nav-hd">设置<button class="nav-close">✕</button></div>
+    <div class="nav-label">系统</div>
+    <div class="nav-item">
+      <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      通用
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="9" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 4V3a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.2"/></svg>
+      模型
+    </div>
+    <div class="nav-div"></div>
+    <div class="nav-label">交易</div>
+    <div class="nav-item active">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M2 12l3-4 3 2 4-6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 4h4v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      交易
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      通信
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="s-title">交易</div>
+
+    <div class="g-label">交易所连接</div>
+
+    <div class="ex-list">
+
+      <!-- ═══ Bitget：已连接 ═══ -->
+      <div class="ex-card connected" id="card-bitget">
+        <div class="ex-hd" onclick="toggleCard('bitget')">
+          <div class="ex-logo">
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none">
+              <path d="M8 16.5L20 8l12 8.5v11L20 36 8 27.5z" fill="#00daa5" opacity=".15"/>
+              <path d="M20 8l12 8.5L20 25 8 16.5z" fill="#00daa5"/>
+              <path d="M20 25l12-8.5v11L20 36z" fill="#00b38a"/>
+              <path d="M8 16.5L20 25v11L8 27.5z" fill="#00daa5" opacity=".7"/>
+            </svg>
+          </div>
+          <div class="ex-info">
+            <div class="ex-name">Bitget <span class="ex-badge badge-on">已连接</span></div>
+            <div class="ex-sub"><span class="green">bg_e••••••••cf89</span> · 现货 $16.80 · 合约 $238.50</div>
+          </div>
+          <div class="ex-acts">
+            <button class="btn btn-sm" onclick="event.stopPropagation();mockTest('bitget');" id="testBtn-bitget">测试</button>
+            <button class="btn btn-sm btn-red" onclick="event.stopPropagation();mockDisconnect('bitget');">断开</button>
+            <span class="chev open" id="chev-bitget">›</span>
+          </div>
+        </div>
+        <div class="ex-body open" id="body-bitget">
+          <div class="bal">
+            <div class="bal-tabs">
+              <div class="bal-tab active" onclick="switchBalTab(this,'bitget','spot')">现货</div>
+              <div class="bal-tab" onclick="switchBalTab(this,'bitget','swap')">合约</div>
+            </div>
+            <div id="bitget-spot">
+              <div class="bal-grid">
+                <div class="bal-cell"><div class="k">总余额</div><div class="v">$16.80</div></div>
+                <div class="bal-cell"><div class="k">可用</div><div class="v green">$16.80</div></div>
+              </div>
+              <table class="asset-table" style="margin-top:10px">
+                <thead><tr><th>币种</th><th class="num">可用</th><th class="num">冻结</th></tr></thead>
+                <tbody>
+                  <tr><td>USDT</td><td class="num">16.80</td><td class="num muted">0.00</td></tr>
+                  <tr><td>BGB</td><td class="num">2.14</td><td class="num muted">0.00</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="bitget-swap" style="display:none">
+              <div class="bal-grid">
+                <div class="bal-cell"><div class="k">账户权益</div><div class="v">$238.50</div></div>
+                <div class="bal-cell"><div class="k">可用保证金</div><div class="v green">$180.20</div></div>
+                <div class="bal-cell"><div class="k">未实现盈亏</div><div class="v" style="color:#3cc87a">+$12.35</div></div>
+                <div class="bal-cell"><div class="k">已用保证金</div><div class="v">$58.30</div></div>
+              </div>
+              <table class="asset-table" style="margin-top:10px">
+                <thead><tr><th>合约</th><th class="num">方向</th><th class="num">数量</th><th class="num">盈亏</th></tr></thead>
+                <tbody>
+                  <tr><td>BTCUSDT</td><td class="num" style="color:#3cc87a">多</td><td class="num">0.02</td><td class="num" style="color:#3cc87a">+$8.60</td></tr>
+                  <tr><td>ETHUSDT</td><td class="num" style="color:#e05050">空</td><td class="num">1.5</td><td class="num" style="color:#3cc87a">+$3.75</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ OKX：展开表单 ═══ -->
+      <div class="ex-card" id="card-okx">
+        <div class="ex-hd" onclick="toggleCard('okx')">
+          <div class="ex-logo">
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none">
+              <rect x="6" y="6" width="11" height="11" rx="2" fill="#fff"/>
+              <rect x="23" y="6" width="11" height="11" rx="2" fill="#fff"/>
+              <rect x="6" y="23" width="11" height="11" rx="2" fill="#fff"/>
+              <rect x="23" y="23" width="11" height="11" rx="2" fill="#fff"/>
+            </svg>
+          </div>
+          <div class="ex-info">
+            <div class="ex-name">OKX <span class="ex-badge badge-off" id="badge-okx">未连接</span></div>
+            <div class="ex-sub" id="sub-okx">点击配置 API Key</div>
+          </div>
+          <div class="ex-acts">
+            <span class="chev" id="chev-okx">›</span>
+          </div>
+        </div>
+        <div class="ex-body" id="body-okx">
+          <div id="okx-form">
+            <div class="f-row">
+              <label class="f-label">API Key</label>
+              <input class="f-input" type="password" placeholder="粘贴你的 API Key" autocomplete="off" id="okx-key"/>
+            </div>
+            <div class="f-row">
+              <label class="f-label">Secret Key</label>
+              <input class="f-input" type="password" placeholder="粘贴你的 Secret Key" autocomplete="off" id="okx-secret"/>
+            </div>
+            <div class="f-row">
+              <label class="f-label">Passphrase</label>
+              <input class="f-input" type="password" placeholder="创建 API 时设置的口令" autocomplete="off" id="okx-pass"/>
+            </div>
+            <div class="f-footer">
+              <button class="btn btn-primary" id="okx-connect-btn" onclick="mockConnect('okx')">连接</button>
+              <span class="f-link"><a href="https://www.okx.com/account/my-api" target="_blank">获取 API Key →</a></span>
+            </div>
+          </div>
+          <div id="okx-bal" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- ═══ Binance：收起 ═══ -->
+      <div class="ex-card" id="card-binance">
+        <div class="ex-hd" onclick="toggleCard('binance')">
+          <div class="ex-logo">
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none">
+              <path d="M20 6l4 4-4 4-4-4z" fill="#f3ba2f"/>
+              <path d="M10 16l4 4-4 4-4-4z" fill="#f3ba2f"/>
+              <path d="M20 16l4 4-4 4-4-4z" fill="#f3ba2f"/>
+              <path d="M30 16l4 4-4 4-4-4z" fill="#f3ba2f"/>
+              <path d="M20 26l4 4-4 4-4-4z" fill="#f3ba2f"/>
+            </svg>
+          </div>
+          <div class="ex-info">
+            <div class="ex-name">Binance <span class="ex-badge badge-off" id="badge-binance">未连接</span></div>
+            <div class="ex-sub" id="sub-binance">点击配置 API Key</div>
+          </div>
+          <div class="ex-acts">
+            <span class="chev" id="chev-binance">›</span>
+          </div>
+        </div>
+        <div class="ex-body" id="body-binance">
+          <div id="binance-form">
+            <div class="f-row">
+              <label class="f-label">API Key</label>
+              <input class="f-input" type="password" placeholder="粘贴你的 API Key" autocomplete="off"/>
+            </div>
+            <div class="f-row">
+              <label class="f-label">Secret Key</label>
+              <input class="f-input" type="password" placeholder="粘贴你的 Secret Key" autocomplete="off"/>
+            </div>
+            <div class="f-footer">
+              <button class="btn btn-primary" onclick="mockConnect('binance')">连接</button>
+              <span class="f-link"><a href="https://www.binance.com/zh-CN/my/settings/api-management" target="_blank">获取 API Key →</a></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="g-label">风控</div>
+    <div class="s-card">
+      <div class="s-row">
+        <div class="s-row-info">
+          <div class="s-row-title">单笔最大仓位</div>
+          <div class="s-row-desc">每笔交易最多使用总资金比例</div>
+        </div>
+        <select class="sel"><option>5%</option><option>10%</option><option>20%</option></select>
+      </div>
+      <div class="s-row">
+        <div class="s-row-info">
+          <div class="s-row-title">最大回撤止损</div>
+          <div class="s-row-desc">达到阈值自动暂停所有策略</div>
+        </div>
+        <select class="sel"><option>10%</option><option>15%</option><option>20%</option></select>
+      </div>
+      <div class="s-row">
+        <div class="s-row-info">
+          <div class="s-row-title">实盘下单二次确认</div>
+          <div class="s-row-desc">每笔实盘下单前需手动确认</div>
+        </div>
+        <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+      </div>
+    </div>
+
+    <div class="g-label">回测默认参数</div>
+    <div class="s-card">
+      <div class="s-row">
+        <div class="s-row-info"><div class="s-row-title">默认回测周期</div></div>
+        <select class="sel"><option>近 3 个月</option><option>近 6 个月</option><option>近 1 年</option></select>
+      </div>
+      <div class="s-row">
+        <div class="s-row-info">
+          <div class="s-row-title">手续费率</div>
+          <div class="s-row-desc">回测时使用的默认手续费</div>
+        </div>
+        <select class="sel"><option>0.05%</option><option>0.1%</option><option>0.2%</option></select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleCard(id) {
+  document.getElementById('body-' + id).classList.toggle('open');
+  document.getElementById('chev-' + id).classList.toggle('open');
+}
+
+function switchBalTab(el, exId, kind) {
+  el.parentElement.querySelectorAll('.bal-tab').forEach(function(t){ t.classList.remove('active'); });
+  el.classList.add('active');
+  document.getElementById(exId + '-spot').style.display = kind === 'spot' ? '' : 'none';
+  document.getElementById(exId + '-swap').style.display = kind === 'swap' ? '' : 'none';
+}
+
+function mockConnect(id) {
+  var btn = document.querySelector('#card-' + id + ' .btn-primary');
+  if (btn) { btn.innerHTML = '<span class="spinner"></span>连接中…'; btn.disabled = true; }
+  setTimeout(function(){
+    document.getElementById('card-' + id).classList.add('connected');
+    var badge = document.getElementById('badge-' + id);
+    if(badge){badge.className='ex-badge badge-on';badge.textContent='已连接';}
+    var sub = document.getElementById('sub-' + id);
+    if(sub) sub.innerHTML = '<span class="green">ok_a••••••••x7f2</span> · 现货 $1,024.50 · 合约 $3,210.00';
+    var formEl = document.getElementById(id + '-form');
+    if(formEl) formEl.style.display = 'none';
+    var balEl = document.getElementById(id + '-bal');
+    if(balEl){ balEl.style.display = ''; balEl.innerHTML = buildBalHtml(id); }
+  }, 1200);
+}
+
+function buildBalHtml(id) {
+  return '<div class="bal">' +
+    '<div class="bal-tabs">' +
+      '<div class="bal-tab active" onclick="switchBalTab(this,\'' + id + '\',\'spot\')">现货</div>' +
+      '<div class="bal-tab" onclick="switchBalTab(this,\'' + id + '\',\'swap\')">合约</div>' +
+    '</div>' +
+    '<div id="' + id + '-spot">' +
+      '<div class="bal-grid">' +
+        '<div class="bal-cell"><div class="k">总余额</div><div class="v">$1,024.50</div></div>' +
+        '<div class="bal-cell"><div class="k">可用</div><div class="v green">$980.00</div></div>' +
+      '</div>' +
+      '<table class="asset-table" style="margin-top:10px"><thead><tr><th>币种</th><th class="num">可用</th><th class="num">冻结</th></tr></thead><tbody>' +
+        '<tr><td>USDT</td><td class="num">880.00</td><td class="num muted">20.00</td></tr>' +
+        '<tr><td>BTC</td><td class="num">0.0012</td><td class="num muted">0.0000</td></tr>' +
+        '<tr><td>ETH</td><td class="num">0.15</td><td class="num muted">0.00</td></tr>' +
+      '</tbody></table>' +
+    '</div>' +
+    '<div id="' + id + '-swap" style="display:none">' +
+      '<div class="bal-grid">' +
+        '<div class="bal-cell"><div class="k">账户权益</div><div class="v">$3,210.00</div></div>' +
+        '<div class="bal-cell"><div class="k">可用保证金</div><div class="v green">$2,540.00</div></div>' +
+        '<div class="bal-cell"><div class="k">未实现盈亏</div><div class="v" style="color:#3cc87a">+$86.20</div></div>' +
+        '<div class="bal-cell"><div class="k">已用保证金</div><div class="v">$670.00</div></div>' +
+      '</div>' +
+      '<table class="asset-table" style="margin-top:10px"><thead><tr><th>合约</th><th class="num">方向</th><th class="num">数量</th><th class="num">盈亏</th></tr></thead><tbody>' +
+        '<tr><td>BTCUSDT</td><td class="num" style="color:#3cc87a">多</td><td class="num">0.05</td><td class="num" style="color:#3cc87a">+$62.40</td></tr>' +
+        '<tr><td>SOLUSDT</td><td class="num" style="color:#e05050">空</td><td class="num">10</td><td class="num" style="color:#3cc87a">+$23.80</td></tr>' +
+      '</tbody></table>' +
+    '</div>' +
+  '</div>';
+}
+
+function mockTest(id) {
+  var btn = document.getElementById('testBtn-' + id);
+  if(btn){btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;}
+  setTimeout(function(){
+    if(btn){btn.textContent='✓ 正常';btn.disabled=false;}
+    setTimeout(function(){if(btn) btn.textContent='测试';},2000);
+  },800);
+}
+
+function mockDisconnect(id) {
+  document.getElementById('card-' + id).classList.remove('connected');
+  var badge = document.getElementById('badge-' + id);
+  if(badge){badge.className='ex-badge badge-off';badge.textContent='未连接';}
+  document.getElementById('body-' + id).classList.remove('open');
+  document.getElementById('chev-' + id).classList.remove('open');
+}
+</script>
+</body>
+</html>

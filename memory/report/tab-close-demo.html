@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Tab 关闭按钮 Demo</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a1420;
+  color: #c2cee0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 48px;
+  padding: 40px;
+}
+
+.label {
+  font-size: 10px;
+  color: #4a5870;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+
+/* ── 模拟 agent bar 容器 ── */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #0a1420;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #182030;
+}
+
+/* ── 共用 tab 基础 ── */
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #8a9ab0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 180px;
+  transition: background .12s;
+}
+.tab:hover { background: rgba(255,255,255,.05); }
+.tab.active {
+  background: rgba(60,200,122,.15);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35), 0 0 0 1px rgba(60,200,122,.2);
+}
+.tab.active .tab-label { color: #3cc87a; }
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════
+   方案 A: Cursor 风格 — X 绝对定位覆盖在文字上
+   遮罩用 tab 自身背景色，X 完全不增加 tab 宽度
+═══════════════════════════════════════ */
+.demo-a .close {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #8a9ab0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(to right, transparent 0%, rgba(255,255,255,.05) 40%);
+}
+.demo-a .tab.active .close {
+  background: linear-gradient(to right, transparent 0%, rgba(42,120,70,.6) 40%);
+}
+.demo-a .tab:hover .close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.demo-a .close:hover { color: #f06060; }
+
+/* ═══════════════════════════════════════
+   方案 B: 同 A 但 X 更小，遮罩更窄
+═══════════════════════════════════════ */
+.demo-b .close {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #8a9ab0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(to right, transparent 0%, rgba(255,255,255,.05) 50%);
+}
+.demo-b .tab.active .close {
+  background: linear-gradient(to right, transparent 0%, rgba(42,120,70,.6) 50%);
+}
+.demo-b .tab:hover .close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.demo-b .close:hover { color: #f06060; }
+
+/* ═══════════════════════════════════════
+   方案 C: 遮罩更宽更柔和
+═══════════════════════════════════════ */
+.demo-c .close {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 1px;
+  font-size: 12px;
+  color: #8a9ab0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(to right, transparent 0%, rgba(10,20,32,.85) 35%);
+}
+.demo-c .tab.active .close {
+  background: linear-gradient(to right, transparent 0%, rgba(18,60,40,.9) 35%);
+}
+.demo-c .tab:hover .close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.demo-c .close:hover { color: #f06060; }
+
+/* ═══════════════════════════════════════
+   方案 D: 纯 X 无遮罩，hover 时直接显示
+═══════════════════════════════════════ */
+.demo-d .close {
+  position: absolute;
+  right: 4px; top: 50%;
+  transform: translateY(-50%);
+  width: 14px; height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #8a9ab0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s;
+  border-radius: 3px;
+}
+.demo-d .tab:hover .close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.demo-d .close:hover {
+  color: #f06060;
+  background: rgba(220,60,60,.12);
+}
+</style>
+</head>
+<body>
+
+<!-- A -->
+<div>
+  <div class="label">A · Cursor 风格遮罩 (24px 宽)</div>
+  <div class="bar demo-a">
+    <div class="tab">
+      <span class="tab-label">日常启动</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab active">
+      <span class="tab-label">特征生成任务</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab">
+      <span class="tab-label">特征生成任务-最终结果模块改造</span>
+      <span class="close">×</span>
+    </div>
+  </div>
+</div>
+
+<!-- B -->
+<div>
+  <div class="label">B · 紧凑遮罩 (20px 宽，小 X)</div>
+  <div class="bar demo-b">
+    <div class="tab">
+      <span class="tab-label">日常启动</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab active">
+      <span class="tab-label">特征生成任务</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab">
+      <span class="tab-label">特征生成任务-最终结果模块改造</span>
+      <span class="close">×</span>
+    </div>
+  </div>
+</div>
+
+<!-- C -->
+<div>
+  <div class="label">C · 宽柔遮罩 (30px 宽，实色终点)</div>
+  <div class="bar demo-c">
+    <div class="tab">
+      <span class="tab-label">日常启动</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab active">
+      <span class="tab-label">特征生成任务</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab">
+      <span class="tab-label">特征生成任务-最终结果模块改造</span>
+      <span class="close">×</span>
+    </div>
+  </div>
+</div>
+
+<!-- D -->
+<div>
+  <div class="label">D · 纯 X 无遮罩</div>
+  <div class="bar demo-d">
+    <div class="tab">
+      <span class="tab-label">日常启动</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab active">
+      <span class="tab-label">特征生成任务</span>
+      <span class="close">×</span>
+    </div>
+    <div class="tab">
+      <span class="tab-label">特征生成任务-最终结果模块改造</span>
+      <span class="close">×</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

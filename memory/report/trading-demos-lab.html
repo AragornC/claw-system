@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Demos Lab</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b1017;
+      --panel: #111a26;
+      --panel-2: #0f1722;
+      --border: #1f2e42;
+      --text: #d0dae8;
+      --muted: #55708d;
+      --green: #33cc7a;
+      --red: #f45b72;
+      --yellow: #f1c644;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      --mono: "SF Mono", "Fira Code", Menlo, monospace;
+    }
+    body {
+      background: radial-gradient(circle at top, #101a28 0%, var(--bg) 45%);
+      color: var(--text);
+      font: 12px/1.4 var(--font);
+      min-height: 100vh;
+    }
+    .page {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .controls {
+      background: rgba(14, 24, 36, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 10px;
+      z-index: 20;
+      backdrop-filter: blur(6px);
+    }
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      margin-right: 4px;
+    }
+    .ctl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .ctl b { color: var(--text); font-weight: 600; min-width: 42px; }
+    .ctl input[type="range"] { width: 120px; }
+    .ctl select {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 6px;
+    }
+    .mini-btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+    .mini-btn.active { color: var(--text); border-color: #3a526f; }
+    .agent-pill {
+      border: 1px solid #2b435d;
+      color: #9bc3ff;
+      background: rgba(36, 62, 92, 0.28);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .agent-pill .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #6a93c8;
+    }
+    .agent-status {
+      color: var(--text);
+      font-size: 11px;
+      max-width: 500px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .card {
+      background: rgba(14, 23, 34, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      min-height: 270px;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-hd {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: #0f1824;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .card-hd strong { color: var(--text); font-size: 12px; }
+    .hd-right { display: flex; align-items: center; gap: 6px; }
+    .agent-badge {
+      border: 1px solid #29435f;
+      border-radius: 999px;
+      color: #8fb8f1;
+      background: rgba(40, 66, 96, 0.2);
+      padding: 1px 7px;
+      font-size: 10px;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .agent-badge.buy { color: var(--green); border-color: #2f6848; background: rgba(32, 90, 61, 0.2); }
+    .agent-badge.sell { color: var(--red); border-color: #6a3240; background: rgba(106, 50, 64, 0.2); }
+    .agent-badge.hold { color: var(--yellow); border-color: #6e5a1f; background: rgba(110, 90, 31, 0.2); }
+    .quick {
+      display: flex;
+      gap: 6px;
+    }
+    .quick button {
+      border: 1px solid var(--border);
+      background: #121e2d;
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .quick button.on { color: var(--text); border-color: #3b5574; }
+
+    .sim {
+      flex: 1;
+      min-height: 240px;
+      display: grid;
+      gap: 1px;
+      background: var(--border);
+    }
+    .blk {
+      background: var(--panel-2);
+      overflow: hidden;
+      min-width: 0;
+    }
+    .blk-hd {
+      font-size: 10px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding: 4px 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .ticker {
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      padding: 5px 8px;
+      color: var(--muted);
+    }
+    .ticker-track {
+      display: inline-flex;
+      gap: 14px;
+      animation: roll 9s linear infinite;
+    }
+    @keyframes roll { from { transform: translateX(0); } to { transform: translateX(-33%); } }
+
+    .account-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 8px;
+    }
+    .kv .k { color: var(--muted); font-size: 10px; }
+    .kv .v { font-size: 14px; font-weight: 700; }
+    .up { color: var(--green); } .dn { color: var(--red); }
+
+    .kline-wrap { padding: 6px; height: 118px; }
+    .kline {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      border-radius: 6px;
+    }
+    .positions { padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
+    .pos {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 7px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255,255,255,0.02);
+      font-family: var(--mono);
+    }
+    .pos small { color: var(--muted); font-size: 10px; }
+    .depth-list, .trades-list {
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 4px 0;
+      max-height: 150px;
+      overflow: auto;
+      scrollbar-width: none;
+    }
+    .depth-list::-webkit-scrollbar, .trades-list::-webkit-scrollbar { display: none; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      padding: 2px 8px;
+      position: relative;
+    }
+    .row .bg {
+      position: absolute; right: 0; top: 0; bottom: 0; opacity: 0.12;
+    }
+    .row.ask .bg { background: var(--red); }
+    .row.bid .bg { background: var(--green); }
+    .row.ask .p { color: var(--red); }
+    .row.bid .p { color: var(--green); }
+    .row .s { color: var(--muted); text-align: right; }
+    .row .p { text-align: right; }
+
+    .trade {
+      display: grid;
+      grid-template-columns: 38px 44px 1fr 40px;
+      padding: 2px 8px;
+      gap: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .trade .t { color: var(--muted); }
+    .trade .d.buy { color: var(--green); }
+    .trade .d.sell { color: var(--red); }
+    .trade .p { text-align: right; }
+    .trade .q { text-align: right; color: var(--muted); }
+
+    .actions { display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); }
+    .actions button {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: 11px;
+      padding: 4px 0;
+      cursor: pointer;
+      background: #142030;
+      color: var(--text);
+    }
+    .actions .buy { border-color: #2f6848; color: var(--green); }
+    .actions .sell { border-color: #6a3240; color: var(--red); }
+
+    /* 4 套布局 */
+    .variant-a {
+      grid-template-columns: 34% 42% 24%;
+      grid-template-rows: 28px 1fr;
+      grid-template-areas:
+        "ticker ticker ticker"
+        "account kline right";
+    }
+    .variant-a .ticker-blk { grid-area: ticker; }
+    .variant-a .account-blk { grid-area: account; }
+    .variant-a .kline-blk { grid-area: kline; }
+    .variant-a .right-blk { grid-area: right; display: grid; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--border); }
+
+    .variant-b {
+      grid-template-columns: 24% 50% 26%;
+      grid-template-rows: 1fr;
+      grid-template-areas: "left center right";
+    }
+    .variant-b .left-stack { grid-area: left; display: grid; grid-template-rows: 38% 62%; gap: 1px; background: var(--border); }
+    .variant-b .center-stack { grid-area: center; display: grid; grid-template-rows: 30px 58% 42%; gap: 1px; background: var(--border); }
+    .variant-b .right-stack { grid-area: right; display: grid; grid-template-rows: 50% 50%; gap: 1px; background: var(--border); }
+
+    .variant-c {
+      grid-template-columns: 100%;
+      grid-template-rows: 30px 1fr;
+      grid-template-areas: "ticker" "body";
+    }
+    .variant-c .ticker-blk { grid-area: ticker; }
+    .variant-c .body-stack { grid-area: body; display: grid; grid-template-columns: 36% 28% 36%; gap: 1px; background: var(--border); }
+
+    .variant-d {
+      grid-template-columns: 38% 62%;
+      grid-template-rows: 30px 1fr;
+      grid-template-areas:
+        "ticker ticker"
+        "left right";
+    }
+    .variant-d .ticker-blk { grid-area: ticker; }
+    .variant-d .left-stack { grid-area: left; display: grid; grid-template-rows: 42% 58%; gap: 1px; background: var(--border); }
+    .variant-d .right-stack { grid-area: right; display: grid; grid-template-rows: 52% 48%; gap: 1px; background: var(--border); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="controls">
+      <span class="title">实盘交易区 Demo Lab</span>
+      <div class="ctl"><b>交易所</b><select id="exch"><option>Binance</option><option>Bitget</option><option>Bybit</option></select></div>
+      <div class="ctl"><b>标的</b><select id="symbol"><option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select></div>
+      <div class="ctl"><b>速度</b><input id="speed" type="range" min="200" max="1400" value="700"><span id="speedTxt">700ms</span></div>
+      <div class="ctl"><b>波动</b><input id="vol" type="range" min="1" max="20" value="8"><span id="volTxt">0.8x</span></div>
+      <div class="ctl"><b>策略</b><select id="agentStrategy"><option value="trend">趋势跟随</option><option value="mean">均值回归</option><option value="breakout">突破追单</option><option value="maker">做市稳态</option></select></div>
+      <div class="ctl"><b>模式</b><select id="agentMode"><option value="suggest">建议</option><option value="semi">半自动</option><option value="auto">自动执行</option></select></div>
+      <div class="ctl"><b>风险</b><input id="risk" type="range" min="10" max="100" value="52"><span id="riskTxt">52%</span></div>
+      <div class="ctl"><button id="evalBtn" class="mini-btn">Agent评估</button></div>
+      <div class="ctl"><button id="pauseBtn" class="mini-btn">暂停</button></div>
+      <div class="ctl agent-pill"><span class="dot"></span><span id="agentHead">Agent: 等待评估</span></div>
+      <div class="ctl"><span id="agentStatus" class="agent-status"></span></div>
+    </div>
+
+    <div id="grid" class="grid"></div>
+  </div>
+
+  <script>
+    const demoDefs = [
+      { id: "a", title: "Demo A - 卡片分区", cls: "variant-a" },
+      { id: "b", title: "Demo B - 中心K线", cls: "variant-b" },
+      { id: "c", title: "Demo C - 终端流", cls: "variant-c" },
+      { id: "d", title: "Demo D - 紧凑实战", cls: "variant-d" }
+    ];
+
+    const state = {
+      price: 84521,
+      pnl: 205,
+      equity: 20770,
+      winRate: 63.2,
+      drawdown: 4.1,
+      history: Array.from({ length: 64 }, (_, i) => 84350 + Math.sin(i / 5) * 80 + (Math.random() - 0.5) * 40),
+      trades: [],
+      bids: [],
+      asks: [],
+      speed: 700,
+      vol: 0.8,
+      paused: false
+      ,agent: {
+        strategy: "trend",
+        mode: "suggest",
+        risk: 52,
+        confidence: 54,
+        action: "hold",
+        reason: "等待信号",
+        leverage: "2x",
+        tickCount: 0
+      }
+    };
+
+    const refs = new Map();
+    const grid = document.getElementById("grid");
+
+    function fmt(n, d = 0) {
+      return Number(n).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
+    }
+
+    function makeCard(def) {
+      const card = document.createElement("section");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="card-hd">
+          <strong>${def.title}</strong>
+          <div class="hd-right">
+            <span class="agent-badge hold">Agent: HOLD</span>
+            <div class="quick">
+              <button class="on" data-act="ticker">Ticker</button>
+              <button class="on" data-act="depth">Depth</button>
+            </div>
+          </div>
+        </div>
+        <div class="sim ${def.cls}"></div>
+      `;
+      const sim = card.querySelector(".sim");
+      sim.innerHTML = layoutHtml(def.cls);
+      wireQuick(card, sim);
+      const ref = collectRefs(sim);
+      ref.agentBadge = card.querySelector(".agent-badge");
+      refs.set(def.id, ref);
+      grid.appendChild(card);
+    }
+
+    function layoutHtml(cls) {
+      if (cls === "variant-a") {
+        return `
+          <div class="blk ticker-blk"><div class="ticker"></div></div>
+          <div class="blk account-blk"><div class="blk-hd"><span>账户概览</span><span class="ex"></span></div><div class="account-grid"></div></div>
+          <div class="blk kline-blk"><div class="blk-hd"><span>K线 / 持仓</span><span class="sym"></span></div><div class="kline-wrap"><svg class="kline" viewBox="0 0 640 220"></svg></div><div class="positions"></div><div class="actions"><button class="buy">买入</button><button class="sell">卖出</button></div></div>
+          <div class="right-blk">
+            <div class="blk depth-blk"><div class="blk-hd"><span>盘口深度</span></div><div class="depth-list"></div></div>
+            <div class="blk trades-blk"><div class="blk-hd"><span>实时成交</span></div><div class="trades-list"></div></div>
+          </div>`;
+      }
+      if (cls === "variant-b") {
+        return `
+          <div class="left-stack">
+            <div class="blk account-blk"><div class="blk-hd"><span>账户</span><span class="ex"></span></div><div class="account-grid"></div></div>
+            <div class="blk depth-blk"><div class="blk-hd"><span>Depth</span></div><div class="depth-list"></div></div>
+          </div>
+          <div class="center-stack">
+            <div class="blk ticker-blk"><div class="ticker"></div></div>
+            <div class="blk kline-blk"><div class="blk-hd"><span>K线主图</span><span class="sym"></span></div><div class="kline-wrap"><svg class="kline" viewBox="0 0 640 220"></svg></div></div>
+            <div class="blk"><div class="blk-hd"><span>持仓</span></div><div class="positions"></div><div class="actions"><button class="buy">买入</button><button class="sell">卖出</button></div></div>
+          </div>
+          <div class="right-stack">
+            <div class="blk trades-blk"><div class="blk-hd"><span>Trades</span></div><div class="trades-list"></div></div>
+            <div class="blk"><div class="blk-hd"><span>策略信号</span></div><div class="positions signal-box"></div></div>
+          </div>`;
+      }
+      if (cls === "variant-c") {
+        return `
+          <div class="blk ticker-blk"><div class="ticker"></div></div>
+          <div class="body-stack">
+            <div class="blk"><div class="blk-hd"><span>持仓</span><span class="sym"></span></div><div class="positions"></div><div class="actions"><button class="buy">买入</button><button class="sell">卖出</button></div></div>
+            <div class="blk account-blk"><div class="blk-hd"><span>账户统计</span><span class="ex"></span></div><div class="account-grid"></div></div>
+            <div class="blk"><div class="blk-hd"><span>流成交 + 深度</span></div><div class="trades-list"></div><div class="depth-list"></div></div>
+          </div>`;
+      }
+      return `
+        <div class="blk ticker-blk"><div class="ticker"></div></div>
+        <div class="left-stack">
+          <div class="blk kline-blk"><div class="blk-hd"><span>K线</span><span class="sym"></span></div><div class="kline-wrap"><svg class="kline" viewBox="0 0 640 220"></svg></div></div>
+          <div class="blk account-blk"><div class="blk-hd"><span>账户</span><span class="ex"></span></div><div class="account-grid"></div></div>
+        </div>
+        <div class="right-stack">
+          <div class="blk depth-blk"><div class="blk-hd"><span>深度</span></div><div class="depth-list"></div></div>
+          <div class="blk trades-blk"><div class="blk-hd"><span>成交流</span></div><div class="trades-list"></div><div class="positions"></div><div class="actions"><button class="buy">买入</button><button class="sell">卖出</button></div></div>
+        </div>`;
+    }
+
+    function collectRefs(root) {
+      return {
+        root,
+        ticker: root.querySelector(".ticker"),
+        ex: root.querySelectorAll(".ex"),
+        sym: root.querySelectorAll(".sym"),
+        account: root.querySelector(".account-grid"),
+        kline: root.querySelector(".kline"),
+        positions: root.querySelector(".positions"),
+        depth: root.querySelector(".depth-list"),
+        trades: root.querySelector(".trades-list"),
+        signal: root.querySelector(".signal-box"),
+        buy: root.querySelector(".buy"),
+        sell: root.querySelector(".sell")
+      };
+    }
+
+    function wireQuick(card, sim) {
+      const buttons = card.querySelectorAll(".quick button");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("on");
+          const act = btn.dataset.act;
+          if (act === "ticker") {
+            const t = sim.querySelectorAll(".ticker-blk");
+            t.forEach(el => el.style.display = btn.classList.contains("on") ? "" : "none");
+          }
+          if (act === "depth") {
+            const d = sim.querySelectorAll(".depth-blk");
+            d.forEach(el => el.style.display = btn.classList.contains("on") ? "" : "none");
+          }
+        });
+      });
+    }
+
+    function generateDepth() {
+      const base = state.price;
+      const bias = state.agent.action === "buy" ? -1 : state.agent.action === "sell" ? 1 : 0;
+      state.asks = Array.from({ length: 8 }, (_, i) => ({
+        p: base + (i + 1) * (4 + Math.random() * 5) + bias * (1.4 + Math.random()),
+        q: +(Math.random() * 1.8 + 0.08).toFixed(3),
+        w: Math.round(20 + Math.random() * 80 + (state.agent.action === "sell" ? 8 : 0))
+      })).reverse();
+      state.bids = Array.from({ length: 8 }, (_, i) => ({
+        p: base - (i + 1) * (4 + Math.random() * 5) + bias * (1.4 + Math.random()),
+        q: +(Math.random() * 1.8 + 0.08).toFixed(3),
+        w: Math.round(20 + Math.random() * 80 + (state.agent.action === "buy" ? 8 : 0))
+      }));
+    }
+
+    function pushTrade() {
+      const buyBias = state.agent.action === "buy" ? 0.72 : state.agent.action === "sell" ? 0.28 : 0.5;
+      const isBuy = Math.random() < buyBias;
+      const drift = (Math.random() - 0.5) * 10;
+      const p = state.price + drift;
+      const q = +(Math.random() * 1.6 + 0.02).toFixed(3);
+      const d = new Date();
+      const t = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+      state.trades.unshift({ t, d: isBuy ? "buy" : "sell", p, q });
+      state.trades = state.trades.slice(0, 22);
+    }
+
+    function marketStats() {
+      const arr = state.history;
+      const tail = arr.slice(-24);
+      const first = tail[0];
+      const last = tail[tail.length - 1];
+      const momentum = ((last - first) / Math.max(1, first)) * 100;
+      const mean = tail.reduce((a, b) => a + b, 0) / tail.length;
+      const variance = tail.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / tail.length;
+      const stdev = Math.sqrt(variance);
+      const z = (last - mean) / Math.max(1, stdev);
+      return { momentum, stdev, z, mean, last };
+    }
+
+    function evaluateAgent() {
+      const s = marketStats();
+      const strat = state.agent.strategy;
+      let score = 0;
+      let reason = "震荡观望";
+      if (strat === "trend") {
+        score = s.momentum * 1.35;
+        reason = `趋势斜率 ${s.momentum.toFixed(2)}%`;
+      } else if (strat === "mean") {
+        score = -s.z * 16;
+        reason = `偏离均值 z=${s.z.toFixed(2)}`;
+      } else if (strat === "breakout") {
+        const dir = s.momentum >= 0 ? 1 : -1;
+        score = (Math.abs(s.momentum) > 0.32 ? 22 : 5) * dir;
+        reason = `波动 ${s.stdev.toFixed(2)} / 动量 ${s.momentum.toFixed(2)}%`;
+      } else {
+        score = -s.z * 10;
+        reason = `做市偏移控制 z=${s.z.toFixed(2)}`;
+      }
+
+      const confidence = Math.max(35, Math.min(95, 52 + Math.abs(score) + (state.agent.risk - 50) * 0.2));
+      let action = "hold";
+      if (score > 6) action = "buy";
+      if (score < -6) action = "sell";
+      if (Math.abs(s.momentum) < 0.08 && Math.abs(s.z) < 0.35) action = "hold";
+
+      state.agent.confidence = Math.round(confidence);
+      state.agent.action = action;
+      state.agent.reason = reason;
+      state.agent.leverage = state.agent.risk > 70 ? "5x" : state.agent.risk > 45 ? "3x" : "2x";
+    }
+
+    function applyAgentExecution() {
+      const { action, mode, confidence, risk } = state.agent;
+      if (action === "hold") return;
+      const isAuto = mode === "auto";
+      const isSemiTrigger = mode === "semi" && confidence > 76 && Math.random() > 0.45;
+      if (!isAuto && !isSemiTrigger) return;
+
+      const sign = action === "buy" ? 1 : -1;
+      const amp = (risk / 100) * (confidence / 100);
+      state.pnl += sign * (4 + Math.random() * 12) * amp;
+      state.equity += sign * (2 + Math.random() * 7) * amp;
+      const d = new Date();
+      const t = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+      state.trades.unshift({
+        t,
+        d: action,
+        p: state.price + sign * (2 + Math.random() * 4),
+        q: +(0.08 + Math.random() * (0.6 + amp)).toFixed(3)
+      });
+      state.trades = state.trades.slice(0, 22);
+    }
+
+    function tick() {
+      const vol = state.vol;
+      const agentBias = state.agent.action === "buy" ? 0.18 : state.agent.action === "sell" ? -0.18 : 0;
+      const jump = ((Math.random() - 0.5) + agentBias) * 42 * vol;
+      state.price = Math.max(10, state.price + jump);
+      state.history.push(state.price);
+      state.history = state.history.slice(-96);
+      state.pnl += (Math.random() - 0.5) * 16 * vol;
+      state.equity += (Math.random() - 0.5) * 12 * vol;
+      state.winRate = Math.max(48, Math.min(81, state.winRate + (Math.random() - 0.5) * 0.5));
+      state.drawdown = Math.max(1.2, Math.min(12, state.drawdown + (Math.random() - 0.5) * 0.2));
+      state.agent.tickCount += 1;
+      if (state.agent.tickCount % 3 === 0) evaluateAgent();
+      applyAgentExecution();
+      pushTrade();
+      generateDepth();
+      renderAll();
+      schedule();
+    }
+
+    let timer = null;
+    function schedule() {
+      if (timer) clearTimeout(timer);
+      if (state.paused) return;
+      timer = setTimeout(tick, state.speed);
+    }
+
+    function renderKline(svg) {
+      if (!svg) return;
+      const arr = state.history;
+      const min = Math.min(...arr);
+      const max = Math.max(...arr);
+      const W = 640, H = 220;
+      const xStep = W / Math.max(1, arr.length - 1);
+      const points = arr.map((v, i) => {
+        const x = i * xStep;
+        const y = H - ((v - min) / Math.max(1, max - min)) * (H - 24) - 12;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+      svg.innerHTML = `
+        <g stroke="#1f2e42" stroke-width="1">
+          <line x1="0" y1="55" x2="${W}" y2="55"/><line x1="0" y1="110" x2="${W}" y2="110"/><line x1="0" y1="165" x2="${W}" y2="165"/>
+        </g>
+        <polyline points="${points}" stroke="${state.pnl >= 0 ? "#33cc7a" : "#f45b72"}" stroke-width="2" fill="none" />
+      `;
+    }
+
+    function renderAll() {
+      const exch = document.getElementById("exch").value;
+      const sym = document.getElementById("symbol").value;
+      const change = ((state.history[state.history.length - 1] - state.history[state.history.length - 20]) / state.history[state.history.length - 20]) * 100;
+      const tickerText = `${sym} ${fmt(state.price, sym.startsWith("BTC") ? 0 : 2)} ${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(2)}%`;
+      const actText = state.agent.action === "buy" ? "BUY" : state.agent.action === "sell" ? "SELL" : "HOLD";
+      const modeText = state.agent.mode === "suggest" ? "建议" : state.agent.mode === "semi" ? "半自动" : "自动";
+      const stratTextMap = { trend: "趋势", mean: "均值", breakout: "突破", maker: "做市" };
+      const head = document.getElementById("agentHead");
+      const status = document.getElementById("agentStatus");
+      head.textContent = `Agent: ${stratTextMap[state.agent.strategy]} · ${modeText} · ${actText}(${state.agent.confidence}%)`;
+      status.textContent = `${state.agent.reason} | 风险预算 ${state.agent.risk}% | 建议杠杆 ${state.agent.leverage}`;
+
+      refs.forEach((r) => {
+        if (r.agentBadge) {
+          r.agentBadge.className = `agent-badge ${state.agent.action}`;
+          r.agentBadge.textContent = `Agent: ${actText} ${state.agent.confidence}%`;
+        }
+        if (r.ticker) {
+          r.ticker.innerHTML = `<div class="ticker-track">
+            <span>${tickerText}</span><span>ETH/USDT ${fmt(state.price/44,2)} ${Math.random()>0.5?"▲":"▼"} ${(Math.random()*2).toFixed(2)}%</span>
+            <span>SOL/USDT ${fmt(state.price/592,2)} ▲ ${(Math.random()*3).toFixed(2)}%</span>
+            <span>成交额 24h ${fmt(1.8e9 + Math.random()*2e8, 0)} USDT</span>
+            <span>${tickerText}</span><span>ETH/USDT ${fmt(state.price/44,2)} ${Math.random()>0.5?"▲":"▼"} ${(Math.random()*2).toFixed(2)}%</span>
+          </div>`;
+        }
+        r.ex.forEach((e) => e.textContent = exch);
+        r.sym.forEach((s) => s.textContent = sym);
+        if (r.account) {
+          r.account.innerHTML = `
+            <div class="kv"><div class="k">今日收益</div><div class="v ${state.pnl>=0?"up":"dn"}">${state.pnl>=0?"+":"-"}$${fmt(Math.abs(state.pnl),0)}</div></div>
+            <div class="kv"><div class="k">总资产</div><div class="v">$${fmt(state.equity,0)}</div></div>
+            <div class="kv"><div class="k">胜率</div><div class="v">${state.winRate.toFixed(1)}%</div></div>
+            <div class="kv"><div class="k">最大回撤</div><div class="v dn">${state.drawdown.toFixed(1)}%</div></div>
+            <div class="kv"><div class="k">持仓数</div><div class="v">2</div></div>
+            <div class="kv"><div class="k">可用</div><div class="v">$${fmt(state.equity*0.41,0)}</div></div>
+          `;
+        }
+        renderKline(r.kline);
+        if (r.positions) {
+          r.positions.innerHTML = `
+            <div class="pos"><span>BTC 多 <small>0.12 @ 82,340</small></span><span class="up">+$${fmt(Math.max(1, state.pnl*0.72),0)}</span></div>
+            <div class="pos"><span>ETH 空 <small>1.5 @ 1,923</small></span><span class="${state.pnl>40?'dn':'up'}">${state.pnl>40?'-':'+'}$${fmt(Math.abs(state.pnl*0.11),0)}</span></div>
+          `;
+        }
+        if (r.depth) {
+          const asks = state.asks.map(v => `<div class="row ask"><span>${v.q}</span><span class="p">${fmt(v.p,2)}</span><span class="s">${v.w}%</span><span class="bg" style="width:${v.w}%"></span></div>`).join("");
+          const bids = state.bids.map(v => `<div class="row bid"><span>${v.q}</span><span class="p">${fmt(v.p,2)}</span><span class="s">${v.w}%</span><span class="bg" style="width:${v.w}%"></span></div>`).join("");
+          r.depth.innerHTML = asks + bids;
+        }
+        if (r.trades) {
+          r.trades.innerHTML = state.trades.map(v => `
+            <div class="trade">
+              <span class="t">${v.t}</span>
+              <span class="d ${v.d}">${v.d==="buy"?"买":"卖"}</span>
+              <span class="p ${v.d}">${fmt(v.p,2)}</span>
+              <span class="q">${v.q}</span>
+            </div>`).join("");
+        }
+        if (r.signal) {
+          const score = state.agent.confidence;
+          const risk = state.agent.risk;
+          r.signal.innerHTML = `
+            <div class="pos"><span>信号强度</span><span class="${score>72?'up':'dn'}">${score}</span></div>
+            <div class="pos"><span>风险暴露</span><span class="${risk>45?'dn':'up'}">${risk}</span></div>
+            <div class="pos"><span>执行模式</span><span>${modeText}</span></div>
+          `;
+        }
+      });
+    }
+
+    function bindActions() {
+      refs.forEach((r) => {
+        if (r.buy) {
+          r.buy.addEventListener("click", () => {
+            state.agent.action = "buy";
+            state.agent.reason = "手动触发买入";
+            state.pnl += Math.random() * 18;
+            pushTrade();
+            renderAll();
+          });
+        }
+        if (r.sell) {
+          r.sell.addEventListener("click", () => {
+            state.agent.action = "sell";
+            state.agent.reason = "手动触发卖出";
+            state.pnl -= Math.random() * 18;
+            pushTrade();
+            renderAll();
+          });
+        }
+      });
+
+      const speed = document.getElementById("speed");
+      const speedTxt = document.getElementById("speedTxt");
+      speed.addEventListener("input", () => {
+        state.speed = Number(speed.value);
+        speedTxt.textContent = `${state.speed}ms`;
+        schedule();
+      });
+      const vol = document.getElementById("vol");
+      const volTxt = document.getElementById("volTxt");
+      vol.addEventListener("input", () => {
+        state.vol = Number(vol.value) / 10;
+        volTxt.textContent = `${state.vol.toFixed(1)}x`;
+      });
+      const risk = document.getElementById("risk");
+      const riskTxt = document.getElementById("riskTxt");
+      risk.addEventListener("input", () => {
+        state.agent.risk = Number(risk.value);
+        riskTxt.textContent = `${state.agent.risk}%`;
+        evaluateAgent();
+        renderAll();
+      });
+      const strategy = document.getElementById("agentStrategy");
+      strategy.addEventListener("change", () => {
+        state.agent.strategy = strategy.value;
+        evaluateAgent();
+        renderAll();
+      });
+      const mode = document.getElementById("agentMode");
+      mode.addEventListener("change", () => {
+        state.agent.mode = mode.value;
+        renderAll();
+      });
+      document.getElementById("symbol").addEventListener("change", () => {
+        evaluateAgent();
+        renderAll();
+      });
+      document.getElementById("exch").addEventListener("change", renderAll);
+      document.getElementById("evalBtn").addEventListener("click", () => {
+        evaluateAgent();
+        renderAll();
+      });
+
+      const pauseBtn = document.getElementById("pauseBtn");
+      pauseBtn.addEventListener("click", () => {
+        state.paused = !state.paused;
+        pauseBtn.textContent = state.paused ? "继续" : "暂停";
+        pauseBtn.classList.toggle("active", state.paused);
+        schedule();
+      });
+    }
+
+    demoDefs.forEach(makeCard);
+    generateDepth();
+    for (let i = 0; i < 14; i++) pushTrade();
+    evaluateAgent();
+    bindActions();
+    renderAll();
+    schedule();
+  </script>
+</body>
+</html>

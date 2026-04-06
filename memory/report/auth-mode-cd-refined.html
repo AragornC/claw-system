@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Auth Mode Refined Demo</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a1420;
+  color: #c6d1e3;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  padding: 28px;
+  overflow-y: auto;
+}
+h1 {
+  font-size: 15px;
+  color: #8ea0b8;
+  font-weight: 600;
+  margin-bottom: 22px;
+}
+.page-note {
+  font-size: 12px;
+  color: #4f637c;
+  margin-bottom: 28px;
+  line-height: 1.6;
+}
+.demo {
+  border: 1px solid #182030;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 34px;
+  background: #0b1521;
+}
+.demo-title {
+  padding: 12px 16px;
+  border-bottom: 1px solid #182030;
+  background: #0d1827;
+  font-size: 10px;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+  color: #4f637c;
+}
+.demo-body {
+  padding: 18px;
+}
+
+.provider-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.provider-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid #243247;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.provider-logo img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+.provider-meta {
+  flex: 1;
+  min-width: 0;
+}
+.provider-name {
+  font-size: 18px;
+  font-weight: 650;
+  color: #eef4ff;
+}
+.provider-sub {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #4f637c;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3cc87a;
+  box-shadow: 0 0 6px rgba(60, 200, 122, .55);
+  flex-shrink: 0;
+}
+.dot.off {
+  background: #33465c;
+  box-shadow: none;
+}
+.pill {
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pill.green {
+  color: #3cc87a;
+  background: rgba(60, 200, 122, .12);
+}
+.pill.blue {
+  color: #68a2ff;
+  background: rgba(104, 162, 255, .12);
+}
+.pill.gold {
+  color: #e7b354;
+  background: rgba(231, 179, 84, .12);
+}
+
+.btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid #2a3d52;
+  background: rgba(255,255,255,.04);
+  color: #8ea0b8;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.btn:hover {
+  color: #e3ebf8;
+  border-color: #3a516a;
+  background: rgba(255,255,255,.07);
+}
+.btn.green {
+  color: #3cc87a;
+  border-color: rgba(60, 200, 122, .28);
+  background: rgba(60, 200, 122, .12);
+}
+.btn.green:hover {
+  background: rgba(60, 200, 122, .18);
+}
+.btn.ghost-red {
+  color: #e56d6d;
+  border-color: rgba(229,109,109,.2);
+  background: rgba(229,109,109,.06);
+}
+.input {
+  height: 34px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #2a3d52;
+  background: #09111d;
+  color: #e3ebf8;
+  padding: 0 12px;
+  font-size: 12px;
+  outline: none;
+}
+.input:focus {
+  border-color: #45617d;
+}
+.input::placeholder {
+  color: #41566f;
+}
+.hint {
+  font-size: 10px;
+  color: #445975;
+  line-height: 1.5;
+}
+.hint a {
+  color: #68a2ff;
+  text-decoration: none;
+}
+
+/* C refined */
+.c-auth-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.c-auth-card {
+  border: 1px solid #1d2a3b;
+  border-radius: 12px;
+  background: #0a1320;
+  padding: 14px;
+  cursor: pointer;
+  transition: all .14s ease;
+}
+.c-auth-card:hover {
+  border-color: #31475f;
+  background: rgba(255,255,255,.02);
+}
+.c-auth-card.active {
+  border-color: rgba(60,200,122,.32);
+  background: rgba(60,200,122,.05);
+  box-shadow: inset 0 0 0 1px rgba(60,200,122,.08);
+}
+.c-auth-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.c-auth-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #243247;
+  background: #101d2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.c-auth-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.c-auth-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e7effd;
+}
+.c-auth-desc {
+  font-size: 11px;
+  color: #586d87;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.c-auth-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.c-auth-meta span {
+  font-size: 9px;
+  color: #7591b3;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.04);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.c-detail {
+  border: 1px solid #182030;
+  border-radius: 12px;
+  background: #09131f;
+  overflow: hidden;
+}
+.c-detail-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid #152131;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.c-detail-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e3ebf8;
+}
+.c-detail-sub {
+  font-size: 10px;
+  color: #556983;
+  margin-top: 3px;
+}
+.c-detail-body {
+  padding: 14px;
+}
+.c-detail-panel {
+  display: none;
+}
+.c-detail-panel.active {
+  display: block;
+}
+.c-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.c-field label {
+  width: 68px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #7b90ac;
+}
+.c-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.c-status-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.03);
+  color: #7d92ae;
+  font-size: 10px;
+}
+
+/* D refined */
+.d-auth-wrap {
+  display: flex;
+  border: 1px solid #182030;
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 350px;
+}
+.d-methods {
+  width: 188px;
+  flex-shrink: 0;
+  border-right: 1px solid #182030;
+  background: #0c1520;
+}
+.d-method-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background .12s;
+  border-bottom: 1px solid #121e2c;
+  position: relative;
+}
+.d-method-item:hover {
+  background: rgba(255,255,255,.03);
+}
+.d-method-item.active {
+  background: rgba(255,255,255,.05);
+}
+.d-method-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 0 1px 1px 0;
+  background: #3cc87a;
+}
+.d-method-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #121d2c;
+  border: 1px solid #243247;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.d-method-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.d-method-name {
+  font-size: 12px;
+  color: #d8e3f5;
+  font-weight: 500;
+}
+.d-method-desc {
+  font-size: 10px;
+  color: #51657f;
+  margin-top: 2px;
+}
+.d-method-main {
+  flex: 1;
+  padding: 18px;
+}
+.d-block-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #edf4ff;
+}
+.d-block-sub {
+  font-size: 11px;
+  color: #556983;
+  margin-top: 5px;
+  line-height: 1.55;
+}
+.d-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 18px;
+}
+.d-stat {
+  border: 1px solid #1b2738;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.02);
+}
+.d-stat-k {
+  font-size: 9px;
+  color: #4c617c;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+.d-stat-v {
+  font-size: 12px;
+  color: #e7effd;
+  margin-top: 6px;
+  font-weight: 600;
+}
+.d-panel {
+  display: none;
+}
+.d-panel.active {
+  display: block;
+}
+.d-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.d-field label {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #7b90ac;
+}
+.d-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.d-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(104,162,255,.08);
+  color: #88b6ff;
+  font-size: 10px;
+  line-height: 1.55;
+}
+</style>
+</head>
+<body>
+<h1>连接方式细化 Demo：重点打磨 `方案 C` 与 `方案 D`</h1>
+<div class="page-note">这次只聚焦“连接方式切换”本身，不掺杂模型厂商列表。重点观察：推荐信息是否清晰、OAuth 与 API Key 的切换是否自然、连接状态是否足够明确、操作链路是否顺手。</div>
+
+<div class="demo">
+  <div class="demo-title">方案 C · 卡片选择强化版</div>
+  <div class="demo-body">
+    <div class="provider-head">
+      <div class="provider-logo">
+        <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg" alt="" />
+      </div>
+      <div class="provider-meta">
+        <div class="provider-name">Google Gemini</div>
+        <div class="provider-sub">
+          <span class="dot off"></span>
+          <span>未连接</span>
+          <span class="pill blue">同时支持 OAuth 与 API Key</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="c-auth-grid" id="cAuthGrid">
+      <div class="c-auth-card active" data-mode="oauth" onclick="switchCRefined('oauth', this)">
+        <div class="c-auth-top">
+          <div class="c-auth-icon">
+            <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg" alt="" />
+          </div>
+          <div>
+            <div class="c-auth-name">Google 账号登录</div>
+            <div class="c-auth-desc">一键授权，自动处理令牌更新，适合长期使用与多人协作场景。</div>
+          </div>
+        </div>
+        <div class="c-auth-meta">
+          <span>推荐</span>
+          <span>免复制 Key</span>
+          <span>支持撤销授权</span>
+        </div>
+      </div>
+
+      <div class="c-auth-card" data-mode="apikey" onclick="switchCRefined('apikey', this)">
+        <div class="c-auth-top">
+          <div class="c-auth-icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+              <rect x="3" y="8" width="14" height="8" rx="2" stroke="#6e84a2" stroke-width="1.3"/>
+              <path d="M6.5 8V6.8a3.5 3.5 0 1 1 7 0V8" stroke="#6e84a2" stroke-width="1.3"/>
+              <circle cx="10" cy="12" r="1.4" fill="#6e84a2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="c-auth-name">API Key</div>
+            <div class="c-auth-desc">适合服务器部署、自定义代理和精细化权限控制场景。</div>
+          </div>
+        </div>
+        <div class="c-auth-meta">
+          <span>可配代理</span>
+          <span>部署友好</span>
+          <span>手动管理</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="c-detail">
+      <div class="c-detail-head">
+        <div>
+          <div class="c-detail-title">连接详情</div>
+          <div class="c-detail-sub" id="cDetailSub">当前选择的是推荐方式，配置更少，适合直接开始使用。</div>
+        </div>
+        <div class="c-status-box" id="cStatusBox">
+          <span class="dot off"></span>
+          <span>尚未建立连接</span>
+        </div>
+      </div>
+      <div class="c-detail-body">
+        <div class="c-detail-panel active" id="c-oauth-panel">
+          <div class="oauth-row">
+            <button class="oauth-btn" onclick="alert('跳转 Google OAuth 授权流程…')">
+              <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg" alt="" />
+              使用 Google 账号登录
+              <span class="arrow">→</span>
+            </button>
+          </div>
+          <div class="hint" style="margin-top:10px;">授权后将自动同步访问令牌，可在 Google 账号安全设置中随时撤销。</div>
+          <div class="c-actions">
+            <span class="pill green">推荐给大多数用户</span>
+            <span class="pill blue">自动续期</span>
+          </div>
+        </div>
+
+        <div class="c-detail-panel" id="c-apikey-panel">
+          <div class="c-field">
+            <label>API Key</label>
+            <div style="flex:1;display:flex;gap:8px;">
+              <input class="input" placeholder="AIza..." />
+              <button class="btn green">连接</button>
+              <button class="btn" onclick="alert('测试连接中…')">测试</button>
+            </div>
+          </div>
+          <div class="hint" style="padding-left:78px;">在 [<a href="#">aistudio.google.com</a>] 获取 API Key，可用于服务端或自定义代理接入。</div>
+          <div class="c-actions">
+            <span class="pill gold">部署友好</span>
+            <span class="pill blue">适合服务端</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo">
+  <div class="demo-title">方案 D · 左右分栏强化版</div>
+  <div class="demo-body">
+    <div class="provider-head" style="margin-bottom:14px;">
+      <div class="provider-logo">
+        <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg" alt="" />
+      </div>
+      <div class="provider-meta">
+        <div class="provider-name">OpenAI</div>
+        <div class="provider-sub">
+          <span class="dot"></span>
+          <span style="color:#3cc87a;">已连接</span>
+          <span class="pill green">当前主账号在线</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-auth-wrap">
+      <div class="d-methods">
+        <div class="d-method-item active" data-mode="oauth" onclick="switchDRefined('oauth', this)">
+          <div class="d-method-icon">
+            <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg" alt="" />
+          </div>
+          <div>
+            <div class="d-method-name">OAuth 登录</div>
+            <div class="d-method-desc">主账号直连</div>
+          </div>
+        </div>
+        <div class="d-method-item" data-mode="apikey" onclick="switchDRefined('apikey', this)">
+          <div class="d-method-icon">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+              <rect x="3" y="8" width="14" height="8" rx="2" stroke="#6e84a2" stroke-width="1.3"/>
+              <path d="M6.5 8V6.8a3.5 3.5 0 1 1 7 0V8" stroke="#6e84a2" stroke-width="1.3"/>
+              <circle cx="10" cy="12" r="1.4" fill="#6e84a2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="d-method-name">API Key</div>
+            <div class="d-method-desc">备用 / 服务端</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-method-main">
+        <div class="d-block-title" id="dTitle">OAuth 登录</div>
+        <div class="d-block-sub" id="dSub">适合作为日常主连接方式，支持账号级别授权和统一管理。</div>
+
+        <div class="d-status-grid">
+          <div class="d-stat">
+            <div class="d-stat-k">状态</div>
+            <div class="d-stat-v" id="dStatStatus">已连接</div>
+          </div>
+          <div class="d-stat">
+            <div class="d-stat-k">最近验证</div>
+            <div class="d-stat-v" id="dStatPing">8 秒前</div>
+          </div>
+          <div class="d-stat">
+            <div class="d-stat-k">适用场景</div>
+            <div class="d-stat-v" id="dStatScene">桌面主账号</div>
+          </div>
+        </div>
+
+        <div class="d-panel active" id="d-oauth-panel">
+          <div class="d-field">
+            <label>当前账号</label>
+            <div class="d-row">
+              <span class="pill green">已授权</span>
+              <span style="font-size:11px;color:#dce6f7;">aragorn@example.com</span>
+            </div>
+          </div>
+          <div class="d-field">
+            <label>操作</label>
+            <div class="d-row">
+              <button class="btn">重新授权</button>
+              <button class="btn">刷新状态</button>
+              <button class="btn ghost-red">断开授权</button>
+            </div>
+          </div>
+          <div class="d-note">OAuth 更适合桌面应用主账号登录。优点是无需暴露 API Key，也更容易展示账号级连接状态、过期时间和授权范围。</div>
+        </div>
+
+        <div class="d-panel" id="d-apikey-panel">
+          <div class="d-field">
+            <label>API Key</label>
+            <div style="flex:1;display:flex;gap:8px;">
+              <input class="input" value="sk-proj-****************" type="password" />
+              <button class="btn">修改</button>
+              <button class="btn">测试</button>
+            </div>
+          </div>
+          <div class="hint" style="padding-left:82px;">在 [<a href="#">platform.openai.com</a>] 管理 API Key，建议仅用于服务端代理或高级接入场景。</div>
+          <div class="d-note">API Key 方式更适合部署、自定义代理和团队共享服务层。若是桌面端个人长期使用，OAuth 的心智负担更低。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchCRefined(mode, el) {
+  document.querySelectorAll('#cAuthGrid .c-auth-card').forEach(card => card.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('c-oauth-panel').classList.toggle('active', mode === 'oauth');
+  document.getElementById('c-apikey-panel').classList.toggle('active', mode === 'apikey');
+  document.getElementById('cDetailSub').textContent =
+    mode === 'oauth'
+      ? '当前选择的是推荐方式，配置更少，适合直接开始使用。'
+      : '当前选择的是手动方式，适合部署、代理与自定义权限管理。';
+}
+
+function switchDRefined(mode, el) {
+  document.querySelectorAll('.d-method-item').forEach(item => item.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('d-oauth-panel').classList.toggle('active', mode === 'oauth');
+  document.getElementById('d-apikey-panel').classList.toggle('active', mode === 'apikey');
+
+  if (mode === 'oauth') {
+    document.getElementById('dTitle').textContent = 'OAuth 登录';
+    document.getElementById('dSub').textContent = '适合作为日常主连接方式，支持账号级别授权和统一管理。';
+    document.getElementById('dStatStatus').textContent = '已连接';
+    document.getElementById('dStatPing').textContent = '8 秒前';
+    document.getElementById('dStatScene').textContent = '桌面主账号';
+  } else {
+    document.getElementById('dTitle').textContent = 'API Key';
+    document.getElementById('dSub').textContent = '适合作为备用连接、服务端代理或精细化权限控制方式。';
+    document.getElementById('dStatStatus').textContent = '已配置';
+    document.getElementById('dStatPing').textContent = '手动验证';
+    document.getElementById('dStatScene').textContent = '服务端 / 代理';
+  }
+}
+</script>
+</body>
+</html>

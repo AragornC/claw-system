@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Bar — Simple Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0b1017;
+      --panel:   #101720;
+      --border:  #1d2d40;
+      --text:    #c8d8e8;
+      --muted:   #4e6880;
+      --dim:     #7a9ab8;
+      --green:   #2ecc78;
+      --red:     #f04a62;
+      --yellow:  #f0c040;
+      --blue:    #4a8fff;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --mono: "SF Mono", "Fira Code", Menlo, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 12px/1.5 var(--font);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 20px 48px;
+      gap: 24px;
+      min-height: 100vh;
+    }
+
+    h1 { font-size: 13px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+
+    /* ── 实际 bar 尺寸感 ── */
+    .bar {
+      width: 100%;
+      max-width: 1400px;
+      height: 130px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background-color: var(--border);
+      overflow: hidden;
+    }
+
+    .cell {
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .cell-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px 6px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .cell-hd .label {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .cell-hd .meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+
+    .cell-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ─── 持仓卡 ─── */
+    .pos-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+      scrollbar-width: none;
+      flex: 1;
+      padding: 0 4px;
+    }
+    .pos-list::-webkit-scrollbar { display: none; }
+    .pos-row {
+      display: grid;
+      grid-template-columns: 64px 44px 1fr 70px 56px;
+      align-items: center;
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.032);
+      gap: 8px;
+    }
+    .pos-row:last-child { border-bottom: none; }
+    .pos-sym { font-weight: 600; font-size: 12px; }
+    .pos-dir {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      text-align: center;
+    }
+    .pos-dir.long  { background: rgba(46,204,120,0.12); color: var(--green); }
+    .pos-dir.short { background: rgba(240, 74, 98,0.12);  color: var(--red); }
+    .pos-info { color: var(--dim); font-size: 10px; font-family: var(--mono); }
+    .pos-pnl  { text-align: right; font-family: var(--mono); font-size: 12px; font-weight: 600; }
+    .pos-bar-wrap { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+    .pos-bar { height: 100%; border-radius: 2px; transition: width 0.4s; }
+
+    /* ─── 策略卡 ─── */
+    .strat-list { display: flex; flex-direction: column; gap: 0; flex: 1; overflow-y: auto; scrollbar-width: none; padding: 0 4px; }
+    .strat-list::-webkit-scrollbar { display: none; }
+    .strat-row {
+      display: grid;
+      grid-template-columns: 100px 54px 1fr 60px 48px;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.032);
+    }
+    .strat-row:last-child { border-bottom: none; }
+    .strat-name { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .strat-sym  { font-size: 10px; color: var(--dim); font-family: var(--mono); }
+    .strat-sig {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .strat-sig.buy  { background: rgba(46,204,120,0.12); color: var(--green); }
+    .strat-sig.sell { background: rgba(240,74,98,0.12);  color: var(--red); }
+    .strat-sig.hold { background: rgba(255,255,255,0.05); color: var(--muted); }
+    .conf-bar-wrap  { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+    .conf-bar       { height: 100%; border-radius: 2px; transition: width 0.5s; }
+    .strat-mode {
+      font-size: 9px;
+      text-align: right;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ─── 收益卡 ─── */
+    .pnl-wrap { display: flex; flex-direction: column; flex: 1; padding: 6px 12px 8px; gap: 6px; }
+    .pnl-top  { display: flex; align-items: baseline; gap: 10px; }
+    .pnl-main { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+    .pnl-pct  { font-size: 12px; font-family: var(--mono); }
+    .pnl-sub  { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .kv .k { font-size: 9px; color: var(--muted); margin-bottom: 1px; }
+    .kv .v { font-size: 12px; font-weight: 600; font-family: var(--mono); }
+    .sparkline-wrap { flex: 1; min-height: 0; }
+    svg.spark { width: 100%; height: 100%; display: block; overflow: visible; }
+
+    .up { color: var(--green); }
+    .dn { color: var(--red); }
+    .na { color: var(--muted); }
+
+
+    /* ── 宽版（bar 高度更高时）的变体预览 ── */
+    .bar-tall {
+      height: 180px;
+    }
+
+    /* ── 标签 ── */
+    .variant-label {
+      width: 100%;
+      max-width: 1400px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .variant-label::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .vtag {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 10px;
+      color: var(--dim);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ThunderClaw — 实盘交易栏 Demo</h1>
+
+  <!-- ── Variant 1：标准高度 130px ── -->
+  <div class="variant-label"><span class="vtag">变体 A</span>紧凑高度（130px）— 适合日常放在底部</div>
+  <div class="bar" id="barA"></div>
+
+  <!-- ── Variant 2：高一点的版本 ── -->
+  <div class="variant-label"><span class="vtag">变体 B</span>宽松高度（180px）— 更多数据可见</div>
+  <div class="bar bar-tall" id="barB"></div>
+
+<script>
+/* ═══════════════════════════ State ═══════════════════════════ */
+const S = {
+  price: 84520,
+  pnl:   +312,
+  equity: 20800,
+  todayPct: +1.56,
+  maxDD: -4.2,
+  winRate: 63,
+  pnlHistory: Array.from({length:36}, (_,i)=> 200 + Math.sin(i/4)*40 + i*2.1 + (Math.random()-0.5)*14),
+  positions: [
+    { sym:"BTC/USDT", dir:"long",  size:"0.12",  entry:82340, pnl:+218, maxPnl:280 },
+    { sym:"ETH/USDT", dir:"short", size:"1.50",  entry:1923,  pnl: -38, maxPnl:80  },
+    { sym:"SOL/USDT", dir:"long",  size:"12.00", entry:138.2, pnl: +73, maxPnl:120 },
+  ],
+  strategies: [
+    { name:"趋势跟随 V2", sym:"BTC/USDT", signal:"buy",  conf:82, mode:"自动" },
+    { name:"均值回归 α",  sym:"ETH/USDT", signal:"sell", conf:68, mode:"半自动" },
+    { name:"突破追单 B",  sym:"SOL/USDT", signal:"hold", conf:45, mode:"建议" },
+  ]
+};
+
+function fmt(n, d=0){ return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}); }
+
+/* ─── Build positions cell ─── */
+function buildPositions() {
+  return `
+    <div class="cell-hd">
+      <span class="label">持仓</span>
+      <span class="meta">${S.positions.length} 个</span>
+    </div>
+    <div class="cell-body">
+      <div class="pos-list" id="posList"></div>
+    </div>`;
+}
+
+function renderPositions(root) {
+  const el = root.querySelector("#posList, .pos-list");
+  if (!el) return;
+  el.innerHTML = S.positions.map(p => {
+    const cls = p.pnl >= 0 ? "up" : "dn";
+    const barW = Math.round(Math.min(100, Math.abs(p.pnl) / Math.max(1, p.maxPnl) * 100));
+    const barClr = p.pnl >= 0 ? "var(--green)" : "var(--red)";
+    const priceDiff = (S.price / (p.sym.startsWith("BTC") ? 1 : p.sym.startsWith("ETH") ? 44 : 592) - p.entry).toFixed(0);
+    return `
+      <div class="pos-row">
+        <span class="pos-sym">${p.sym.split("/")[0]}</span>
+        <span class="pos-dir ${p.dir}">${p.dir === "long" ? "多" : "空"} ${p.size}</span>
+        <span class="pos-info">入场 ${fmt(p.entry,1)}</span>
+        <span class="pos-pnl ${cls}">${p.pnl>=0?"+":""}$${fmt(Math.abs(p.pnl),0)}</span>
+        <div class="pos-bar-wrap"><div class="pos-bar" style="width:${barW}%;background:${barClr}"></div></div>
+      </div>`;
+  }).join("");
+}
+
+/* ─── Build strategies cell ─── */
+function buildStrategies() {
+  return `
+    <div class="cell-hd">
+      <span class="label">运行策略</span>
+      <span class="meta">${S.strategies.length} 个</span>
+    </div>
+    <div class="cell-body">
+      <div class="strat-list" id="stratList"></div>
+    </div>`;
+}
+
+function renderStrategies(root) {
+  const el = root.querySelector("#stratList, .strat-list");
+  if (!el) return;
+  el.innerHTML = S.strategies.map(s => {
+    const confClr = s.signal === "buy" ? "var(--green)" : s.signal === "sell" ? "var(--red)" : "var(--muted)";
+    const modeClr = s.mode === "自动" ? "var(--blue)" : s.mode === "半自动" ? "var(--yellow)" : "var(--muted)";
+    return `
+      <div class="strat-row">
+        <span class="strat-name">${s.name}</span>
+        <span class="strat-sym">${s.sym.split("/")[0]}</span>
+        <div class="conf-bar-wrap"><div class="conf-bar" style="width:${s.conf}%;background:${confClr}"></div></div>
+        <span class="strat-sig ${s.signal}">${s.signal === "buy" ? "BUY" : s.signal === "sell" ? "SELL" : "HOLD"} ${s.conf}%</span>
+        <span class="strat-mode" style="color:${modeClr}">${s.mode}</span>
+      </div>`;
+  }).join("");
+}
+
+/* ─── Build PnL cell ─── */
+function buildPnl() {
+  return `
+    <div class="cell-hd">
+      <span class="label">收益</span>
+      <span class="meta">今日</span>
+    </div>
+    <div class="cell-body">
+      <div class="pnl-wrap">
+        <div class="pnl-top">
+          <span class="pnl-main ${S.pnl>=0?"up":"dn"}" id="pnlMain">${S.pnl>=0?"+":""}$${fmt(Math.abs(S.pnl),0)}</span>
+          <span class="pnl-pct ${S.todayPct>=0?"up":"dn"}" id="pnlPct">${S.todayPct>=0?"+":""}${S.todayPct.toFixed(2)}%</span>
+        </div>
+        <div class="pnl-sub">
+          <div class="kv"><div class="k">总资产</div><div class="v" id="equity">$${fmt(S.equity,0)}</div></div>
+          <div class="kv"><div class="k">最大回撤</div><div class="v dn" id="maxdd">${S.maxDD.toFixed(1)}%</div></div>
+          <div class="kv"><div class="k">胜率</div><div class="v" id="wr">${S.winRate.toFixed(0)}%</div></div>
+          <div class="kv"><div class="k">可用</div><div class="v" id="avail">$${fmt(S.equity*0.42,0)}</div></div>
+        </div>
+        <div class="sparkline-wrap">
+          <svg class="spark" viewBox="0 0 360 40" preserveAspectRatio="none" id="spark"></svg>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPnl(root) {
+  const arr = S.pnlHistory;
+  const mn = Math.min(...arr), mx = Math.max(...arr);
+  const pts = arr.map((v,i)=>{
+    const x = (i/(arr.length-1)*360).toFixed(1);
+    const y = (40 - (v-mn)/(Math.max(1,mx-mn))*38 - 1).toFixed(1);
+    return `${x},${y}`;
+  }).join(" ");
+  const clr = S.pnl >= 0 ? "var(--green)" : "var(--red)";
+  const fill = S.pnl >= 0 ? "rgba(46,204,120,0.08)" : "rgba(240,74,98,0.08)";
+  const lastX = (360).toFixed(1), lastY = (40-(arr[arr.length-1]-mn)/(Math.max(1,mx-mn))*38-1).toFixed(1);
+  const firstY = (40-(arr[0]-mn)/(Math.max(1,mx-mn))*38-1).toFixed(1);
+  root.querySelectorAll("#spark, .spark").forEach(svg => {
+    svg.innerHTML = `
+      <polygon points="${pts} ${lastX},40 0,40" fill="${fill}" />
+      <polyline points="${pts}" stroke="${clr}" stroke-width="1.5" fill="none" stroke-linejoin="round" />`;
+  });
+  root.querySelectorAll("#pnlMain").forEach(el => {
+    el.textContent = `${S.pnl>=0?"+":""}$${fmt(Math.abs(S.pnl),0)}`;
+    el.className = `pnl-main ${S.pnl>=0?"up":"dn"}`;
+  });
+  root.querySelectorAll("#pnlPct").forEach(el => {
+    el.textContent = `${S.todayPct>=0?"+":""}${S.todayPct.toFixed(2)}%`;
+    el.className = `pnl-pct ${S.todayPct>=0?"up":"dn"}`;
+  });
+  root.querySelectorAll("#equity").forEach(el => el.textContent = `$${fmt(S.equity,0)}`);
+  root.querySelectorAll("#maxdd").forEach(el => el.textContent = `${S.maxDD.toFixed(1)}%`);
+  root.querySelectorAll("#wr").forEach(el => el.textContent = `${S.winRate.toFixed(0)}%`);
+  root.querySelectorAll("#avail").forEach(el => el.textContent = `$${fmt(S.equity*0.42,0)}`);
+}
+
+/* ─── Init bars ─── */
+function initBar(id) {
+  const root = document.getElementById(id);
+  root.innerHTML = `
+    <div class="cell">${buildPositions()}</div>
+    <div class="cell">${buildStrategies()}</div>
+    <div class="cell">${buildPnl()}</div>
+  `;
+  return root;
+}
+
+const barA = initBar("barA");
+const barB = initBar("barB");
+
+function renderAll() {
+  [barA, barB].forEach(r => {
+    renderPositions(r);
+    renderStrategies(r);
+    renderPnl(r);
+  });
+}
+
+renderAll();
+
+/* ─── Live tick ─── */
+setInterval(() => {
+  const drift = (Math.random() - 0.5) * 30;
+  S.price += drift;
+  S.pnl   += (Math.random() - 0.5) * 8;
+  S.equity += (Math.random() - 0.5) * 6;
+  S.todayPct = S.pnl / S.equity * 100;
+  S.winRate = Math.max(50, Math.min(78, S.winRate + (Math.random()-0.5)*0.3));
+  S.maxDD = Math.max(-12, Math.min(-1, S.maxDD + (Math.random()-0.5)*0.1));
+  S.pnlHistory.push(S.pnl);
+  S.pnlHistory = S.pnlHistory.slice(-36);
+
+  S.positions.forEach(p => {
+    p.pnl += (Math.random()-0.5) * 6;
+  });
+  S.strategies.forEach(s => {
+    s.conf = Math.max(28, Math.min(96, s.conf + Math.round((Math.random()-0.5)*5)));
+    const r = Math.random();
+    if (r < 0.06) s.signal = "buy";
+    else if (r < 0.12) s.signal = "sell";
+    else if (r < 0.16) s.signal = "hold";
+  });
+
+  renderAll();
+}, 900);
+</script>
+</body>
+</html>

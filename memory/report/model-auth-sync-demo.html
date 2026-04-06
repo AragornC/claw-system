@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>模型 & 登录状态同步 Demo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#0a1420;color:#c2cee0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden;
+}
+
+/* ── Title Bar ── */
+.titlebar{height:38px;display:flex;align-items:center;background:#090d16;border-bottom:1px solid #182030;padding:0 12px;flex-shrink:0;}
+.tb-spacer{width:72px;}
+.tb-title{flex:1;text-align:center;font-size:12px;font-weight:600;color:#8a9ab0;letter-spacing:.3px;}
+
+/* ── App Layout ── */
+.app-body{display:flex;flex:1;overflow:hidden;min-height:0;}
+
+/* ── Settings Panel ── */
+.settings-wrap{display:flex;flex:1;overflow:hidden;min-height:0;}
+.stg-nav{width:176px;flex-shrink:0;background:#0c1624;border-right:1px solid #182030;padding:12px 0;display:flex;flex-direction:column;gap:2px;}
+.stg-nav-header{padding:6px 14px 12px;font-size:14px;font-weight:600;color:#e0e8f5;letter-spacing:.2px;}
+.stg-nav-group{padding:4px 14px 2px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#4a607a;}
+.stg-nav-divider{height:1px;background:#18283a;margin:6px 10px;}
+.stg-nav-item{display:flex;align-items:center;gap:7px;padding:6px 14px;border-radius:6px;margin:0 6px;font-size:12.5px;color:#8a9ab0;cursor:pointer;transition:all .15s;}
+.stg-nav-item:hover{background:#142032;color:#c2cee0;}
+.stg-nav-item.active{background:#1a2f45;color:#e0e8f5;font-weight:500;}
+
+/* ── Settings Content ── */
+.stg-content{flex:1;overflow-y:auto;padding:24px 28px;scrollbar-width:thin;scrollbar-color:#1e2d40 transparent;}
+.stg-title{font-size:16px;font-weight:600;color:#e0e8f5;margin-bottom:4px;}
+.stg-desc{font-size:12px;color:#5a7a9a;margin-bottom:20px;line-height:1.5;}
+
+/* ── Model Panel ── */
+.md-wrap{display:flex;gap:16px;height:calc(100% - 60px);}
+.md-list{width:148px;flex-shrink:0;background:#0e1e2f;border:1px solid #182030;border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:2px;}
+.md-list-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;cursor:pointer;transition:all .15s;}
+.md-list-item:hover{background:#142032;}
+.md-list-item.active{background:#1a2f45;}
+.md-list-logo{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;border:1px solid #1e2d40;flex-shrink:0;}
+.md-list-name{font-size:12px;color:#c2cee0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.md-status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.md-status-dot.ok{background:#22c55e;}
+.md-status-dot.off{background:#2a3a4a;}
+
+/* ── Detail Panel ── */
+.md-detail{flex:1;min-width:0;background:#0e1e2f;border:1px solid #182030;border-radius:10px;padding:18px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;}
+.md-detail-title{font-size:15px;font-weight:600;color:#e0e8f5;}
+.md-detail-status{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:-10px;}
+.stg-green{color:#22c55e;font-weight:500;}
+.md-off-text{color:#4a607a;}
+
+/* ── Auth Method Tabs ── */
+.md-auth-tabs{display:flex;border-bottom:1px solid #182030;gap:0;margin-bottom:14px;}
+.md-auth-tab{padding:7px 14px;font-size:12.5px;color:#5a7a9a;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;margin-bottom:-1px;}
+.md-auth-tab:hover{color:#c2cee0;}
+.md-auth-tab.active{color:#e0e8f5;border-bottom-color:#3b82f6;font-weight:500;}
+
+/* ── OAuth Block ── */
+.md-oauth-big{
+  display:flex;align-items:center;gap:10px;
+  width:100%;padding:10px 14px;
+  background:#142032;border:1px solid #1e3048;border-radius:9px;
+  color:#c2cee0;font-size:13px;font-weight:500;cursor:pointer;
+  transition:all .15s;
+}
+.md-oauth-big:hover{background:#1a2c44;border-color:#2a4060;color:#e0e8f5;}
+.md-oauth-big img{width:18px;height:18px;object-fit:contain;}
+.md-oauth-arr{margin-left:auto;font-size:11px;color:#4a607a;}
+
+/* ── OAuth Connected State (NEW) ── */
+.md-oauth-connected{
+  background:#0d1f14;border:1px solid #1a3828;border-radius:9px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+}
+.md-oauth-user{display:flex;align-items:center;gap:10px;}
+.md-oauth-avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#3b82f6,#22c55e);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:600;color:#fff;flex-shrink:0;
+}
+.md-oauth-info{flex:1;min-width:0;}
+.md-oauth-name{font-size:13px;font-weight:500;color:#e0e8f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.md-oauth-email{font-size:11px;color:#5a8a6a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
+.md-oauth-badge{display:flex;align-items:center;gap:4px;font-size:11px;color:#22c55e;}
+.md-oauth-badge-dot{width:5px;height:5px;border-radius:50%;background:#22c55e;}
+.md-oauth-actions{display:flex;gap:6px;}
+.md-oauth-action-btn{
+  flex:1;padding:5px 10px;border-radius:6px;font-size:11.5px;
+  background:#142032;border:1px solid #1e3048;color:#8aabcc;cursor:pointer;
+  transition:all .15s;
+}
+.md-oauth-action-btn:hover{background:#1a2c44;color:#c2cee0;}
+.md-oauth-action-btn.danger{color:#e05a5a;border-color:#3a1f1f;}
+.md-oauth-action-btn.danger:hover{background:#2a1515;border-color:#5a2a2a;}
+
+/* ── Model List ── */
+.md-models-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#4a607a;margin-bottom:6px;}
+.md-model-row{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 10px;border-radius:7px;background:#0a1a28;
+  border:1px solid #182030;margin-bottom:5px;
+}
+.md-model-name{flex:1;font-size:12.5px;color:#c2cee0;}
+.md-model-badges{display:flex;gap:4px;}
+.md-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;letter-spacing:.03em;}
+.badge-green{background:#0f2e1a;color:#22c55e;border:1px solid #1a4a28;}
+.badge-blue{background:#0d1f38;color:#5b9cf6;border:1px solid #1a3060;}
+.badge-gold{background:#2a1e0a;color:#d4a535;border:1px solid #4a3010;}
+.md-model-ctx{font-size:10.5px;color:#3a5a7a;}
+/* Toggle Switch */
+.md-toggle{position:relative;width:32px;height:18px;cursor:pointer;flex-shrink:0;}
+.md-toggle input{display:none;}
+.md-toggle-track{
+  position:absolute;inset:0;border-radius:9px;
+  background:#1e2d40;border:1px solid #2a3d52;
+  transition:all .2s;
+}
+.md-toggle.on .md-toggle-track{background:#1a4a2e;border-color:#22c55e44;}
+.md-toggle-thumb{
+  position:absolute;top:2px;left:2px;width:12px;height:12px;
+  border-radius:50%;background:#3a5a7a;
+  transition:all .2s;
+}
+.md-toggle.on .md-toggle-thumb{left:16px;background:#22c55e;}
+
+/* ── Note ── */
+.md-note{font-size:11.5px;color:#3a6a9a;line-height:1.5;padding:8px 10px;background:#0a1c2e;border-radius:6px;border:1px solid #182030;}
+
+/* ── Agent Panel ── */
+.agent-panel{
+  width:300px;flex-shrink:0;background:#0c1624;
+  border-left:1px solid #182030;display:flex;flex-direction:column;
+  overflow:visible;position:relative;
+}
+.agent-inner{display:flex;flex-direction:column;flex:1;min-height:0;overflow:visible;}
+.agent-messages{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;scrollbar-color:#1e2d40 transparent;}
+.agent-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#3a5a7a;font-size:13px;}
+.msg-user-wrap{display:flex;justify-content:flex-end;}
+.msg-user-bubble{
+  max-width:85%;padding:8px 12px;border-radius:12px 12px 3px 12px;
+  background:#1a3050;color:#c2cee0;font-size:13px;line-height:1.5;
+}
+.msg-agent-wrap{display:flex;}
+.msg-agent-body{
+  max-width:92%;padding:8px 12px;border-radius:3px 12px 12px 12px;
+  background:#0e1e2f;border:1px solid #182030;
+  font-size:13px;line-height:1.6;color:#c2cee0;
+}
+.msg-agent-body p{margin-bottom:4px;}
+.msg-agent-body p:last-child{margin-bottom:0;}
+
+/* ── Input Area ── */
+.agent-input-area{padding:10px 12px;border-top:1px solid #182030;flex-shrink:0;overflow:visible;position:relative;z-index:10;}
+.agent-input-box{background:#0e1e2f;border:1px solid #1e2d40;border-radius:10px;overflow:visible;}
+.agent-input{
+  width:100%;padding:10px 12px;background:transparent;border:none;outline:none;
+  color:#c2cee0;font-size:13px;resize:none;font-family:inherit;
+  max-height:120px;overflow-y:auto;
+}
+.agent-input::placeholder{color:#3a5a7a;}
+.agent-input-toolbar{display:flex;align-items:center;padding:6px 8px 7px;justify-content:space-between;}
+.agent-toolbar-left{position:relative;}
+
+/* ── Model Selector Button ── */
+.agent-model-selector{
+  display:flex;align-items:center;gap:5px;
+  padding:4px 8px 4px 6px;border-radius:6px;
+  background:#142032;border:1px solid #1e3048;
+  color:#7a9ab8;font-size:11.5px;cursor:pointer;
+  transition:all .15s;user-select:none;
+}
+.agent-model-selector:hover{background:#1a2c44;color:#c2cee0;border-color:#2a4060;}
+.agent-model-selector span{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── Model Dropdown ── */
+.agent-model-dropdown{
+  position:absolute;bottom:calc(100% + 6px);left:0;
+  min-width:220px;max-width:260px;
+  background:#131f30;border:1px solid #243548;border-radius:10px;
+  box-shadow:0 12px 40px rgba(0,0,0,.7);z-index:100;
+  overflow:hidden;max-height:340px;overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:#243548 transparent;
+}
+.agent-model-group{
+  padding:8px 12px 5px;
+  font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:#7a9ab8;
+  position:sticky;top:0;background:#131f30;border-bottom:1px solid #1e2e42;
+}
+.agent-model-group-header{display:flex;align-items:center;justify-content:space-between;}
+.agent-model-nc{font-size:10px;color:#4a6a8a;font-weight:400;letter-spacing:0;text-transform:none;}
+.agent-model-option{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 12px;font-size:13px;color:#b0c8e0;cursor:pointer;
+  transition:all .1s;
+}
+.agent-model-option:hover{background:#1a2f45;color:#e0e8f5;}
+.agent-model-option.active{color:#e8f4ff;background:#1e3550;font-weight:500;}
+.agent-model-option.disabled{opacity:.35;cursor:not-allowed;pointer-events:none;}
+.agent-model-dot{width:6px;height:6px;border-radius:50%;background:#3a5a7a;flex-shrink:0;}
+.agent-model-dot.ok{background:#22c55e;}
+
+/* ── Send Button ── */
+.agent-send{
+  width:28px;height:28px;border-radius:7px;border:none;
+  background:#1a4a2e;color:#22c55e;font-size:14px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:all .15s;
+}
+.agent-send:hover:not(:disabled){background:#1e5e38;}
+.agent-send:disabled{opacity:.35;cursor:not-allowed;}
+
+/* ── Divider / Demo Header ── */
+.demo-banner{
+  background:#090d16;border-bottom:1px solid #182030;
+  padding:8px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.demo-banner-title{font-size:12px;font-weight:600;color:#3b82f6;}
+.demo-banner-desc{font-size:11.5px;color:#4a607a;}
+.demo-tag{
+  padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:600;
+  background:#0d1f38;color:#5b9cf6;border:1px solid #1a3060;
+}
+.demo-tag.green{background:#0d2818;color:#22c55e;border-color:#1a4028;}
+
+/* ── Stg Btn ── */
+.stg-btn{
+  padding:4px 10px;border-radius:6px;font-size:12px;
+  background:#142032;border:1px solid #1e3048;color:#8aabcc;cursor:pointer;
+  transition:all .15s;
+}
+.stg-btn:hover{background:#1a2c44;color:#c2cee0;}
+
+/* ── Auth Tab Badge ── */
+.md-auth-tab-wrap{display:flex;align-items:center;gap:5px;}
+.md-auth-tab-dot{width:5px;height:5px;border-radius:50%;background:#22c55e;flex-shrink:0;}
+
+/* ── Conflict Warning ── */
+.md-conflict-warn{
+  display:flex;align-items:flex-start;gap:7px;
+  padding:8px 10px;border-radius:7px;margin-bottom:8px;
+  background:#1f1608;border:1px solid #3a2a10;
+  font-size:11.5px;color:#d4a535;line-height:1.5;
+}
+.md-conflict-warn-icon{font-size:13px;flex-shrink:0;margin-top:-1px;}
+
+/* ── Toast ── */
+.toast-container{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  z-index:9999;pointer-events:none;
+}
+.toast{
+  padding:8px 16px;border-radius:8px;font-size:12.5px;
+  background:#1a2f45;border:1px solid #243548;color:#c2cee0;
+  box-shadow:0 6px 24px rgba(0,0,0,.5);
+  animation:toast-in .2s ease;white-space:nowrap;
+}
+.toast.warn{background:#1f1608;border-color:#3a2a10;color:#d4a535;}
+.toast.success{background:#0d2818;border-color:#1a4028;color:#22c55e;}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="tb-spacer"></div>
+  <div class="tb-title">ThunderClaw — 模型 &amp; 登录状态同步 Demo</div>
+</div>
+
+<!-- Demo Labels -->
+<div class="demo-banner">
+  <span class="demo-tag">DEMO</span>
+  <span class="demo-banner-title">Zustand 全局状态设计</span>
+  <span class="demo-banner-desc">左边设置面板的「模型开关 / 登录状态」和右边对话框的「模型选择器」共享同一个 store，实时同步。</span>
+  <span class="demo-tag green" id="sync-badge">已同步</span>
+</div>
+
+<div class="app-body">
+
+  <!-- Settings -->
+  <div class="settings-wrap">
+    <div class="stg-nav">
+      <div class="stg-nav-header">设置</div>
+      <div class="stg-nav-group">应用</div>
+      <div class="stg-nav-item">
+        <svg viewBox="0 0 20 20" fill="none" width="14" height="14"><path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M16.2 10c0-.34-.03-.67-.08-1l1.57-1.23a.4.4 0 0 0 .09-.5l-1.49-2.57a.4.4 0 0 0-.48-.17l-1.85.74a7.4 7.4 0 0 0-1.73-1L12 2.42A.4.4 0 0 0 11.6 2H8.4a.4.4 0 0 0-.4.42l-.23 1.85a7.4 7.4 0 0 0-1.73 1l-1.85-.74a.4.4 0 0 0-.48.17L2.22 7.27a.39.39 0 0 0 .09.5L3.88 9c-.05.33-.08.66-.08 1s.03.67.08 1l-1.57 1.23a.4.4 0 0 0-.09.5l1.49 2.57c.1.18.31.25.48.17l1.85-.74c.53.39 1.11.72 1.73 1l.23 1.85c.04.23.24.42.4.42h3.2c.18 0 .36-.19.4-.42l.23-1.85a7.4 7.4 0 0 0 1.73-1l1.85.74c.18.08.38 0 .48-.17l1.49-2.57a.39.39 0 0 0-.09-.5L16.12 11c.05-.33.08-.66.08-1Z" stroke="currentColor" strokeWidth="1.3"/></svg>
+        通用
+      </div>
+      <div class="stg-nav-item active">
+        <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M5.5 7h5M5.5 9.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+        模型
+      </div>
+    </div>
+
+    <div class="stg-content">
+      <div class="stg-title">模型</div>
+      <div class="stg-desc">连接厂商账号或 API Key，开启所需模型后即可在对话框中切换使用。</div>
+
+      <div class="md-wrap">
+        <!-- Provider List -->
+        <div class="md-list" id="provider-list"></div>
+
+        <!-- Provider Detail -->
+        <div class="md-detail" id="provider-detail"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent Panel -->
+  <div class="toast-container" id="toast-container"></div>
+  <div class="agent-panel">
+    <div class="agent-inner">
+      <div class="agent-messages" id="agent-messages">
+        <div class="agent-empty">开始一个新的对话</div>
+      </div>
+      <div class="agent-input-area">
+        <div class="agent-input-box">
+          <textarea class="agent-input" rows="1" id="agent-input" placeholder="描述你的需求…"></textarea>
+          <div class="agent-input-toolbar">
+              <div class="agent-toolbar-left">
+              <div style="position:relative;overflow:visible">
+                <div class="agent-model-selector" id="model-selector-btn" onclick="toggleModelDropdown()">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" stroke-linecap="round"/></svg>
+                  <span id="model-selector-label">gpt-5.4</span>
+                  <svg viewBox="0 0 10 6" width="8" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                </div>
+                <div class="agent-model-dropdown" id="model-dropdown" style="display:none"></div>
+              </div>
+            </div>
+            <div>
+              <button class="agent-send" id="send-btn" onclick="sendMessage()">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════
+//  GLOBAL STORE (simulates Zustand)
+//  Single source of truth for all UI
+// ══════════════════════════════════════════
+const store = {
+  selectedProvider: 'openai',
+
+  // Auth state per provider
+  auth: {
+    openai:    { connected: true,  method: 'oauth',  email: 'aragorn@example.com', name: 'Aragorn' },
+    anthropic: { connected: false, method: 'none',   email: '',  name: '' },
+    deepseek:  { connected: true,  method: 'apikey', email: '',  name: '',  maskedKey: 'sk-••••••••6f3a' },
+    google:    { connected: false, method: 'none',   email: '',  name: '' },
+    xai:       { connected: false, method: 'none',   email: '',  name: '' },
+  },
+
+  // Enabled models per provider (SINGLE SOURCE OF TRUTH)
+  enabledModels: {
+    openai:    ['gpt-5.4', 'gpt-5.4-mini'],
+    anthropic: ['claude-sonnet-4-6'],
+    deepseek:  ['deepseek-chat'],
+    google:    ['gemini-2.5-pro'],
+    xai:       ['grok-3'],
+  },
+
+  // All available models per provider
+  allModels: {
+    openai: [
+      { id: 'gpt-5.4',      badge: '推荐', badgeClass: 'badge-green', ctx: '1M' },
+      { id: 'gpt-5.4-mini', badge: '快速', badgeClass: 'badge-blue',  ctx: '400K' },
+      { id: 'gpt-5.4-nano', badge: '极速', badgeClass: 'badge-blue',  ctx: '400K' },
+      { id: 'gpt-5.3-codex',badge: 'Codex', badgeClass: 'badge-gold', ctx: '—' },
+    ],
+    anthropic: [
+      { id: 'claude-sonnet-4-6', badge: '推荐', badgeClass: 'badge-green', ctx: '1M' },
+      { id: 'claude-opus-4-6',   badge: '旗舰', badgeClass: 'badge-gold',  ctx: '1M' },
+      { id: 'claude-haiku-4-5',  badge: '快速', badgeClass: 'badge-blue',  ctx: '200K' },
+    ],
+    deepseek: [
+      { id: 'deepseek-chat',     badge: '低成本', badgeClass: 'badge-blue', ctx: '128K' },
+      { id: 'deepseek-reasoner', badge: '推理',   badgeClass: 'badge-gold', ctx: '128K' },
+    ],
+    google: [
+      { id: 'gemini-2.5-pro',   badge: '推荐', badgeClass: 'badge-green', ctx: '1M' },
+      { id: 'gemini-2.5-flash', badge: '快速', badgeClass: 'badge-blue',  ctx: '1M' },
+    ],
+    xai: [
+      { id: 'grok-3',      badge: '推荐', badgeClass: 'badge-green', ctx: '128K' },
+      { id: 'grok-3-mini', badge: '快速', badgeClass: 'badge-blue',  ctx: '128K' },
+    ],
+  },
+
+  providerMeta: {
+    openai:    { name: 'OpenAI',        logo: 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg',    logoBg: '#fff', logoFilter: '' },
+    anthropic: { name: 'Anthropic',     logo: 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg', logoBg: '#cc785c', logoFilter: 'brightness(10)' },
+    deepseek:  { name: 'DeepSeek',      logo: 'https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg',   logoBg: '#fff', logoFilter: '' },
+    google:    { name: 'Google Gemini', logo: 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg',    logoBg: '#fff', logoFilter: '' },
+    xai:       { name: 'xAI Grok',      logo: 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg',      logoBg: '#fff', logoFilter: '' },
+  },
+
+  // Current model in chat — restored from localStorage on load
+  selectedModel: (() => {
+    try {
+      const saved = localStorage.getItem('claw_last_model');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { providerId: 'openai', modelId: 'gpt-5.4' };
+  })(),
+
+  // Active auth tab per provider
+  authTab: { openai: 'oauth' },
+};
+
+// ══════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════
+function showToast(msg, type = '') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+// ══════════════════════════════════════════
+//  STORE ACTIONS
+// ══════════════════════════════════════════
+function toggleModel(providerId, modelId) {
+  const enabled = store.enabledModels[providerId];
+  const idx = enabled.indexOf(modelId);
+  if (idx >= 0) {
+    if (enabled.length <= 1) {
+      showToast('至少需要保留一个模型', 'warn');
+      return;
+    }
+    store.enabledModels[providerId] = enabled.filter(m => m !== modelId);
+    if (store.selectedModel.providerId === providerId && store.selectedModel.modelId === modelId) {
+      store.selectedModel = { providerId, modelId: store.enabledModels[providerId][0] };
+      localStorage.setItem('claw_last_model', JSON.stringify(store.selectedModel));
+    }
+  } else {
+    store.enabledModels[providerId] = [...enabled, modelId];
+  }
+  renderAll();
+  flashSync();
+}
+
+function disconnect(providerId) {
+  const prevMethod = store.auth[providerId].method;
+  store.auth[providerId] = { connected: false, method: 'none', email: '', name: '', maskedKey: '' };
+  if (store.selectedModel.providerId === providerId) {
+    for (const pid of Object.keys(store.auth)) {
+      if (store.auth[pid].connected && store.enabledModels[pid]?.length > 0) {
+        store.selectedModel = { providerId: pid, modelId: store.enabledModels[pid][0] };
+        localStorage.setItem('claw_last_model', JSON.stringify(store.selectedModel));
+        break;
+      }
+    }
+  }
+  const label = prevMethod === 'oauth' ? 'OAuth 登录' : 'API Key';
+  showToast(`已断开 ${label} 连接`, 'warn');
+  renderAll();
+  flashSync();
+}
+
+// ★ 互斥：OAuth 连接时自动清除 API Key
+function connectOAuth(providerId) {
+  const prev = store.auth[providerId];
+  const hadApiKey = prev.connected && prev.method === 'apikey';
+  store.auth[providerId] = { connected: true, method: 'oauth', email: 'aragorn@example.com', name: 'Aragorn', maskedKey: '' };
+  store.authTab[providerId] = 'oauth';
+  if (hadApiKey) {
+    showToast('已自动断开 API Key，切换为 OAuth 登录', 'warn');
+  } else {
+    showToast('OAuth 登录成功', 'success');
+  }
+  renderAll();
+  flashSync();
+}
+
+// ★ 互斥：API Key 连接时自动清除 OAuth token
+function connectApiKey(providerId, maskedKey) {
+  const prev = store.auth[providerId];
+  const hadOAuth = prev.connected && prev.method === 'oauth';
+  store.auth[providerId] = { connected: true, method: 'apikey', email: '', name: '', maskedKey: maskedKey || 'sk-proj-••••••••3f9a' };
+  store.authTab[providerId] = 'apikey';
+  if (hadOAuth) {
+    showToast('已自动退出 OAuth 登录，切换为 API Key', 'warn');
+  } else {
+    showToast('API Key 连接成功', 'success');
+  }
+  renderAll();
+  flashSync();
+}
+
+function selectModel(providerId, modelId) {
+  store.selectedModel = { providerId, modelId };
+  localStorage.setItem('claw_last_model', JSON.stringify(store.selectedModel));
+  renderAll();
+  closeModelDropdown();
+  flashSync();
+}
+
+function setProvider(providerId) {
+  store.selectedProvider = providerId;
+  renderProviderList();
+  renderProviderDetail();
+}
+
+function setAuthTab(providerId, tab) {
+  store.authTab[providerId] = tab;
+  renderProviderDetail();
+}
+
+function flashSync() {
+  const badge = document.getElementById('sync-badge');
+  badge.style.background = '#1a4a1a';
+  badge.style.color = '#4ade80';
+  badge.textContent = '↻ 同步中';
+  setTimeout(() => {
+    badge.style.background = '';
+    badge.style.color = '';
+    badge.textContent = '已同步';
+  }, 600);
+}
+
+// ══════════════════════════════════════════
+//  RENDER: Provider List (left sidebar)
+// ══════════════════════════════════════════
+function renderProviderList() {
+  const el = document.getElementById('provider-list');
+  const providerIds = ['anthropic', 'openai', 'deepseek', 'google', 'xai'];
+  el.innerHTML = providerIds.map(pid => {
+    const meta = store.providerMeta[pid];
+    const auth = store.auth[pid];
+    const active = pid === store.selectedProvider;
+    return `
+      <div class="md-list-item ${active ? 'active' : ''}" onclick="setProvider('${pid}')">
+        <div class="md-list-logo" style="background:${meta.logoBg}">
+          <img src="${meta.logo}" width="16" height="16" style="object-fit:contain;${meta.logoFilter ? `filter:${meta.logoFilter}` : ''}" alt=""/>
+        </div>
+        <span class="md-list-name">${meta.name}</span>
+        <span class="md-status-dot ${auth.connected ? 'ok' : 'off'}"></span>
+      </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  RENDER: Provider Detail (right panel)
+// ══════════════════════════════════════════
+function renderProviderDetail() {
+  const pid = store.selectedProvider;
+  const meta = store.providerMeta[pid];
+  const auth = store.auth[pid];
+  const tab = store.authTab[pid] || 'oauth';
+  const models = store.allModels[pid] || [];
+  const enabled = store.enabledModels[pid] || [];
+
+  const supportsOAuth = pid === 'openai';
+
+  // Auth Block
+  const oauthActive = auth.connected && auth.method === 'oauth';
+  const apikeyActive = auth.connected && auth.method === 'apikey';
+
+  // Shared: API Key connected card (used for both OpenAI apikey tab and non-OAuth providers)
+  function apiKeyConnectedHtml() {
+    return `
+    <div class="md-oauth-connected" style="background:#0d1f14;border-color:#1a3828;">
+      <div class="md-oauth-user">
+        <div class="md-oauth-avatar" style="background:linear-gradient(135deg,#1a6a3a,#3b8250);font-size:13px;">🔑</div>
+        <div class="md-oauth-info">
+          <div class="md-oauth-name" style="font-family:monospace;font-size:12.5px;">${auth.maskedKey || 'sk-••••••••key'}</div>
+          <div class="md-oauth-email">API Key · 标准接口</div>
+        </div>
+        <div class="md-oauth-badge"><div class="md-oauth-badge-dot"></div>有效</div>
+      </div>
+      <div class="md-oauth-actions">
+        <button class="md-oauth-action-btn" onclick="alert('修改 Key')">修改 Key</button>
+        <button class="md-oauth-action-btn danger" onclick="disconnect('${pid}')">断开连接</button>
+      </div>
+    </div>`;
+  }
+
+  let authHtml = '';
+  if (supportsOAuth) {
+    // Tab labels — 用小绿点标记当前活跃的连接方式
+    const oauthTabLabel = oauthActive
+      ? `<span class="md-auth-tab-wrap">OAuth 登录<span class="md-auth-tab-dot"></span></span>`
+      : 'OAuth 登录';
+    const apikeyTabLabel = apikeyActive
+      ? `<span class="md-auth-tab-wrap">API Key<span class="md-auth-tab-dot"></span></span>`
+      : 'API Key';
+
+    authHtml += `
+      <div>
+        <div class="md-auth-tabs">
+          <div class="md-auth-tab ${tab === 'oauth' ? 'active' : ''}" onclick="setAuthTab('${pid}','oauth')">${oauthTabLabel}</div>
+          <div class="md-auth-tab ${tab === 'apikey' ? 'active' : ''}" onclick="setAuthTab('${pid}','apikey')">${apikeyTabLabel}</div>
+        </div>`;
+
+    if (tab === 'oauth') {
+      if (oauthActive) {
+        // OAuth 已连接：显示用户信息 + 断开
+        const initial = (auth.name || auth.email || 'U')[0].toUpperCase();
+        authHtml += `
+        <div class="md-oauth-connected">
+          <div class="md-oauth-user">
+            <div class="md-oauth-avatar">${initial}</div>
+            <div class="md-oauth-info">
+              <div class="md-oauth-name">${auth.name || 'OpenAI User'}</div>
+              <div class="md-oauth-email">${auth.email} · Codex 接口</div>
+            </div>
+            <div class="md-oauth-badge"><div class="md-oauth-badge-dot"></div>已连接</div>
+          </div>
+          <div class="md-oauth-actions">
+            <button class="md-oauth-action-btn" onclick="showToast('刷新中…');setTimeout(()=>showToast('登录态已刷新','success'),800)">刷新状态</button>
+            <button class="md-oauth-action-btn danger" onclick="disconnect('${pid}')">断开连接</button>
+          </div>
+        </div>`;
+      } else {
+        // OAuth 未连接：显示登录按钮，若 API Key 已连接则显示互斥提示
+        if (apikeyActive) {
+          authHtml += `
+          <div class="md-conflict-warn">
+            <span class="md-conflict-warn-icon">⚠</span>
+            <span>当前已通过 API Key 连接。使用 OAuth 登录后将<strong>自动断开 API Key</strong>，并切换至 Codex 接口。</span>
+          </div>`;
+        }
+        authHtml += `
+        <button class="md-oauth-big" onclick="connectOAuth('${pid}')">
+          <img src="${meta.logo}" style="background:${meta.logoBg};border-radius:4px;padding:1px;${meta.logoFilter?`filter:${meta.logoFilter}`:''}"/>
+          Sign in with ChatGPT
+          <span class="md-oauth-arr">↗</span>
+        </button>
+        <div class="md-note" style="margin-top:8px">如果你已登录过 Codex，会自动同步登录态。否则将打开浏览器完成 OpenAI 登录。</div>`;
+      }
+    } else {
+      // API Key Tab
+      if (apikeyActive) {
+        authHtml += apiKeyConnectedHtml();
+      } else {
+        // API Key 未连接：若 OAuth 已连接则显示互斥提示
+        if (oauthActive) {
+          authHtml += `
+          <div class="md-conflict-warn">
+            <span class="md-conflict-warn-icon">⚠</span>
+            <span>当前已通过 OAuth 登录。连接 API Key 后将<strong>自动退出 OAuth 登录</strong>，并切换至标准接口。</span>
+          </div>`;
+        }
+        authHtml += `
+        <div style="display:flex;gap:6px;">
+          <input id="apikey-input-${pid}" style="flex:1;padding:7px 10px;background:#0a1a28;border:1px solid #1e2d40;border-radius:7px;color:#c2cee0;font-size:12.5px;outline:none;" type="password" placeholder="sk-proj-…"/>
+          <button class="stg-btn" style="background:#1a3a20;color:#22c55e;border-color:#1e4828;white-space:nowrap;" onclick="connectApiKey('${pid}', document.getElementById('apikey-input-${pid}').value || undefined)">连接</button>
+        </div>
+        <div style="margin-top:6px;font-size:11.5px;color:#3a5a7a;">在 <a href="#" style="color:#4a8abf;" onclick="return false">platform.openai.com</a> 获取 API Key</div>`;
+      }
+    }
+    authHtml += `</div>`;
+  } else {
+    // Non-OAuth providers: API Key only
+    if (apikeyActive) {
+      authHtml = apiKeyConnectedHtml();
+    } else {
+      authHtml = `
+      <div style="display:flex;gap:6px;">
+        <input id="apikey-input-${pid}" style="flex:1;padding:7px 10px;background:#0a1a28;border:1px solid #1e2d40;border-radius:7px;color:#c2cee0;font-size:12.5px;outline:none;" type="password" placeholder="sk-…"/>
+        <button class="stg-btn" style="background:#1a3a20;color:#22c55e;border-color:#1e4828;" onclick="connectApiKey('${pid}', document.getElementById('apikey-input-${pid}').value || undefined)">连接</button>
+      </div>`;
+    }
+  }
+
+  // Model list
+  const modelsHtml = models.length === 0 ? '' : `
+    <div>
+      <div class="md-models-label">可用模型</div>
+      ${models.map(m => {
+        const isEnabled = enabled.includes(m.id);
+        const isLast = enabled.length <= 1 && isEnabled;
+        return `
+        <div class="md-model-row">
+          <div class="md-model-name">${m.id}</div>
+          <div class="md-model-badges">
+            ${m.badge ? `<span class="md-badge ${m.badgeClass}">${m.badge}</span>` : ''}
+            <span class="md-model-ctx">${m.ctx} ctx</span>
+          </div>
+          <div class="md-toggle ${isEnabled ? 'on' : ''}" onclick="${isLast ? 'alert(\'至少保留一个模型\')' : `toggleModel('${pid}','${m.id}')`}" title="${isLast ? '至少保留一个模型' : ''}">
+            <div class="md-toggle-track"></div>
+            <div class="md-toggle-thumb"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  document.getElementById('provider-detail').innerHTML = `
+    <div class="md-detail-title">${meta.name}</div>
+    <div class="md-detail-status">
+      <span class="md-status-dot ${auth.connected ? 'ok' : 'off'}"></span>
+      ${auth.connected ? '<span class="stg-green">已连接</span>' : '<span class="md-off-text">未连接</span>'}
+    </div>
+    <div style="font-size:11px;color:#3a5a7a;margin-bottom:2px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">连接方式</div>
+    ${authHtml}
+    ${modelsHtml}
+  `;
+}
+
+// ══════════════════════════════════════════
+//  RENDER: Model Dropdown (Agent Panel)
+//  Only shows ENABLED models from CONNECTED providers
+// ══════════════════════════════════════════
+function renderModelDropdown() {
+  const el = document.getElementById('model-dropdown');
+  const providerIds = ['openai', 'anthropic', 'deepseek', 'google', 'xai'];
+
+  let html = '';
+  for (const pid of providerIds) {
+    const meta = store.providerMeta[pid];
+    const auth = store.auth[pid];
+    const enabled = store.enabledModels[pid] || [];
+    const connected = auth.connected;
+
+    // ★ KEY CHANGE: Only show enabled models (not all models)
+    const visibleModels = connected ? enabled : [];
+
+    if (!connected) {
+      // Show provider but greyed out — or skip entirely
+      // Design choice: skip disconnected providers to keep it clean
+      continue;
+    }
+
+    html += `
+      <div class="agent-model-group">
+        <div class="agent-model-group-header">
+          <span>${meta.name}</span>
+          <span style="font-size:9px;color:#22c55e;font-weight:400;text-transform:none;letter-spacing:0;">已连接</span>
+        </div>
+      </div>`;
+
+    for (const modelId of visibleModels) {
+      const active = store.selectedModel.providerId === pid && store.selectedModel.modelId === modelId;
+      html += `
+        <div class="agent-model-option ${active ? 'active' : ''}" onclick="selectModel('${pid}','${modelId}')">
+          <div class="agent-model-dot ok"></div>
+          ${modelId}
+        </div>`;
+    }
+  }
+
+  if (!html) {
+    html = '<div style="padding:12px;font-size:12px;color:#3a5a7a;text-align:center;">未连接任何服务商</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+function renderModelSelectorLabel() {
+  const { providerId, modelId } = store.selectedModel;
+  document.getElementById('model-selector-label').textContent = modelId;
+}
+
+function toggleModelDropdown() {
+  const dd = document.getElementById('model-dropdown');
+  if (dd.style.display === 'none') {
+    renderModelDropdown();
+    dd.style.display = 'block';
+  } else {
+    dd.style.display = 'none';
+  }
+}
+
+function closeModelDropdown() {
+  document.getElementById('model-dropdown').style.display = 'none';
+}
+
+// ══════════════════════════════════════════
+//  RENDER: Chat Messages
+// ══════════════════════════════════════════
+const messages = [
+  { role: 'user',  text: '你好' },
+  { role: 'agent', text: '你好！有什么我可以帮你的吗？' },
+];
+
+function renderMessages() {
+  const el = document.getElementById('agent-messages');
+  if (messages.length === 0) {
+    el.innerHTML = '<div class="agent-empty">开始一个新的对话</div>';
+    return;
+  }
+  el.innerHTML = messages.map(m =>
+    m.role === 'user'
+      ? `<div class="msg-user-wrap"><div class="msg-user-bubble">${m.text}</div></div>`
+      : `<div class="msg-agent-wrap"><div class="msg-agent-body">${m.text.split('\n').map(l => `<p>${l}</p>`).join('')}</div></div>`
+  ).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function sendMessage() {
+  const input = document.getElementById('agent-input');
+  const text = input.value.trim();
+  if (!text) return;
+  messages.push({ role: 'user', text });
+  messages.push({ role: 'agent', text: `[使用 ${store.selectedModel.modelId}] 收到你的问题：「${text}」。这是一个模拟回复。` });
+  input.value = '';
+  renderMessages();
+}
+
+// ══════════════════════════════════════════
+//  RENDER ALL
+// ══════════════════════════════════════════
+function renderAll() {
+  renderProviderList();
+  renderProviderDetail();
+  renderModelSelectorLabel();
+  renderMessages();
+}
+
+// Click outside to close dropdown
+document.addEventListener('click', e => {
+  const btn = document.getElementById('model-selector-btn');
+  const dd = document.getElementById('model-dropdown');
+  if (!btn.contains(e.target) && !dd.contains(e.target)) {
+    closeModelDropdown();
+  }
+});
+
+// Enter to send
+document.getElementById('agent-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// Init
+renderAll();
+</script>
+</body>
+</html>

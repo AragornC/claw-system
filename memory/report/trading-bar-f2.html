@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>F2 — Tab Switch — ThunderClaw</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0c1017;
+  color: #c2cee0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 24px;
+  gap: 14px;
+}
+.label { font-size: 10px; color: #4a5870; text-transform: uppercase; letter-spacing: .5px; }
+.demo-wrap { width: 100%; max-width: 920px; }
+
+:root {
+  --bg:       #0f1520;
+  --bg-hd:    #0f1520;
+  --bg-row:   #0f1724;
+  --bg-hover: #121c2c;
+  --bg-open:  #101827;
+  --line:     #1d2b3c;
+  --sep:      rgba(255,255,255,.06);
+  --line-s:   #18243400;  /* transparent — only row separators */
+  --text:     #c2cee0;
+  --muted:    #66788f;
+  --dim:      #92a6be;
+  --mono:     ui-monospace, "SF Mono", Menlo, monospace;
+  --g:  #2ec97c;
+  --g2: #164830;
+  --r:  #f0607a;
+  --r2: #5a1828;
+  --y:  #e8b84a;
+  --y2: #6a4a10;
+}
+
+/* ═══ Shell ═══ */
+.bar {
+  width: 100%;
+  height: 172px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══ Header ═══ */
+.hd {
+  height: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  background: var(--bg-hd);
+  user-select: none;
+  padding: 0 6px;
+  gap: 2px;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .12s, background .12s;
+}
+.tab:hover { color: var(--dim); background: rgba(255,255,255,.05); }
+.tab.active {
+  color: var(--text);
+  font-weight: 500;
+  background: rgba(255,255,255,.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.tab .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #3a4a62;
+  transition: background .2s, box-shadow .2s;
+}
+.tab.active .dot.pnl   { background: var(--g); box-shadow: 0 0 5px rgba(46,201,124,.45); }
+.tab.active .dot.strat { background: #6080b0; box-shadow: 0 0 5px rgba(96,128,176,.35); }
+
+.hd-spacer { flex: 1; }
+.hd-actions {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 6px;
+}
+.act-btn {
+  height: 22px; padding: 0 10px;
+  border: none; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 10px; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: color .12s, background .12s, box-shadow .12s;
+}
+.act-btn:hover { color: var(--dim); background: rgba(255,255,255,.05); }
+.act-btn.on {
+  color: var(--text);
+  background: rgba(255,255,255,.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* ═══ Body ═══ */
+.body {
+  flex: 1; min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.panel {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+  overflow: hidden;
+}
+.panel.active { opacity: 1; pointer-events: auto; }
+
+/* ─── Panel: 收益 (full width) ─── */
+.pnl-panel {
+  display: grid;
+  grid-template-columns: 200px 1fr 200px;
+  height: 100%;
+}
+.pnl-main {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+}
+.pnl-main::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 10%; bottom: 10%;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--sep) 30%, var(--sep) 70%, transparent);
+}
+.pnl-big { font-size: 34px; font-weight: 700; letter-spacing: -.8px; line-height: 1; color: var(--g); }
+.pnl-pct { font-size: 12px; font-family: var(--mono); color: var(--g); margin-top: 4px; }
+.pnl-since { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.pnl-mid {
+  padding: 10px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.pnl-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 6px 20px;
+  font-size: 11px;
+}
+.pnl-grid .k { color: var(--muted); align-self: center; }
+.pnl-grid .v { font-family: var(--mono); font-weight: 600; color: var(--text); align-self: center; }
+.pnl-grid .v.r { color: var(--r); }
+.pnl-grid .v.g { color: var(--g); }
+.pnl-right {
+  padding: 10px 14px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+.pnl-right::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10%; bottom: 10%;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--sep) 30%, var(--sep) 70%, transparent);
+}
+.pnl-right .caption { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.spark-wrap {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #1a2838;
+  border-radius: 6px;
+  background: linear-gradient(to bottom, rgba(46,201,124,.07), rgba(46,201,124,0));
+  overflow: hidden;
+  padding: 4px 6px 2px;
+  display: flex;
+  align-items: stretch;
+}
+.spark-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 36px;
+}
+.bar-chart span {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  transition: height .3s;
+}
+
+/* ─── Panel: 持仓策略 (full width) ─── */
+.strat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.col-hd {
+  display: grid;
+  grid-template-columns: 28px 130px 60px 48px 1fr 80px 72px 60px 28px;
+  padding: 0 12px;
+  height: 26px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.col-hd .sortable { cursor: pointer; transition: color .12s; }
+.col-hd .sortable:hover { color: var(--text); }
+.col-hd .sortable.active { color: var(--text); }
+.rows-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.rows-wrap::-webkit-scrollbar { width: 3px; }
+.rows-wrap::-webkit-scrollbar-thumb { background: #283848; border-radius: 2px; }
+
+.s-row {
+  display: grid;
+  grid-template-columns: 28px 130px 60px 48px 1fr 80px 72px 60px 28px;
+  padding: 0 12px;
+  height: 38px;
+  align-items: center;
+  border-bottom: 1px solid #13202e;
+  cursor: pointer;
+  transition: background .1s;
+  position: relative;
+}
+.s-row:last-child { border-bottom: none; }
+.s-row:hover { background: var(--bg-hover); }
+.s-row.open { background: var(--bg-open); }
+.s-row::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 5px; bottom: 5px;
+  width: 2px; border-radius: 1px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.s-row.open::before { opacity: 1; }
+.s-row.open.buy::before  { background: var(--g); }
+.s-row.open.sell::before { background: var(--r); }
+.s-row.open.hold::before { background: var(--y); }
+
+.d-dot { width: 7px; height: 7px; border-radius: 50%; }
+.d-dot.g { background: var(--g); box-shadow: 0 0 4px rgba(46,201,124,.5); }
+.d-dot.r { background: var(--r); box-shadow: 0 0 4px rgba(240,96,122,.5); }
+.d-dot.y { background: var(--y); box-shadow: 0 0 4px rgba(232,184,74,.5); }
+
+.c-name  { font-size: 11px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-sym   { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.c-dir   { font-size: 10px; }
+.c-entry { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.c-mode  {
+  display: inline-flex; align-items: center;
+  font-size: 9px; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid;
+}
+.mode-auto { color: var(--g); border-color: var(--g2); background: rgba(46,201,124,.06); }
+.mode-semi { color: var(--y); border-color: var(--y2); background: rgba(232,184,74,.06); }
+.mode-sug  { color: #8898cc; border-color: #2a3460; background: rgba(100,120,200,.06); }
+.c-pnl  { font-family: var(--mono); font-size: 11px; font-weight: 700; text-align: right; }
+.c-sig  { font-family: var(--mono); font-size: 10px; font-weight: 700; text-align: right; letter-spacing: .3px; }
+.chev   { color: var(--muted); font-size: 11px; text-align: center; transition: transform .18s; }
+.chev.open { transform: rotate(90deg); }
+
+.s-detail {
+  border-bottom: 1px solid #13202e;
+  background: var(--bg-open);
+  display: none;
+  padding: 8px 14px 10px 44px;
+  gap: 24px;
+  font-size: 10px;
+  align-items: flex-start;
+}
+.s-detail.open { display: flex; }
+.dg { display: flex; flex-direction: column; gap: 3px; }
+.dg .k { color: var(--muted); font-size: 9px; }
+.dg .v { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.dg .v.g { color: var(--g); } .dg .v.r { color: var(--r); } .dg .v.y { color: var(--y); }
+.d-reason { max-width: 220px; color: var(--dim); font-family: inherit; font-size: 10px; line-height: 1.5; }
+.d-actions { margin-left: auto; display: flex; gap: 6px; align-self: flex-end; }
+.d-btn {
+  height: 22px; padding: 0 10px; border-radius: 5px;
+  font-size: 10px; font-weight: 600; cursor: pointer; border: 1px solid;
+}
+.btn-close  { border-color: var(--r2); color: var(--r); background: rgba(240,96,122,.08); }
+.btn-detail { border-color: var(--line); color: var(--muted); background: transparent; }
+
+/* confidence ring */
+.cring svg { width: 28px; height: 28px; }
+
+/* ─── Card view ─── */
+.cards-wrap {
+  flex: 1; min-height: 0;
+  display: flex; gap: 8px;
+  padding: 8px 10px;
+  overflow-x: auto; overflow-y: hidden;
+  align-items: stretch;
+}
+.cards-wrap::-webkit-scrollbar { height: 3px; }
+.cards-wrap::-webkit-scrollbar-thumb { background: #283848; border-radius: 2px; }
+.kcard {
+  flex: 0 0 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1624;
+  padding: 9px 11px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  cursor: pointer; transition: border-color .12s;
+}
+.kcard:hover { border-color: #2a3e58; }
+.kcard.buy  { border-color: #1a4a2a; }
+.kcard.sell { border-color: #4a1a28; }
+.kcard.hold { border-color: #4a3a14; }
+.kc-top { display: flex; justify-content: space-between; align-items: center; }
+.kc-strat { font-size: 10px; font-weight: 500; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.kc-sym { font-size: 22px; font-weight: 700; letter-spacing: -.5px; line-height: 1; margin: 4px 0 1px; }
+.kc-dir { font-size: 10px; color: var(--muted); }
+.kc-bot { display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; }
+.kc-entry .k { color: var(--muted); } .kc-entry .v { font-family: var(--mono); font-weight: 600; }
+.kc-pnl { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.kc-sig { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+
+/* view toggle buttons */
+.icon-btn {
+  width: 26px; height: 26px; border: none; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.icon-btn:hover { background: rgba(255,255,255,.07); color: var(--text); }
+.close-btn:hover { color: var(--r); }
+</style>
+</head>
+<body>
+
+<div class="label">ThunderClaw · 底部面板 · Tab 切换模式</div>
+
+<div class="demo-wrap">
+<div class="bar">
+
+  <!-- ═══ Header ═══ -->
+  <div class="hd">
+    <div class="tab active" id="tabPnl" onclick="switchTab('pnl')">
+      <span class="dot pnl"></span>收益
+    </div>
+    <div class="tab" id="tabStrat" onclick="switchTab('strat')">
+      <span class="dot strat"></span>持仓策略
+    </div>
+    <div class="hd-spacer"></div>
+    <div class="hd-actions">
+      <!-- 单按钮切换卡片/列表 -->
+      <button class="icon-btn" id="vtToggle" onclick="toggleView()" title="切换视图">
+        <!-- 初始显示"切换到列表"图标，切换后显示"切换到卡片" -->
+        <svg id="vtIcon" width="13" height="13" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <!-- 关闭工作台 -->
+      <button class="icon-btn close-btn" onclick="closeBar()" title="关闭工作台">
+        <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+          <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="10" y1="2" x2="2"  y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ Body ═══ -->
+  <div class="body">
+
+    <!-- Panel: 收益 -->
+    <div class="panel active" id="panelPnl">
+      <div class="pnl-panel">
+        <div class="pnl-main">
+          <div>
+            <div class="pnl-big" id="pnlBig">+$312</div>
+            <div class="pnl-pct" id="pnlPct">+1.50%</div>
+            <div class="pnl-since">今日收益</div>
+          </div>
+          <div class="spark-wrap" style="height:38px">
+            <svg viewBox="0 0 170 34" preserveAspectRatio="none" id="sparkSvg">
+              <defs>
+                <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#2ec97c" stop-opacity=".2"/>
+                  <stop offset="100%" stop-color="#2ec97c" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path id="sparkFill" d="" fill="url(#sg)"/>
+              <path id="sparkLine" d="" stroke="#2ec97c" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="pnl-mid">
+          <div class="pnl-grid">
+            <div class="k">总资产</div><div class="v" id="kvAsset">$20,800</div>
+            <div class="k">可用资金</div><div class="v" id="kvFree">$8,736</div>
+            <div class="k">最大回撤</div><div class="v r" id="kvDD">-4.2%</div>
+            <div class="k">胜率</div><div class="v" id="kvWin">63%</div>
+          </div>
+        </div>
+
+        <div class="pnl-right">
+          <div class="caption">每日盈亏分布</div>
+          <div class="bar-chart" id="barChart"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: 持仓策略 -->
+    <div class="panel" id="panelStrat">
+      <!-- 卡片视图 -->
+      <div class="cards-wrap" id="cardsWrap" style="display:none"></div>
+      <!-- 列表视图 -->
+      <div class="strat-panel" id="listWrap">
+        <div class="col-hd">
+          <span></span>
+          <span>策略</span>
+          <span>标的</span>
+          <span>方向</span>
+          <span class="sortable" onclick="setSort('entry')" id="colEntry">入场价</span>
+          <span class="sortable" onclick="setSort('pnl')" style="text-align:right" id="colPnl">盈亏</span>
+          <span style="text-align:right">持仓量</span>
+          <span class="sortable" onclick="setSort('sig')" style="text-align:right" id="colSig">信号</span>
+          <span></span>
+        </div>
+        <div class="rows-wrap" id="rowsWrap"></div>
+      </div>
+    </div>
+
+  </div><!-- /body -->
+</div><!-- /bar -->
+</div><!-- /demo-wrap -->
+
+<script>
+/* ── data ── */
+const DATA = [
+  { id:0, strat:'趋势跟随 V2', sym:'BTC', dir:'多', mode:'auto', entry:82340, qty:0.12, signal:'BUY',  conf:82, pnl:218,  reason:'突破 20 日高点，动量持续向上，仓位继续持有' },
+  { id:1, strat:'均值回归 α',  sym:'ETH', dir:'空', mode:'semi', entry:1923,  qty:1.5,  signal:'SELL', conf:71, pnl:-38,  reason:'价格偏离均值 2.3σ，历史回归概率 71%' },
+  { id:2, strat:'突破追单 B',  sym:'SOL', dir:'多', mode:'sug',  entry:138,   qty:12.0, signal:'HOLD', conf:58, pnl:73,   reason:'震荡整理中，等待突破方向确认后入场' },
+];
+
+let openId  = -1;
+let sortBy  = 'pnl';
+let curTab  = 'pnl';
+let curView = 'card';
+let pnlHist = [];
+
+const sc = s => s==='BUY'?'g':s==='SELL'?'r':'y';
+const dc = d => d==='多'?'g':'r';
+const mc = m => m==='auto'?'mode-auto':m==='semi'?'mode-semi':'mode-sug';
+const ml = m => m==='auto'?'全自动':m==='semi'?'半自动':'建议';
+const fp = v => (v>=0?'+$':'−$')+Math.abs(v).toFixed(0);
+
+/* ── tab switch ── */
+function switchTab(t) {
+  curTab = t;
+  document.getElementById('tabPnl').classList.toggle('active', t==='pnl');
+  document.getElementById('tabStrat').classList.toggle('active', t==='strat');
+  document.getElementById('panelPnl').classList.toggle('active', t==='pnl');
+  document.getElementById('panelStrat').classList.toggle('active', t==='strat');
+  const actions = document.querySelector('.hd-actions');
+  actions.style.opacity = t==='strat'?'1':'0';
+  actions.style.pointerEvents = t==='strat'?'auto':'none';
+}
+
+/* ── view toggle ── */
+const ICON_LIST = `<line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`;
+const ICON_CARD = `<rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/><rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/><rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/><rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>`;
+
+function setView(v) {
+  curView = v;
+  document.getElementById('cardsWrap').style.display = v==='card' ? 'flex' : 'none';
+  document.getElementById('listWrap').style.display  = v==='list' ? 'flex' : 'none';
+  // 图标显示「切换到另一视图」的提示
+  document.getElementById('vtIcon').innerHTML = v==='card' ? ICON_LIST : ICON_CARD;
+  document.getElementById('vtToggle').title   = v==='card' ? '切换到列表' : '切换到卡片';
+  if (v==='card') renderCards(); else renderRows();
+}
+
+function toggleView() { setView(curView==='card' ? 'list' : 'card'); }
+
+function closeBar() {
+  const bar = document.querySelector('.bar');
+  bar.style.transition = 'height .2s ease, opacity .15s ease';
+  bar.style.opacity = '0';
+  bar.style.height = '0';
+  setTimeout(()=>{
+    const tip = document.createElement('div');
+    tip.id = 'closedTip';
+    tip.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 0;';
+    tip.innerHTML = `<span style="color:var(--muted);font-size:11px">工作台已关闭</span>
+      <button onclick="reopenBar()" style="background:rgba(255,255,255,.07);border:1px solid #1e2b3e;
+        border-radius:5px;color:#95a8c0;font-size:10px;padding:3px 10px;cursor:pointer;">重新打开</button>`;
+    document.querySelector('.demo-wrap').appendChild(tip);
+  }, 200);
+}
+
+function reopenBar() {
+  const tip = document.getElementById('closedTip');
+  if (tip) tip.remove();
+  const bar = document.querySelector('.bar');
+  bar.style.height = '172px';
+  bar.style.opacity = '1';
+}
+
+/* ── render cards ── */
+function renderCards() {
+  const sorted = [...DATA].sort((a,b) => sortBy==='pnl' ? b.pnl-a.pnl : 0);
+  const wrap = document.getElementById('cardsWrap');
+  wrap.innerHTML = sorted.map(d => {
+    const cls = d.signal==='BUY'?'buy':d.signal==='SELL'?'sell':'hold';
+    return `
+    <div class="kcard ${cls}">
+      <div class="kc-top">
+        <span class="kc-strat">${d.strat}</span>
+        <span class="c-mode ${mc(d.mode)}">${ml(d.mode)}</span>
+      </div>
+      <div>
+        <div class="kc-sym ${dc(d.dir)}">${d.sym}</div>
+        <div class="kc-dir ${dc(d.dir)}">${d.dir} ${d.qty}</div>
+      </div>
+      <div class="kc-bot">
+        <div class="kc-entry"><div class="k">入场</div><div class="v">${d.entry.toLocaleString()}</div></div>
+        <div>
+          <div class="kc-pnl ${d.pnl>=0?'g':'r'}" style="text-align:right">${fp(d.pnl)}</div>
+          <div class="kc-sig ${sc(d.signal)}" style="text-align:right">${d.signal}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── sort ── */
+const SORT_LABELS = { pnl:'盈亏', entry:'入场价', sig:'信号' };
+function setSort(s) {
+  sortBy = s;
+  ['pnl','entry','sig'].forEach(k => {
+    const el = document.getElementById('col' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (!el) return;
+    el.classList.toggle('active', k === s);
+    el.textContent = k === s ? SORT_LABELS[k] + ' ↓' : SORT_LABELS[k];
+  });
+  renderRows();
+}
+
+/* ── confidence ring ── */
+function ring(conf) {
+  const r=10, cx=14, cy=14, circ=2*Math.PI*r;
+  const arc=circ*conf/100;
+  const col=conf>=70?'var(--g)':conf>=50?'var(--y)':'var(--r)';
+  return `<div class="cring"><svg viewBox="0 0 28 28">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2d3e" stroke-width="2.5"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="2.5"
+      stroke-dasharray="${arc} ${circ}" stroke-linecap="round"
+      transform="rotate(-90 ${cx} ${cy})" opacity=".9"/>
+    <text x="${cx}" y="${cy+1}" text-anchor="middle" dominant-baseline="middle"
+      font-size="7" fill="${col}" font-family="var(--mono)" font-weight="700">${conf}</text>
+  </svg></div>`;
+}
+
+/* ── render rows ── */
+function renderRows() {
+  const sorted = [...DATA].sort((a,b)=>
+    sortBy==='pnl'   ? b.pnl - a.pnl :
+    sortBy==='entry' ? b.entry - a.entry : 0
+  );
+  let h = '';
+  for (const d of sorted) {
+    const open = openId === d.id;
+    const rowCls = `${sc(d.signal)==='g'?'buy':sc(d.signal)==='r'?'sell':'hold'} ${open?'open':''}`;
+    h += `
+    <div class="s-row ${rowCls}" onclick="toggle(${d.id})">
+      <div class="d-dot ${dc(d.dir)}"></div>
+      <div class="c-name">${d.strat}</div>
+      <div class="c-sym ${dc(d.dir)}">${d.sym}</div>
+      <div class="c-dir ${dc(d.dir)}">${d.dir}</div>
+      <div class="c-entry">${d.entry.toLocaleString()}</div>
+      <div class="c-pnl ${d.pnl>=0?'g':'r'}">${fp(d.pnl)}</div>
+      <div class="c-entry" style="text-align:right">${d.qty}</div>
+      <div class="c-sig ${sc(d.signal)}">${d.signal}</div>
+      <div class="chev ${open?'open':''}">›</div>
+    </div>
+    <div class="s-detail ${open?'open':''}" id="det${d.id}">
+      ${ring(d.conf)}
+      <div class="dg"><div class="k">模式</div><div class="v"><span class="c-mode ${mc(d.mode)}">${ml(d.mode)}</span></div></div>
+      <div class="dg"><div class="k">持仓量</div><div class="v">${d.qty} ${d.sym}</div></div>
+      <div class="dg"><div class="k">入场价</div><div class="v">${d.entry.toLocaleString()}</div></div>
+      <div class="dg"><div class="k">浮动盈亏</div><div class="v ${d.pnl>=0?'g':'r'}">${fp(d.pnl)}</div></div>
+      <div class="dg"><div class="k">信号依据</div><div class="d-reason">${d.reason}</div></div>
+      <div class="d-actions">
+        <button class="d-btn btn-detail">详情</button>
+        <button class="d-btn btn-close">平仓</button>
+      </div>
+    </div>`;
+  }
+  document.getElementById('rowsWrap').innerHTML = h;
+}
+
+function toggle(id) { openId = openId===id ? -1 : id; renderRows(); }
+
+/* ── sparkline ── */
+function buildSpark() {
+  const hist = pnlHist; const n = hist.length;
+  if (n < 2) return;
+  const W=170, H=32;
+  const mn=Math.min(...hist), mx=Math.max(...hist), rng=mx-mn||1;
+  const pts = hist.map((v,i)=>[i/(n-1)*W, H-(v-mn)/rng*(H-4)-2]);
+  const d = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  document.getElementById('sparkLine').setAttribute('d', d);
+  document.getElementById('sparkFill').setAttribute('d', d+` L${W},${H} L0,${H} Z`);
+}
+
+/* ── bar chart (daily PnL) ── */
+const dailyPnl = [40,80,120,60,100,180,130,200,160,220,190,260,220,300,280,312];
+function buildBarChart() {
+  const el = document.getElementById('barChart');
+  const mx = Math.max(...dailyPnl);
+  el.innerHTML = dailyPnl.map((v,i)=>{
+    const h = Math.round(v/mx*34);
+    const hue = i === dailyPnl.length-1 ? 'var(--g)' : 'rgba(46,201,124,.35)';
+    return `<span style="height:${h}px;background:${hue}"></span>`;
+  }).join('');
+}
+
+/* ── live tick ── */
+function tick() {
+  DATA.forEach(d=>{ d.pnl = Math.round((d.pnl + (Math.random()-.44)*5)*10)/10; });
+  const total = DATA.reduce((s,d)=>s+d.pnl, 0);
+  const pct   = (total/20800*100);
+  const sign  = total>=0 ? '+' : '';
+  const col   = total>=0 ? 'var(--g)' : 'var(--r)';
+  document.getElementById('pnlBig').textContent = sign+'$'+Math.abs(Math.round(total)).toLocaleString();
+  document.getElementById('pnlPct').textContent = sign+pct.toFixed(2)+'%';
+  document.getElementById('pnlBig').style.color = col;
+  document.getElementById('pnlPct').style.color  = col;
+  pnlHist.push(total); if(pnlHist.length>32) pnlHist.shift();
+  buildSpark();
+  if (curTab === 'strat') {
+    curView === 'card' ? renderCards() : renderRows();
+  }
+}
+
+/* ── init ── */
+for(let i=0;i<24;i++) pnlHist.push(250 - 80 + i*7 + (Math.random()-.5)*18);
+buildSpark();
+buildBarChart();
+setSort('pnl');    // 默认盈亏排序（初始化列头状态）
+setView('card');   // 默认卡片视图
+setInterval(tick, 1100);
+</script>
+</body>
+</html>

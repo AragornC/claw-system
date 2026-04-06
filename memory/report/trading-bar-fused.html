@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trading Bar — 策略持仓融合 Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0b1017;
+      --panel:   #101720;
+      --border:  #1d2d40;
+      --text:    #c8d8e8;
+      --muted:   #4e6880;
+      --dim:     #6a8aa8;
+      --green:   #2ecc78;
+      --red:     #f04a62;
+      --yellow:  #f0c040;
+      --blue:    #4a8fff;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --mono: "SF Mono", "Fira Code", Menlo, monospace;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 12px/1.5 var(--font);
+      padding: 28px 20px 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+    h1 { font-size: 11px; color: var(--muted); letter-spacing: .6px; text-transform: uppercase; }
+    .sep {
+      width: 100%; max-width: 1400px;
+      display: flex; align-items: center; gap: 10px;
+      color: var(--muted); font-size: 11px;
+    }
+    .sep::after { content:""; flex:1; height:1px; background:var(--border); }
+    .vtag { background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:4px; padding:2px 8px; font-size:10px; color:var(--dim); white-space:nowrap; }
+    .desc { font-size:10px; color:var(--muted); }
+
+    /* ── Bar shell ── */
+    .bar {
+      width:100%; max-width:1400px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      overflow:hidden;
+      display:grid;
+      gap:1px;
+      background:var(--border);
+    }
+    .cell { background:var(--panel); display:flex; flex-direction:column; overflow:hidden; }
+    .cell-hd {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 12px;
+      height: 32px;
+      border-bottom:1px solid var(--border);
+      flex-shrink:0;
+    }
+    .lbl { font-size:10px; color:var(--muted); letter-spacing:.4px; text-transform:uppercase; }
+    .meta { font-size:10px; color:var(--muted); font-family:var(--mono); }
+    .cell-body { flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+
+    /* ── PnL card ── */
+    .pnl-wrap { padding:6px 12px 4px; display:flex; flex-direction:column; gap:4px; flex:1; min-height:0; }
+    .pnl-big { font-size:22px; font-weight:700; font-family:var(--mono); }
+    .pnl-pct { font-size:12px; font-family:var(--mono); }
+    /* 单行 4 列，省出空间给 spark */
+    .pnl-sub { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; flex-shrink:0; }
+    .kv .k { font-size:9px; color:var(--muted); line-height:1.3; }
+    .kv .v { font-size:11px; font-weight:600; font-family:var(--mono); line-height:1.3; }
+    .spark-h { flex:1; min-height:28px; }
+    svg.spark { width:100%; height:100%; display:block; }
+    .up{color:var(--green)} .dn{color:var(--red)}
+
+
+    /* ══════════════════════════════════════
+       方案 X1 — 横向卡片流 + 翻转
+    ══════════════════════════════════════ */
+    .x1-scroll {
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      flex: 1;
+      align-items: stretch;
+      /* 阻止 flex children 收缩导致内容被截断 */
+      min-height: 0;
+    }
+    .x1-scroll::-webkit-scrollbar { display: none; }
+
+    /* 翻转容器 */
+    .x1-flipper-wrap {
+      /* 自适应宽：有余量时平分，太多时滚动；最窄 130px，最宽 200px */
+      flex: 1 0 130px;
+      max-width: 200px;
+      min-width: 130px;
+      align-self: stretch;          /* 跟随 scroll 容器高度 */
+      perspective: 600px;
+      cursor: pointer;
+      /* 给 flipper 提供真实高度上下文 */
+      display: flex;
+      flex-direction: column;
+    }
+    .x1-flipper {
+      flex: 1;                      /* 撑满 wrap 高度 */
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform .38s cubic-bezier(.4,0,.2,1);
+      border-radius: 8px;
+    }
+    .x1-flipper.flipped { transform: rotateY(180deg); }
+
+    /* 正面 / 背面 公共 */
+    .x1-face {
+      position: absolute; inset: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0d1724;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .x1-face::before {
+      content:"";
+      position:absolute; top:0; left:0; right:0; height:2px;
+      border-radius:8px 8px 0 0;
+    }
+
+    /* 正面 */
+    .x1-front { background:#0d1724; }
+    .x1-front.buy  { border-color:rgba(46,204,120,.28); }
+    .x1-front.buy::before  { background:var(--green); }
+    .x1-front.sell { border-color:rgba(240,74,98,.28); }
+    .x1-front.sell::before { background:var(--red); }
+    .x1-front.hold { border-color:rgba(255,255,255,.08); }
+    .x1-front.hold::before { background:var(--muted); }
+
+    /* 背面（翻转180deg才可见）*/
+    .x1-back {
+      transform:rotateY(180deg);
+      background:#0c1a2a;
+    }
+    .x1-back.buy  { border-color:rgba(46,204,120,.28); }
+    .x1-back.buy::before  { background:var(--green); }
+    .x1-back.sell { border-color:rgba(240,74,98,.28); }
+    .x1-back.sell::before { background:var(--red); }
+    .x1-back.hold { border-color:rgba(255,255,255,.08); }
+    .x1-back.hold::before { background:var(--muted); }
+
+    /* 正面内容 */
+    .x1-top {
+      padding:8px 10px 5px;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .x1-strat { font-size:10px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:88px; }
+    .x1-mode  { font-size:9px; padding:1px 5px; border-radius:3px; font-weight:600; }
+    .x1-mode.auto   { color:var(--blue);   background:rgba(74,143,255,.12); }
+    .x1-mode.semi   { color:var(--yellow); background:rgba(240,192,64,.12); }
+    .x1-mode.manual { color:var(--muted);  background:rgba(255,255,255,.05); }
+
+    .x1-mid {
+      padding:4px 10px 6px;
+      display:flex; align-items:center; gap:8px; flex:1;
+    }
+    .x1-ring { flex-shrink:0; }
+    .x1-info { flex:1; min-width:0; }
+    .x1-sym  { font-size:16px; font-weight:700; }
+    .x1-dir  { font-size:10px; font-weight:600; margin-top:1px; }
+    .x1-dir.long  { color:var(--green); }
+    .x1-dir.short { color:var(--red); }
+
+    .x1-bot {
+      border-top:1px solid rgba(255,255,255,.05);
+      padding:5px 10px;
+      display:grid; grid-template-columns:1fr 1fr; gap:4px;
+      flex-shrink:0;
+    }
+    .x1-bot .k { font-size:9px; color:var(--muted); }
+    .x1-bot .v { font-size:11px; font-weight:600; font-family:var(--mono); }
+
+    /* 背面：3行固定布局，不依赖 padding 堆叠 */
+    .x1-back {
+      display: flex; flex-direction: column;
+    }
+
+    /* 行1：策略名 + 返回提示 */
+    .x1-back-top {
+      height: 28px;
+      padding: 0 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+    }
+    .x1-back-name {
+      font-size: 11px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .x1-flip-hint { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+
+    /* 行2：信号大字 + 置信度环，撑满剩余高度 */
+    .x1-back-sig {
+      flex: 1;
+      margin: 6px 8px 0;
+      border-radius: 6px;
+      padding: 0 12px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .x1-back-sig.buy  { background: rgba(46,204,120,.09); }
+    .x1-back-sig.sell { background: rgba(240,74,98,.09); }
+    .x1-back-sig.hold { background: rgba(255,255,255,.04); }
+    .x1-sig-big { font-size: 18px; font-weight: 800; }
+    .x1-sig-big.buy  { color: var(--green); }
+    .x1-sig-big.sell { color: var(--red); }
+    .x1-sig-big.hold { color: var(--muted); }
+    .x1-conf-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .x1-conf-col span { font-size: 9px; color: var(--muted); }
+
+    /* 行3：执行/仓量 + 操作按钮合为一行 */
+    .x1-back-footer {
+      height: 34px;
+      padding: 0 8px;
+      margin-top: 6px;
+      display: flex; align-items: center; gap: 6px;
+      border-top: 1px solid rgba(255,255,255,.05);
+      flex-shrink: 0;
+    }
+    .x1-footer-kv { display: flex; flex-direction: column; flex-shrink: 0; }
+    .x1-footer-kv .k { font-size: 9px; color: var(--muted); line-height: 1.2; }
+    .x1-footer-kv .v { font-size: 10px; font-weight: 600; font-family: var(--mono); line-height: 1.2; }
+    .x1-footer-div { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+    .x1-back-btn {
+      flex: 1; border: 1px solid var(--border); background: rgba(255,255,255,.03);
+      color: var(--dim); border-radius: 4px; font-size: 9px; height: 22px;
+      cursor: pointer; text-align: center; line-height: 22px; transition: all .12s;
+    }
+    .x1-back-btn:hover { color: var(--text); background: rgba(255,255,255,.07); }
+    .x1-back-btn.danger { border-color: rgba(240,74,98,.3); color: var(--red); }
+    .x1-back-btn.danger:hover { background: rgba(240,74,98,.08); }
+
+    /* confidence ring */
+    .ring { display:block; transform:rotate(-90deg); }
+    .ring-bg  { fill:none; stroke:rgba(255,255,255,.07); }
+    .ring-fg  { fill:none; stroke-linecap:round; transition:stroke-dashoffset .5s, stroke .3s; }
+
+
+    /* ══════════════════════════════════════
+       方案 X2 — 状态条行
+       左侧粗色条 = 信号状态
+       行内所有信息一气呵成，无列分割
+    ══════════════════════════════════════ */
+    .x2-list { flex:1; overflow-y:auto; scrollbar-width:none; }
+    .x2-list::-webkit-scrollbar { display:none; }
+    .x2-row {
+      display:flex; align-items:center; gap:0;
+      border-bottom:1px solid rgba(255,255,255,.03);
+      cursor:pointer; transition:background .12s;
+      overflow:hidden;
+    }
+    .x2-row:hover { background:rgba(255,255,255,.025); }
+
+    .x2-bar { width:3px; flex-shrink:0; align-self:stretch; transition:background .3s; }
+    .x2-bar.buy  { background:var(--green); }
+    .x2-bar.sell { background:var(--red); }
+    .x2-bar.hold { background:rgba(255,255,255,.12); }
+
+    .x2-inner { display:flex; align-items:center; gap:10px; padding:6px 10px; flex:1; min-width:0; }
+
+    .x2-sig {
+      flex-shrink:0; width:46px; text-align:center;
+      font-size:11px; font-weight:700; padding:2px 0; border-radius:4px;
+    }
+    .x2-sig.buy  { background:rgba(46,204,120,.12); color:var(--green); }
+    .x2-sig.sell { background:rgba(240,74,98,.12);  color:var(--red); }
+    .x2-sig.hold { background:rgba(255,255,255,.05); color:var(--muted); }
+
+    .x2-sym  { font-weight:700; font-size:13px; flex-shrink:0; min-width:32px; }
+    .x2-dir  { font-size:10px; font-weight:600; flex-shrink:0; }
+    .x2-dir.long  { color:var(--green); }
+    .x2-dir.short { color:var(--red); }
+
+    .x2-strat { font-size:10px; color:var(--dim); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    .x2-conf-wrap { flex-shrink:0; width:60px; display:flex; flex-direction:column; gap:2px; }
+    .x2-conf-bar  { height:3px; background:rgba(255,255,255,.07); border-radius:2px; overflow:hidden; }
+    .x2-conf-fill { height:100%; border-radius:2px; transition:width .4s; }
+    .x2-conf-num  { font-size:9px; color:var(--muted); text-align:right; font-family:var(--mono); }
+
+    .x2-pnl { font-family:var(--mono); font-size:12px; font-weight:600; text-align:right; flex-shrink:0; min-width:52px; }
+    .x2-mode { font-size:9px; flex-shrink:0; min-width:36px; text-align:right; }
+
+
+    /* ══════════════════════════════════════
+       方案 X3 — 展开详情面板（抽屉式）
+       平时：一行超紧凑
+       点击：向下展开全量信息 + 操作按钮
+    ══════════════════════════════════════ */
+    .x3-list { flex:1; overflow-y:auto; scrollbar-width:none; }
+    .x3-list::-webkit-scrollbar { display:none; }
+
+    .x3-item { border-bottom:1px solid rgba(255,255,255,.03); overflow:hidden; }
+    .x3-row  {
+      display:flex; align-items:center; gap:10px;
+      padding:6px 12px; cursor:pointer; transition:background .12s;
+    }
+    .x3-row:hover { background:rgba(255,255,255,.025); }
+    .x3-row.active { background:rgba(74,143,255,.06); }
+
+    /* 左边：信号指示灯 */
+    .x3-dot {
+      width:8px; height:8px; border-radius:50%; flex-shrink:0;
+      transition:background .3s, box-shadow .3s;
+    }
+    .x3-dot.buy  { background:var(--green); box-shadow:0 0 6px rgba(46,204,120,.5); }
+    .x3-dot.sell { background:var(--red);   box-shadow:0 0 6px rgba(240,74,98,.5); }
+    .x3-dot.hold { background:var(--muted); box-shadow:none; }
+
+    .x3-sym  { font-weight:700; font-size:13px; flex-shrink:0; min-width:32px; }
+    .x3-dir  { font-size:10px; font-weight:600; flex-shrink:0; }
+    .x3-dir.long  { color:var(--green); }
+    .x3-dir.short { color:var(--red); }
+    .x3-strat { font-size:10px; color:var(--dim); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .x3-sig-txt { font-size:10px; font-weight:700; flex-shrink:0; }
+    .x3-sig-txt.buy  { color:var(--green); }
+    .x3-sig-txt.sell { color:var(--red); }
+    .x3-sig-txt.hold { color:var(--muted); }
+    .x3-pnl { font-family:var(--mono); font-size:12px; font-weight:600; flex-shrink:0; text-align:right; min-width:52px; }
+
+    /* 展开抽屉 */
+    .x3-drawer {
+      max-height:0; overflow:hidden;
+      transition:max-height .22s ease;
+      background:rgba(74,143,255,.03);
+    }
+    .x3-drawer.open { max-height:120px; }
+    .x3-drawer-inner {
+      padding:8px 12px 10px 30px;
+      display:grid; grid-template-columns:repeat(5,1fr) auto;
+      gap:8px; align-items:end;
+    }
+    .x3-drawer .dk { font-size:9px; color:var(--muted); margin-bottom:2px; }
+    .x3-drawer .dv { font-size:12px; font-weight:600; font-family:var(--mono); }
+    .x3-drawer .dv.up { color:var(--green); }
+    .x3-drawer .dv.dn { color:var(--red); }
+    .x3-conf-bar { height:4px; background:rgba(255,255,255,.07); border-radius:2px; overflow:hidden; margin-top:4px; }
+    .x3-conf-fill { height:100%; border-radius:2px; transition:width .5s; }
+    .x3-btns { display:flex; gap:6px; justify-content:flex-end; }
+    .x3-btn {
+      border:1px solid var(--border); background:rgba(255,255,255,.03);
+      color:var(--dim); border-radius:5px; font-size:10px; padding:3px 10px;
+      cursor:pointer; transition:all .12s;
+    }
+    .x3-btn:hover { color:var(--text); background:rgba(255,255,255,.06); }
+    .x3-btn.close-pos { border-color:rgba(240,74,98,.3); color:var(--red); }
+    .x3-btn.close-pos:hover { background:rgba(240,74,98,.08); }
+
+    /* ── 视图切换按钮 ── */
+    .view-toggle {
+      display: flex;
+      gap: 2px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px;
+    }
+    .vt-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 24px; height: 20px;
+      border-radius: 4px;
+      border: none; background: none;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color .12s, background .12s;
+    }
+    .vt-btn:hover { color: var(--dim); }
+    .vt-btn.active { background: rgba(255,255,255,.08); color: var(--text); }
+
+    /* 面板切换 */
+    .view-pane { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+    .view-pane.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<h1>ThunderClaw — 策略 × 持仓 深度融合</h1>
+
+<!-- ══ 合并：X1 卡片 / X3 列表 切换 ══ -->
+<div class="sep">
+  <span class="vtag">方案 X1 / X3</span>
+  <span class="desc">右上角切换卡片视图 ↔ 列表视图</span>
+</div>
+<div class="bar" style="grid-template-columns:1fr 260px;height:170px" id="mainBar">
+  <div class="cell">
+    <div class="cell-hd">
+      <span class="lbl">策略持仓</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="meta" id="x1cnt">— 个</span>
+        <div class="view-toggle">
+          <!-- 卡片图标 -->
+          <button class="vt-btn active" id="btnCard" title="卡片视图" onclick="switchView('card')">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+          </button>
+          <!-- 列表图标 -->
+          <button class="vt-btn" id="btnList" title="列表视图" onclick="switchView('list')">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <line x1="1" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="1" y1="7"   x2="13" y2="7"   stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="1" y1="10.5" x2="13" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="cell-body">
+      <!-- 卡片面板 -->
+      <div class="view-pane show" id="paneCard">
+        <div class="x1-scroll" id="x1list"></div>
+      </div>
+      <!-- 列表面板 -->
+      <div class="view-pane" id="paneList">
+        <div class="x3-list" id="x3list"></div>
+      </div>
+    </div>
+  </div>
+  <div class="cell" id="x1pnl"></div>
+</div>
+
+<!-- ══ X2 状态条行（保留作参考）══ -->
+<div class="sep">
+  <span class="vtag">方案 X2</span>
+  <span class="desc">状态条行 · 信息密度最高（参考对比）</span>
+</div>
+<div class="bar" style="grid-template-columns:1fr 260px;height:148px">
+  <div class="cell">
+    <div class="cell-hd"><span class="lbl">策略持仓</span><span class="meta" id="x2cnt">—</span></div>
+    <div class="cell-body"><div class="x2-list" id="x2list"></div></div>
+  </div>
+  <div class="cell" id="x2pnl"></div>
+</div>
+
+<!-- 隐藏占位，让 x3pnl / x3cnt 的 id 不报错 -->
+<div style="display:none" id="x3pnl"></div>
+<div style="display:none" id="x3cnt"></div>
+
+<script>
+/* ══ 视图切换 ══ */
+let currentView = 'card';
+window.switchView = function(v) {
+  if (v === currentView) return;
+  currentView = v;
+  document.getElementById('paneCard').classList.toggle('show', v === 'card');
+  document.getElementById('paneList').classList.toggle('show', v === 'list');
+  document.getElementById('btnCard').classList.toggle('active', v === 'card');
+  document.getElementById('btnList').classList.toggle('active', v === 'list');
+  // 切到列表时，收起所有展开项
+  if (v === 'list') { x3Open = -1; renderX3(); }
+};
+
+/* ══ Data ══ */
+const DATA = {
+  pnl: 312, equity: 20800, winRate: 63, maxDD: -4.2,
+  pnlHist: Array.from({length:36},(_,i)=>200+Math.sin(i/4)*40+i*2.1+(Math.random()-.5)*14),
+  items: [
+    { sym:"BTC", dir:"long",  size:"0.12", entry:82340, pnl:+218, maxPnl:280,
+      stName:"趋势跟随 V2", signal:"buy",  conf:82, mode:"auto",   modeLabel:"自动" },
+    { sym:"ETH", dir:"short", size:"1.50", entry:1923,  pnl:-38,  maxPnl:80,
+      stName:"均值回归 α",  signal:"sell", conf:68, mode:"semi",   modeLabel:"半自动" },
+    { sym:"SOL", dir:"long",  size:"12.0", entry:138.2, pnl:+73,  maxPnl:120,
+      stName:"突破追单 B",  signal:"hold", conf:45, mode:"manual", modeLabel:"建议" },
+  ]
+};
+
+const fmt = (n,d=0)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pStr = v=>(v>=0?"+":"-")+"$"+fmt(Math.abs(v),0);
+const pCls = v=>v>=0?"up":"dn";
+const sigC = s=>s==="buy"?"var(--green)":s==="sell"?"var(--red)":"rgba(255,255,255,.2)";
+const sigLabel = s=>s==="buy"?"BUY":s==="sell"?"SELL":"HOLD";
+
+/* ══ PnL cards ══ */
+function mkPnl(id) {
+  const el = document.getElementById(id);
+  el.innerHTML = `
+    <div class="cell-hd"><span class="lbl">收益</span><span class="meta">今日</span></div>
+    <div class="cell-body"><div class="pnl-wrap">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span class="pnl-big ${pCls(DATA.pnl)}" data-pm>${pStr(DATA.pnl)}</span>
+        <span class="pnl-pct ${pCls(DATA.pnl)}" data-pp>${DATA.pnl>=0?"+":""}${(DATA.pnl/DATA.equity*100).toFixed(2)}%</span>
+      </div>
+      <div class="pnl-sub">
+        <div class="kv"><div class="k">总资产</div><div class="v" data-eq>$${fmt(DATA.equity,0)}</div></div>
+        <div class="kv"><div class="k">回撤</div><div class="v dn" data-dd>${DATA.maxDD.toFixed(1)}%</div></div>
+        <div class="kv"><div class="k">胜率</div><div class="v" data-wr>${Math.round(DATA.winRate)}%</div></div>
+        <div class="kv"><div class="k">可用</div><div class="v" data-av>$${fmt(DATA.equity*.42,0)}</div></div>
+      </div>
+      <div class="spark-h"><svg class="spark" viewBox="0 0 280 36" preserveAspectRatio="none" data-spark></svg></div>
+    </div></div>`;
+}
+["x1pnl","x2pnl","x3pnl"].forEach(mkPnl);
+
+function updPnl() {
+  const arr=DATA.pnlHist, mn=Math.min(...arr), mx=Math.max(...arr);
+  const pts=arr.map((v,i)=>`${(i/(arr.length-1)*280).toFixed(1)},${(36-(v-mn)/Math.max(1,mx-mn)*34-1).toFixed(1)}`).join(" ");
+  const clr=DATA.pnl>=0?"var(--green)":"var(--red)";
+  const fill=DATA.pnl>=0?"rgba(46,204,120,.08)":"rgba(240,74,98,.08)";
+  document.querySelectorAll("[data-spark]").forEach(s=>{
+    s.innerHTML=`<polygon points="${pts} 280,36 0,36" fill="${fill}"/>
+      <polyline points="${pts}" stroke="${clr}" stroke-width="1.5" fill="none" stroke-linejoin="round"/>`;
+  });
+  document.querySelectorAll("[data-pm]").forEach(e=>{e.textContent=pStr(DATA.pnl);e.className=`pnl-big ${pCls(DATA.pnl)}`;});
+  document.querySelectorAll("[data-pp]").forEach(e=>{e.textContent=`${DATA.pnl>=0?"+":""}${(DATA.pnl/DATA.equity*100).toFixed(2)}%`;e.className=`pnl-pct ${pCls(DATA.pnl)}`;});
+  document.querySelectorAll("[data-eq]").forEach(e=>e.textContent=`$${fmt(DATA.equity,0)}`);
+  document.querySelectorAll("[data-dd]").forEach(e=>e.textContent=`${DATA.maxDD.toFixed(1)}%`);
+  document.querySelectorAll("[data-wr]").forEach(e=>e.textContent=`${Math.round(DATA.winRate)}%`);
+  document.querySelectorAll("[data-av]").forEach(e=>e.textContent=`$${fmt(DATA.equity*.42,0)}`);
+}
+
+/* ══ X1 — ring svg ══ */
+function ringPath(conf, clr, R=14, sw=3) {
+  const C=R+sw, circ=2*Math.PI*R, size=(C)*2;
+  const dash=(conf/100*circ).toFixed(1);
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle class="ring-bg" cx="${C}" cy="${C}" r="${R}" stroke-width="${sw}"/>
+    <circle class="ring-fg" cx="${C}" cy="${C}" r="${R}" stroke="${clr}" stroke-width="${sw}"
+      stroke-dasharray="${dash} ${circ.toFixed(1)}" stroke-dashoffset="0"/>
+    <text x="${C}" y="${C}" text-anchor="middle" dominant-baseline="central"
+      style="fill:${clr};font-size:${R*0.58}px;font-family:var(--mono);font-weight:700;transform:rotate(90deg);transform-origin:${C}px ${C}px">${conf}</text>
+  </svg>`;
+}
+
+const x1Flipped = new Set();
+
+function renderX1() {
+  const list=document.getElementById("x1list");
+  document.getElementById("x1cnt").textContent=DATA.items.length+" 个";
+  list.innerHTML=DATA.items.map((d,i)=>{
+    const clr=sigC(d.signal);
+    const isFlipped=x1Flipped.has(i);
+    const modeClr=d.mode==="auto"?"var(--blue)":d.mode==="semi"?"var(--yellow)":"var(--muted)";
+    const reasonMap={trend:"趋势斜率持续上行", mean:"偏离均值均值将回", breakout:"突破前高量能充足", maker:"价差稳定流动性强"};
+    const reason=reasonMap[d.stName.includes("趋势")?"trend":d.stName.includes("均值")?"mean":d.stName.includes("突破")?"breakout":"maker"]||"信号评估中";
+    return `
+      <div class="x1-flipper-wrap" style="height:100%">
+        <div class="x1-flipper ${isFlipped?"flipped":""}" onclick="toggleX1(${i})">
+
+          <!-- 正面：持仓视角 -->
+          <div class="x1-face x1-front ${d.signal}">
+            <div class="x1-top">
+              <span class="x1-strat" title="${d.stName}">${d.stName}</span>
+              <span class="x1-mode ${d.mode}">${d.modeLabel}</span>
+            </div>
+            <div class="x1-mid">
+              <div class="x1-ring">${ringPath(d.conf,clr)}</div>
+              <div class="x1-info">
+                <div class="x1-sym">${d.sym}</div>
+                <div class="x1-dir ${d.dir}">${d.dir==="long"?"多":"空"} ${d.size}</div>
+              </div>
+            </div>
+            <div class="x1-bot">
+              <div><div class="k">入场</div><div class="v">${fmt(d.entry,0)}</div></div>
+              <div><div class="k">盈亏</div><div class="v ${pCls(d.pnl)}">${pStr(d.pnl)}</div></div>
+            </div>
+          </div>
+
+          <!-- 背面：策略视角（3行固定） -->
+          <div class="x1-face x1-back ${d.signal}">
+            <!-- 行1：策略名 -->
+            <div class="x1-back-top">
+              <span class="x1-back-name" title="${d.stName}">${d.stName}</span>
+              <span class="x1-flip-hint">↩</span>
+            </div>
+            <!-- 行2：信号 + 置信环 -->
+            <div class="x1-back-sig ${d.signal}">
+              <div>
+                <div class="x1-sig-big ${d.signal}">${sigLabel(d.signal)}</div>
+                <div style="font-size:9px;color:var(--dim);margin-top:2px">${reason}</div>
+              </div>
+              <div class="x1-conf-col">
+                ${ringPath(d.conf,clr,14,2.5)}
+                <span>置信</span>
+              </div>
+            </div>
+            <!-- 行3：执行/仓量 + 按钮 -->
+            <div class="x1-back-footer" onclick="event.stopPropagation()">
+              <div class="x1-footer-kv">
+                <span class="k">执行</span>
+                <span class="v" style="color:${modeClr}">${d.modeLabel}</span>
+              </div>
+              <div class="x1-footer-kv">
+                <span class="k">仓量</span>
+                <span class="v">${d.size}</span>
+              </div>
+              <div class="x1-footer-div"></div>
+              <div class="x1-back-btn">加仓</div>
+              <div class="x1-back-btn">暂停</div>
+              <div class="x1-back-btn danger">平仓</div>
+            </div>
+          </div>
+
+        </div>
+      </div>`;
+  }).join("");
+}
+
+window.toggleX1 = function(i) {
+  if (x1Flipped.has(i)) x1Flipped.delete(i); else x1Flipped.add(i);
+  // 只更新 flipper 状态，避免重新渲染丢失翻转
+  document.querySelectorAll(".x1-flipper")[i]?.classList.toggle("flipped");
+};
+
+/* ══ X2 — status bar rows ══ */
+function renderX2() {
+  const list=document.getElementById("x2list");
+  document.getElementById("x2cnt").textContent=DATA.items.length+" 个";
+  list.innerHTML=DATA.items.map(d=>{
+    const clr=sigC(d.signal);
+    const modeClr=d.mode==="auto"?"var(--blue)":d.mode==="semi"?"var(--yellow)":"var(--muted)";
+    return `
+      <div class="x2-row">
+        <div class="x2-bar ${d.signal}"></div>
+        <div class="x2-inner">
+          <span class="x2-sig ${d.signal}">${sigLabel(d.signal)}</span>
+          <span class="x2-sym">${d.sym}</span>
+          <span class="x2-dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+          <span class="x2-strat">${d.stName} · ${d.size} @ ${fmt(d.entry,0)}</span>
+          <div class="x2-conf-wrap">
+            <div class="x2-conf-bar"><div class="x2-conf-fill" style="width:${d.conf}%;background:${clr}"></div></div>
+            <div class="x2-conf-num">${d.conf}%</div>
+          </div>
+          <span class="x2-pnl ${pCls(d.pnl)}">${pStr(d.pnl)}</span>
+          <span class="x2-mode" style="color:${modeClr}">${d.modeLabel}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+/* ══ X3 — drawer rows ══ */
+let x3Open = -1;
+function renderX3() {
+  const list=document.getElementById("x3list");
+  document.getElementById("x3cnt").textContent=DATA.items.length+" 个";
+  list.innerHTML=DATA.items.map((d,i)=>{
+    const clr=sigC(d.signal);
+    const modeClr=d.mode==="auto"?"var(--blue)":d.mode==="semi"?"var(--yellow)":"var(--muted)";
+    const isOpen=x3Open===i;
+    return `
+      <div class="x3-item">
+        <div class="x3-row ${isOpen?"active":""}" onclick="x3toggle(${i})">
+          <span class="x3-dot ${d.signal}"></span>
+          <span class="x3-sym">${d.sym}</span>
+          <span class="x3-dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+          <span class="x3-strat">${d.stName}</span>
+          <span class="x3-sig-txt ${d.signal}">${sigLabel(d.signal)}</span>
+          <span class="x3-pnl ${pCls(d.pnl)}">${pStr(d.pnl)}</span>
+        </div>
+        <div class="x3-drawer ${isOpen?"open":""}">
+          <div class="x3-drawer-inner">
+            <div><div class="dk">策略置信度</div>
+              <div class="dv">${d.conf}%</div>
+              <div class="x3-conf-bar"><div class="x3-conf-fill" style="width:${d.conf}%;background:${clr}"></div></div>
+            </div>
+            <div><div class="dk">执行模式</div><div class="dv" style="color:${modeClr}">${d.modeLabel}</div></div>
+            <div><div class="dk">仓量</div><div class="dv">${d.size}</div></div>
+            <div><div class="dk">入场价</div><div class="dv">${fmt(d.entry,1)}</div></div>
+            <div><div class="dk">浮盈</div><div class="dv ${pCls(d.pnl)}">${pStr(d.pnl)}</div></div>
+            <div class="x3-btns">
+              <button class="x3-btn">加仓</button>
+              <button class="x3-btn">暂停策略</button>
+              <button class="x3-btn close-pos">平仓</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+window.x3toggle = function(i) {
+  x3Open = x3Open===i ? -1 : i;
+  renderX3();
+};
+renderX3();
+
+/* ══ Tick ══ */
+function tick() {
+  DATA.pnl    += (Math.random()-.5)*9;
+  DATA.equity += (Math.random()-.5)*7;
+  DATA.winRate = Math.max(50,Math.min(78,DATA.winRate+(Math.random()-.5)*.3));
+  DATA.maxDD   = Math.max(-12,Math.min(-1,DATA.maxDD+(Math.random()-.5)*.1));
+  DATA.pnlHist.push(DATA.pnl);
+  DATA.pnlHist = DATA.pnlHist.slice(-36);
+  DATA.items.forEach(d=>{
+    d.pnl  += (Math.random()-.5)*5;
+    d.conf  = Math.max(28,Math.min(96,d.conf+Math.round((Math.random()-.5)*4)));
+    const r=Math.random();
+    if(r<.05) d.signal="buy";
+    else if(r<.1) d.signal="sell";
+    else if(r<.14) d.signal="hold";
+  });
+  tickX1(); renderX2(); renderX3(); updPnl();
+}
+
+renderX1(); renderX2(); updPnl();
+
+/* X1 增量更新：只改数值/class，保留翻转状态 */
+function tickX1() {
+  const wraps = document.querySelectorAll(".x1-flipper-wrap");
+  DATA.items.forEach((d,i) => {
+    const wrap = wraps[i]; if(!wrap) return;
+    const clr = sigC(d.signal);
+
+    // 正面 top bar class
+    const front = wrap.querySelector(".x1-front");
+    if(front) { front.className = `x1-face x1-front ${d.signal}`; }
+
+    // 正面 ring
+    const ringWrap = wrap.querySelector(".x1-ring");
+    if(ringWrap) ringWrap.innerHTML = ringPath(d.conf, clr);
+
+    // 正面 dir / pnl
+    const dirEl = wrap.querySelector(".x1-dir");
+    if(dirEl) dirEl.textContent = (d.dir==="long"?"多":"空")+" "+d.size;
+
+    const botVals = wrap.querySelectorAll(".x1-bot .v");
+    if(botVals[0]) botVals[0].textContent = fmt(d.entry,0);
+    if(botVals[1]) { botVals[1].textContent = pStr(d.pnl); botVals[1].className=`v ${pCls(d.pnl)}`; }
+
+    // 背面 class + signal
+    const back = wrap.querySelector(".x1-back");
+    if(back) back.className = `x1-face x1-back ${d.signal}`;
+    const sigBig = wrap.querySelector(".x1-sig-big");
+    if(sigBig) { sigBig.textContent = sigLabel(d.signal); sigBig.className=`x1-sig-big ${d.signal}`; }
+    const backSig = wrap.querySelector(".x1-back-sig");
+    if(backSig) backSig.className = `x1-back-sig ${d.signal}`;
+
+    // 背面 ring
+    const bRingWrap = wrap.querySelector(".x1-conf-col");
+    if(bRingWrap) {
+      const existing = bRingWrap.querySelector("svg");
+      if(existing) existing.outerHTML = ringPath(d.conf,clr,11,2.5);
+    }
+  });
+}
+setInterval(tick, 900);
+</script>
+</body>
+</html>

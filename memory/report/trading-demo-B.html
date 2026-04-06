@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Trading Bar Demo B</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d1117; --panel: #111722; --border: #1e2d42;
+  --text: #cdd9e5; --muted: #4a6580; --dim: #1a2535;
+  --green: #3cc87a; --red: #e05050; --gold: #e8a84a;
+  --font: -apple-system, "SF Pro Text", sans-serif;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 12px; }
+
+.trading-bar {
+  height: 160px;
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* ── 左：关键指标纵列 ── */
+.metrics-col {
+  width: 130px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.metric { display: flex; flex-direction: column; gap: 1px; }
+.metric-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.metric-value { font-size: 14px; font-weight: 700; }
+.metric-sub { font-size: 9px; color: var(--muted); }
+.pos { color: var(--green); } .neg { color: var(--red); } .neutral { color: var(--text); }
+
+/* ── 中：K 线区 + 持仓表 ── */
+.main-col {
+  flex: 1;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.kline-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.kline-label {
+  position: absolute; top: 6px; left: 10px;
+  font-size: 10px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+.kline-price { font-size: 14px; font-weight: 700; color: var(--green); }
+.kline-change { font-size: 10px; color: var(--green); }
+
+.positions-table {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.pos-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-right: 1px solid var(--border);
+  font-size: 11px;
+}
+.pos-row:last-child { border-right: none; }
+.pos-badge {
+  font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 2px;
+  flex-shrink: 0;
+}
+.long-badge { background: rgba(60,200,122,0.15); color: var(--green); }
+.short-badge { background: rgba(224,80,80,0.15); color: var(--red); }
+.pos-info { flex: 1; min-width: 0; }
+.pos-name { font-weight: 600; }
+.pos-detail { font-size: 9px; color: var(--muted); }
+.pos-pnl { text-align: right; font-weight: 700; font-size: 12px; }
+
+/* ── 右：实时挂单深度 ── */
+.depth-col {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.depth-header {
+  padding: 6px 10px;
+  font-size: 9px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+}
+.depth-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.depth-asks { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
+.depth-bids { flex: 1; display: flex; flex-direction: column; }
+.depth-mid {
+  padding: 3px 10px;
+  background: rgba(255,255,255,0.04);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.depth-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-family: "SF Mono", monospace;
+}
+.depth-bar {
+  position: absolute; top: 0; bottom: 0; right: 0;
+  opacity: 0.12;
+}
+.ask-bar { background: var(--red); }
+.bid-bar { background: var(--green); }
+.ask-price { color: var(--red); }
+.bid-price { color: var(--green); }
+.depth-size { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="trading-bar">
+
+  <!-- 左：指标 -->
+  <div class="metrics-col">
+    <div class="metric">
+      <span class="metric-label">今日盈亏</span>
+      <span class="metric-value pos">+$205</span>
+      <span class="metric-sub">+1.67%</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">总资产</span>
+      <span class="metric-value neutral">$20,770</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">胜率</span>
+      <span class="metric-value neutral">63.2%</span>
+      <span class="metric-sub">近7日 / 41笔</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">最大回撤</span>
+      <span class="metric-value neg">4.1%</span>
+    </div>
+  </div>
+
+  <!-- 中：K线 + 持仓表 -->
+  <div class="main-col">
+    <div class="kline-area">
+      <div class="kline-label">
+        <span>BTC/USDT · 5m</span>
+        <span class="kline-price">84,521</span>
+        <span class="kline-change">▲ +2.3%</span>
+      </div>
+      <svg width="100%" height="100%" viewBox="0 0 500 100" preserveAspectRatio="none">
+        <!-- 网格 -->
+        <line x1="0" y1="25" x2="500" y2="25" stroke="#1e2d42" strokeWidth="0.5"/>
+        <line x1="0" y1="50" x2="500" y2="50" stroke="#1e2d42" strokeWidth="0.5"/>
+        <line x1="0" y1="75" x2="500" y2="75" stroke="#1e2d42" strokeWidth="0.5"/>
+        <!-- K线 -->
+        <g>
+          <line x1="15" y1="48" x2="15" y2="72" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="12" y="52" width="6" height="16" fill="#3cc87a"/>
+          <line x1="28" y1="44" x2="28" y2="68" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="25" y="48" width="6" height="16" fill="#3cc87a"/>
+          <line x1="41" y1="50" x2="41" y2="66" stroke="#e05050" strokeWidth="1"/>
+          <rect x="38" y="52" width="6" height="10" fill="#e05050"/>
+          <line x1="54" y1="42" x2="54" y2="64" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="51" y="46" width="6" height="14" fill="#3cc87a"/>
+          <line x1="67" y1="36" x2="67" y2="58" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="64" y="40" width="6" height="14" fill="#3cc87a"/>
+          <line x1="80" y1="38" x2="80" y2="56" stroke="#e05050" strokeWidth="1"/>
+          <rect x="77" y="40" width="6" height="10" fill="#e05050"/>
+          <line x1="93" y1="30" x2="93" y2="52" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="90" y="34" width="6" height="14" fill="#3cc87a"/>
+          <line x1="106" y1="24" x2="106" y2="46" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="103" y="28" width="6" height="14" fill="#3cc87a"/>
+          <line x1="119" y1="28" x2="119" y2="48" stroke="#e05050" strokeWidth="1"/>
+          <rect x="116" y="30" width="6" height="12" fill="#e05050"/>
+          <line x1="132" y1="22" x2="132" y2="44" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="129" y="26" width="6" height="14" fill="#3cc87a"/>
+          <line x1="145" y1="18" x2="145" y2="40" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="142" y="22" width="6" height="14" fill="#3cc87a"/>
+          <line x1="158" y1="22" x2="158" y2="42" stroke="#e05050" strokeWidth="1"/>
+          <rect x="155" y="24" width="6" height="12" fill="#e05050"/>
+          <line x1="171" y1="16" x2="171" y2="38" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="168" y="20" width="6" height="14" fill="#3cc87a"/>
+          <line x1="184" y1="14" x2="184" y2="36" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="181" y="18" width="6" height="14" fill="#3cc87a"/>
+          <line x1="197" y1="18" x2="197" y2="36" stroke="#e05050" strokeWidth="1"/>
+          <rect x="194" y="20" width="6" height="10" fill="#e05050"/>
+          <line x1="210" y1="12" x2="210" y2="34" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="207" y="16" width="6" height="14" fill="#3cc87a"/>
+          <line x1="223" y1="10" x2="223" y2="32" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="220" y="14" width="6" height="14" fill="#3cc87a"/>
+          <!-- 最后一根闪烁 -->
+          <line x1="236" y1="8" x2="236" y2="30" stroke="#3cc87a" strokeWidth="1"/>
+          <rect x="233" y="12" width="6" height="14" fill="#3cc87a" opacity="0.9">
+            <animate attributeName="opacity" values="0.9;0.5;0.9" dur="1s" repeatCount="indefinite"/>
+          </rect>
+        </g>
+        <!-- MA线 -->
+        <polyline points="15,62 28,58 41,57 54,54 67,50 80,48 93,44 106,38 119,37 132,34 145,31 158,32 171,28 184,26 197,27 210,24 223,22 236,20"
+          stroke="#e8a84a" strokeWidth="1.2" fill="none" opacity="0.7"/>
+        <!-- 入场水平线 -->
+        <line x1="0" y1="44" x2="500" y2="44" stroke="#3cc87a" strokeWidth="0.8" strokeDasharray="4,3" opacity="0.4"/>
+        <text x="4" y="41" fill="#3cc87a" fontSize="8" opacity="0.6">开仓 82,340</text>
+      </svg>
+    </div>
+
+    <!-- 持仓表格 -->
+    <div class="positions-table">
+      <div class="pos-row">
+        <span class="pos-badge long-badge">多</span>
+        <div class="pos-info">
+          <div class="pos-name">BTC/USDT</div>
+          <div class="pos-detail">0.12 BTC @ $82,340</div>
+        </div>
+        <span class="pos-pnl pos">+$228</span>
+      </div>
+      <div class="pos-row">
+        <span class="pos-badge short-badge">空</span>
+        <div class="pos-info">
+          <div class="pos-name">ETH/USDT</div>
+          <div class="pos-detail">1.5 ETH @ $1,923</div>
+        </div>
+        <span class="pos-pnl neg">−$23</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：挂单深度 -->
+  <div class="depth-col">
+    <div class="depth-header">
+      <span>BTC 挂单</span><span style="color:var(--text)">84,521</span>
+    </div>
+    <div class="depth-body">
+      <div class="depth-asks">
+        <div class="depth-row"><div class="depth-bar ask-bar" style="width:30%"></div><span class="ask-price">84,560</span><span class="depth-size">0.234</span></div>
+        <div class="depth-row"><div class="depth-bar ask-bar" style="width:45%"></div><span class="ask-price">84,548</span><span class="depth-size">0.512</span></div>
+        <div class="depth-row"><div class="depth-bar ask-bar" style="width:60%"></div><span class="ask-price">84,535</span><span class="depth-size">0.881</span></div>
+        <div class="depth-row"><div class="depth-bar ask-bar" style="width:40%"></div><span class="ask-price">84,528</span><span class="depth-size">0.341</span></div>
+      </div>
+      <div class="depth-mid">
+        <span class="pos">84,521</span>
+        <span style="font-size:9px;color:var(--muted)">▲ +2.3%</span>
+      </div>
+      <div class="depth-bids">
+        <div class="depth-row"><div class="depth-bar bid-bar" style="width:55%"></div><span class="bid-price">84,515</span><span class="depth-size">0.723</span></div>
+        <div class="depth-row"><div class="depth-bar bid-bar" style="width:70%"></div><span class="bid-price">84,508</span><span class="depth-size">1.102</span></div>
+        <div class="depth-row"><div class="depth-bar bid-bar" style="width:35%"></div><span class="bid-price">84,495</span><span class="depth-size">0.287</span></div>
+        <div class="depth-row"><div class="depth-bar bid-bar" style="width:80%"></div><span class="bid-price">84,480</span><span class="depth-size">1.834</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

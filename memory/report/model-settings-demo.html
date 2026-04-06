@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>模型设置 — 多方案 Demo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#0a1420;color:#c2cee0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  padding:20px 30px;overflow-y:auto;
+}
+h1{font-size:14px;color:#4a6080;margin-bottom:24px;letter-spacing:.3px;font-weight:500;}
+.demo{margin-bottom:48px;border:1px solid #182030;border-radius:12px;overflow:hidden;}
+.demo-label{
+  background:#0c1828;padding:12px 18px;font-size:11px;color:#4a6080;
+  letter-spacing:.6px;text-transform:uppercase;border-bottom:1px solid #182030;
+}
+.demo-body{padding:20px 18px;background:#0a1420;}
+
+/* ── 共用样式 ── */
+.prov-logo{
+  width:36px;height:36px;border-radius:8px;border:1px solid #1e2d40;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:3px;
+  overflow:hidden;
+}
+.prov-logo img{width:22px;height:22px;object-fit:contain;}
+
+.badge{font-size:9px;padding:2px 6px;border-radius:4px;flex-shrink:0;}
+.badge-green{background:rgba(60,200,122,.1);color:#3cc87a;}
+.badge-blue{background:rgba(91,141,239,.1);color:#5b8def;}
+.badge-gold{background:rgba(232,168,74,.1);color:#e8a84a;}
+.badge-red{background:rgba(220,60,60,.1);color:#e05050;}
+
+.toggle-s{
+  width:34px;height:18px;border-radius:9px;background:#1e2d40;
+  border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;
+}
+.toggle-s::after{
+  content:'';position:absolute;width:14px;height:14px;border-radius:50%;
+  background:#4a6080;top:2px;left:2px;transition:all .2s;
+}
+.toggle-s.on{background:rgba(60,200,122,.35);}
+.toggle-s.on::after{background:#3cc87a;left:18px;}
+
+.btn-s{
+  height:26px;padding:0 12px;border-radius:6px;font-size:10px;font-weight:500;
+  cursor:pointer;border:1px solid #2a3d52;background:rgba(255,255,255,.04);
+  color:#8a9ab0;transition:all .12s;white-space:nowrap;
+}
+.btn-s:hover{color:#c2cee0;border-color:#3a5068;background:rgba(255,255,255,.07);}
+.btn-green{background:rgba(60,200,122,.1);color:#3cc87a;border-color:rgba(60,200,122,.25);}
+.btn-blue{background:rgba(91,141,239,.1);color:#5b8def;border-color:rgba(91,141,239,.25);}
+
+.inp{
+  height:28px;padding:0 10px;border-radius:6px;border:1px solid #2a3d52;
+  background:#060e1a;color:#c2cee0;font-size:11px;outline:none;font-family:inherit;
+  transition:border-color .12s;width:100%;
+}
+.inp:focus{border-color:#3a5570;}
+.inp::placeholder{color:#3a5068;}
+
+/* 状态指示点 */
+.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.status-dot.ok{background:#3cc87a;box-shadow:0 0 5px rgba(60,200,122,.5);}
+.status-dot.off{background:#2a3d52;}
+.status-dot.err{background:#e05050;box-shadow:0 0 4px rgba(220,60,60,.4);}
+
+/* ═══════════════════════════════════════════
+   方案 A: 三栏式 — 连接状态 | API/OAuth | 模型开关
+═══════════════════════════════════════════ */
+.a-card{border:1px solid #182030;border-radius:10px;overflow:hidden;margin-bottom:8px;}
+.a-header{
+  display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer;
+  transition:background .1s;
+}
+.a-header:hover{background:rgba(255,255,255,.02);}
+.a-info{flex:1;min-width:0;}
+.a-name{font-size:13px;font-weight:600;color:#c2cee0;}
+.a-status{font-size:10px;margin-top:2px;display:flex;align-items:center;gap:5px;}
+.a-status .time{color:#3a5068;}
+.a-chev{color:#3a5068;font-size:14px;transition:transform .18s;display:inline-block;transform:rotate(90deg);}
+.a-card.closed .a-chev{transform:rotate(0deg);}
+
+.a-body{border-top:1px solid #182030;overflow:hidden;transition:max-height .25s ease;max-height:500px;}
+.a-card.closed .a-body{max-height:0;border-top:none;}
+
+/* 连接区 */
+.a-conn{padding:12px 14px;background:rgba(255,255,255,.015);border-bottom:1px solid #121e2c;}
+.a-conn-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.a-conn-row:last-child{margin-bottom:0;}
+.a-conn-label{font-size:10px;color:#4a6080;width:68px;flex-shrink:0;}
+.a-conn-val{flex:1;display:flex;align-items:center;gap:8px;}
+.a-conn-hint{font-size:9px;color:#3a5068;padding-left:78px;margin-top:-4px;margin-bottom:6px;}
+.a-conn-hint a{color:#5b8def;text-decoration:none;}
+
+.a-auth-btns{display:flex;gap:6px;}
+.oauth-btn{
+  height:28px;padding:0 14px;border-radius:6px;font-size:10px;font-weight:500;
+  cursor:pointer;border:1px solid #2a3d52;background:rgba(255,255,255,.04);color:#8a9ab0;
+  display:flex;align-items:center;gap:6px;transition:all .12s;
+}
+.oauth-btn:hover{background:rgba(255,255,255,.07);color:#c2cee0;}
+.oauth-btn img{width:14px;height:14px;}
+
+/* 模型行 */
+.a-model{
+  display:flex;align-items:center;gap:10px;padding:9px 14px 9px 54px;
+  border-bottom:1px solid #0e1a28;transition:background .1s;
+}
+.a-model:last-child{border-bottom:none;}
+.a-model:hover{background:rgba(255,255,255,.02);}
+.a-model.on{background:rgba(60,200,122,.02);}
+.a-model-info{flex:1;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.a-model-name{font-size:12px;font-weight:500;color:#c2cee0;}
+.a-model-ctx{font-size:10px;color:#3a5068;}
+
+
+/* ═══════════════════════════════════════════
+   方案 B: Tab 切换 — 连接 Tab / 模型 Tab
+═══════════════════════════════════════════ */
+.b-card{border:1px solid #182030;border-radius:10px;overflow:hidden;margin-bottom:8px;}
+.b-header{
+  display:flex;align-items:center;gap:12px;padding:13px 14px;
+}
+.b-tabs{display:flex;gap:2px;background:rgba(255,255,255,.03);border-radius:6px;padding:2px;margin:0 14px 0 0;}
+.b-tab{
+  padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer;
+  color:#4a6080;transition:all .12s;user-select:none;
+}
+.b-tab:hover{color:#8a9ab0;}
+.b-tab.active{background:rgba(255,255,255,.08);color:#c2cee0;}
+.b-panel{display:none;padding:12px 14px;}
+.b-panel.active{display:block;}
+.b-conn-field{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.b-conn-field label{font-size:10px;color:#4a6080;width:60px;flex-shrink:0;}
+
+/* ═══════════════════════════════════════════
+   方案 C: 极简卡片 — 未连接=单行+按钮，已连接=展开模型
+═══════════════════════════════════════════ */
+.c-card{border:1px solid #182030;border-radius:10px;overflow:hidden;margin-bottom:8px;transition:border-color .12s;}
+.c-card.connected{border-color:#1e3028;}
+.c-header{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;transition:background .1s;}
+.c-header:hover{background:rgba(255,255,255,.02);}
+.c-info{flex:1;}
+.c-name{font-size:13px;font-weight:600;color:#c2cee0;display:flex;align-items:center;gap:8px;}
+.c-sub{font-size:10px;color:#4a6080;margin-top:2px;}
+.c-right{display:flex;align-items:center;gap:8px;}
+.c-chev{color:#3a5068;font-size:14px;transition:transform .18s;display:inline-block;transform:rotate(90deg);}
+.c-card.closed .c-chev{transform:rotate(0deg);}
+.c-inner{border-top:1px solid #182030;overflow:hidden;max-height:500px;transition:max-height .25s ease;}
+.c-card.closed .c-inner{max-height:0;border-top:none;}
+
+/* 连接表单（内联在模型上方） */
+.c-config{padding:12px 14px;background:rgba(255,255,255,.015);display:flex;flex-direction:column;gap:8px;}
+.c-config-row{display:flex;align-items:center;gap:10px;}
+.c-config-row label{font-size:10px;color:#4a6080;width:56px;flex-shrink:0;}
+.c-config-actions{display:flex;gap:6px;align-items:center;padding-left:66px;}
+.c-config-status{font-size:10px;flex:1;}
+
+/* ═══════════════════════════════════════════
+   方案 D: 两列布局 — 左列厂商列表，右列当前厂商详情
+═══════════════════════════════════════════ */
+.d-wrap{display:flex;border:1px solid #182030;border-radius:10px;overflow:hidden;min-height:360px;}
+.d-list{width:180px;border-right:1px solid #182030;flex-shrink:0;background:#0c1520;}
+.d-list-item{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  cursor:pointer;transition:background .1s;font-size:12px;color:#7a90a8;
+  border-bottom:1px solid #121e2c;position:relative;
+}
+.d-list-item:hover{background:rgba(255,255,255,.03);}
+.d-list-item.active{background:rgba(255,255,255,.05);color:#c2cee0;}
+.d-list-item.active::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;
+  width:2px;border-radius:0 1px 1px 0;background:#3cc87a;
+}
+.d-list-logo{width:26px;height:26px;border-radius:6px;border:1px solid #1e2d40;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}
+.d-list-logo img{width:16px;height:16px;object-fit:contain;}
+.d-detail{flex:1;padding:18px;overflow-y:auto;}
+.d-detail-title{font-size:16px;font-weight:600;color:#c2cee0;margin-bottom:4px;}
+.d-detail-status{font-size:11px;color:#4a6080;display:flex;align-items:center;gap:5px;margin-bottom:16px;}
+.d-section-label{font-size:9px;color:#3a5068;text-transform:uppercase;letter-spacing:.6px;margin:16px 0 8px;}
+.d-field{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.d-field label{font-size:11px;color:#7a90a8;width:72px;flex-shrink:0;}
+.d-model-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #121e2c;}
+.d-model-row:last-child{border-bottom:none;}
+.d-model-name{font-size:12px;font-weight:500;color:#c2cee0;flex:1;display:flex;align-items:center;gap:7px;}
+</style>
+</head>
+<body>
+<h1>模型设置 — 4 种方案对比（点击交互均可用）</h1>
+
+<!-- ═══ 方案 A ═══ -->
+<div class="demo">
+  <div class="demo-label">方案 A · 一体折叠 — 状态+连接+模型全部在卡片内，点击展开收起</div>
+  <div class="demo-body" id="demoA"></div>
+</div>
+
+<!-- ═══ 方案 B ═══ -->
+<div class="demo">
+  <div class="demo-label">方案 B · Tab 切换 — 连接配置和模型开关用 Tab 分区</div>
+  <div class="demo-body" id="demoB"></div>
+</div>
+
+<!-- ═══ 方案 C ═══ -->
+<div class="demo">
+  <div class="demo-label">方案 C · 极简卡片 — 未连接显示配置+确认，已连接直接展示模型</div>
+  <div class="demo-body" id="demoC"></div>
+</div>
+
+<!-- ═══ 方案 D ═══ -->
+<div class="demo">
+  <div class="demo-label">方案 D · 左右分栏 — 左侧厂商列表，右侧详情面板</div>
+  <div class="demo-body" id="demoD"></div>
+</div>
+
+<script>
+const PROVS = [
+  { id:'anthropic', name:'Anthropic', connected:true, method:'apikey', key:'sk-ant-••••••••',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg',
+    logoBg:'background:#cc785c;', placeholder:'sk-ant-api03-…', hint:'console.anthropic.com',
+    lastPing:'12s 前', oauthLabel:'',
+    models:[{n:'Claude 4 Sonnet',b:'推荐',bc:'badge-green',c:'200K',on:true},
+            {n:'Claude 3.5 Sonnet',b:'',bc:'',c:'200K',on:true},
+            {n:'Claude 3.5 Haiku',b:'快速',bc:'badge-blue',c:'200K',on:false},
+            {n:'Claude 3 Opus',b:'',bc:'',c:'200K',on:false}]},
+  { id:'openai', name:'OpenAI', connected:true, method:'apikey', key:'sk-proj-••••••••',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg',
+    logoBg:'background:#fff;', placeholder:'sk-proj-…', hint:'platform.openai.com',
+    lastPing:'8s 前', oauthLabel:'',
+    models:[{n:'GPT-4o',b:'',bc:'',c:'128K',on:true},
+            {n:'GPT-4o mini',b:'快速',bc:'badge-blue',c:'128K',on:false},
+            {n:'o1',b:'推理',bc:'badge-gold',c:'128K',on:false},
+            {n:'o3-mini',b:'推理',bc:'badge-gold',c:'128K',on:false}]},
+  { id:'deepseek', name:'DeepSeek', connected:false, method:'apikey', key:'',
+    logo:'https://upload.wikimedia.org/wikipedia/commons/e/ec/DeepSeek_logo.svg',
+    logoBg:'background:#fff;', placeholder:'sk-…', hint:'platform.deepseek.com',
+    lastPing:'', oauthLabel:'',
+    models:[{n:'DeepSeek-V3',b:'低成本',bc:'badge-blue',c:'64K',on:false},
+            {n:'DeepSeek-R1',b:'推理',bc:'badge-gold',c:'64K',on:false}]},
+  { id:'google', name:'Google Gemini', connected:false, method:'oauth', key:'',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg',
+    logoBg:'background:#fff;', placeholder:'AIza…', hint:'aistudio.google.com',
+    lastPing:'', oauthLabel:'Google 账号',
+    models:[{n:'Gemini 2.0 Pro',b:'',bc:'',c:'1M',on:false},
+            {n:'Gemini 2.0 Flash',b:'快速',bc:'badge-blue',c:'1M',on:false}]},
+  { id:'xai', name:'xAI Grok', connected:false, method:'apikey', key:'',
+    logo:'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/grok.svg',
+    logoBg:'background:#fff;', placeholder:'xai-…', hint:'console.x.ai',
+    lastPing:'',oauthLabel:'',
+    models:[{n:'Grok-2',b:'',bc:'',c:'128K',on:false}]},
+];
+
+function logoEl(p, size) {
+  return `<img src="${p.logo}" width="${size||22}" height="${size||22}" style="object-fit:contain;${p.logoBg.includes('#cc7')?'filter:brightness(10);':''}"/>`;
+}
+
+function statusBadge(p) {
+  if (p.connected) return `<span class="status-dot ok"></span><span style="color:#3cc87a">已连接</span>` + (p.lastPing ? `<span style="color:#3a5068;font-size:9px">· 延迟 ${p.lastPing}</span>` : '');
+  return `<span class="status-dot off"></span><span style="color:#4a6080">未连接</span>`;
+}
+
+function modelsHtml(p, prefix) {
+  return p.models.map((m,i) => {
+    const badge = m.b ? `<span class="badge ${m.bc}">${m.b}</span>` : '';
+    return `<div class="${prefix}-model ${m.on?'on':''}">
+      <div class="${prefix}-model-info"><span class="${prefix}-model-name">${m.n}</span>${badge}<span class="${prefix}-model-ctx">${m.c} ctx</span></div>
+      <button class="toggle-s ${m.on?'on':''}" onclick="this.classList.toggle('on');this.closest('.${prefix}-model').classList.toggle('on')"></button>
+    </div>`;
+  }).join('');
+}
+
+function authSection(p) {
+  if (p.method === 'oauth' && !p.connected) {
+    return `<div class="a-conn">
+      <div class="a-conn-row">
+        <span class="a-conn-label">登录方式</span>
+        <div class="a-auth-btns">
+          <button class="oauth-btn" onclick="alert('跳转 ${p.oauthLabel} OAuth…')">
+            <img src="${p.logo}" style="border-radius:3px;${p.logoBg.includes('#cc7')?'filter:brightness(10);':''}"/>
+            ${p.oauthLabel} 登录
+          </button>
+          <span style="font-size:10px;color:#3a5068;padding:0 4px;">或</span>
+          <span style="font-size:10px;color:#4a6080;">使用 API Key →</span>
+        </div>
+      </div>
+      <div class="a-conn-row">
+        <span class="a-conn-label">API Key</span>
+        <div class="a-conn-val">
+          <input class="inp" type="password" placeholder="${p.placeholder}" style="max-width:280px"/>
+          <button class="btn-s btn-green">保存</button>
+          <button class="btn-s" onclick="alert('验证中…')">测试</button>
+        </div>
+      </div>
+      <div class="a-conn-hint">在 <a href="#">${p.hint}</a> 获取 API Key</div>
+    </div>`;
+  }
+  if (!p.connected) {
+    return `<div class="a-conn">
+      <div class="a-conn-row">
+        <span class="a-conn-label">API Key</span>
+        <div class="a-conn-val">
+          <input class="inp" type="password" placeholder="${p.placeholder}" style="max-width:280px"/>
+          <button class="btn-s btn-green">保存</button>
+          <button class="btn-s" onclick="alert('验证中…')">测试</button>
+        </div>
+      </div>
+      <div class="a-conn-hint">在 <a href="#">${p.hint}</a> 获取 API Key</div>
+    </div>`;
+  }
+  // 已连接
+  return `<div class="a-conn">
+    <div class="a-conn-row">
+      <span class="a-conn-label">API Key</span>
+      <div class="a-conn-val">
+        <input class="inp" type="password" value="${p.key}" style="max-width:220px"/>
+        <button class="btn-s">修改</button>
+        <button class="btn-s" onclick="alert('验证中…')">测试</button>
+        <button class="btn-s" style="color:#e05050;border-color:rgba(220,60,60,.2);">断开</button>
+      </div>
+    </div>
+    <div class="a-conn-hint">连接方式：${p.method==='oauth'?p.oauthLabel+' OAuth':'API Key'} · 在 <a href="#">${p.hint}</a> 管理</div>
+  </div>`;
+}
+
+/* ═══ 方案 A: 一体折叠 ═══ */
+document.getElementById('demoA').innerHTML = PROVS.map(p => `
+  <div class="a-card${p.connected?'':' closed'}">
+    <div class="a-header" onclick="this.parentElement.classList.toggle('closed')">
+      <div class="prov-logo" style="${p.logoBg}border-color:${p.connected?'#1e3028':'#1e2d40'};">${logoEl(p)}</div>
+      <div class="a-info">
+        <div class="a-name">${p.name}</div>
+        <div class="a-status">${statusBadge(p)}</div>
+      </div>
+      <span class="a-chev">›</span>
+    </div>
+    <div class="a-body">
+      ${authSection(p)}
+      ${modelsHtml(p,'a')}
+    </div>
+  </div>
+`).join('');
+
+/* ═══ 方案 B: Tab 切换 ═══ */
+document.getElementById('demoB').innerHTML = PROVS.map(p => `
+  <div class="b-card">
+    <div class="b-header">
+      <div class="prov-logo" style="${p.logoBg}border-color:${p.connected?'#1e3028':'#1e2d40'};">${logoEl(p)}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:#c2cee0">${p.name}</div>
+        <div style="font-size:10px;margin-top:2px;display:flex;align-items:center;gap:5px">${statusBadge(p)}</div>
+      </div>
+      <div class="b-tabs" data-card="b-${p.id}">
+        <div class="b-tab active" onclick="switchBTab('b-${p.id}','conn',this)">连接</div>
+        <div class="b-tab" onclick="switchBTab('b-${p.id}','models',this)">模型 (${p.models.length})</div>
+      </div>
+    </div>
+    <div class="b-panel active" id="b-${p.id}-conn">
+      ${p.connected ?
+        `<div class="b-conn-field"><label style="font-size:10px;color:#4a6080;width:60px">API Key</label><input class="inp" type="password" value="${p.key}" style="max-width:220px"/><button class="btn-s" style="margin-left:6px">修改</button><button class="btn-s" style="color:#e05050;border-color:rgba(220,60,60,.2);margin-left:4px;">断开</button></div>`
+        :
+        (p.method==='oauth' ?
+          `<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
+            <button class="oauth-btn"><img src="${p.logo}" style="border-radius:3px;${p.logoBg.includes('#cc7')?'filter:brightness(10);':''}width:14px;height:14px"/>${p.oauthLabel} 登录</button>
+            <span style="font-size:10px;color:#3a5068">或输入 API Key</span>
+          </div>` : '') +
+        `<div class="b-conn-field"><label>API Key</label><input class="inp" type="password" placeholder="${p.placeholder}" style="max-width:240px"/><button class="btn-s btn-green" style="margin-left:6px">连接</button></div>
+        <div style="font-size:9px;color:#3a5068;padding-left:66px;margin-top:-4px">在 <a href="#" style="color:#5b8def;text-decoration:none">${p.hint}</a> 获取 API Key</div>`
+      }
+    </div>
+    <div class="b-panel" id="b-${p.id}-models">
+      ${p.models.map((m,i)=>{
+        const badge = m.b ? `<span class="badge ${m.bc}">${m.b}</span>` : '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #121e2c">
+          <div style="flex:1;display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:500;color:${p.connected||m.on?'#c2cee0':'#4a6080'}">${m.n}</span>${badge}<span style="font-size:10px;color:#3a5068">${m.c} ctx</span></div>
+          <button class="toggle-s ${m.on?'on':''}" onclick="this.classList.toggle('on')" ${p.connected?'':'disabled style="opacity:.4"'}></button>
+        </div>`;
+      }).join('')}
+      ${!p.connected ? '<div style="font-size:10px;color:#3a5068;margin-top:8px">需要先连接后才能启用模型</div>' : ''}
+    </div>
+  </div>
+`).join('');
+
+/* ═══ 方案 C: 极简卡片 ═══ */
+document.getElementById('demoC').innerHTML = PROVS.map(p => `
+  <div class="c-card ${p.connected?'connected':'closed'}">
+    <div class="c-header" onclick="this.parentElement.classList.toggle('closed')">
+      <div class="prov-logo" style="${p.logoBg}border-color:${p.connected?'#1e3028':'#1e2d40'};">${logoEl(p)}</div>
+      <div class="c-info">
+        <div class="c-name">${p.name} ${p.connected?'<span class="badge badge-green">已连接</span>':''}</div>
+        <div class="c-sub">${p.connected? p.models.filter(m=>m.on).length+'/'+p.models.length+' 模型已启用' : '未连接 — 点击配置'}</div>
+      </div>
+      <div class="c-right">
+        ${!p.connected && p.method==='oauth' ? `<button class="oauth-btn" onclick="event.stopPropagation()"><img src="${p.logo}" style="border-radius:3px;width:14px;height:14px;${p.logoBg.includes('#cc7')?'filter:brightness(10);':''}"/>${p.oauthLabel}</button>` : ''}
+        <span class="c-chev">›</span>
+      </div>
+    </div>
+    <div class="c-inner">
+      ${!p.connected ? `
+        <div class="c-config">
+          ${p.method==='oauth' ? `<div class="c-config-row"><label>OAuth</label><button class="oauth-btn"><img src="${p.logo}" style="border-radius:3px;width:14px;height:14px;${p.logoBg.includes('#cc7')?'filter:brightness(10);':''}"/>${p.oauthLabel} 登录</button><span style="font-size:10px;color:#3a5068;margin-left:6px">或用 API Key ↓</span></div>` : ''}
+          <div class="c-config-row"><label>API Key</label><div style="flex:1;display:flex;gap:6px"><input class="inp" type="password" placeholder="${p.placeholder}"/></div></div>
+          <div class="c-config-actions">
+            <span class="c-config-status" style="font-size:9px;color:#3a5068">在 <a href="#" style="color:#5b8def;text-decoration:none">${p.hint}</a> 获取</span>
+            <button class="btn-s btn-green">连接</button>
+          </div>
+        </div>
+      ` : `
+        <div class="c-config" style="padding:8px 14px;display:flex;align-items:center;gap:10px">
+          <span style="font-size:10px;color:#4a6080">API Key</span>
+          <input class="inp" type="password" value="${p.key}" style="max-width:200px"/>
+          <button class="btn-s">修改</button>
+          <button class="btn-s" style="color:#e05050;border-color:rgba(220,60,60,.2);">断开</button>
+          <span style="flex:1"></span>
+          <span class="status-dot ok"></span>
+          <span style="font-size:10px;color:#3cc87a">正常 · ${p.lastPing}</span>
+        </div>
+      `}
+      ${modelsHtml(p,'a')}
+    </div>
+  </div>
+`).join('');
+
+/* ═══ 方案 D: 左右分栏 ═══ */
+let currentD = 'anthropic';
+function renderD(){
+  const dp = PROVS.find(x=>x.id===currentD);
+  document.getElementById('demoD').innerHTML = `
+  <div class="d-wrap">
+    <div class="d-list">
+      ${PROVS.map(p=>`
+        <div class="d-list-item ${p.id===currentD?'active':''}" onclick="currentD='${p.id}';renderD()">
+          <div class="d-list-logo" style="${p.logoBg}">${logoEl(p,16)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
+          </div>
+          <span class="status-dot ${p.connected?'ok':'off'}"></span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="d-detail">
+      <div class="d-detail-title">${dp.name}</div>
+      <div class="d-detail-status">${statusBadge(dp)}</div>
+
+      <div class="d-section-label">连接方式</div>
+      ${dp.method==='oauth' && !dp.connected ? `
+        <div class="d-field"><label>OAuth</label><button class="oauth-btn"><img src="${dp.logo}" style="border-radius:3px;width:14px;height:14px;${dp.logoBg.includes('#cc7')?'filter:brightness(10);':''}"/>${dp.oauthLabel} 登录</button></div>
+        <div style="font-size:10px;color:#3a5068;margin-bottom:10px;padding-left:82px">或使用 API Key ↓</div>
+      ` : ''}
+      <div class="d-field">
+        <label>API Key</label>
+        <div style="flex:1;display:flex;gap:6px">
+          <input class="inp" type="password" value="${dp.connected?dp.key:''}" placeholder="${dp.placeholder}" style="max-width:240px"/>
+          ${dp.connected ?
+            `<button class="btn-s">修改</button><button class="btn-s" onclick="alert('测试中…')">测试</button><button class="btn-s" style="color:#e05050;border-color:rgba(220,60,60,.2)">断开</button>` :
+            `<button class="btn-s btn-green">连接</button><button class="btn-s" onclick="alert('测试中…')">测试</button>`}
+        </div>
+      </div>
+      <div style="font-size:9px;color:#3a5068;padding-left:82px;margin-top:-4px">在 <a href="#" style="color:#5b8def;text-decoration:none">${dp.hint}</a> 获取 API Key</div>
+
+      <div class="d-section-label">可用模型</div>
+      ${dp.models.map(m=>{
+        const badge = m.b ? `<span class="badge ${m.bc}">${m.b}</span>` : '';
+        return `<div class="d-model-row">
+          <div class="d-model-name">${m.n} ${badge} <span style="font-size:10px;color:#3a5068">${m.c} ctx</span></div>
+          <button class="toggle-s ${m.on?'on':''}" onclick="this.classList.toggle('on')" ${dp.connected?'':'disabled style="opacity:.4"'}></button>
+        </div>`;
+      }).join('')}
+      ${!dp.connected ? '<div style="font-size:10px;color:#3a5068;margin-top:6px">需要先连接后才能启用模型</div>' : ''}
+    </div>
+  </div>`;
+}
+renderD();
+
+function switchBTab(cardId, panel, tabEl) {
+  const tabs = tabEl.parentElement.querySelectorAll('.b-tab');
+  tabs.forEach(t=>t.classList.remove('active'));
+  tabEl.classList.add('active');
+  document.getElementById(cardId+'-conn').classList.remove('active');
+  document.getElementById(cardId+'-models').classList.remove('active');
+  document.getElementById(cardId+'-'+panel).classList.add('active');
+}
+</script>
+</body>
+</html>

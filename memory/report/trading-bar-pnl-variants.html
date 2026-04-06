@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>收益面板布局对比</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0c1017;color:#c2cee0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  padding:28px 24px;display:flex;flex-direction:column;gap:20px;
+}
+h1{font-size:11px;color:#4a5870;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
+.label{font-size:10px;color:#5a6e85;letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+
+:root{
+  --bg:#0f1520;--line:#1d2b3c;--sep:rgba(255,255,255,.06);
+  --text:#c2cee0;--muted:#66788f;--dim:#92a6be;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --g:#2ec97c;--r:#f0607a;--y:#e8b84a;
+}
+
+/* 外壳：只展示收益区，模拟真实高度 */
+.shell{
+  height:140px;border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;background:var(--bg);
+}
+
+/* ── 公共 sparkline helper ── */
+svg.sp{display:block;width:100%;height:100%;overflow:visible}
+
+/* ══════ V1：数字为主，指标紧凑单列，sparkline 大图 ══════ */
+.v1{display:grid;grid-template-columns:160px 1fr 1fr;height:100%}
+.v1-left{padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between}
+.v1-mid{
+  padding:12px 20px;display:flex;flex-direction:column;justify-content:center;gap:8px;
+  border-left:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 30%,var(--sep) 70%,transparent) 1;
+}
+.v1-right{
+  padding:10px 14px;display:flex;flex-direction:column;gap:6px;
+  border-left:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 30%,var(--sep) 70%,transparent) 1;
+}
+.krow{display:flex;justify-content:space-between;align-items:center;font-size:11px}
+.krow .k{color:var(--muted)}.krow .v{font-family:var(--mono);font-weight:600}
+.spark-box{flex:1;min-height:0;border:1px solid #1a2838;border-radius:6px;
+  background:linear-gradient(to bottom,rgba(46,201,124,.08),transparent);padding:4px 6px}
+
+/* ══════ V2：全横向数据条，sparkline 占满剩余 ══════ */
+.v2{display:flex;flex-direction:column;height:100%}
+.v2-top{
+  display:flex;align-items:center;height:44px;flex-shrink:0;
+  border-bottom:1px solid;border-image:linear-gradient(to right,transparent,var(--sep) 10%,var(--sep) 90%,transparent) 1;
+}
+.v2-num{padding:0 20px;border-right:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 20%,var(--sep) 80%,transparent) 1;display:flex;flex-direction:column;justify-content:center}
+.v2-kv-strip{flex:1;display:flex}
+.v2-kv-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border-right:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 20%,var(--sep) 80%,transparent) 1;
+}
+.v2-kv-item:last-child{border-right:none}
+.v2-k{font-size:9px;color:var(--muted);margin-bottom:2px}
+.v2-v{font-size:12px;font-family:var(--mono);font-weight:600}
+.v2-bot{flex:1;min-height:0;padding:6px 12px}
+
+/* ══════ V3：左侧大数字+小指标，右侧全高 sparkline ══════ */
+.v3{display:grid;grid-template-columns:1fr 260px;height:100%}
+.v3-left{
+  padding:12px 20px;display:grid;
+  grid-template-columns:auto 1fr;grid-template-rows:1fr 1fr;
+  gap:0 28px;align-content:center;
+}
+.v3-big-wrap{grid-row:1/3;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.v3-kv-grid{display:flex;flex-direction:column;gap:6px}
+.v3-krow{display:flex;justify-content:space-between;gap:20px;font-size:10px}
+.v3-krow .k{color:var(--muted)}.v3-krow .v{font-family:var(--mono);font-weight:600}
+.v3-right{
+  border-left:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 20%,var(--sep) 80%,transparent) 1;
+  padding:10px 14px;display:flex;flex-direction:column;gap:4px;
+}
+.v3-caption{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+
+/* ══════ V4：极简——只有数字+一条大线 ══════ */
+.v4{display:flex;align-items:stretch;height:100%}
+.v4-left{
+  width:200px;flex-shrink:0;padding:16px 20px;
+  display:flex;flex-direction:column;justify-content:space-between;
+  border-right:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 20%,var(--sep) 80%,transparent) 1;
+}
+.v4-meta{display:flex;gap:16px;font-size:10px}
+.v4-meta span{color:var(--muted)}.v4-meta b{font-family:var(--mono);margin-left:4px;color:var(--text);font-weight:600}
+.v4-right{flex:1;padding:8px 16px;display:flex;flex-direction:column;gap:6px}
+.v4-right .caption{font-size:9px;color:var(--muted);letter-spacing:.4px;text-transform:uppercase}
+.v4-spark-big{flex:1;min-height:0}
+
+/* ══════ V5：卡片式指标 + 小 sparkline ══════ */
+.v5{display:grid;grid-template-columns:170px 1fr;height:100%}
+.v5-left{padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between}
+.v5-right{
+  padding:10px 12px;display:flex;flex-direction:column;gap:8px;
+  border-left:1px solid;border-image:linear-gradient(to bottom,transparent,var(--sep) 20%,var(--sep) 80%,transparent) 1;
+}
+.v5-kv-row{display:flex;gap:8px}
+.v5-kcard{
+  flex:1;border:1px solid var(--line);border-radius:7px;
+  background:#0d1624;padding:7px 10px;display:flex;flex-direction:column;gap:2px;
+}
+.v5-kcard .k{font-size:9px;color:var(--muted)}.v5-kcard .v{font-size:13px;font-family:var(--mono);font-weight:700}
+
+/* 公共 */
+.big{font-size:30px;font-weight:700;color:var(--g);letter-spacing:-.6px;line-height:1}
+.big.small{font-size:22px}
+.pct{font-size:11px;color:var(--g);font-family:var(--mono);margin-top:3px}
+.since{font-size:9px;color:var(--muted);margin-top:2px}
+.g{color:var(--g)}.r{color:var(--r)}
+
+/* bar chart */
+.bchart{display:flex;align-items:flex-end;gap:2px;width:100%;height:100%}
+.bchart span{flex:1;border-radius:2px 2px 0 0}
+</style>
+</head>
+<body>
+
+<h1>收益面板 · 布局方案对比</h1>
+
+<!-- V1 -->
+<div class="label">V1 — 三列：数字 / 指标竖排 / 日盈亏柱图</div>
+<div class="shell">
+  <div class="v1">
+    <div class="v1-left">
+      <div>
+        <div class="big" id="b1">+$312</div>
+        <div class="pct" id="p1">+1.50%</div>
+        <div class="since">今日收益</div>
+      </div>
+      <div class="spark-box" style="height:36px">
+        <svg class="sp" viewBox="0 0 130 30" preserveAspectRatio="none">
+          <path id="sl1" d="" stroke="var(--g)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="v1-mid">
+      <div class="krow"><span class="k">总资产</span><span class="v" id="ka1">$20,800</span></div>
+      <div class="krow"><span class="k">最大回撤</span><span class="v r">-4.2%</span></div>
+      <div class="krow"><span class="k">胜率</span><span class="v">63%</span></div>
+      <div class="krow"><span class="k">可用资金</span><span class="v">$8,736</span></div>
+    </div>
+    <div class="v1-right">
+      <div style="font-size:9px;color:var(--muted);letter-spacing:.4px;text-transform:uppercase">每日盈亏</div>
+      <div class="bchart" id="bc1" style="flex:1;margin-top:4px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- V2 -->
+<div class="label">V2 — 顶部数据条 / 底部全宽折线</div>
+<div class="shell">
+  <div class="v2">
+    <div class="v2-top">
+      <div class="v2-num">
+        <span class="big" style="font-size:22px" id="b2">+$312</span>
+        <span class="pct" id="p2">+1.50%</span>
+      </div>
+      <div class="v2-kv-strip">
+        <div class="v2-kv-item"><div class="v2-k">总资产</div><div class="v2-v">$20,800</div></div>
+        <div class="v2-kv-item"><div class="v2-k">最大回撤</div><div class="v2-v r">-4.2%</div></div>
+        <div class="v2-kv-item"><div class="v2-k">胜率</div><div class="v2-v">63%</div></div>
+        <div class="v2-kv-item"><div class="v2-k">可用资金</div><div class="v2-v">$8,736</div></div>
+        <div class="v2-kv-item"><div class="v2-k">今日交易</div><div class="v2-v">7 笔</div></div>
+      </div>
+    </div>
+    <div class="v2-bot">
+      <svg class="sp" viewBox="0 0 860 60" preserveAspectRatio="none" id="sl2wrap">
+        <defs>
+          <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#2ec97c" stop-opacity=".2"/>
+            <stop offset="100%" stop-color="#2ec97c" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path id="sl2f" d="" fill="url(#g2)"/>
+        <path id="sl2" d="" stroke="var(--g)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- V3 -->
+<div class="label">V3 — 左侧大数字+4项指标，右侧全高折线</div>
+<div class="shell">
+  <div class="v3">
+    <div class="v3-left">
+      <div class="v3-big-wrap">
+        <div class="big" id="b3">+$312</div>
+        <div class="pct" id="p3">+1.50%</div>
+        <div class="since">今日收益</div>
+      </div>
+      <div class="v3-kv-grid">
+        <div class="v3-krow">
+          <span class="k">总资产</span><span class="v">$20,800</span>
+          <span class="k" style="margin-left:16px">可用</span><span class="v">$8,736</span>
+        </div>
+        <div class="v3-krow">
+          <span class="k">回撤</span><span class="v r">-4.2%</span>
+          <span class="k" style="margin-left:16px">胜率</span><span class="v">63%</span>
+        </div>
+      </div>
+    </div>
+    <div class="v3-right">
+      <div class="v3-caption">收益曲线</div>
+      <div style="flex:1;min-height:0">
+        <svg class="sp" viewBox="0 0 240 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2ec97c" stop-opacity=".2"/>
+              <stop offset="100%" stop-color="#2ec97c" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path id="sl3f" d="" fill="url(#g3)"/>
+          <path id="sl3" d="" stroke="var(--g)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="bchart" id="bc3" style="height:22px;flex-shrink:0"></div>
+    </div>
+  </div>
+</div>
+
+<!-- V4 -->
+<div class="label">V4 — 极简：左侧数字+关键指标，右侧超大折线</div>
+<div class="shell">
+  <div class="v4">
+    <div class="v4-left">
+      <div>
+        <div class="big" id="b4">+$312</div>
+        <div class="pct" id="p4">+1.50%</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="v4-meta"><span>回撤</span><b class="r">-4.2%</b><span style="margin-left:8px">胜率</span><b>63%</b></div>
+        <div class="v4-meta"><span>总资产</span><b>$20,800</b></div>
+      </div>
+    </div>
+    <div class="v4-right">
+      <div class="v4-caption">收益曲线 · 今日</div>
+      <div class="v4-spark-big">
+        <svg class="sp" viewBox="0 0 640 90" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2ec97c" stop-opacity=".18"/>
+              <stop offset="100%" stop-color="#2ec97c" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path id="sl4f" d="" fill="url(#g4)"/>
+          <path id="sl4" d="" stroke="var(--g)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- V5 -->
+<div class="label">V5 — 左侧数字+sparkline，右侧卡片式指标格</div>
+<div class="shell">
+  <div class="v5">
+    <div class="v5-left">
+      <div>
+        <div class="big" id="b5">+$312</div>
+        <div class="pct" id="p5">+1.50%</div>
+        <div class="since">今日收益</div>
+      </div>
+      <div class="spark-box" style="height:34px">
+        <svg class="sp" viewBox="0 0 140 28" preserveAspectRatio="none">
+          <path id="sl5" d="" stroke="var(--g)" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="v5-right">
+      <div class="v5-kv-row">
+        <div class="v5-kcard">
+          <div class="k">总资产</div>
+          <div class="v">$20,800</div>
+        </div>
+        <div class="v5-kcard">
+          <div class="k">可用资金</div>
+          <div class="v">$8,736</div>
+        </div>
+      </div>
+      <div class="v5-kv-row">
+        <div class="v5-kcard">
+          <div class="k">最大回撤</div>
+          <div class="v r">-4.2%</div>
+        </div>
+        <div class="v5-kcard">
+          <div class="k">胜率</div>
+          <div class="v g">63%</div>
+        </div>
+      </div>
+      <div class="v5-kv-row">
+        <div class="v5-kcard">
+          <div class="k">今日交易</div>
+          <div class="v">7 笔</div>
+        </div>
+        <div class="v5-kcard" style="flex:2">
+          <div class="k">每日盈亏</div>
+          <div class="bchart" id="bc5" style="height:20px;margin-top:2px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DAILY = [40,80,55,120,60,95,180,130,200,110,160,220,190,260,220,312];
+const histLen = 32;
+let hist = [];
+for(let i=0;i<histLen;i++) hist.push(210 - 80 + i*6 + (Math.random()-.5)*16);
+let total = 312;
+
+function path(arr, W, H, fill) {
+  const n=arr.length; if(n<2) return '';
+  const mn=Math.min(...arr), mx=Math.max(...arr), rng=mx-mn||1;
+  const pts=arr.map((v,i)=>[i/(n-1)*W, H-(v-mn)/rng*(H-4)-2]);
+  const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  return fill ? d+` L${W},${H} L0,${H} Z` : d;
+}
+
+function bars(id, h) {
+  const el=document.getElementById(id); if(!el) return;
+  const mx=Math.max(...DAILY);
+  el.innerHTML=DAILY.map((v,i)=>{
+    const ph=Math.round(v/mx*h);
+    const c=i===DAILY.length-1?'var(--g)':'rgba(46,201,124,.35)';
+    return `<span style="height:${ph}px;background:${c}"></span>`;
+  }).join('');
+}
+
+function draw() {
+  const W1=130,H1=28; document.getElementById('sl1').setAttribute('d', path(hist,W1,H1,false));
+  const W2=860,H2=58; document.getElementById('sl2').setAttribute('d', path(hist,W2,H2,false));
+  document.getElementById('sl2f').setAttribute('d', path(hist,W2,H2,true));
+  const W3=240,H3=98; document.getElementById('sl3').setAttribute('d', path(hist,W3,H3,false));
+  document.getElementById('sl3f').setAttribute('d', path(hist,W3,H3,true));
+  const W4=640,H4=88; document.getElementById('sl4').setAttribute('d', path(hist,W4,H4,false));
+  document.getElementById('sl4f').setAttribute('d', path(hist,W4,H4,true));
+  document.getElementById('sl5').setAttribute('d', path(hist,140,26,false));
+}
+
+function updateNums() {
+  const pct=(total/20800*100).toFixed(2);
+  const s=total>=0?'+':'';
+  const col=total>=0?'var(--g)':'var(--r)';
+  ['b1','b2','b3','b4','b5'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.textContent=s+'$'+Math.abs(Math.round(total)).toLocaleString();
+    el.style.color=col;
+  });
+  ['p1','p2','p3','p4','p5'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.textContent=s+pct+'%'; el.style.color=col;
+  });
+}
+
+function tick() {
+  total += (Math.random()-.44)*8;
+  hist.push(total); if(hist.length>histLen) hist.shift();
+  draw(); updateNums();
+}
+
+bars('bc1', 36); bars('bc3', 20); bars('bc5', 20);
+draw(); updateNums();
+setInterval(tick, 1100);
+</script>
+</body>
+</html>

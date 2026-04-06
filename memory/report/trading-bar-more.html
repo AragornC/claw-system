@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Trading Bar — 更多方案</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0f1a;color:#d4d8e8;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;padding:24px;display:flex;flex-direction:column;gap:40px}
+h3{font-size:10px;font-weight:500;color:#4a5570;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px}
+:root{
+  --bg:#0e1628;--bg2:#111827;--border:#1e2d4a;
+  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+  --muted:#5a6080;--dim:#8898b8;--txt:#d4d8e8;
+  --panel:#0d1828;
+}
+.bar{
+  background:var(--bg);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;display:flex;flex-direction:column;
+}
+.hd{
+  height:32px;min-height:32px;display:flex;align-items:stretch;
+  border-bottom:1px solid var(--border);background:#0d1520;flex-shrink:0;
+}
+.hd-tab{
+  display:flex;align-items:center;gap:6px;padding:0 14px;
+  font-size:11px;font-weight:500;color:var(--txt);cursor:pointer;
+  border-right:1px solid var(--border);white-space:nowrap;
+}
+.hd-tab svg{opacity:.6}
+.hd-mid{flex:1;display:flex;align-items:center;padding:0 12px;gap:10px;}
+.hd-right{display:flex;align-items:center;padding:0 10px;gap:6px;border-left:1px solid var(--border);}
+.pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--muted)}
+.buy-c{color:var(--green)}.sell-c{color:var(--red)}.hold-c{color:var(--yellow)}
+.badge{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600}
+.badge-auto{background:#0e2d1e;color:var(--green)}
+.badge-semi{background:#2d200e;color:var(--yellow)}
+.badge-sug{background:#1a1a2d;color:#8888cc}
+
+/* ═══ M1 ═══ 收益徽章 in header，卡片嵌贡献 ═══ */
+.m1-chip{
+  display:flex;align-items:center;gap:6px;
+  background:#0a2218;border:1px solid #1a4a30;
+  border-radius:20px;padding:3px 10px;cursor:default;
+}
+.m1-chip-big{font-size:13px;font-weight:700;color:var(--green)}
+.m1-chip-pct{font-size:10px;color:var(--green)}
+.m1-chip-kv{display:flex;gap:8px;font-size:9px;color:var(--muted);padding-left:8px;border-left:1px solid #1a4a30;}
+.m1-chip-kv b{color:var(--dim);font-weight:600}
+.m1-spark{width:60px;height:20px}
+.m1-cards{flex:1;min-height:0;display:flex;gap:8px;padding:8px 10px;overflow-x:auto;align-items:stretch;}
+.m1-cards::-webkit-scrollbar{height:3px}
+.m1-cards::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+.m1-card{
+  flex:1;min-width:160px;max-width:240px;
+  background:#0a1525;border:1px solid var(--border);border-radius:7px;
+  padding:9px 11px;display:flex;flex-direction:column;gap:5px;
+}
+.m1-card.buy{border-color:#16451e}.m1-card.sell{border-color:#4a1a1a}.m1-card.hold{border-color:#3a3010}
+.m1-ctop{display:flex;justify-content:space-between;align-items:center}
+.m1-strat{font-size:10px;font-weight:600;color:var(--dim)}
+.m1-sym{font-size:20px;font-weight:700;line-height:1}
+.m1-dir{font-size:11px;color:var(--muted);margin-top:1px}
+.m1-cbot{display:flex;justify-content:space-between;align-items:flex-end}
+.m1-entry{font-size:10px;color:var(--muted)}
+.m1-entry b{color:var(--txt);font-weight:600}
+/* 贡献 PnL 徽章 */
+.m1-pnl-badge{
+  font-size:11px;font-weight:700;
+  padding:2px 7px;border-radius:5px;
+  background:rgba(34,197,94,.12);
+}
+.m1-sig{font-size:11px;font-weight:700;align-self:flex-end}
+
+/* ═══ M2 ═══ 左侧收益竖栏（窄，固定宽）═══ */
+.m2-body{flex:1;min-height:0;display:flex;overflow:hidden;}
+.m2-pnl-col{
+  width:90px;flex-shrink:0;
+  display:flex;flex-direction:column;justify-content:center;align-items:flex-start;
+  padding:8px 10px;gap:4px;
+  border-right:1px solid var(--border);background:#090d1c;
+}
+.m2-big{font-size:16px;font-weight:700;color:var(--green);line-height:1}
+.m2-pct{font-size:10px;color:var(--green)}
+.m2-kvrow{display:flex;justify-content:space-between;width:100%;font-size:9px}
+.m2-kvrow .k{color:var(--muted)}.m2-kvrow .v{font-weight:600}
+.m2-spark{width:100%;height:22px;margin-top:2px}
+.m2-cards{flex:1;display:flex;gap:8px;padding:8px 10px;overflow-x:auto;align-items:stretch;}
+.m2-cards::-webkit-scrollbar{height:3px}
+.m2-cards::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+.m2-card{
+  flex:1;min-width:150px;max-width:230px;
+  background:#0a1525;border:1px solid var(--border);border-radius:7px;
+  padding:9px 11px;display:flex;flex-direction:column;justify-content:space-between;
+}
+.m2-card.buy{border-color:#16451e}.m2-card.sell{border-color:#4a1a1a}.m2-card.hold{border-color:#3a3010}
+.m2-top{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+.m2-sym{font-size:18px;font-weight:700;line-height:1.1}
+.m2-mid{font-size:11px;color:var(--muted)}
+.m2-bot{display:flex;justify-content:space-between;font-size:10px;align-items:flex-end}
+.m2-kv .k{color:var(--muted)}.m2-kv .v{font-weight:600}
+.m2-sig{font-size:12px;font-weight:700}
+
+/* ═══ M3 ═══ 双行：上收益条 + 下策略卡 ═══ */
+.m3-strip{
+  display:flex;align-items:center;height:36px;flex-shrink:0;
+  border-bottom:1px solid var(--border);background:#090d1c;
+}
+.m3-big{font-size:16px;font-weight:700;color:var(--green);padding:0 14px;border-right:1px solid var(--border);}
+.m3-pct{font-size:11px;color:var(--green);padding:0 12px;border-right:1px solid var(--border);}
+.m3-kv-row{flex:1;display:flex;}
+.m3-kv-item{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  flex:1;border-right:1px solid var(--border);height:36px;padding:0 8px;
+}
+.m3-kv-item:last-child{border-right:none}
+.m3-kk{font-size:8px;color:var(--muted)}
+.m3-vv{font-size:11px;font-weight:600}
+.m3-spark-wrap{width:100px;height:36px;display:flex;align-items:center;padding:0 10px;border-left:1px solid var(--border)}
+.m3-cards{flex:1;min-height:0;display:flex;gap:8px;padding:8px 10px;overflow-x:auto;align-items:stretch;}
+.m3-cards::-webkit-scrollbar{height:3px}
+.m3-cards::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:2px}
+.m3-card{
+  flex:1;min-width:150px;
+  background:#0a1525;border:1px solid var(--border);border-radius:7px;
+  padding:9px 11px;display:flex;flex-direction:column;justify-content:space-between;
+}
+.m3-card.buy{border-color:#16451e}.m3-card.sell{border-color:#4a1a1a}.m3-card.hold{border-color:#3a3010}
+
+/* ═══ M4 ═══ 极简单行状态栏（全部压进 header）═══ */
+.m4-hd{
+  height:44px;display:flex;align-items:stretch;
+  border-bottom:1px solid var(--border);background:#0d1520;flex-shrink:0;
+}
+.m4-pnl-zone{
+  display:flex;align-items:center;gap:8px;
+  padding:0 16px;border-right:1px solid var(--border);
+}
+.m4-big{font-size:18px;font-weight:700;color:var(--green)}
+.m4-pct{font-size:11px;color:var(--green)}
+.m4-sep{width:1px;height:16px;background:var(--border)}
+.m4-kv-inline{display:flex;align-items:center;gap:12px;font-size:10px;color:var(--muted)}
+.m4-kv-inline b{color:var(--dim)}
+.m4-spark-inline{width:70px;height:28px}
+.m4-strat-zone{flex:1;display:flex;align-items:center;gap:0;overflow:hidden;padding:0 4px;}
+.m4-pill{
+  display:flex;align-items:center;gap:6px;
+  height:28px;padding:0 10px;margin:0 2px;border-radius:6px;
+  background:#0a1525;border:1px solid var(--border);
+  font-size:11px;white-space:nowrap;flex-shrink:0;
+  cursor:pointer;transition:border-color .12s;
+}
+.m4-pill.buy{border-color:#1a5a2a}.m4-pill.sell{border-color:#5a1a1a}.m4-pill.hold{border-color:#4a3a10}
+.m4-pill .sym{font-weight:700}
+.m4-pill .pnl{font-size:10px}
+.m4-pill .sig{font-size:10px;font-weight:700}
+/* 展开的详情抽屉 */
+.m4-drawer{
+  flex:1;min-height:0;
+  display:flex;align-items:stretch;
+  overflow:hidden;
+  border-top:1px solid var(--border);
+}
+.m4-drawer-panel{
+  flex:1;display:flex;flex-direction:column;justify-content:center;
+  padding:10px 16px;border-right:1px solid var(--border);
+}
+.m4-drawer-panel:last-child{border-right:none}
+.m4-dp-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.m4-dp-strat{font-size:11px;font-weight:600;color:var(--dim)}
+.m4-dp-sym{font-size:20px;font-weight:700;line-height:1}
+.m4-dp-dir{font-size:11px;color:var(--muted)}
+.m4-dp-bot{display:flex;gap:16px;font-size:10px;margin-top:6px}
+.m4-dp-bot .k{color:var(--muted)}.m4-dp-bot .v{font-weight:600}
+
+/* 公共 */
+svg.spark{width:100%;height:100%;display:block;overflow:visible}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+  M1：收益徽章嵌入 header，卡片内显示各自贡献
+═══════════════════════════════════════════ -->
+<div>
+<h3>M1 — 收益徽章 in header · 策略卡内嵌各自的 PnL 贡献（完全不分区）</h3>
+<div class="bar" style="height:160px">
+  <div class="hd">
+    <div class="hd-tab">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+        <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+      </svg>
+      持仓策略
+    </div>
+    <div class="hd-mid">
+      <!-- 收益徽章 -->
+      <div class="m1-chip">
+        <svg class="m1-spark" viewBox="0 0 60 20" preserveAspectRatio="none">
+          <path d="M0,16 C6,14 12,12 18,10 C24,8 28,13 34,9 C40,5 46,8 52,4 C56,2 58,3 60,1" stroke="#22c55e" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span class="m1-chip-big">+$312</span>
+        <span class="m1-chip-pct">+1.50%</span>
+        <div class="m1-chip-kv">
+          <span>总资产 <b>$20,800</b></span>
+          <span>回撤 <b style="color:var(--red)">-4.2%</b></span>
+          <span>胜率 <b>63%</b></span>
+          <span>可用 <b>$8,736</b></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="m1-cards">
+    <div class="m1-card buy">
+      <div class="m1-ctop"><span class="m1-strat">趋势跟随 V2</span><span class="badge badge-auto">自动</span></div>
+      <div><div class="m1-sym buy-c">BTC</div><div class="m1-dir">多 0.12</div></div>
+      <div class="m1-cbot">
+        <div><div class="m1-entry">入场 <b>82,340</b></div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="m1-pnl-badge pos">+$218</span>
+          <span class="m1-sig buy-c">BUY</span>
+        </div>
+      </div>
+    </div>
+    <div class="m1-card sell">
+      <div class="m1-ctop"><span class="m1-strat">均值回归 α</span><span class="badge badge-semi">半自动</span></div>
+      <div><div class="m1-sym sell-c">ETH</div><div class="m1-dir">空 1.50</div></div>
+      <div class="m1-cbot">
+        <div><div class="m1-entry">入场 <b>1,923</b></div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="m1-pnl-badge neg" style="background:rgba(239,68,68,.12)">-$38</span>
+          <span class="m1-sig sell-c">SELL</span>
+        </div>
+      </div>
+    </div>
+    <div class="m1-card hold">
+      <div class="m1-ctop"><span class="m1-strat">突破追单 B</span><span class="badge badge-sug">建议</span></div>
+      <div><div class="m1-sym hold-c">SOL</div><div class="m1-dir">多 12.0</div></div>
+      <div class="m1-cbot">
+        <div><div class="m1-entry">入场 <b>138</b></div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="m1-pnl-badge pos">+$73</span>
+          <span class="m1-sig hold-c">HOLD</span>
+        </div>
+      </div>
+    </div>
+    <div class="m1-card" style="border-style:dashed;opacity:.35;justify-content:center;align-items:center;color:var(--muted);font-size:11px;min-width:100px;flex:0 0 auto">+ 策略</div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+  M2：左侧固定窄竖栏显示收益，右侧全宽卡片
+═══════════════════════════════════════════ -->
+<div>
+<h3>M2 — 左侧 90px 收益竖栏 · 右侧全宽策略卡（竖线自然分割，无上下对齐问题）</h3>
+<div class="bar" style="height:160px">
+  <div class="hd">
+    <div class="hd-tab" style="width:90px;justify-content:center;border-right:1px solid var(--border)">
+      收益
+    </div>
+    <div class="hd-tab" style="flex:1;border-right:none">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+        <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+      </svg>
+      持仓策略
+    </div>
+    <div class="hd-right">
+      <div style="display:flex;gap:2px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:2px">
+        <button style="width:22px;height:18px;border:none;background:#ffffff14;border-radius:3px;color:var(--txt);cursor:pointer;display:flex;align-items:center;justify-content:center">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button style="width:22px;height:18px;border:none;background:none;border-radius:3px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><line x1="1" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="1" y1="10.5" x2="13" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="m2-body">
+    <div class="m2-pnl-col">
+      <div class="m2-big">+$312</div>
+      <div class="m2-pct">+1.50%</div>
+      <div class="m2-kvrow"><span class="k">总资产</span><span class="v">$20.8k</span></div>
+      <div class="m2-kvrow"><span class="k">回撤</span><span class="v neg">-4.2%</span></div>
+      <div class="m2-kvrow"><span class="k">胜率</span><span class="v">63%</span></div>
+      <div class="m2-spark">
+        <svg class="spark" viewBox="0 0 70 22" preserveAspectRatio="none">
+          <path d="M0,18 C8,15 15,13 22,10 C30,7 34,12 40,8 C48,4 55,6 70,2" stroke="#22c55e" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="m2-cards">
+      <div class="m2-card buy">
+        <div class="m2-top"><span style="font-size:10px;font-weight:600">趋势跟随 V2</span><span class="badge badge-auto">自动</span></div>
+        <div><div class="m2-sym buy-c">BTC</div><div class="m2-mid">多 0.12</div></div>
+        <div class="m2-bot">
+          <div class="m2-kv"><div class="k">入场</div><div class="v">82,340</div></div>
+          <div class="m2-kv" style="text-align:right"><div class="k">盈亏</div><div class="v pos">+$218</div></div>
+          <div class="m2-sig buy-c">BUY</div>
+        </div>
+      </div>
+      <div class="m2-card sell">
+        <div class="m2-top"><span style="font-size:10px;font-weight:600">均值回归 α</span><span class="badge badge-semi">半自动</span></div>
+        <div><div class="m2-sym sell-c">ETH</div><div class="m2-mid">空 1.50</div></div>
+        <div class="m2-bot">
+          <div class="m2-kv"><div class="k">入场</div><div class="v">1,923</div></div>
+          <div class="m2-kv" style="text-align:right"><div class="k">盈亏</div><div class="v neg">-$38</div></div>
+          <div class="m2-sig sell-c">SELL</div>
+        </div>
+      </div>
+      <div class="m2-card hold">
+        <div class="m2-top"><span style="font-size:10px;font-weight:600">突破追单 B</span><span class="badge badge-sug">建议</span></div>
+        <div><div class="m2-sym hold-c">SOL</div><div class="m2-mid">多 12.0</div></div>
+        <div class="m2-bot">
+          <div class="m2-kv"><div class="k">入场</div><div class="v">138</div></div>
+          <div class="m2-kv" style="text-align:right"><div class="k">盈亏</div><div class="v pos">+$73</div></div>
+          <div class="m2-sig hold-c">HOLD</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+  M3：双行——上方收益数据条 + 下方全宽策略卡
+═══════════════════════════════════════════ -->
+<div>
+<h3>M3 — 上行：收益数据条（全宽）· 下行：策略卡（全宽，无并排对齐问题）</h3>
+<div class="bar" style="height:186px">
+  <div class="hd">
+    <div class="hd-tab">持仓策略 · 收益</div>
+    <div class="hd-right">
+      <div style="display:flex;gap:2px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:2px">
+        <button style="width:22px;height:18px;border:none;background:#ffffff14;border-radius:3px;color:var(--txt);cursor:pointer;display:flex;align-items:center;justify-content:center">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- 收益条 -->
+  <div class="m3-strip">
+    <span class="m3-big">+$312</span>
+    <span class="m3-pct">+1.50%</span>
+    <div class="m3-kv-row">
+      <div class="m3-kv-item"><span class="m3-kk">总资产</span><span class="m3-vv">$20,800</span></div>
+      <div class="m3-kv-item"><span class="m3-kk">回撤</span><span class="m3-vv neg">-4.2%</span></div>
+      <div class="m3-kv-item"><span class="m3-kk">胜率</span><span class="m3-vv">63%</span></div>
+      <div class="m3-kv-item"><span class="m3-kk">可用</span><span class="m3-vv">$8,736</span></div>
+      <div class="m3-spark-wrap">
+        <svg style="width:90px;height:24px;overflow:visible" viewBox="0 0 90 24" preserveAspectRatio="none">
+          <path d="M0,20 C10,17 20,15 30,12 C40,9 44,14 54,10 C64,6 72,9 80,5 C85,3 87,4 90,2" stroke="#22c55e" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <!-- 策略卡 -->
+  <div class="m3-cards">
+    <div class="m3-card buy">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)"><span style="font-weight:600;color:var(--dim)">趋势跟随 V2</span><span class="badge badge-auto">自动</span></div>
+      <div><div style="font-size:18px;font-weight:700;color:var(--green)">BTC</div><div style="font-size:11px;color:var(--muted)">多 0.12</div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px">
+        <div><div style="color:var(--muted)">入场</div><div style="font-weight:600">82,340</div></div>
+        <div style="text-align:right"><div style="color:var(--muted)">盈亏</div><div class="pos" style="font-weight:600">+$218</div></div>
+        <div style="font-size:12px;font-weight:700;align-self:flex-end" class="buy-c">BUY</div>
+      </div>
+    </div>
+    <div class="m3-card sell">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)"><span style="font-weight:600;color:var(--dim)">均值回归 α</span><span class="badge badge-semi">半自动</span></div>
+      <div><div style="font-size:18px;font-weight:700;color:var(--red)">ETH</div><div style="font-size:11px;color:var(--muted)">空 1.50</div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px">
+        <div><div style="color:var(--muted)">入场</div><div style="font-weight:600">1,923</div></div>
+        <div style="text-align:right"><div style="color:var(--muted)">盈亏</div><div class="neg" style="font-weight:600">-$38</div></div>
+        <div style="font-size:12px;font-weight:700;align-self:flex-end" class="sell-c">SELL</div>
+      </div>
+    </div>
+    <div class="m3-card hold">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)"><span style="font-weight:600;color:var(--dim)">突破追单 B</span><span class="badge badge-sug">建议</span></div>
+      <div><div style="font-size:18px;font-weight:700;color:var(--yellow)">SOL</div><div style="font-size:11px;color:var(--muted)">多 12.0</div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px">
+        <div><div style="color:var(--muted)">入场</div><div style="font-weight:600">138</div></div>
+        <div style="text-align:right"><div style="color:var(--muted)">盈亏</div><div class="pos" style="font-weight:600">+$73</div></div>
+        <div style="font-size:12px;font-weight:700;align-self:flex-end" class="hold-c">HOLD</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+  M4：所有内容全部压进一行 header + 点击展开详情
+═══════════════════════════════════════════ -->
+<div>
+<h3>M4 — 极简单行：收益 + 策略 pill 全部 in header · 点击 pill 展开详情抽屉</h3>
+<div class="bar" style="height:160px" id="m4bar">
+  <div class="m4-hd">
+    <!-- 收益区 -->
+    <div class="m4-pnl-zone">
+      <svg class="m4-spark-inline" viewBox="0 0 70 28" preserveAspectRatio="none">
+        <path d="M0,22 C8,18 16,15 24,12 C32,9 36,14 44,10 C52,6 58,9 64,5 C67,3 68,4 70,2" stroke="#22c55e" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+      </svg>
+      <span class="m4-big">+$312</span>
+      <span class="m4-pct">+1.50%</span>
+      <div class="m4-sep"></div>
+      <div class="m4-kv-inline">
+        <span>总 <b>$20.8k</b></span>
+        <span>撤 <b style="color:var(--red)">-4.2%</b></span>
+        <span>率 <b>63%</b></span>
+      </div>
+    </div>
+    <!-- 策略 pill 区 -->
+    <div class="m4-strat-zone">
+      <div class="m4-pill buy" onclick="m4open(0)" id="m4p0">
+        <span class="sym buy-c">BTC</span>
+        <span style="font-size:10px;color:var(--muted)">多</span>
+        <span class="pnl pos">+$218</span>
+        <span class="sig buy-c">BUY</span>
+      </div>
+      <div class="m4-pill sell" onclick="m4open(1)" id="m4p1">
+        <span class="sym sell-c">ETH</span>
+        <span style="font-size:10px;color:var(--muted)">空</span>
+        <span class="pnl neg">-$38</span>
+        <span class="sig sell-c">SELL</span>
+      </div>
+      <div class="m4-pill hold" onclick="m4open(2)" id="m4p2">
+        <span class="sym hold-c">SOL</span>
+        <span style="font-size:10px;color:var(--muted)">多</span>
+        <span class="pnl pos">+$73</span>
+        <span class="sig hold-c">HOLD</span>
+      </div>
+      <div style="margin-left:6px;font-size:10px;color:var(--muted);cursor:pointer;padding:4px 8px;border:1px dashed var(--border);border-radius:6px">+ 添加</div>
+    </div>
+  </div>
+  <!-- 展开抽屉 -->
+  <div class="m4-drawer" id="m4drawer">
+    <div class="m4-drawer-panel" style="border-left:3px solid var(--green)">
+      <div class="m4-dp-top">
+        <span class="m4-dp-strat">趋势跟随 V2</span>
+        <span class="badge badge-auto">自动</span>
+      </div>
+      <div><div class="m4-dp-sym buy-c">BTC</div><div class="m4-dp-dir">多 0.12</div></div>
+      <div class="m4-dp-bot">
+        <div><span class="k">入场 </span><span class="v">82,340</span></div>
+        <div><span class="k">盈亏 </span><span class="v pos">+$218</span></div>
+        <div><span class="k">信号 </span><span class="v buy-c" style="font-weight:700">BUY</span></div>
+      </div>
+    </div>
+    <div class="m4-drawer-panel" style="border-left:3px solid var(--red)">
+      <div class="m4-dp-top">
+        <span class="m4-dp-strat">均值回归 α</span>
+        <span class="badge badge-semi">半自动</span>
+      </div>
+      <div><div class="m4-dp-sym sell-c">ETH</div><div class="m4-dp-dir">空 1.50</div></div>
+      <div class="m4-dp-bot">
+        <div><span class="k">入场 </span><span class="v">1,923</span></div>
+        <div><span class="k">盈亏 </span><span class="v neg">-$38</span></div>
+        <div><span class="k">信号 </span><span class="v sell-c" style="font-weight:700">SELL</span></div>
+      </div>
+    </div>
+    <div class="m4-drawer-panel" style="border-left:3px solid var(--yellow)">
+      <div class="m4-dp-top">
+        <span class="m4-dp-strat">突破追单 B</span>
+        <span class="badge badge-sug">建议</span>
+      </div>
+      <div><div class="m4-dp-sym hold-c">SOL</div><div class="m4-dp-dir">多 12.0</div></div>
+      <div class="m4-dp-bot">
+        <div><span class="k">入场 </span><span class="v">138</span></div>
+        <div><span class="k">盈亏 </span><span class="v pos">+$73</span></div>
+        <div><span class="k">信号 </span><span class="v hold-c" style="font-weight:700">HOLD</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+let m4cur = -1;
+function m4open(i) {
+  const pills = document.querySelectorAll('.m4-pill');
+  if (m4cur === i) {
+    // 关闭
+    m4cur = -1;
+    document.getElementById('m4drawer').style.display = 'none';
+    document.getElementById('m4bar').style.height = '60px';
+    pills.forEach(p => p.style.background = '');
+  } else {
+    m4cur = i;
+    document.getElementById('m4drawer').style.display = 'flex';
+    document.getElementById('m4bar').style.height = '160px';
+    pills.forEach((p, idx) => p.style.background = idx === i ? 'rgba(255,255,255,.06)' : '');
+  }
+}
+// 默认展开第一个
+window.onload = () => { m4open(0); };
+</script>
+</body>
+</html>

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>视图切换滑块 Demo</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0c1017;
+  color: #c2cee0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 100vh;
+  padding: 40px 24px;
+  gap: 40px;
+}
+.label { font-size: 10px; color: #4a5870; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+
+:root {
+  --bg:       #0f1520;
+  --bg-hd:    #0f1520;
+  --line:     #1d2b3c;
+  --text:     #c2cee0;
+  --muted:    #66788f;
+  --dim:      #92a6be;
+}
+
+/* ═══ Demo container ═══ */
+.demo-row {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.demo-box {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+
+/* demo header bar to show context */
+.hd {
+  height: 32px; display: flex; align-items: center;
+  background: var(--bg-hd); padding: 0 8px; gap: 4px;
+  border: 1px solid var(--line); border-radius: 8px;
+  user-select: none;
+  min-width: 280px;
+}
+.tab {
+  display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  height: 22px; border-radius: 6px; font-size: 11px; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
+.tab.active {
+  color: var(--text); font-weight: 500;
+  background: rgba(255,255,255,.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.tab .dot { width: 5px; height: 5px; border-radius: 50%; }
+.tab.active .dot { background: #6080b0; box-shadow: 0 0 5px rgba(96,128,176,.35); }
+.spacer { flex: 1; }
+.close-btn {
+  width: 24px; height: 24px; border: none; border-radius: 5px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .12s;
+}
+.close-btn:hover { color: #f0607a; background: rgba(255,255,255,.05); }
+
+/* ═══ A: 药丸滑块 (Pill slider) ═══ */
+.pill-toggle {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 0;
+  position: relative;
+  height: 22px;
+}
+.pill-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color .15s;
+  position: relative;
+  z-index: 1;
+}
+.pill-opt:hover { color: var(--dim); }
+.pill-opt.active { color: var(--text); }
+.pill-slider {
+  position: absolute;
+  width: 26px; height: 18px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
+  transition: left .18s cubic-bezier(.4,0,.2,1);
+  top: 2px;
+}
+
+/* ═══ B: 微型分段控件 (Segmented) ═══ */
+.seg-toggle {
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 5px;
+  overflow: hidden;
+  height: 22px;
+}
+.seg-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 22px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all .12s;
+  border-right: 1px solid rgba(255,255,255,.06);
+}
+.seg-opt:last-child { border-right: none; }
+.seg-opt:hover { color: var(--dim); background: rgba(255,255,255,.03); }
+.seg-opt.active {
+  color: var(--text);
+  background: rgba(255,255,255,.08);
+}
+
+/* ═══ C: 背景滑块 (iOS 风) ═══ */
+.ios-toggle {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,.04);
+  border-radius: 7px;
+  padding: 2px;
+  position: relative;
+  height: 24px;
+}
+.ios-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color .15s;
+  position: relative;
+  z-index: 1;
+  gap: 0;
+}
+.ios-opt:hover { color: var(--dim); }
+.ios-opt.active { color: var(--text); }
+.ios-slider {
+  position: absolute;
+  width: 28px; height: 20px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  transition: left .2s cubic-bezier(.4,0,.2,1);
+  top: 2px;
+}
+
+/* ═══ D: 极简无框 (Minimal) ═══ */
+.min-toggle {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 22px;
+}
+.min-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all .12s;
+  background: transparent;
+}
+.min-opt:hover { color: var(--dim); }
+.min-opt.active {
+  color: var(--text);
+  background: rgba(255,255,255,.07);
+}
+
+/* ═══ E: 圆角胶囊 + 图标文字 ═══ */
+.cap-toggle {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  padding: 2px;
+  position: relative;
+  height: 22px;
+}
+.cap-opt {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 8px;
+  height: 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 9px;
+  gap: 3px;
+  transition: color .15s;
+  position: relative;
+  z-index: 1;
+  white-space: nowrap;
+}
+.cap-opt:hover { color: var(--dim); }
+.cap-opt.active { color: var(--text); }
+.cap-slider {
+  position: absolute;
+  height: 18px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  transition: left .18s cubic-bezier(.4,0,.2,1), width .18s cubic-bezier(.4,0,.2,1);
+  top: 2px;
+}
+
+/* ═══ F: 下划线指示 ═══ */
+.ul-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 22px;
+  position: relative;
+}
+.ul-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 22px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color .12s;
+}
+.ul-opt:hover { color: var(--dim); }
+.ul-opt.active { color: var(--text); }
+.ul-indicator {
+  position: absolute;
+  bottom: 0; height: 2px;
+  border-radius: 1px;
+  background: var(--text);
+  width: 26px;
+  transition: left .18s cubic-bezier(.4,0,.2,1);
+}
+
+/* ═══ SVG icons ═══ */
+svg { display: block; }
+</style>
+</head>
+<body>
+
+<div class="label">视图切换滑块 — 6 种方案对比</div>
+
+<div class="demo-row">
+
+<!-- A: 药丸滑块 -->
+<div class="demo-box">
+  <div class="label">A · 药丸滑块</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="pill-toggle" id="toggleA">
+      <div class="pill-slider" id="sliderA" style="left:2px"></div>
+      <div class="pill-opt active" onclick="switchA('card')" id="aCard">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+      </div>
+      <div class="pill-opt" onclick="switchA('list')" id="aList">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- B: 分段控件 -->
+<div class="demo-box">
+  <div class="label">B · 分段控件</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="seg-toggle" id="toggleB">
+      <div class="seg-opt active" onclick="switchB('card')" id="bCard">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+      </div>
+      <div class="seg-opt" onclick="switchB('list')" id="bList">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- C: iOS 风滑块 -->
+<div class="demo-box">
+  <div class="label">C · iOS 风滑块</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="ios-toggle" id="toggleC">
+      <div class="ios-slider" id="sliderC" style="left:2px"></div>
+      <div class="ios-opt active" onclick="switchC('card')" id="cCard">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+      </div>
+      <div class="ios-opt" onclick="switchC('list')" id="cList">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+</div><!-- row 1 -->
+
+<div class="demo-row">
+
+<!-- D: 极简无框 -->
+<div class="demo-box">
+  <div class="label">D · 极简无框</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="min-toggle" id="toggleD">
+      <div class="min-opt active" onclick="switchD('card')" id="dCard">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+      </div>
+      <div class="min-opt" onclick="switchD('list')" id="dList">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- E: 胶囊 + 文字 -->
+<div class="demo-box">
+  <div class="label">E · 胶囊 + 文字标签</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="cap-toggle" id="toggleE">
+      <div class="cap-slider" id="sliderE" style="left:2px;width:42px"></div>
+      <div class="cap-opt active" onclick="switchE('card')" id="eCard">
+        <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        卡片
+      </div>
+      <div class="cap-opt" onclick="switchE('list')" id="eList">
+        <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        列表
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- F: 下划线指示 -->
+<div class="demo-box">
+  <div class="label">F · 下划线指示</div>
+  <div class="hd">
+    <div class="tab active"><span class="dot"></span>持仓策略</div>
+    <div class="spacer"></div>
+    <div class="ul-toggle" id="toggleF">
+      <div class="ul-indicator" id="sliderF" style="left:0"></div>
+      <div class="ul-opt active" onclick="switchF('card')" id="fCard">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <rect x=".5" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y=".5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x=".5" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="7" y="6.5" width="4.5" height="5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+      </div>
+      <div class="ul-opt" onclick="switchF('list')" id="fList">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <button class="close-btn">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+        <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+</div><!-- row 2 -->
+
+<script>
+/* A: pill */
+function switchA(v) {
+  document.getElementById('aCard').classList.toggle('active', v==='card');
+  document.getElementById('aList').classList.toggle('active', v==='list');
+  document.getElementById('sliderA').style.left = v==='card' ? '2px' : '28px';
+}
+
+/* B: segmented */
+function switchB(v) {
+  document.getElementById('bCard').classList.toggle('active', v==='card');
+  document.getElementById('bList').classList.toggle('active', v==='list');
+}
+
+/* C: iOS */
+function switchC(v) {
+  document.getElementById('cCard').classList.toggle('active', v==='card');
+  document.getElementById('cList').classList.toggle('active', v==='list');
+  document.getElementById('sliderC').style.left = v==='card' ? '2px' : '30px';
+}
+
+/* D: minimal */
+function switchD(v) {
+  document.getElementById('dCard').classList.toggle('active', v==='card');
+  document.getElementById('dList').classList.toggle('active', v==='list');
+}
+
+/* E: capsule */
+function switchE(v) {
+  document.getElementById('eCard').classList.toggle('active', v==='card');
+  document.getElementById('eList').classList.toggle('active', v==='list');
+  const card = document.getElementById('eCard');
+  const list = document.getElementById('eList');
+  const slider = document.getElementById('sliderE');
+  if (v==='card') {
+    slider.style.left = '2px';
+    slider.style.width = card.offsetWidth + 'px';
+  } else {
+    slider.style.left = (card.offsetWidth + 2) + 'px';
+    slider.style.width = list.offsetWidth + 'px';
+  }
+}
+
+/* F: underline */
+function switchF(v) {
+  document.getElementById('fCard').classList.toggle('active', v==='card');
+  document.getElementById('fList').classList.toggle('active', v==='list');
+  document.getElementById('sliderF').style.left = v==='card' ? '0px' : '26px';
+}
+</script>
+</body>
+</html>

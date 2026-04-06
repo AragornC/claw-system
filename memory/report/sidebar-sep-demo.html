@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>侧边栏分区分隔方式 Demo</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0c1017;
+  color: #c2cee0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  display: flex;
+  gap: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+:root {
+  --bg:        #090d16;
+  --bg-hover:  rgba(255,255,255,.04);
+  --bg-active: rgba(255,255,255,.07);
+  --text:      #c2cee0;
+  --muted:     #4a6580;
+  --dim:       #7a90a8;
+  --border:    #182030;
+  --accent:    #3cc87a;
+  --gold:      #e8a84a;
+  --red:       #e05050;
+}
+
+/* ── label strip ── */
+.col {
+  width: 220px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.col-title {
+  font-size: 9px;
+  letter-spacing: .6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* ── shared nav ── */
+.sb-nav {
+  display: flex; align-items: center;
+  padding: 6px 8px; gap: 2px; flex-shrink: 0;
+}
+.sb-nav-btn {
+  width: 28px; height: 28px; border: none; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.sb-nav-btn.active { color: var(--text); background: rgba(255,255,255,.07); }
+
+/* ── shared section head ── */
+.sb-sec-hd {
+  display: flex; align-items: center;
+  padding: 7px 12px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .7px; color: var(--muted);
+  text-transform: uppercase;
+  cursor: pointer; user-select: none;
+}
+.sb-chev {
+  width: 14px; height: 14px;
+  display: flex; align-items: center; justify-content: center;
+  margin-right: 5px;
+  color: var(--muted);
+  transform: rotate(90deg);
+}
+.sb-chev svg { display: block; }
+.sb-sec-label { flex: 1; }
+.sb-plus {
+  background: none; border: none; color: var(--muted);
+  font-size: 14px; cursor: pointer; opacity: 0; line-height: 1;
+}
+.sb-sec-hd:hover .sb-plus { opacity: 1; }
+
+/* shared items */
+.sb-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 12px 4px 28px; cursor: pointer; font-size: 11px;
+}
+.sb-item:hover { background: var(--bg-hover); }
+.sb-item.active { background: var(--bg-active); color: var(--text); }
+.sb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.sb-dot.g { background: var(--accent); }
+.sb-dot.y { background: var(--gold); }
+.sb-dot.r { background: var(--red); }
+.sb-name { font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-meta { font-size: 9px; color: var(--muted); }
+.sb-badge {
+  margin-left: auto; font-size: 9px; padding: 1px 5px;
+  border-radius: 6px; flex-shrink: 0;
+}
+.sb-badge.g { background: rgba(60,200,122,.12); color: var(--accent); }
+.sb-badge.m { background: rgba(74,101,128,.1); color: var(--muted); }
+.sb-body { flex: 1; overflow-y: auto; }
+
+/* ─────────────────────────────────────────
+   A: 无分割 — 纯间距呼吸
+───────────────────────────────────────── */
+.sep-a .sb-sec { padding-bottom: 2px; }
+.sep-a .sb-sec-hd { padding-top: 12px; }
+.sep-a .sb-sec:first-child .sb-sec-hd { padding-top: 6px; }
+
+/* ─────────────────────────────────────────
+   B: 左侧色块标记 — section 标题前景色高亮
+───────────────────────────────────────── */
+.sep-b .sb-sec { margin: 2px 0; }
+.sep-b .sb-sec-hd {
+  padding-left: 10px;
+  border-left: 2px solid transparent;
+  margin-left: 0;
+}
+.sep-b .sb-sec:nth-child(1) .sb-sec-hd { border-left-color: rgba(60,200,122,.35); }
+.sep-b .sb-sec:nth-child(2) .sb-sec-hd { border-left-color: rgba(91,141,239,.35); }
+
+/* ─────────────────────────────────────────
+   C: 间距 + 标题背景色块
+───────────────────────────────────────── */
+.sep-c .sb-sec { margin-bottom: 4px; }
+.sep-c .sb-sec-hd {
+  margin: 4px 6px 0;
+  border-radius: 5px;
+  background: rgba(255,255,255,.03);
+  padding: 6px 8px;
+}
+
+/* ─────────────────────────────────────────
+   D: 渐隐横线 (中间淡，两端透明)
+───────────────────────────────────────── */
+.sep-d .sb-sec { position: relative; }
+.sep-d .sb-sec + .sb-sec::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 2px 16px;
+  background: linear-gradient(to right,
+    transparent 0%, rgba(255,255,255,.07) 20%,
+    rgba(255,255,255,.07) 80%, transparent 100%);
+}
+
+/* ─────────────────────────────────────────
+   E: 间距 + 浅色圆点分隔
+───────────────────────────────────────── */
+.sep-e .sb-sec + .sb-sec {
+  position: relative;
+}
+.sep-e .sb-sec + .sb-sec::before {
+  content: '···';
+  display: block;
+  text-align: center;
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: rgba(255,255,255,.08);
+  padding: 2px 0;
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────
+   F: 间距留白 — 背景微差
+───────────────────────────────────────── */
+.sep-f .sb-sec {
+  background: var(--bg);
+}
+.sep-f .sb-sec + .sb-sec {
+  margin-top: 6px;
+  position: relative;
+}
+.sep-f .sb-sec + .sb-sec::before {
+  content: '';
+  display: block;
+  height: 6px;
+  margin-top: -6px;
+  background: rgba(0,0,0,.25);
+}
+
+/* scrollbar */
+.sb-body::-webkit-scrollbar { width: 3px; }
+.sb-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- helper: shared section HTML -->
+<!-- A -->
+<div class="col">
+  <div class="col-title">A · 纯间距留白</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-a">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- B -->
+<div class="col">
+  <div class="col-title">B · 左侧彩色竖条</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-b">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- C -->
+<div class="col">
+  <div class="col-title">C · 标题背景色块</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-c">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- D -->
+<div class="col">
+  <div class="col-title">D · 渐隐横线</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-d">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- E -->
+<div class="col">
+  <div class="col-title">E · 点状间隔符</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-e">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- F -->
+<div class="col" style="border-right:none">
+  <div class="col-title">F · 深色间隔块</div>
+  <div class="sb-nav">
+    <button class="sb-nav-btn active">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+  </div>
+  <div class="sb-body sep-f">
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">特征库</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item active"><span class="sb-dot g"></span><div><div class="sb-name">volatility_prediction</div><div class="sb-meta">波动类</div></div></div>
+      <div class="sb-item"><span class="sb-dot g"></span><div><div class="sb-name">dead_cross_risk</div><div class="sb-meta">风控类</div></div></div>
+      <div class="sb-item"><span class="sb-dot y"></span><div><div class="sb-name">macd_momentum</div><div class="sb-meta">动量类</div></div></div>
+      <div class="sb-item"><span class="sb-dot"></span><div><div class="sb-name">volume_breakout</div><div class="sb-meta">成交量类</div></div></div>
+    </div>
+    <div class="sb-sec">
+      <div class="sb-sec-hd">
+        <span class="sb-chev"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sb-sec-label">策略</span>
+        <button class="sb-plus">+</button>
+      </div>
+      <div class="sb-item"><span class="sb-dot g"></span><div class="sb-name">均线交叉策略</div><span class="sb-badge g">运行中</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">波动率套利</div><span class="sb-badge m">暂停</span></div>
+      <div class="sb-item"><span class="sb-dot"></span><div class="sb-name">动量跟随</div><span class="sb-badge m">草稿</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

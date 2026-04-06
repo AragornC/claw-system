@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Trading Bar Demo C</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0e17; --panel: #0d1117; --panel2: #111722; --border: #1a2535;
+  --text: #cdd9e5; --muted: #3a5570; --dim: #1a2535;
+  --green: #00d084; --red: #ff4d6d; --gold: #f5c842; --blue: #4fa3e0;
+  --font: -apple-system, "SF Pro Text", sans-serif;
+  --mono: "SF Mono", "Fira Code", monospace;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 12px; }
+
+.trading-bar {
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ── 顶部：Ticker 走马灯 ── */
+.ticker-strip {
+  height: 28px;
+  background: rgba(0,0,0,0.3);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.ticker-track {
+  display: flex;
+  gap: 0;
+  animation: tickerScroll 20s linear infinite;
+  white-space: nowrap;
+}
+@keyframes tickerScroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 18px;
+  border-right: 1px solid var(--border);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.ticker-pair { color: var(--muted); font-size: 10px; }
+.ticker-price { color: var(--text); font-weight: 600; }
+.ticker-up { color: var(--green); font-size: 10px; }
+.ticker-dn { color: var(--red); font-size: 10px; }
+
+/* ── 底部主体 ── */
+.main-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 持仓区 */
+.pos-section {
+  width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.section-title {
+  padding: 5px 12px;
+  font-size: 9px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.pos-list { flex: 1; display: flex; flex-direction: column; }
+.pos-entry {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.pos-entry:last-child { border-bottom: none; }
+.pos-indicator { width: 3px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+.ind-long { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.ind-short { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.pos-main { flex: 1; min-width: 0; }
+.pos-symbol { font-size: 12px; font-weight: 700; }
+.pos-meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+/* mini sparkline */
+.sparkline { width: 70px; height: 28px; }
+.pos-right { text-align: right; }
+.pnl-val { font-size: 13px; font-weight: 700; font-family: var(--mono); }
+.pnl-pct { font-size: 10px; }
+.green { color: var(--green); } .red { color: var(--red); }
+
+/* 账户统计 */
+.stats-section {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+}
+.stat-key { font-size: 10px; color: var(--muted); }
+.stat-val { font-size: 12px; font-weight: 600; font-family: var(--mono); }
+
+/* 成交流 - 变速动画 */
+.flow-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.flow-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.flow-stream {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  flex-direction: column;
+  animation: streamFall 4s linear infinite;
+}
+@keyframes streamFall {
+  0% { transform: translateY(-50%); }
+  100% { transform: translateY(0%); }
+}
+.stream-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-family: var(--mono);
+  gap: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.025);
+}
+.stream-time { color: var(--muted); width: 38px; flex-shrink: 0; }
+.stream-dir { width: 22px; font-weight: 700; flex-shrink: 0; }
+.buy-dir { color: var(--green); }
+.sell-dir { color: var(--red); }
+.stream-pair { color: var(--muted); width: 50px; }
+.stream-price { font-weight: 600; flex: 1; }
+.stream-qty { color: var(--muted); }
+.stream-bar {
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div class="trading-bar">
+
+  <!-- 走马灯 -->
+  <div class="ticker-strip">
+    <div class="ticker-track">
+      <!-- × 2 无缝循环 -->
+      <div class="ticker-item"><span class="ticker-pair">BTC/USDT</span><span class="ticker-price">84,521</span><span class="ticker-up">▲2.31%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">ETH/USDT</span><span class="ticker-price">1,891</span><span class="ticker-dn">▼0.82%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">SOL/USDT</span><span class="ticker-price">142.3</span><span class="ticker-up">▲4.12%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">BNB/USDT</span><span class="ticker-price">612.5</span><span class="ticker-up">▲1.05%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">DOGE/USDT</span><span class="ticker-price">0.1823</span><span class="ticker-dn">▼1.40%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">XRP/USDT</span><span class="ticker-price">2.341</span><span class="ticker-up">▲0.67%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">ADA/USDT</span><span class="ticker-price">0.892</span><span class="ticker-dn">▼0.33%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">AVAX/USDT</span><span class="ticker-price">38.72</span><span class="ticker-up">▲2.88%</span></div>
+      <!-- 重复 -->
+      <div class="ticker-item"><span class="ticker-pair">BTC/USDT</span><span class="ticker-price">84,521</span><span class="ticker-up">▲2.31%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">ETH/USDT</span><span class="ticker-price">1,891</span><span class="ticker-dn">▼0.82%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">SOL/USDT</span><span class="ticker-price">142.3</span><span class="ticker-up">▲4.12%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">BNB/USDT</span><span class="ticker-price">612.5</span><span class="ticker-up">▲1.05%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">DOGE/USDT</span><span class="ticker-price">0.1823</span><span class="ticker-dn">▼1.40%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">XRP/USDT</span><span class="ticker-price">2.341</span><span class="ticker-up">▲0.67%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">ADA/USDT</span><span class="ticker-price">0.892</span><span class="ticker-dn">▼0.33%</span></div>
+      <div class="ticker-item"><span class="ticker-pair">AVAX/USDT</span><span class="ticker-price">38.72</span><span class="ticker-up">▲2.88%</span></div>
+    </div>
+  </div>
+
+  <!-- 主体 -->
+  <div class="main-body">
+
+    <!-- 持仓 -->
+    <div class="pos-section">
+      <div class="section-title"><span>当前持仓</span><span>2 个</span></div>
+      <div class="pos-list">
+        <div class="pos-entry">
+          <div class="pos-indicator ind-long"></div>
+          <div class="pos-main">
+            <div class="pos-symbol">BTC/USDT</div>
+            <div class="pos-meta">多 0.12 @ 82,340</div>
+          </div>
+          <svg class="sparkline" viewBox="0 0 70 28">
+            <polyline points="0,20 8,17 16,15 24,11 32,12 40,8 48,6 56,4 64,2 70,2"
+              stroke="#00d084" strokeWidth="1.2" fill="none"/>
+            <polyline points="0,20 8,17 16,15 24,11 32,12 40,8 48,6 56,4 64,2 70,2 70,28 0,28"
+              fill="rgba(0,208,132,0.08)"/>
+          </svg>
+          <div class="pos-right">
+            <div class="pnl-val green">+$228</div>
+            <div class="pnl-pct green">+2.3%</div>
+          </div>
+        </div>
+        <div class="pos-entry">
+          <div class="pos-indicator ind-short"></div>
+          <div class="pos-main">
+            <div class="pos-symbol">ETH/USDT</div>
+            <div class="pos-meta">空 1.5 @ 1,923</div>
+          </div>
+          <svg class="sparkline" viewBox="0 0 70 28">
+            <polyline points="0,8 8,10 16,12 24,15 32,14 40,18 48,20 56,22 64,24 70,26"
+              stroke="#ff4d6d" strokeWidth="1.2" fill="none"/>
+            <polyline points="0,8 8,10 16,12 24,15 32,14 40,18 48,20 56,22 64,24 70,26 70,28 0,28"
+              fill="rgba(255,77,109,0.08)"/>
+          </svg>
+          <div class="pos-right">
+            <div class="pnl-val red">−$23</div>
+            <div class="pnl-pct red">−0.8%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 账户统计 -->
+    <div class="stats-section">
+      <div class="section-title"><span>账户</span></div>
+      <div class="stat-row"><span class="stat-key">今日收益</span><span class="stat-val green">+$205</span></div>
+      <div class="stat-row"><span class="stat-key">总资产</span><span class="stat-val">$20,770</span></div>
+      <div class="stat-row"><span class="stat-key">可用余额</span><span class="stat-val">$8,320</span></div>
+      <div class="stat-row"><span class="stat-key">浮动盈亏</span><span class="stat-val green">+$205</span></div>
+      <div class="stat-row"><span class="stat-key">胜率(7d)</span><span class="stat-val">63.2%</span></div>
+      <div class="stat-row"><span class="stat-key">最大回撤</span><span class="stat-val red">4.1%</span></div>
+    </div>
+
+    <!-- 实时成交流 -->
+    <div class="flow-section">
+      <div class="section-title"><span>实时成交</span><span style="color:var(--green);font-size:8px">● LIVE</span></div>
+      <div class="flow-body">
+        <div class="flow-stream">
+          <div class="stream-item"><span class="stream-time">23:41:02</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,521</span><span class="stream-qty">0.043</span><div class="stream-bar" style="width:30px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:41:01</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">ETH/USDT</span><span class="stream-price red">1,891</span><span class="stream-qty">1.2</span><div class="stream-bar" style="width:48px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:59</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,518</span><span class="stream-qty">0.112</span><div class="stream-bar" style="width:55px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:58</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">BTC/USDT</span><span class="stream-price red">84,515</span><span class="stream-qty">0.032</span><div class="stream-bar" style="width:20px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:57</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">ETH/USDT</span><span class="stream-price green">1,893</span><span class="stream-qty">2.5</span><div class="stream-bar" style="width:70px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:55</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">ETH/USDT</span><span class="stream-price red">1,890</span><span class="stream-qty">0.8</span><div class="stream-bar" style="width:35px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:53</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,510</span><span class="stream-qty">0.071</span><div class="stream-bar" style="width:40px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:52</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">BTC/USDT</span><span class="stream-price red">84,508</span><span class="stream-qty">0.19</span><div class="stream-bar" style="width:60px;background:var(--red);opacity:0.5"></div></div>
+          <!-- 重复用于无缝 -->
+          <div class="stream-item"><span class="stream-time">23:41:02</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,521</span><span class="stream-qty">0.043</span><div class="stream-bar" style="width:30px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:41:01</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">ETH/USDT</span><span class="stream-price red">1,891</span><span class="stream-qty">1.2</span><div class="stream-bar" style="width:48px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:59</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,518</span><span class="stream-qty">0.112</span><div class="stream-bar" style="width:55px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:58</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">BTC/USDT</span><span class="stream-price red">84,515</span><span class="stream-qty">0.032</span><div class="stream-bar" style="width:20px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:57</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">ETH/USDT</span><span class="stream-price green">1,893</span><span class="stream-qty">2.5</span><div class="stream-bar" style="width:70px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:55</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">ETH/USDT</span><span class="stream-price red">1,890</span><span class="stream-qty">0.8</span><div class="stream-bar" style="width:35px;background:var(--red);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:53</span><span class="stream-dir buy-dir">买入</span><span class="stream-pair">BTC/USDT</span><span class="stream-price green">84,510</span><span class="stream-qty">0.071</span><div class="stream-bar" style="width:40px;background:var(--green);opacity:0.5"></div></div>
+          <div class="stream-item"><span class="stream-time">23:40:52</span><span class="stream-dir sell-dir">卖出</span><span class="stream-pair">BTC/USDT</span><span class="stream-price red">84,508</span><span class="stream-qty">0.19</span><div class="stream-bar" style="width:60px;background:var(--red);opacity:0.5"></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

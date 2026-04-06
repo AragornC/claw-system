@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>未连接模型引导 Demo</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-base:      #0d1117;
+  --bg-panel:     #111722;
+  --bg-hover:     #1a2332;
+  --bg-active:    #1e2d42;
+  --border:       #1e2d42;
+  --border-soft:  #192438;
+  --text-primary: #cdd9e5;
+  --text-muted:   #4a6580;
+  --text-dim:     #2a3f55;
+  --accent:       #3cc87a;
+  --accent-dim:   rgba(60,200,122,0.12);
+  --accent-gold:  #e8a84a;
+  --red:          #e05050;
+  --info:         #5b8def;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", Consolas, monospace;
+}
+html, body { height: 100%; background: #080d14; font-family: var(--font); color: var(--text-primary); font-size: 13px; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.page { max-width: 1300px; margin: 0 auto; padding: 32px 24px 60px; display: flex; flex-direction: column; gap: 36px; }
+
+/* 页头 */
+.page-head { display: flex; flex-direction: column; gap: 8px; }
+.page-head h1 { font-size: 19px; font-weight: 700; }
+.page-head p { color: var(--text-muted); font-size: 12.5px; line-height: 1.7; max-width: 640px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.badge-green { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(60,200,122,0.25); }
+.badge-blue { background: rgba(91,141,239,0.1); color: var(--info); border: 1px solid rgba(91,141,239,0.25); }
+.badge-gold { background: rgba(232,168,74,0.1); color: var(--accent-gold); border: 1px solid rgba(232,168,74,0.25); }
+
+/* 切换开关 */
+.toggle-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; width: fit-content; }
+.toggle-label { font-size: 12px; color: var(--text-muted); }
+.toggle-label b { color: var(--text-primary); }
+.toggle { position: relative; width: 36px; height: 20px; cursor: pointer; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-track { position: absolute; inset: 0; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 10px; transition: all 0.2s; }
+.toggle input:checked + .toggle-track { background: rgba(60,200,122,0.25); border-color: rgba(60,200,122,0.4); }
+.toggle-thumb { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-dim); transition: all 0.2s; }
+.toggle input:checked ~ .toggle-thumb { left: 19px; background: var(--accent); }
+.state-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+.state-on { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(60,200,122,0.3); }
+.state-off { background: rgba(224,80,80,0.12); color: var(--red); border: 1px solid rgba(224,80,80,0.25); }
+
+/* 方案网格 */
+.schemes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+/* 单个方案卡片 */
+.scheme-card { display: flex; flex-direction: column; gap: 10px; }
+.scheme-label { display: flex; align-items: center; gap: 8px; }
+.scheme-label h3 { font-size: 13px; font-weight: 700; }
+.scheme-label p { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+.scheme-tag { font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 600; }
+.recommend-tag { background: rgba(60,200,122,0.12); color: var(--accent); border: 1px solid rgba(60,200,122,0.2); }
+.alt-tag { background: rgba(91,141,239,0.1); color: var(--info); border: 1px solid rgba(91,141,239,0.2); }
+
+/* Agent Panel 模拟 */
+.mock-panel {
+  background: #0a1420;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  height: 420px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.panel-messages {
+  flex: 1; overflow-y: auto; padding: 16px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.panel-input-area { padding: 10px 12px 14px; flex-shrink: 0; }
+.panel-input-box {
+  background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: 10px; display: flex; flex-direction: column;
+  transition: border-color 0.15s;
+}
+.panel-input-box.focused, .panel-input-box:focus-within { border-color: rgba(60,200,122,0.4); }
+.panel-textarea {
+  background: transparent; border: none; outline: none;
+  color: var(--text-primary); font-family: var(--font); font-size: 12px;
+  padding: 9px 12px 6px; resize: none; min-height: 36px; line-height: 1.5;
+}
+.panel-textarea::placeholder { color: var(--text-dim); }
+.panel-textarea:disabled { cursor: not-allowed; }
+.panel-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 8px 8px;
+}
+
+/* 正常模型选择器 */
+.model-selector {
+  display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
+  background: transparent; border: 1px solid transparent; color: var(--text-muted);
+  font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.model-selector:hover { background: var(--bg-active); border-color: var(--border); color: var(--text-primary); }
+.model-selector svg { flex-shrink: 0; }
+
+/* 发送按钮 */
+.send-btn {
+  width: 28px; height: 28px; border-radius: 7px; background: var(--accent); border: none;
+  color: #000; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.send-btn:disabled { background: var(--bg-active); color: var(--text-dim); cursor: not-allowed; }
+.send-btn:not(:disabled):hover { background: #4de891; }
+
+/* 空状态 */
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.empty-icon { font-size: 26px; opacity: 0.3; }
+.empty-text { font-size: 12px; color: var(--text-dim); }
+
+/* ─── 方案 A：底部 banner ─── */
+.no-model-banner {
+  margin: 0 0 8px; padding: 9px 12px; border-radius: 8px;
+  background: rgba(232,168,74,0.08); border: 1px solid rgba(232,168,74,0.2);
+  display: flex; align-items: center; gap: 10px;
+}
+.banner-icon { font-size: 14px; flex-shrink: 0; color: var(--accent-gold); }
+.banner-text { flex: 1; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+.banner-text b { color: var(--text-primary); }
+.banner-btn {
+  padding: 4px 12px; border-radius: 6px; background: rgba(232,168,74,0.15);
+  border: 1px solid rgba(232,168,74,0.3); color: var(--accent-gold);
+  font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: all 0.15s; font-family: var(--font);
+}
+.banner-btn:hover { background: rgba(232,168,74,0.25); }
+
+/* 禁用的模型选择器 */
+.model-selector-disabled {
+  display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
+  border: 1px solid var(--border); color: var(--text-dim); font-size: 11px;
+  cursor: default; background: transparent;
+}
+
+/* ─── 方案 B：消息区 CTA 空状态 ─── */
+.cta-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 20px;
+}
+.cta-icon-wrap {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: rgba(91,141,239,0.08); border: 1px solid rgba(91,141,239,0.18);
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+}
+.cta-title { font-size: 13px; font-weight: 700; color: var(--text-primary); text-align: center; }
+.cta-desc { font-size: 11.5px; color: var(--text-muted); text-align: center; line-height: 1.65; max-width: 200px; }
+.cta-btn {
+  padding: 7px 18px; border-radius: 8px;
+  background: rgba(91,141,239,0.15); border: 1px solid rgba(91,141,239,0.3);
+  color: var(--info); font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s; font-family: var(--font); display: flex; align-items: center; gap: 6px;
+}
+.cta-btn:hover { background: rgba(91,141,239,0.25); }
+.cta-steps { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+.cta-step { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted); }
+.cta-step-num { width: 16px; height: 16px; border-radius: 50%; background: var(--bg-active); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text-dim); flex-shrink: 0; }
+
+/* ─── 方案 C：dropdown 内引导 ─── */
+.no-model-dropdown {
+  position: absolute; bottom: calc(100% + 6px); left: 0;
+  width: 220px; background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 10;
+  overflow: hidden;
+}
+.nmd-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--border); }
+.nmd-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.nmd-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.nmd-hint { font-size: 11.5px; color: var(--text-muted); line-height: 1.6; }
+.nmd-providers { display: flex; flex-direction: column; gap: 5px; }
+.nmd-provider {
+  display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 6px;
+  background: var(--bg-hover); cursor: pointer; transition: background 0.12s; border: 1px solid var(--border-soft);
+}
+.nmd-provider:hover { background: var(--bg-active); border-color: rgba(91,141,239,0.25); }
+.nmd-provider-logo { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+.nmd-provider-name { font-size: 11.5px; color: var(--text-primary); flex: 1; }
+.nmd-provider-arrow { font-size: 10px; color: var(--text-dim); }
+.nmd-footer { padding: 0 12px 10px; }
+.nmd-goto { width: 100%; padding: 6px; border-radius: 6px; background: rgba(91,141,239,0.1); border: 1px solid rgba(91,141,239,0.2); color: var(--info); font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: var(--font); transition: all 0.15s; }
+.nmd-goto:hover { background: rgba(91,141,239,0.2); }
+
+/* 带警告的模型选择器 */
+.model-selector-warn {
+  display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
+  border: 1px solid rgba(224,80,80,0.3); color: var(--red);
+  font-size: 11px; cursor: pointer; transition: all 0.15s;
+  background: rgba(224,80,80,0.06);
+}
+.model-selector-warn:hover { background: rgba(224,80,80,0.12); }
+
+/* ─── 对比区域（有模型时） ─── */
+.compare-row { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text-muted); }
+.compare-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* 说明区 */
+.scheme-pros { display: flex; flex-direction: column; gap: 4px; }
+.pro-item, .con-item { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; line-height: 1.5; }
+.pro-item { color: var(--text-muted); }
+.con-item { color: var(--text-dim); }
+.pro-mark { color: var(--accent); flex-shrink: 0; font-size: 10px; margin-top: 2px; }
+.con-mark { color: var(--red); flex-shrink: 0; font-size: 10px; margin-top: 2px; }
+
+/* 推荐卡片高亮 */
+.scheme-card.recommended .mock-panel { border-color: rgba(60,200,122,0.3); box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(60,200,122,0.1); }
+
+/* 分割线 */
+.divider { height: 1px; background: var(--border-soft); }
+
+/* 最终推荐说明 */
+.final-rec { padding: 16px 20px; border-radius: 10px; background: var(--bg-panel); border: 1px solid rgba(60,200,122,0.2); }
+.final-rec h3 { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--accent); }
+.final-rec p { font-size: 12.5px; color: var(--text-muted); line-height: 1.75; }
+.final-rec b { color: var(--text-primary); }
+.final-rec code { font-family: var(--font-mono); font-size: 11px; background: rgba(60,200,122,0.08); padding: 1px 5px; border-radius: 3px; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- 页头 -->
+  <div class="page-head">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+      <h1>未连接模型时的引导方案</h1>
+      <span class="badge badge-green">Demo</span>
+    </div>
+    <p>用户首次启动、或所有模型均断开连接时，对话框应如何引导用户去连接模型。以下提供三种方案对比，可切换「未连接」状态查看效果。</p>
+    <div class="toggle-bar" style="margin-top:6px;">
+      <span class="toggle-label">模拟状态：</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-connected" checked onchange="toggleState(this.checked)">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+      <span class="state-tag state-on" id="state-label">已连接模型 (gpt-5.4)</span>
+    </div>
+  </div>
+
+  <!-- 三方案并排 -->
+  <div class="schemes-grid">
+
+    <!-- ───── 方案 A：底部 Banner ───── -->
+    <div class="scheme-card recommended" id="card-a">
+      <div class="scheme-label">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3>方案 A — 底部 Banner</h3>
+            <span class="scheme-tag recommend-tag">推荐</span>
+          </div>
+          <p>在输入框上方展示一条提示 banner，引导用户前往设置</p>
+        </div>
+      </div>
+
+      <div class="mock-panel">
+        <div class="panel-messages" id="msg-a">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <div class="empty-text">开始一个新的对话</div>
+          </div>
+        </div>
+        <div class="panel-input-area">
+          <!-- Banner（未连接时显示）-->
+          <div class="no-model-banner" id="banner-a" style="display:none;">
+            <span class="banner-icon">⚡</span>
+            <span class="banner-text"><b>未连接任何模型</b><br>请先在设置中连接一个 AI 模型</span>
+            <button class="banner-btn" onclick="alert('跳转到设置 → 模型')">去设置</button>
+          </div>
+          <div class="panel-input-box">
+            <textarea class="panel-textarea" id="input-a" placeholder="描述你的需求…" rows="1"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <div class="panel-toolbar">
+              <div style="position:relative;">
+                <!-- 正常 -->
+                <div class="model-selector" id="ms-a-normal" onclick="toggleDropdown('a')">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/></svg>
+                  <span>gpt-5.4</span>
+                  <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                </div>
+                <!-- 未连接 -->
+                <div class="model-selector-disabled" id="ms-a-disabled" style="display:none;">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/></svg>
+                  <span>无可用模型</span>
+                </div>
+              </div>
+              <button class="send-btn" id="send-a">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scheme-pros">
+        <div class="pro-item"><span class="pro-mark">✓</span>不打断布局，引导信息量足</div>
+        <div class="pro-item"><span class="pro-mark">✓</span>一键直达设置页面</div>
+        <div class="pro-item"><span class="pro-mark">✓</span>连接后 banner 自动消失</div>
+        <div class="con-item"><span class="con-mark">–</span>输入框未禁用，用户仍可尝试输入</div>
+      </div>
+    </div>
+
+    <!-- ───── 方案 B：消息区 CTA ───── -->
+    <div class="scheme-card" id="card-b">
+      <div class="scheme-label">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3>方案 B — 消息区引导</h3>
+            <span class="scheme-tag alt-tag">可选</span>
+          </div>
+          <p>用大图标 + CTA 按钮替换空状态，视觉存在感强</p>
+        </div>
+      </div>
+
+      <div class="mock-panel">
+        <div class="panel-messages" id="msg-b">
+          <!-- 正常空状态 -->
+          <div class="empty-state" id="empty-b">
+            <div class="empty-icon">💬</div>
+            <div class="empty-text">开始一个新的对话</div>
+          </div>
+          <!-- 未连接引导 -->
+          <div class="cta-empty" id="cta-b" style="display:none;">
+            <div class="cta-icon-wrap">🔌</div>
+            <div>
+              <div class="cta-title">连接一个 AI 模型</div>
+              <div class="cta-desc" style="margin-top:4px;">需要先连接 OpenAI、DeepSeek 等模型才能开始对话</div>
+            </div>
+            <button class="cta-btn" onclick="alert('跳转到设置 → 模型')">
+              <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M16.2 10c0-.34-.03-.67-.08-1l1.57-1.23a.4.4 0 0 0 .09-.5l-1.49-2.57a.4.4 0 0 0-.48-.17l-1.85.74a7.4 7.4 0 0 0-1.73-1L12 2.42A.4.4 0 0 0 11.6 2H8.4a.4.4 0 0 0-.4.42l-.23 1.85a7.4 7.4 0 0 0-1.73 1l-1.85-.74a.4.4 0 0 0-.48.17L2.22 7.27a.39.39 0 0 0 .09.5L3.88 9c-.05.33-.08.66-.08 1s.03.67.08 1l-1.57 1.23a.4.4 0 0 0-.09.5l1.49 2.57c.1.18.31.25.48.17l1.85-.74c.53.39 1.11.72 1.73 1l.23 1.85c.04.23.24.42.4.42h3.2c.18 0 .36-.19.4-.42l.23-1.85a7.4 7.4 0 0 0 1.73-1l1.85.74c.18.08.38 0 .48-.17l1.49-2.57a.39.39 0 0 0-.09-.5L16.12 11c.05-.33.08-.66.08-1Z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              前往设置连接
+            </button>
+            <div class="cta-steps">
+              <div class="cta-step"><div class="cta-step-num">1</div>打开设置 → 模型管理</div>
+              <div class="cta-step"><div class="cta-step-num">2</div>选择任意提供商并连接</div>
+              <div class="cta-step"><div class="cta-step-num">3</div>返回即可开始对话</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel-input-area">
+          <div class="panel-input-box">
+            <textarea class="panel-textarea" id="input-b" placeholder="描述你的需求…" rows="1"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <div class="panel-toolbar">
+              <div class="model-selector" id="ms-b-normal">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/></svg>
+                <span>gpt-5.4</span>
+                <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+              </div>
+              <div class="model-selector-disabled" id="ms-b-disabled" style="display:none;">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/></svg>
+                <span>无可用模型</span>
+              </div>
+              <button class="send-btn" id="send-b">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scheme-pros">
+        <div class="pro-item"><span class="pro-mark">✓</span>引导步骤清晰，新用户友好</div>
+        <div class="pro-item"><span class="pro-mark">✓</span>视觉存在感强，不会被忽略</div>
+        <div class="con-item"><span class="con-mark">–</span>占用消息区较多空间</div>
+        <div class="con-item"><span class="con-mark">–</span>对老用户临时断连略显繁琐</div>
+      </div>
+    </div>
+
+    <!-- ───── 方案 C：下拉菜单内引导 ───── -->
+    <div class="scheme-card" id="card-c">
+      <div class="scheme-label">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3>方案 C — 选择器内引导</h3>
+            <span class="scheme-tag alt-tag">轻量</span>
+          </div>
+          <p>点击模型选择器时，下拉菜单内展示引导而非空列表</p>
+        </div>
+      </div>
+
+      <div class="mock-panel">
+        <div class="panel-messages" id="msg-c">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <div class="empty-text">开始一个新的对话</div>
+          </div>
+        </div>
+        <div class="panel-input-area">
+          <div class="panel-input-box">
+            <textarea class="panel-textarea" id="input-c" placeholder="描述你的需求…" rows="1"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <div class="panel-toolbar">
+              <div style="position:relative;">
+                <!-- 正常 -->
+                <div class="model-selector" id="ms-c-normal" onclick="toggleDropdown('c')">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/></svg>
+                  <span>gpt-5.4</span>
+                  <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                </div>
+                <!-- 未连接：警告色 -->
+                <div class="model-selector-warn" id="ms-c-warn" style="display:none;" onclick="toggleDropdown('c')">
+                  <span style="font-size:10px;">⚠</span>
+                  <span>未连接模型</span>
+                  <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                </div>
+                <!-- 未连接 dropdown -->
+                <div class="no-model-dropdown" id="dropdown-c" style="display:none;" onclick="event.stopPropagation()">
+                  <div class="nmd-head"><div class="nmd-title">选择模型</div></div>
+                  <div class="nmd-body">
+                    <div class="nmd-hint">尚未连接任何模型。选择下方提供商快速连接：</div>
+                    <div class="nmd-providers">
+                      <div class="nmd-provider" onclick="alert('跳转到设置 → OpenAI')">
+                        <div class="nmd-provider-logo" style="background:#fff;color:#000;">⬡</div>
+                        <span class="nmd-provider-name">OpenAI</span>
+                        <span class="nmd-provider-arrow">→</span>
+                      </div>
+                      <div class="nmd-provider" onclick="alert('跳转到设置 → DeepSeek')">
+                        <div class="nmd-provider-logo" style="background:#4b7cf5;color:#fff;">D</div>
+                        <span class="nmd-provider-name">DeepSeek</span>
+                        <span class="nmd-provider-arrow">→</span>
+                      </div>
+                      <div class="nmd-provider" onclick="alert('跳转到设置 → Anthropic')">
+                        <div class="nmd-provider-logo" style="background:#cc785c;color:#fff;">A</div>
+                        <span class="nmd-provider-name">Anthropic</span>
+                        <span class="nmd-provider-arrow">→</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="nmd-footer">
+                    <button class="nmd-goto" onclick="alert('跳转到设置 → 模型管理')">查看全部 →</button>
+                  </div>
+                </div>
+              </div>
+              <button class="send-btn" id="send-c">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scheme-pros">
+        <div class="pro-item"><span class="pro-mark">✓</span>布局最干净，不额外占空间</div>
+        <div class="pro-item"><span class="pro-mark">✓</span>可直接选择要跳转的提供商</div>
+        <div class="con-item"><span class="con-mark">–</span>引导信息隐藏，需主动点击才发现</div>
+        <div class="con-item"><span class="con-mark">–</span>发送按钮仍可点，用户可能困惑</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- A+C 组合演示 -->
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+      <h2 style="font-size:15px;font-weight:700;">A + C 组合效果</h2>
+      <span class="badge badge-green">推荐方案</span>
+    </div>
+    <p style="color:var(--text-muted);font-size:12.5px;margin-bottom:20px;">Banner 兜底保证用户不会错过提示；选择器下拉额外提供快速跳到具体提供商的入口。切换上方开关查看两种状态。</p>
+
+    <div style="display:grid;grid-template-columns:340px 1fr;gap:32px;align-items:start;">
+
+      <!-- 左：完整面板模拟 -->
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Agent 面板</div>
+        <div class="mock-panel" style="height:460px;">
+          <div class="panel-messages">
+            <div class="empty-state">
+              <div class="empty-icon">💬</div>
+              <div class="empty-text">开始一个新的对话</div>
+            </div>
+          </div>
+          <div class="panel-input-area">
+            <!-- A：Banner -->
+            <div id="ac-banner" style="display:none;margin-bottom:8px;padding:9px 12px;border-radius:8px;background:rgba(232,168,74,0.07);border:1px solid rgba(232,168,74,0.2);align-items:center;gap:10px;">
+              <span style="font-size:14px;color:var(--accent-gold);flex-shrink:0;">⚡</span>
+              <span style="flex:1;font-size:11.5px;color:var(--text-muted);line-height:1.5;">
+                <b style="color:var(--text-primary);">未连接任何模型</b><br>
+                请先在设置中连接一个 AI 模型后再开始对话
+              </span>
+              <button onclick="alert('跳转 → 设置 → 模型')" style="padding:4px 12px;border-radius:6px;background:rgba(232,168,74,0.15);border:1px solid rgba(232,168,74,0.3);color:var(--accent-gold);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:var(--font);">去设置</button>
+            </div>
+
+            <div class="panel-input-box">
+              <textarea id="ac-textarea" class="panel-textarea" placeholder="描述你的需求…" rows="1"
+                oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+              <div class="panel-toolbar">
+                <!-- C：模型选择器 -->
+                <div style="position:relative;">
+                  <div class="model-selector" id="ac-ms-normal" onclick="toggleAcDropdown()">
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5.5 7h5M5.5 9.5h3" stroke-linecap="round"/></svg>
+                    <span>gpt-5.4</span>
+                    <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                  </div>
+                  <div class="model-selector-warn" id="ac-ms-warn" style="display:none;" onclick="toggleAcDropdown()">
+                    <span style="font-size:10px;">⚠</span>
+                    <span>未连接模型</span>
+                    <svg viewBox="0 0 10 6" width="7" height="5" fill="currentColor"><path d="M1 1l4 4 4-4"/></svg>
+                  </div>
+                  <!-- C：快速连接下拉 -->
+                  <div class="no-model-dropdown" id="ac-dropdown" style="display:none;" onclick="event.stopPropagation()">
+                    <div class="nmd-head"><div class="nmd-title">快速连接模型</div></div>
+                    <div class="nmd-body">
+                      <div class="nmd-hint">选择提供商直接跳转配置：</div>
+                      <div class="nmd-providers">
+                        <div class="nmd-provider" onclick="alert('→ 设置 / OpenAI')">
+                          <div class="nmd-provider-logo" style="background:#fff;color:#000;font-size:13px;">⬡</div>
+                          <span class="nmd-provider-name">OpenAI</span>
+                          <span class="nmd-provider-arrow">→</span>
+                        </div>
+                        <div class="nmd-provider" onclick="alert('→ 设置 / DeepSeek')">
+                          <div class="nmd-provider-logo" style="background:#4b7cf5;color:#fff;font-weight:700;">D</div>
+                          <span class="nmd-provider-name">DeepSeek</span>
+                          <span class="nmd-provider-arrow">→</span>
+                        </div>
+                        <div class="nmd-provider" onclick="alert('→ 设置 / Anthropic')">
+                          <div class="nmd-provider-logo" style="background:#cc785c;color:#fff;font-weight:700;">A</div>
+                          <span class="nmd-provider-name">Anthropic</span>
+                          <span class="nmd-provider-arrow">→</span>
+                        </div>
+                        <div class="nmd-provider" onclick="alert('→ 设置 / Google Gemini')">
+                          <div class="nmd-provider-logo" style="background:linear-gradient(135deg,#4285f4,#34a853);color:#fff;font-size:10px;">G</div>
+                          <span class="nmd-provider-name">Google Gemini</span>
+                          <span class="nmd-provider-arrow">→</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="nmd-footer">
+                      <button class="nmd-goto" onclick="alert('→ 设置 / 全部模型')">查看全部提供商 →</button>
+                    </div>
+                  </div>
+                </div>
+                <button class="send-btn" id="ac-send">↑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：说明 -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">行为说明</div>
+
+        <div style="padding:14px 16px;border-radius:9px;background:var(--bg-panel);border:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;"></span>
+            <span style="font-size:12.5px;font-weight:700;">已连接模型时（正常态）</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--accent);flex-shrink:0;margin-top:1px;">·</span>Banner 不显示，输入框和发送按钮正常可用
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--accent);flex-shrink:0;margin-top:1px;">·</span>模型选择器显示当前模型名，点击展示可用模型列表
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:14px 16px;border-radius:9px;background:rgba(224,80,80,0.04);border:1px solid rgba(224,80,80,0.15);">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;"></span>
+            <span style="font-size:12.5px;font-weight:700;">未连接任何模型时</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--accent-gold);flex-shrink:0;font-size:10px;margin-top:2px;font-weight:700;">A</span>
+              输入框上方出现金色 Banner，写明原因 + 「去设置」直达按钮
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--accent-gold);flex-shrink:0;font-size:10px;margin-top:2px;font-weight:700;">A</span>
+              输入框 placeholder 变为「请先连接模型」，发送按钮禁用
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--red);flex-shrink:0;font-size:10px;margin-top:2px;font-weight:700;">C</span>
+              模型选择器变为红色警告「⚠ 未连接模型」
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text-muted);">
+              <span style="color:var(--red);flex-shrink:0;font-size:10px;margin-top:2px;font-weight:700;">C</span>
+              点击选择器展开下拉，可直接选择提供商跳转配置页
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:14px 16px;border-radius:9px;background:var(--bg-panel);border:1px solid var(--border);">
+          <div style="font-size:12.5px;font-weight:700;margin-bottom:8px;">实现判断（AgentPanel.tsx）</div>
+          <div style="font-family:monospace;font-size:11px;color:var(--accent);background:rgba(60,200,122,0.05);padding:10px 12px;border-radius:6px;line-height:1.9;border:1px solid rgba(60,200,122,0.1);">
+            <span style="color:var(--text-dim);">// 所有 provider 均未连接</span><br>
+            <span style="color:var(--info);">const</span> noModel = PROVIDER_IDS<br>
+            &nbsp;&nbsp;.<span style="color:var(--accent);">every</span>(pid => !auth[pid]?.connected);
+          </div>
+        </div>
+
+        <div style="padding:12px 14px;border-radius:8px;background:rgba(60,200,122,0.05);border:1px solid rgba(60,200,122,0.15);font-size:12px;color:var(--text-muted);line-height:1.7;">
+          <b style="color:var(--accent);">试试看：</b>先把上方开关切到「未连接」，再点左侧面板的「⚠ 未连接模型」，查看 C 的下拉效果
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 最终推荐 -->
+  <div class="final-rec">
+    <h3>推荐实施策略</h3>
+    <p>
+      建议采用 <b>方案 A + C 组合</b>：
+      正常情况下模型选择器显示当前模型（方案 C 的下拉逻辑保持）；
+      当检测到 <code>noConnectedModel</code> 状态时，在输入框上方插入 banner（方案 A），
+      同时模型选择器换成警告色并点击后展示方案 C 的引导下拉。
+      <b>输入框和发送按钮在未连接时禁用</b>，placeholder 改为「请先连接模型」。
+      实现方式：在 <code>AgentPanel.tsx</code> 中判断
+      <code>PROVIDER_IDS.every(pid => !auth[pid]?.connected)</code> 即可。
+    </p>
+  </div>
+
+</div>
+
+<script>
+let connected = true;
+
+function toggleState(val) {
+  connected = val;
+  const label = document.getElementById('state-label');
+  label.textContent = connected ? '已连接模型 (gpt-5.4)' : '未连接任何模型';
+  label.className = 'state-tag ' + (connected ? 'state-on' : 'state-off');
+
+  // 方案 A
+  document.getElementById('banner-a').style.display = connected ? 'none' : 'flex';
+  document.getElementById('ms-a-normal').style.display = connected ? 'flex' : 'none';
+  document.getElementById('ms-a-disabled').style.display = connected ? 'none' : 'flex';
+  document.getElementById('input-a').disabled = !connected;
+  document.getElementById('input-a').placeholder = connected ? '描述你的需求…' : '请先连接模型';
+  document.getElementById('send-a').disabled = !connected;
+
+  // 方案 B
+  document.getElementById('empty-b').style.display = connected ? 'flex' : 'none';
+  document.getElementById('cta-b').style.display = connected ? 'none' : 'flex';
+  document.getElementById('ms-b-normal').style.display = connected ? 'flex' : 'none';
+  document.getElementById('ms-b-disabled').style.display = connected ? 'none' : 'flex';
+  document.getElementById('input-b').disabled = !connected;
+  document.getElementById('input-b').placeholder = connected ? '描述你的需求…' : '请先连接模型';
+  document.getElementById('send-b').disabled = !connected;
+
+  // A+C 组合面板
+  const acBanner = document.getElementById('ac-banner');
+  const acTextarea = document.getElementById('ac-textarea');
+  const acSend = document.getElementById('ac-send');
+  const acMsNormal = document.getElementById('ac-ms-normal');
+  const acMsWarn = document.getElementById('ac-ms-warn');
+  const acDropdown = document.getElementById('ac-dropdown');
+
+  if (!connected) {
+    acBanner.style.display = 'flex';
+    acTextarea.disabled = true;
+    acTextarea.placeholder = '请先连接模型';
+    acSend.disabled = true;
+    acMsNormal.style.display = 'none';
+    acMsWarn.style.display = 'flex';
+  } else {
+    acBanner.style.display = 'none';
+    acTextarea.disabled = false;
+    acTextarea.placeholder = '描述你的需求…';
+    acSend.disabled = false;
+    acMsNormal.style.display = 'flex';
+    acMsWarn.style.display = 'none';
+    acDropdown.style.display = 'none';
+    acDropdownOpen = false;
+  }
+  document.getElementById('ms-c-normal').style.display = connected ? 'flex' : 'none';
+  document.getElementById('ms-c-warn').style.display = connected ? 'none' : 'flex';
+  document.getElementById('input-c').disabled = !connected;
+  document.getElementById('input-c').placeholder = connected ? '描述你的需求…' : '请先连接模型';
+  document.getElementById('send-c').disabled = !connected;
+  if (connected) document.getElementById('dropdown-c').style.display = 'none';
+}
+
+let dropdownOpen = { c: false };
+let acDropdownOpen = false;
+function toggleDropdown(id) {
+  if (connected && id !== 'c') return;
+  if (id === 'c' && connected) return;
+  const el = document.getElementById('dropdown-' + id);
+  if (!el) return;
+  dropdownOpen[id] = !dropdownOpen[id];
+  el.style.display = dropdownOpen[id] ? 'block' : 'none';
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('dropdown-c').style.display = 'none';
+  dropdownOpen.c = false;
+  document.getElementById('ac-dropdown').style.display = 'none';
+  acDropdownOpen = false;
+});
+
+function toggleAcDropdown() {
+  if (connected) return;
+  acDropdownOpen = !acDropdownOpen;
+  document.getElementById('ac-dropdown').style.display = acDropdownOpen ? 'block' : 'none';
+}
+</script>
+</body>
+</html>

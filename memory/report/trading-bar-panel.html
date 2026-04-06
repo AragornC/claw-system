@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trading Bar — 共享表头 Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0b1017;
+      --panel:   #101720;
+      --panel2:  #0d1520;
+      --border:  #1d2d40;
+      --text:    #c8d8e8;
+      --muted:   #4e6880;
+      --dim:     #6a8aa8;
+      --green:   #2ecc78;
+      --red:     #f04a62;
+      --yellow:  #f0c040;
+      --blue:    #4a8fff;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --mono: "SF Mono", "Fira Code", Menlo, monospace;
+    }
+    body {
+      background: #070d14;
+      color: var(--text);
+      font: 12px/1.5 var(--font);
+      padding: 30px 20px 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+    h1 { font-size: 11px; color: var(--muted); letter-spacing: .6px; text-transform: uppercase; }
+    .sep {
+      width: 100%; max-width: 1400px;
+      display: flex; align-items: center; gap: 10px;
+      color: var(--muted); font-size: 11px;
+    }
+    .sep::after { content:""; flex:1; height:1px; background:var(--border); }
+    .vtag { background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:4px; padding:2px 8px; font-size:10px; color:var(--dim); white-space:nowrap; }
+    .desc { font-size:10px; color:var(--muted); }
+
+    .up { color: var(--green); }
+    .dn { color: var(--red); }
+
+    /* ── 共用：整个 bar 容器 ── */
+    .bar {
+      width: 100%; max-width: 1400px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ════════════════════════════════════
+       方案 A — Cursor 风格表头 + Tab 分区
+       表头左侧：section 标签（可关闭）
+       表头右侧：视图切换 & 全局操作
+    ════════════════════════════════════ */
+    .panel-hd {
+      height: 32px;
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background: #0d1520;
+      user-select: none;
+    }
+
+    /* 左侧：section tab 组 */
+    .panel-tabs {
+      display: flex;
+      align-items: stretch;
+      flex: 1;
+      overflow: hidden;
+    }
+    .panel-tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color .12s, background .12s;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    /* 对齐 header zone — 宽度与 body section 完全匹配 */
+    .hd-zone-pnl {
+      width: 260px; flex-shrink: 0;
+      display: flex; align-items: stretch; overflow: hidden;
+    }
+    .hd-zone-main {
+      flex: 1; min-width: 0;
+      border-left: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px; padding: 0 8px;
+      overflow: hidden;
+    }
+    .hd-zone-pnl.zone-hidden, .hd-zone-main.zone-hidden { display: none !important; }
+    .panel-tab:hover { color: var(--text); background: rgba(255,255,255,.03); }
+    .panel-tab.active {
+      color: var(--text);
+      background: var(--panel);
+    }
+    /* 激活时底部无线条，内容区背景打通 */
+    .panel-tab.active::after {
+      content: "";
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 1px;
+      background: var(--panel); /* 盖掉 border-bottom */
+    }
+    .panel-tab .tab-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      transition: background .3s, box-shadow .3s;
+    }
+    .panel-tab .tab-dot.buy  { background: var(--green); box-shadow: 0 0 4px rgba(46,204,120,.5); }
+    .panel-tab .tab-dot.sell { background: var(--red);   box-shadow: 0 0 4px rgba(240,74,98,.5); }
+    .panel-tab .tab-dot.ok   { background: var(--green); }
+    .panel-tab .tab-dot.neu  { background: var(--muted); box-shadow: none; }
+    .tab-close {
+      width: 14px; height: 14px; border-radius: 3px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: var(--muted);
+      transition: color .1s, background .1s;
+      margin-left: 2px;
+    }
+    .tab-close:hover { color: var(--text); background: rgba(255,255,255,.1); }
+
+    /* 右侧：操作区 */
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+      border-left: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .pa-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border-radius: 5px;
+      border: none; background: none;
+      color: var(--muted); cursor: pointer;
+      transition: color .12s, background .12s;
+      font-size: 13px;
+    }
+    .pa-btn:hover { color: var(--text); background: rgba(255,255,255,.07); }
+    .view-toggle {
+      display: flex; gap: 2px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 5px; padding: 2px;
+    }
+    .vt-b {
+      display: flex; align-items: center; justify-content: center;
+      width: 22px; height: 18px; border-radius: 3px;
+      border: none; background: none;
+      color: var(--muted); cursor: pointer;
+      transition: color .12s, background .12s;
+    }
+    .vt-b:hover { color: var(--dim); }
+    .vt-b.on { background: rgba(255,255,255,.08); color: var(--text); }
+
+    /* 内容区：水平分区，由激活的 tab 决定显示哪些 */
+    .panel-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .panel-section {
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      border-left: 1px solid var(--border);
+    }
+    .panel-section:first-child { border-left: none; }
+    .panel-section.visible { display: flex; }
+    /* 持仓策略占大部分，收益固定宽；单独显示时自动填满 */
+    .sec-main { flex: 1; min-width: 0; }
+    .sec-pnl  { width: 260px; flex-shrink: 0; }
+    /* 当 sec-main 不可见时，sec-pnl 撑满全宽 */
+    .panel-body:not(:has(.sec-main.visible)) .sec-pnl { flex: 1; width: auto; }
+    /* 当 sec-pnl 不可见时，sec-main 撑满 */
+    .panel-body:not(:has(.sec-pnl.visible)) .sec-main { flex: 1; }
+
+
+    /* 全宽时字体放大 — 严格控制高度总和 ≤ 138px */
+    /* bar=170 header=32 → body=138px */
+    /* big行~36 + gap4 + sub行~28 + gap4 + spark≥46 + pad上下10 = 128 ✓ */
+    .panel-body:not(:has(.sec-main.visible)) .pnl-wrap {
+      padding: 6px 24px 4px; gap: 4px;
+    }
+    .panel-body:not(:has(.sec-main.visible)) .pnl-big { font-size: 30px; line-height: 1.2; }
+    .panel-body:not(:has(.sec-main.visible)) .pnl-pct { font-size: 16px; }
+    .panel-body:not(:has(.sec-main.visible)) .kv .k   { font-size: 10px; }
+    .panel-body:not(:has(.sec-main.visible)) .kv .v   { font-size: 14px; }
+    .panel-body:not(:has(.sec-main.visible)) .spark-h  { flex: 1; min-height: 0; }
+    /* SVG 底部留 4px 呼吸空间，避免被 overflow:hidden 裁掉 */
+    .panel-body:not(:has(.sec-main.visible)) .spark-h svg {
+      padding-bottom: 4px;
+    }
+
+    /* ── 持仓卡片滚动 (X1) ── */
+    .x1-scroll {
+      display: flex; gap: 8px; padding: 8px 10px;
+      overflow-x: auto; scrollbar-width: none;
+      flex: 1; align-items: stretch; min-height: 0;
+    }
+    .x1-scroll::-webkit-scrollbar { display: none; }
+    .x1-card {
+      flex: 1 0 130px; max-width: 190px; min-width: 130px;
+      border-radius: 7px; border: 1px solid var(--border);
+      background: #0d1724; display: flex; flex-direction: column;
+      overflow: hidden; cursor: pointer; transition: border-color .2s;
+      position: relative;
+    }
+    .x1-card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      border-radius: 7px 7px 0 0;
+    }
+    .x1-card.buy::before  { background: var(--green); }
+    .x1-card.sell::before { background: var(--red); }
+    .x1-card.hold::before { background: var(--muted); }
+    .x1-card.buy  { border-color: rgba(46,204,120,.25); }
+    .x1-card.sell { border-color: rgba(240,74,98,.25); }
+    .x1-card-top { padding: 7px 9px 4px; display: flex; align-items: center; justify-content: space-between; }
+    .x1-strat { font-size: 10px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
+    .x1-mode  { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+    .x1-mode.auto   { color: var(--blue);   background: rgba(74,143,255,.12); }
+    .x1-mode.semi   { color: var(--yellow); background: rgba(240,192,64,.12); }
+    .x1-mode.manual { color: var(--muted);  background: rgba(255,255,255,.05); }
+    .x1-card-mid { flex: 1; padding: 2px 9px 5px; display: flex; align-items: center; gap: 8px; }
+    .x1-sym { font-size: 15px; font-weight: 700; }
+    .x1-dir { font-size: 10px; font-weight: 600; margin-top: 1px; }
+    .x1-dir.long  { color: var(--green); }
+    .x1-dir.short { color: var(--red); }
+    .x1-sig { font-size: 11px; font-weight: 700; margin-left: auto; }
+    .x1-sig.buy  { color: var(--green); }
+    .x1-sig.sell { color: var(--red); }
+    .x1-sig.hold { color: var(--muted); }
+    .x1-card-bot {
+      border-top: 1px solid rgba(255,255,255,.05);
+      padding: 4px 9px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    }
+    .x1-card-bot .k { font-size: 9px; color: var(--muted); }
+    .x1-card-bot .v { font-size: 10px; font-weight: 600; font-family: var(--mono); }
+
+    /* ── X3 列表 ── */
+    .x3-list { flex: 1; overflow-y: auto; scrollbar-width: none; }
+    .x3-list::-webkit-scrollbar { display: none; }
+    .x3-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.03);
+      cursor: pointer; transition: background .12s;
+    }
+    .x3-row:hover { background: rgba(255,255,255,.025); }
+    .x3-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .x3-dot.buy  { background: var(--green); box-shadow: 0 0 5px rgba(46,204,120,.5); }
+    .x3-dot.sell { background: var(--red);   box-shadow: 0 0 5px rgba(240,74,98,.5); }
+    .x3-dot.hold { background: var(--muted); }
+    .x3-sym  { font-weight: 700; font-size: 13px; min-width: 30px; }
+    .x3-dir  { font-size: 10px; font-weight: 600; min-width: 16px; }
+    .x3-dir.long  { color: var(--green); }
+    .x3-dir.short { color: var(--red); }
+    .x3-strat { font-size: 10px; color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .x3-sig  { font-size: 10px; font-weight: 700; min-width: 32px; text-align: right; }
+    .x3-sig.buy  { color: var(--green); }
+    .x3-sig.sell { color: var(--red); }
+    .x3-sig.hold { color: var(--muted); }
+    .x3-pnl { font-family: var(--mono); font-size: 12px; font-weight: 600; min-width: 52px; text-align: right; }
+
+    /* ── PnL ── */
+    .pnl-wrap { padding: 6px 12px 4px; display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+    .pnl-big { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+    .pnl-pct { font-size: 12px; font-family: var(--mono); }
+    .pnl-sub { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; flex-shrink: 0; }
+    .kv .k { font-size: 9px; color: var(--muted); line-height: 1.3; }
+    .kv .v { font-size: 11px; font-weight: 600; font-family: var(--mono); line-height: 1.3; }
+    .spark-h { flex: 1; min-height: 28px; }
+    .spark { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+<h1>ThunderClaw — 底部面板 共享表头 Demo</h1>
+
+<!-- ══════════ 方案 A ══════════ -->
+<div class="sep"><span class="vtag">方案 A</span><span class="desc">Cursor 风格 Tab · 可关闭 · 左侧信号状态点 · 右侧视图切换</span></div>
+<div class="bar" style="height:170px" id="barA">
+  <div class="panel-hd">
+    <!-- 收益 zone（260px，与 sec-pnl 对齐） -->
+    <div class="hd-zone-pnl" id="hdPnlA"></div>
+    <!-- 持仓策略 zone（flex:1，与 sec-main 对齐） -->
+    <div class="hd-zone-main" id="hdMainA">
+      <div id="tabsA" style="display:flex;align-items:stretch;flex:1;overflow:hidden;min-width:0"></div>
+      <div class="view-toggle" id="vtA">
+        <button class="vt-b on" data-v="card" onclick="switchViewA('card')">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+        <button class="vt-b" data-v="list" onclick="switchViewA('list')">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <line x1="1" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="1" y1="10.5" x2="13" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <button class="pa-btn" title="最小化面板" onclick="toggleBarA()">⌃</button>
+    </div>
+  </div>
+  <div class="panel-body" id="bodyA">
+    <div class="panel-section sec-pnl visible"  id="secPnlA"></div>
+    <div class="panel-section sec-main visible" id="secMainA"></div>
+  </div>
+</div>
+
+<!-- ══════════ 方案 B ══════════ -->
+<div class="sep"><span class="vtag">方案 B</span><span class="desc">Toggle 胶囊按钮 · 激活高亮 · 区块平分宽度</span></div>
+<div class="bar" style="height:170px" id="barB">
+  <div class="panel-hd">
+    <div class="hd-zone-pnl" id="hdPnlB" style="align-items:center;padding:0 12px">
+      <button class="toggle-pill on" id="pillPnl" onclick="togglePillB('pnl')">收益</button>
+    </div>
+    <div class="hd-zone-main" id="hdMainB">
+      <button class="toggle-pill on" id="pillPos" onclick="togglePillB('pos')">持仓策略</button>
+      <div style="flex:1"></div>
+      <div class="view-toggle" id="vtB">
+        <button class="vt-b on" onclick="switchViewB('card')">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+        <button class="vt-b" onclick="switchViewB('list')">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <line x1="1" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="1" y1="10.5" x2="13" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="panel-body" id="bodyB">
+    <div class="panel-section sec-pnl visible"  id="secPnlB"></div>
+    <div class="panel-section sec-main visible" id="secMainB"></div>
+  </div>
+</div>
+<style>
+  .toggle-pill {
+    border: 1px solid var(--border); background: rgba(255,255,255,.03);
+    color: var(--muted); border-radius: 5px; font-size: 10px;
+    padding: 3px 9px; cursor: pointer; transition: all .12s;
+  }
+  .toggle-pill.on { background: rgba(255,255,255,.08); color: var(--text); border-color: #3a526f; }
+</style>
+
+<!-- ══════════ 方案 C ══════════ -->
+<div class="sep"><span class="vtag">方案 C</span><span class="desc">图标 Tab · 悬浮时展开名称 · 极简表头</span></div>
+<div class="bar" style="height:170px" id="barC">
+  <div class="panel-hd">
+    <div class="hd-zone-pnl" id="hdPnlC" style="align-items:stretch">
+      <div class="icon-tab on" id="itPnl" onclick="toggleIconC('pnl')" title="收益">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <polyline points="1,11 4,7 7,9 10,4 13,6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>收益</span>
+        <span class="tab-close" onclick="event.stopPropagation();closeIconC('pnl')">×</span>
+      </div>
+      <div class="icon-tab-ghost" id="ghostPnl" onclick="reopenIconC('pnl')" style="display:none">+ 收益</div>
+    </div>
+    <div class="hd-zone-main" id="hdMainC" style="padding:0">
+      <div class="icon-tab on" id="itPos" onclick="toggleIconC('pos')" title="持仓策略">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          <rect x="1" y="7.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        </svg>
+        <span>持仓策略</span>
+        <span class="tab-close" onclick="event.stopPropagation();closeIconC('pos')">×</span>
+      </div>
+      <div class="icon-tab-ghost" id="ghostPos" onclick="reopenIconC('pos')" style="display:none">+ 持仓策略</div>
+      <div style="flex:1"></div>
+      <div class="panel-actions" style="border-left:none">
+        <div class="view-toggle" id="vtC">
+          <button class="vt-b on" onclick="switchViewC('card')">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="8" y="1" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="1" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="8" y="7.5" width="5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+          </button>
+          <button class="vt-b" onclick="switchViewC('list')">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <line x1="1" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="1" y1="10.5" x2="13" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="panel-body" id="bodyC">
+    <div class="panel-section sec-pnl visible"  id="secPnlC"></div>
+    <div class="panel-section sec-main visible" id="secMainC"></div>
+  </div>
+</div>
+<style>
+  .icon-tab {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 8px; cursor: pointer; font-size: 11px;
+    color: var(--muted); border-right: 1px solid transparent;
+    transition: color .12s, background .12s; position: relative;
+  }
+  .icon-tab:hover { color: var(--text); background: rgba(255,255,255,.03); }
+  .icon-tab.on { color: var(--text); border-right-color: var(--border); background: var(--panel); }
+  .icon-tab.on::after { content:""; position:absolute; bottom:-1px; left:0; right:0; height:1px; background:var(--panel); }
+  .icon-tab-ghost {
+    padding: 0 8px; font-size: 10px; color: var(--muted);
+    cursor: pointer; display: flex; align-items: center;
+    border: 1px dashed var(--border); border-radius: 5px;
+    margin: 6px 4px; transition: color .12s;
+  }
+  .icon-tab-ghost:hover { color: var(--text); }
+</style>
+
+<script>
+/* ═══════ Data ═══════ */
+const ITEMS = [
+  { sym:"BTC", dir:"long",  size:"0.12", entry:82340, pnl:218, stName:"趋势跟随 V2", signal:"buy",  conf:82, mode:"auto",   modeLabel:"自动" },
+  { sym:"ETH", dir:"short", size:"1.50", entry:1923,  pnl:-38, stName:"均值回归 α",  signal:"sell", conf:68, mode:"semi",   modeLabel:"半自动" },
+  { sym:"SOL", dir:"long",  size:"12.0", entry:138.2, pnl:73,  stName:"突破追单 B",  signal:"hold", conf:45, mode:"manual", modeLabel:"建议" },
+];
+const PNL = { v:312, equity:20800, winRate:63, maxDD:-4.2 };
+const pnlHist = Array.from({length:36},(_,i)=>200+Math.sin(i/4)*40+i*2.1+(Math.random()-.5)*14);
+
+const fmt  = (n,d=0)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pStr = v=>(v>=0?"+":"-")+"$"+fmt(Math.abs(v),0);
+const pCls = v=>v>=0?"up":"dn";
+const sigC = s=>s==="buy"?"var(--green)":s==="sell"?"var(--red)":"rgba(255,255,255,.2)";
+const sigL = s=>s==="buy"?"BUY":s==="sell"?"SELL":"HOLD";
+
+/* ─── Render helpers ─── */
+function renderCards(container) {
+  container.innerHTML = `<div class="x1-scroll">${ITEMS.map(d=>`
+    <div class="x1-card ${d.signal}">
+      <div class="x1-card-top">
+        <span class="x1-strat">${d.stName}</span>
+        <span class="x1-mode ${d.mode}">${d.modeLabel}</span>
+      </div>
+      <div class="x1-card-mid">
+        <div>
+          <div class="x1-sym">${d.sym}</div>
+          <div class="x1-dir ${d.dir}">${d.dir==="long"?"多":"空"} ${d.size}</div>
+        </div>
+        <span class="x1-sig ${d.signal}" style="margin-left:auto">${sigL(d.signal)}</span>
+      </div>
+      <div class="x1-card-bot">
+        <div><div class="k">入场</div><div class="v">${fmt(d.entry,0)}</div></div>
+        <div><div class="k">盈亏</div><div class="v ${pCls(d.pnl)}">${pStr(d.pnl)}</div></div>
+      </div>
+    </div>`).join("")}</div>`;
+}
+function renderList(container) {
+  container.innerHTML = `<div class="x3-list">${ITEMS.map(d=>`
+    <div class="x3-row">
+      <span class="x3-dot ${d.signal}"></span>
+      <span class="x3-sym">${d.sym}</span>
+      <span class="x3-dir ${d.dir}">${d.dir==="long"?"多":"空"}</span>
+      <span class="x3-strat">${d.stName}</span>
+      <span class="x3-sig ${d.signal}">${sigL(d.signal)}</span>
+      <span class="x3-pnl ${pCls(d.pnl)}">${pStr(d.pnl)}</span>
+    </div>`).join("")}</div>`;
+}
+function renderPnl(container) {
+  const arr=pnlHist, mn=Math.min(...arr), mx=Math.max(...arr);
+  const pts=arr.map((v,i)=>`${(i/(arr.length-1)*260).toFixed(1)},${(36-(v-mn)/Math.max(1,mx-mn)*34-1).toFixed(1)}`).join(" ");
+  const clr=PNL.v>=0?"var(--green)":"var(--red)";
+  const fill=PNL.v>=0?"rgba(46,204,120,.08)":"rgba(240,74,98,.08)";
+  container.innerHTML = `<div class="pnl-wrap">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <span class="pnl-big ${pCls(PNL.v)}">${pStr(PNL.v)}</span>
+      <span class="pnl-pct ${pCls(PNL.v)}">${PNL.v>=0?"+":""}${(PNL.v/PNL.equity*100).toFixed(2)}%</span>
+    </div>
+    <div class="pnl-sub">
+      <div class="kv"><div class="k">总资产</div><div class="v">$${fmt(PNL.equity,0)}</div></div>
+      <div class="kv"><div class="k">回撤</div><div class="v dn">${PNL.maxDD.toFixed(1)}%</div></div>
+      <div class="kv"><div class="k">胜率</div><div class="v">${Math.round(PNL.winRate)}%</div></div>
+      <div class="kv"><div class="k">可用</div><div class="v">$${fmt(PNL.equity*.42,0)}</div></div>
+    </div>
+    <div class="spark-h">
+      <svg class="spark" viewBox="0 0 260 36" preserveAspectRatio="none">
+        <polygon points="${pts} 260,36 0,36" fill="${fill}"/>
+        <polyline points="${pts}" stroke="${clr}" stroke-width="1.5" fill="none" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>`;
+}
+
+/* ═══════ 方案 A ═══════ */
+const stateA = { sections:{ main:true, pnl:true }, view:"card" };
+
+function renderTabsA() {
+  const overall = ITEMS.some(d=>d.signal==="buy")?"buy":ITEMS.some(d=>d.signal==="sell")?"sell":"neu";
+  // 收益 tab → 渲染进 hdPnlA（260px zone）
+  const hdPnl = document.getElementById("hdPnlA");
+  hdPnl.innerHTML = stateA.sections.pnl
+    ? `<div class="panel-tab active">
+         <span class="tab-dot ok"></span>收益
+         <span class="tab-close" onclick="event.stopPropagation();closeSectionA('pnl')">×</span>
+       </div>`
+    : `<div class="panel-tab" onclick="reopenSectionA('pnl')" style="color:var(--muted)">+ 收益</div>`;
+  // 持仓策略 tab → 渲染进 tabsA（在 hdMainA 内）
+  const tabsMain = document.getElementById("tabsA");
+  tabsMain.innerHTML = stateA.sections.main
+    ? `<div class="panel-tab active">
+         <span class="tab-dot ${overall}"></span>持仓策略
+         <span class="tab-close" onclick="event.stopPropagation();closeSectionA('main')">×</span>
+       </div>`
+    : `<div class="panel-tab" onclick="reopenSectionA('main')" style="font-style:normal;color:var(--muted)">+ 持仓策略</div>`;
+  syncZones("A");
+}
+function renderBodyA() {
+  const main = document.getElementById("secMainA");
+  const pnl  = document.getElementById("secPnlA");
+  main.classList.toggle("visible", stateA.sections.main);
+  pnl.classList.toggle("visible",  stateA.sections.pnl);
+  if (stateA.sections.main) {
+    stateA.view==="card" ? renderCards(main) : renderList(main);
+  }
+  if (stateA.sections.pnl) renderPnl(pnl);
+}
+function syncViewToggle(vtId, mainSecId) {
+  const vt   = document.getElementById(vtId);
+  const main = document.getElementById(mainSecId);
+  if (vt && main) vt.style.display = main.classList.contains("visible") ? "" : "none";
+}
+
+/* header zone 与 body section 同步宽度：pnl-hidden 时 main 撑满；main-hidden 时 pnl 撑满 */
+function syncZones(id) {
+  const pnlVis  = document.getElementById("secPnl"  + id)?.classList.contains("visible");
+  const mainVis = document.getElementById("secMain" + id)?.classList.contains("visible");
+  const zdPnl   = document.getElementById("hdPnl"  + id);
+  const zdMain  = document.getElementById("hdMain" + id);
+  if (zdPnl) {
+    zdPnl.classList.toggle("zone-hidden", !pnlVis);
+    // 若 main 区关闭，pnl 区需要撑满（去除固定宽度）
+    if (pnlVis && !mainVis) { zdPnl.style.flex = "1"; zdPnl.style.width = "auto"; }
+    else { zdPnl.style.flex = ""; zdPnl.style.width = ""; }
+  }
+  if (zdMain) zdMain.classList.toggle("zone-hidden", !mainVis);
+}
+
+window.toggleSectionA = ()=>{};
+window.closeSectionA  = (s)=>{ stateA.sections[s]=false; renderTabsA(); renderBodyA(); syncViewToggle("vtA","secMainA"); };
+window.reopenSectionA = (s)=>{ stateA.sections[s]=true;  renderTabsA(); renderBodyA(); syncViewToggle("vtA","secMainA"); };
+window.switchViewA = (v)=>{
+  stateA.view=v;
+  document.querySelectorAll("#vtA .vt-b").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  renderBodyA();
+};
+window.toggleBarA = ()=>{
+  const bar = document.getElementById("barA");
+  const body= document.getElementById("bodyA");
+  const collapsed = body.style.display==="none";
+  body.style.display = collapsed ? "" : "none";
+  bar.style.height   = collapsed ? "170px" : "32px";
+};
+
+/* ═══════ 方案 B ═══════ */
+const stateB = { pos:true, pnl:true, view:"card" };
+window.togglePillB = (s)=>{
+  stateB[s]=!stateB[s];
+  document.getElementById(s==="pos"?"pillPos":"pillPnl").classList.toggle("on",stateB[s]);
+  const main=document.getElementById("secMainB");
+  const pnl =document.getElementById("secPnlB");
+  main.classList.toggle("visible",stateB.pos);
+  pnl.classList.toggle("visible", stateB.pnl);
+  if(stateB.pos){ stateB.view==="card"?renderCards(main):renderList(main); }
+  if(stateB.pnl) renderPnl(pnl);
+  syncViewToggle("vtB","secMainB");
+  syncZones("B");
+};
+window.switchViewB = (v)=>{
+  stateB.view=v;
+  document.querySelectorAll("#vtB .vt-b").forEach((b,i)=>b.classList.toggle("on",i===(v==="card"?0:1)));
+  if(stateB.pos){ v==="card"?renderCards(document.getElementById("secMainB")):renderList(document.getElementById("secMainB")); }
+};
+
+/* ═══════ 方案 C ═══════ */
+const stateC = { pos:true, pnl:true, view:"card" };
+window.toggleIconC = (s)=>{};
+window.closeIconC  = (s)=>{
+  stateC[s]=false;
+  document.getElementById(s==="pos"?"itPos":"itPnl").style.display="none";
+  document.getElementById(s==="pos"?"ghostPos":"ghostPnl").style.display="flex";
+  const main=document.getElementById("secMainC");
+  const pnl =document.getElementById("secPnlC");
+  if(s==="pos") main.classList.remove("visible");
+  if(s==="pnl") pnl.classList.remove("visible");
+  syncViewToggle("vtC","secMainC");
+  syncZones("C");
+};
+window.reopenIconC = (s)=>{
+  stateC[s]=true;
+  document.getElementById(s==="pos"?"itPos":"itPnl").style.display="";
+  document.getElementById(s==="pos"?"ghostPos":"ghostPnl").style.display="none";
+  const main=document.getElementById("secMainC");
+  const pnl =document.getElementById("secPnlC");
+  if(s==="pos"){ main.classList.add("visible"); stateC.view==="card"?renderCards(main):renderList(main); }
+  if(s==="pnl"){ pnl.classList.add("visible"); renderPnl(pnl); }
+  syncViewToggle("vtC","secMainC");
+  syncZones("C");
+};
+window.switchViewC = (v)=>{
+  stateC.view=v;
+  document.querySelectorAll("#vtC .vt-b").forEach((b,i)=>b.classList.toggle("on",i===(v==="card"?0:1)));
+  if(stateC.pos){ v==="card"?renderCards(document.getElementById("secMainC")):renderList(document.getElementById("secMainC")); }
+};
+
+/* ═══════ Init ═══════ */
+renderTabsA();
+["A","B","C"].forEach(id=>{
+  renderCards(document.getElementById(`secMain${id}`));
+  renderPnl(document.getElementById(`secPnl${id}`));
+  syncViewToggle(`vt${id}`,`secMain${id}`);
+  syncZones(id);
+});
+renderBodyA();
+</script>
+</body>
+</html>

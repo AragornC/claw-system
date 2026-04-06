@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>连接方式切换 — B/D 细化 Demo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#0a1420;color:#c6d1e3;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;
+  padding:28px;overflow-y:auto;
+}
+h1{font-size:15px;color:#8ea0b8;font-weight:600;margin-bottom:10px;}
+.page-note{font-size:12px;color:#4f637c;margin-bottom:32px;line-height:1.6;}
+
+.demo{border:1px solid #182030;border-radius:14px;overflow:hidden;margin-bottom:40px;background:#0b1521;max-width:580px;}
+.demo-title{
+  padding:12px 16px;border-bottom:1px solid #182030;background:#0d1827;
+  font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:#4f637c;
+}
+.demo-body{padding:20px 18px;background:#0a1420;}
+
+/* ── Provider 头部 ── */
+.prov-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+.prov-logo{
+  width:38px;height:38px;border-radius:10px;border:1px solid #243247;
+  background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.prov-logo img{width:22px;height:22px;object-fit:contain;}
+.prov-name{font-size:18px;font-weight:650;color:#eef4ff;}
+.prov-sub{margin-top:3px;display:flex;align-items:center;gap:6px;font-size:11px;color:#4f637c;}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.dot.ok{background:#3cc87a;box-shadow:0 0 6px rgba(60,200,122,.55);}
+.dot.off{background:#33465c;}
+.pill{font-size:9px;padding:2px 7px;border-radius:999px;white-space:nowrap;}
+.pill.green{color:#3cc87a;background:rgba(60,200,122,.12);}
+.pill.blue{color:#68a2ff;background:rgba(104,162,255,.12);}
+
+/* ── 共用组件 ── */
+.input{
+  height:34px;width:100%;border-radius:8px;border:1px solid #2a3d52;
+  background:#09111d;color:#e3ebf8;padding:0 12px;font-size:12px;outline:none;
+}
+.input:focus{border-color:#45617d;}
+.input::placeholder{color:#41566f;}
+.btn{
+  height:30px;padding:0 14px;border-radius:7px;border:1px solid #2a3d52;
+  background:rgba(255,255,255,.04);color:#8ea0b8;font-size:11px;
+  cursor:pointer;transition:all .12s;white-space:nowrap;
+}
+.btn:hover{color:#e3ebf8;border-color:#3a516a;background:rgba(255,255,255,.07);}
+.btn.green{color:#3cc87a;border-color:rgba(60,200,122,.28);background:rgba(60,200,122,.12);}
+.btn.green:hover{background:rgba(60,200,122,.18);}
+.btn.ghost-red{color:#e56d6d;border-color:rgba(229,109,109,.2);background:rgba(229,109,109,.06);}
+.hint{font-size:10px;color:#445975;line-height:1.5;}
+.hint a{color:#68a2ff;text-decoration:none;}
+.oauth-btn{
+  display:flex;align-items:center;gap:10px;
+  height:42px;padding:0 18px;border-radius:9px;
+  border:1px solid #2a3d52;background:rgba(255,255,255,.03);
+  color:#e3ebf8;font-size:12px;font-weight:500;cursor:pointer;transition:all .12s;
+}
+.oauth-btn:hover{background:rgba(255,255,255,.06);border-color:#3a5068;}
+.oauth-btn img{width:20px;height:20px;border-radius:4px;}
+.oauth-btn .arrow{margin-left:auto;color:#3a5068;font-size:14px;}
+
+.field{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.field label{width:68px;flex-shrink:0;font-size:11px;color:#7b90ac;}
+.actions{display:flex;align-items:center;gap:8px;margin-top:12px;}
+
+.status-bar{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;
+  background:rgba(255,255,255,.025);margin-bottom:14px;font-size:10px;color:#7d92ae;
+}
+.note-box{
+  margin-top:14px;padding:10px 14px;border-radius:8px;
+  background:rgba(104,162,255,.06);color:#88b6ff;font-size:10px;line-height:1.55;
+}
+
+/* ═══ 方案 B — Tab 标签页 ═══ */
+.b-tabs{display:flex;gap:0;margin-bottom:0;flex-shrink:0;}
+.b-tab{
+  padding:9px 18px;font-size:11px;font-weight:500;cursor:pointer;
+  color:#5a7290;border-bottom:2px solid transparent;
+  transition:all .12s;user-select:none;position:relative;
+}
+.b-tab:hover{color:#a0b4cc;}
+.b-tab.active{color:#e3ebf8;border-bottom-color:#3cc87a;}
+.b-tab .tab-pill{
+  font-size:8px;padding:1px 5px;border-radius:3px;
+  background:rgba(60,200,122,.1);color:#3cc87a;
+  margin-left:5px;vertical-align:middle;
+}
+.b-divider{height:1px;background:#182030;margin-bottom:16px;}
+.b-panel{display:none;}
+.b-panel.active{display:block;}
+
+/* ═══ 方案 D — 下拉菜单 ═══ */
+.d-sel-wrap{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.d-sel-wrap label{font-size:11px;color:#7b90ac;width:68px;flex-shrink:0;}
+.d-select{
+  height:34px;padding:0 14px;border-radius:8px;
+  border:1px solid #2a3d52;background:#0c1520;color:#e3ebf8;
+  font-size:12px;cursor:pointer;outline:none;flex:1;max-width:220px;
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a7290' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 12px center;
+  padding-right:32px;
+  transition:border-color .12s;
+}
+.d-select:hover{border-color:#3a516a;}
+.d-select:focus{border-color:#45617d;}
+.d-panel{display:none;}
+.d-panel.active{display:block;}
+
+/* 已连接信息 */
+.conn-info{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;
+  border:1px solid #1a2a3a;border-radius:8px;background:rgba(60,200,122,.03);
+  margin-bottom:12px;font-size:11px;
+}
+.conn-info .email{color:#e3ebf8;font-weight:500;}
+.conn-info .time{color:#4f637c;margin-left:auto;font-size:10px;}
+</style>
+</head>
+<body>
+<h1>连接方式细化 — 方案 B (Tab) 与 方案 D (下拉)</h1>
+<div class="page-note">分别展示「未连接」和「已连接」两种状态，覆盖 OAuth 和 API Key 切换场景。</div>
+
+<!-- ═══════════════════════════════════════════
+     方案 B — 未连接 (Google Gemini)
+═══════════════════════════════════════════ -->
+<div class="demo">
+  <div class="demo-title">方案 B · Tab 标签页 — 未连接 (Google Gemini)</div>
+  <div class="demo-body">
+    <div class="prov-head">
+      <div class="prov-logo"><img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg"/></div>
+      <div>
+        <div class="prov-name">Google Gemini</div>
+        <div class="prov-sub"><span class="dot off"></span>未连接</div>
+      </div>
+    </div>
+
+    <div class="b-tabs">
+      <div class="b-tab active" onclick="bSwitch('b1','oauth',this)">OAuth 登录<span class="tab-pill">推荐</span></div>
+      <div class="b-tab" onclick="bSwitch('b1','apikey',this)">API Key</div>
+    </div>
+    <div class="b-divider"></div>
+
+    <div class="b-panel active" id="b1-oauth">
+      <div class="oauth-btn" onclick="alert('跳转 Google OAuth 授权…')">
+        <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg"/>
+        使用 Google 账号登录
+        <span class="arrow">→</span>
+      </div>
+      <div class="hint" style="margin-top:10px">一键授权，自动刷新令牌，无需手动管理 Key。可在 Google 账号安全设置中随时撤销。</div>
+    </div>
+
+    <div class="b-panel" id="b1-apikey">
+      <div class="field">
+        <label>API Key</label>
+        <div style="flex:1;display:flex;gap:8px;">
+          <input class="input" placeholder="AIza…"/>
+          <button class="btn green">连接</button>
+          <button class="btn" onclick="alert('验证中…')">测试</button>
+        </div>
+      </div>
+      <div class="hint" style="padding-left:78px;">在 <a href="#">aistudio.google.com</a> 创建项目并获取 API Key</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     方案 B — 已连接 (OpenAI)
+═══════════════════════════════════════════ -->
+<div class="demo">
+  <div class="demo-title">方案 B · Tab 标签页 — 已连接 (OpenAI)</div>
+  <div class="demo-body">
+    <div class="prov-head">
+      <div class="prov-logo"><img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg"/></div>
+      <div>
+        <div class="prov-name">OpenAI</div>
+        <div class="prov-sub"><span class="dot ok"></span><span style="color:#3cc87a">已连接</span><span style="color:#3a5068;font-size:9px">· 延迟 8s</span></div>
+      </div>
+    </div>
+
+    <div class="b-tabs">
+      <div class="b-tab active" onclick="bSwitch('b2','oauth',this)">OAuth 登录<span class="tab-pill">当前</span></div>
+      <div class="b-tab" onclick="bSwitch('b2','apikey',this)">API Key</div>
+    </div>
+    <div class="b-divider"></div>
+
+    <div class="b-panel active" id="b2-oauth">
+      <div class="conn-info">
+        <span class="dot ok"></span>
+        <span class="email">aragorn@example.com</span>
+        <span class="pill green">已授权</span>
+        <span class="time">上次验证 8s 前</span>
+      </div>
+      <div class="actions">
+        <button class="btn">重新授权</button>
+        <button class="btn" onclick="alert('刷新中…')">刷新状态</button>
+        <button class="btn ghost-red">断开授权</button>
+      </div>
+      <div class="note-box">当前通过 OAuth 主账号连接，令牌自动续期。若需切换到 API Key 方式，可在右侧 Tab 配置。</div>
+    </div>
+
+    <div class="b-panel" id="b2-apikey">
+      <div class="status-bar">
+        <span class="dot off"></span>
+        <span>API Key 未配置（当前使用 OAuth 连接）</span>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <div style="flex:1;display:flex;gap:8px;">
+          <input class="input" placeholder="sk-proj-…"/>
+          <button class="btn green">保存</button>
+          <button class="btn" onclick="alert('测试中…')">测试</button>
+        </div>
+      </div>
+      <div class="hint" style="padding-left:78px;">在 <a href="#">platform.openai.com</a> 获取 API Key。可作为备用连接方式。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     方案 D — 未连接 (Google Gemini)
+═══════════════════════════════════════════ -->
+<div class="demo">
+  <div class="demo-title">方案 D · 下拉选择 — 未连接 (Google Gemini)</div>
+  <div class="demo-body">
+    <div class="prov-head">
+      <div class="prov-logo"><img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg"/></div>
+      <div>
+        <div class="prov-name">Google Gemini</div>
+        <div class="prov-sub"><span class="dot off"></span>未连接</div>
+      </div>
+    </div>
+
+    <div class="d-sel-wrap">
+      <label>连接方式</label>
+      <select class="d-select" onchange="dSwitch('d1',this.value)">
+        <option value="oauth">OAuth 登录 (推荐)</option>
+        <option value="apikey">API Key</option>
+      </select>
+    </div>
+
+    <div class="d-panel active" id="d1-oauth">
+      <div class="oauth-btn" onclick="alert('跳转 Google OAuth 授权…')">
+        <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg"/>
+        使用 Google 账号登录
+        <span class="arrow">→</span>
+      </div>
+      <div class="hint" style="margin-top:10px">一键授权，自动刷新令牌。可在 Google 账号安全设置中随时撤销。</div>
+    </div>
+
+    <div class="d-panel" id="d1-apikey">
+      <div class="field">
+        <label>API Key</label>
+        <div style="flex:1;display:flex;gap:8px;">
+          <input class="input" placeholder="AIza…"/>
+          <button class="btn green">连接</button>
+          <button class="btn" onclick="alert('验证中…')">测试</button>
+        </div>
+      </div>
+      <div class="hint" style="padding-left:78px;">在 <a href="#">aistudio.google.com</a> 创建项目并获取 API Key</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     方案 D — 已连接 (OpenAI)
+═══════════════════════════════════════════ -->
+<div class="demo">
+  <div class="demo-title">方案 D · 下拉选择 — 已连接 (OpenAI)</div>
+  <div class="demo-body">
+    <div class="prov-head">
+      <div class="prov-logo"><img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg"/></div>
+      <div>
+        <div class="prov-name">OpenAI</div>
+        <div class="prov-sub"><span class="dot ok"></span><span style="color:#3cc87a">已连接</span><span style="color:#3a5068;font-size:9px">· 延迟 8s</span></div>
+      </div>
+    </div>
+
+    <div class="d-sel-wrap">
+      <label>连接方式</label>
+      <select class="d-select" onchange="dSwitch('d2',this.value)">
+        <option value="oauth">OAuth 登录 (当前)</option>
+        <option value="apikey">API Key</option>
+      </select>
+    </div>
+
+    <div class="d-panel active" id="d2-oauth">
+      <div class="conn-info">
+        <span class="dot ok"></span>
+        <span class="email">aragorn@example.com</span>
+        <span class="pill green">已授权</span>
+        <span class="time">上次验证 8s 前</span>
+      </div>
+      <div class="actions">
+        <button class="btn">重新授权</button>
+        <button class="btn" onclick="alert('刷新中…')">刷新状态</button>
+        <button class="btn ghost-red">断开授权</button>
+      </div>
+      <div class="note-box">当前通过 OAuth 连接。若需切换到 API Key，可在上方下拉菜单选择。</div>
+    </div>
+
+    <div class="d-panel" id="d2-apikey">
+      <div class="status-bar">
+        <span class="dot off"></span>
+        <span>API Key 未配置（当前使用 OAuth 连接）</span>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <div style="flex:1;display:flex;gap:8px;">
+          <input class="input" placeholder="sk-proj-…"/>
+          <button class="btn green">保存</button>
+          <button class="btn" onclick="alert('测试中…')">测试</button>
+        </div>
+      </div>
+      <div class="hint" style="padding-left:78px;">在 <a href="#">platform.openai.com</a> 获取 API Key，可作为备用连接。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function bSwitch(group, mode, el) {
+  const parent = el.closest('.demo-body');
+  parent.querySelectorAll('.b-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  parent.querySelectorAll('.b-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(group + '-' + mode).classList.add('active');
+}
+
+function dSwitch(group, mode) {
+  const panels = document.querySelectorAll('[id^="' + group + '-"]');
+  panels.forEach(p => p.classList.remove('active'));
+  document.getElementById(group + '-' + mode).classList.add('active');
+}
+</script>
+</body>
+</html>
