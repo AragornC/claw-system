@@ -4,7 +4,7 @@ use reqwest::Client;
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::types::{AssetBalance, ExchangeBalance, ExchangeTestResult};
+use super::types::{AccountBalance, AssetBalance, ExchangeBalance, ExchangeTestResult};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -120,6 +120,86 @@ pub async fn binance_fetch_balance(
             available_usd += free;
         }
         assets.push(AssetBalance { asset, free, locked });
+    }
+
+    assets.sort_by(|a, b| {
+        (b.free + b.locked)
+            .partial_cmp(&(a.free + a.locked))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(ExchangeBalance {
+        total_usd,
+        available_usd,
+        assets,
+    })
+}
+
+pub async fn binance_fetch_futures_balance(
+    http: &Client,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<ExchangeBalance, String> {
+    let ts = timestamp_ms();
+    let query = format!("timestamp={}&recvWindow=10000", ts);
+    let sig = hmac_hex(api_secret, &query);
+    let url = format!(
+        "https://fapi.binance.com/fapi/v2/balance?{}&signature={}",
+        query, sig
+    );
+
+    let resp = http
+        .get(&url)
+        .header("X-MBX-APIKEY", api_key)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = truncate_body(resp.text().await.unwrap_or_default());
+        return Err(format!("Binance Futures HTTP {}: {}", status, body));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Binance Futures 解析失败: {}", e))?;
+
+    let items = body
+        .as_array()
+        .ok_or("无法解析 Binance 合约余额")?;
+
+    let stables = ["USDT", "USDC", "BUSD"];
+    let mut total_usd = 0.0f64;
+    let mut available_usd = 0.0f64;
+    let mut assets: Vec<AssetBalance> = Vec::new();
+
+    for item in items {
+        let asset = item["asset"].as_str().unwrap_or("").to_string();
+        let balance: f64 = item["balance"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0.0);
+        let available: f64 = item["availableBalance"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0.0);
+        if balance.abs() < 1e-8 {
+            continue;
+        }
+        let locked = balance - available;
+        if stables.contains(&asset.as_str()) {
+            total_usd += balance;
+            available_usd += available;
+        }
+        assets.push(AssetBalance {
+            asset,
+            free: available,
+            locked: if locked > 0.0 { locked } else { 0.0 },
+        });
     }
 
     assets.sort_by(|a, b| {
@@ -299,22 +379,137 @@ pub async fn bitget_fetch_balance(
     })
 }
 
+pub async fn bitget_fetch_futures_balance(
+    http: &Client,
+    api_key: &str,
+    api_secret: &str,
+    passphrase: &str,
+) -> Result<ExchangeBalance, String> {
+    let ts = timestamp_ms().to_string();
+    let query = "productType=USDT-FUTURES";
+    let path = "/api/v2/mix/account/accounts";
+    let prehash = format!("{}GET{}?{}{}", ts, path, query, "");
+    let sig = hmac_base64(api_secret, &prehash);
+    let url = format!("https://api.bitget.com{}?{}", path, query);
+
+    let resp = http
+        .get(&url)
+        .header("ACCESS-KEY", api_key)
+        .header("ACCESS-SIGN", &sig)
+        .header("ACCESS-TIMESTAMP", &ts)
+        .header("ACCESS-PASSPHRASE", passphrase)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = truncate_body(resp.text().await.unwrap_or_default());
+        return Err(format!("Bitget Futures HTTP {}: {}", status, body));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bitget Futures 解析失败: {}", e))?;
+
+    if body["code"].as_str() != Some("00000") {
+        let msg = body["msg"].as_str().unwrap_or("未知错误");
+        return Err(format!("Bitget Futures API 错误: {}", msg));
+    }
+
+    let mut total_usd = 0.0f64;
+    let mut available_usd = 0.0f64;
+    let mut assets: Vec<AssetBalance> = Vec::new();
+
+    if let Some(data) = body["data"].as_array() {
+        for item in data {
+            let margin_coin = item["marginCoin"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let equity: f64 = item["usdtEquity"]
+                .as_str()
+                .or_else(|| item["accountEquity"].as_str())
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0);
+            let available: f64 = item["available"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0);
+            let locked: f64 = item["locked"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0);
+            if equity.abs() < 1e-8 && available.abs() < 1e-8 {
+                continue;
+            }
+            total_usd += equity;
+            available_usd += available;
+            assets.push(AssetBalance {
+                asset: margin_coin,
+                free: available,
+                locked,
+            });
+        }
+    }
+
+    assets.sort_by(|a, b| {
+        (b.free + b.locked)
+            .partial_cmp(&(a.free + a.locked))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(ExchangeBalance {
+        total_usd,
+        available_usd,
+        assets,
+    })
+}
+
 /* ═══ Dispatch helpers ═══ */
 
-pub async fn fetch_balance(
+fn empty_balance() -> ExchangeBalance {
+    ExchangeBalance {
+        total_usd: 0.0,
+        available_usd: 0.0,
+        assets: Vec::new(),
+    }
+}
+
+pub async fn fetch_account_balance(
     http: &Client,
     exchange_id: &str,
     api_key: &str,
     api_secret: &str,
     passphrase: Option<&str>,
-) -> Result<ExchangeBalance, String> {
+) -> Result<AccountBalance, String> {
     match exchange_id {
-        "binance" => binance_fetch_balance(http, api_key, api_secret).await,
+        "binance" => {
+            let spot = binance_fetch_balance(http, api_key, api_secret).await?;
+            let futures = binance_fetch_futures_balance(http, api_key, api_secret)
+                .await
+                .unwrap_or_else(|_| empty_balance());
+            Ok(AccountBalance { spot, futures })
+        }
         "okx" => {
-            okx_fetch_balance(http, api_key, api_secret, passphrase.unwrap_or("")).await
+            // OKX unified account — balance endpoint covers both spot & futures
+            let bal = okx_fetch_balance(http, api_key, api_secret, passphrase.unwrap_or("")).await?;
+            Ok(AccountBalance {
+                spot: bal.clone(),
+                futures: bal,
+            })
         }
         "bitget" => {
-            bitget_fetch_balance(http, api_key, api_secret, passphrase.unwrap_or("")).await
+            let spot = bitget_fetch_balance(http, api_key, api_secret, passphrase.unwrap_or("")).await?;
+            let futures = bitget_fetch_futures_balance(http, api_key, api_secret, passphrase.unwrap_or(""))
+                .await
+                .unwrap_or_else(|_| empty_balance());
+            Ok(AccountBalance { spot, futures })
         }
         other => Err(format!("未知交易所: {}", other)),
     }
@@ -327,11 +522,18 @@ pub async fn test_exchange(
     api_secret: &str,
     passphrase: Option<&str>,
 ) -> ExchangeTestResult {
-    match fetch_balance(http, exchange_id, api_key, api_secret, passphrase).await {
-        Ok(bal) => ExchangeTestResult {
-            success: true,
-            message: format!("连接成功，账户余额 ${:.2}", bal.total_usd),
-        },
+    match fetch_account_balance(http, exchange_id, api_key, api_secret, passphrase).await {
+        Ok(bal) => {
+            let spot_usd = bal.spot.total_usd;
+            let futures_usd = bal.futures.total_usd;
+            ExchangeTestResult {
+                success: true,
+                message: format!(
+                    "连接成功 · 现货 ${:.2} · 合约 ${:.2}",
+                    spot_usd, futures_usd
+                ),
+            }
+        }
         Err(e) => ExchangeTestResult {
             success: false,
             message: e,

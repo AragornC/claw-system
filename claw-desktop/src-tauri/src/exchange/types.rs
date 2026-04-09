@@ -31,6 +31,12 @@ pub struct AssetBalance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountBalance {
+    pub spot: ExchangeBalance,
+    pub futures: ExchangeBalance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExchangeTestResult {
     pub success: bool,
     pub message: String,

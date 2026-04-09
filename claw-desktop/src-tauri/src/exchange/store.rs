@@ -39,11 +39,8 @@ impl ExchangeStore {
 
     pub fn save_cred(&self, app: &AppHandle, cred: ExchangeCred) {
         let mut guard = self.creds.lock().unwrap();
-        if let Some(existing) = guard.iter_mut().find(|c| c.exchange_id == cred.exchange_id) {
-            *existing = cred;
-        } else {
-            guard.push(cred);
-        }
+        guard.clear();
+        guard.push(cred);
         drop(guard);
         self.persist(app);
     }
@@ -88,6 +85,10 @@ impl ExchangeStore {
             .iter()
             .map(|id| self.get_auth_state(id))
             .collect()
+    }
+
+    pub fn get_active(&self) -> Option<ExchangeCred> {
+        self.creds.lock().unwrap().first().cloned()
     }
 }
 

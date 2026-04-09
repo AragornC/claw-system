@@ -21,6 +21,7 @@ import {
   saveExchangeKey,
   deleteExchangeKey,
   testExchangeConnection,
+  getAllExchangeAuthStates,
   type ExchangeTestResult,
 } from "../lib/exchange";
 import {
@@ -487,12 +488,9 @@ function TradingPanel() {
   return (
     <div>
       <div className="stg-title">交易</div>
-      <div className="stg-desc">连接交易所 API Key，即可在工作台查看实时账户数据。</div>
 
-      <div className="stg-group-label">交易所连接</div>
-      {EXCHANGE_IDS.map((id) => (
-        <ExchangeConnectCard key={id} exchangeId={id} />
-      ))}
+      <div className="stg-group-label">交易所</div>
+      <ExchangePanel />
 
       <div className="stg-group-label">风控</div>
       <div className="stg-card">
@@ -518,64 +516,111 @@ function TradingPanel() {
   );
 }
 
-/* ── Exchange Connect Card ── */
-function ExchangeConnectCard({ exchangeId }: { exchangeId: string }) {
+/* ── 方案 B 左右分栏 ── */
+function ExchangePanel() {
+  const [selectedId, setSelectedId] = useState<string>(EXCHANGE_IDS[0]);
+  const auth = useExchangeStore((s) => s.auth);
+  const activeId = useExchangeStore((s) => s.activeId);
+
+  return (
+    <div className="ex-panel">
+      <div className="ex-panel-list">
+        {EXCHANGE_IDS.map((id) => {
+          const meta = EXCHANGE_META[id];
+          const isConnected = auth[id]?.connected ?? false;
+          return (
+            <div
+              key={id}
+              className={`ex-panel-item${selectedId === id ? " active" : ""}`}
+              onClick={() => setSelectedId(id)}
+            >
+              <div className="ex-panel-logo">
+                <img src={meta.logo} alt={meta.name} />
+              </div>
+              <div className="ex-panel-item-info">
+                <div className="ex-panel-item-name">{meta.name}</div>
+                <div className={`ex-panel-item-sub${isConnected ? " on" : ""}`}>
+                  {isConnected ? "已连接" : "未连接"}
+                </div>
+              </div>
+              <div className={`ex-panel-dot${isConnected ? " on" : ""}`} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="ex-panel-detail">
+        <ExchangeDetail
+          exchangeId={selectedId}
+          activeId={activeId}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── 右侧详情 / 表单 ── */
+function ExchangeDetail({ exchangeId, activeId }: { exchangeId: string; activeId: string | null }) {
   const auth = useExchangeStore((s) => s.auth[exchangeId]);
   const balance = useExchangeStore((s) => s.balances[exchangeId]);
   const loadingBal = useExchangeStore((s) => s.loadingBalance[exchangeId]);
-  const setAuth = useExchangeStore((s) => s.setAuth);
+  const setAllAuth = useExchangeStore((s) => s.setAllAuth);
   const setBalance = useExchangeStore((s) => s.setBalance);
   const refreshBalance = useExchangeStore((s) => s.refreshBalance);
 
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [secretInput, setSecretInput] = useState("");
   const [passphraseInput, setPassphraseInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExchangeTestResult | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [balTab, setBalTab] = useState<"spot" | "futures">("spot");
 
   const meta = EXCHANGE_META[exchangeId];
   const isConnected = auth?.connected ?? false;
+  const hasOther = activeId !== null && activeId !== exchangeId;
+  const otherName = hasOther ? EXCHANGE_META[activeId!]?.name : "";
 
-  const clearForm = () => {
-    setKeyInput("");
-    setSecretInput("");
-    setPassphraseInput("");
-    setResult(null);
-  };
+  const clearForm = () => { setKeyInput(""); setSecretInput(""); setPassphraseInput(""); setResult(null); };
 
-  const handleConnect = async () => {
+  const doConnect = async () => {
     if (!keyInput.trim() || !secretInput.trim()) return;
     if (meta.needsPassphrase && !passphraseInput.trim()) return;
     setLoading(true);
     setResult(null);
+    setShowConfirm(false);
     try {
-      const state = await saveExchangeKey(
+      await saveExchangeKey(
         exchangeId,
         keyInput.trim(),
         secretInput.trim(),
         meta.needsPassphrase ? passphraseInput.trim() : undefined
       );
-      setAuth(exchangeId, state);
+      const states = await getAllExchangeAuthStates();
+      setAllAuth(states);
       clearForm();
-      setExpanded(false);
-      setEditing(false);
       refreshBalance(exchangeId);
     } catch (e: any) {
-      setResult({ success: false, message: typeof e === "string" ? e : e?.message ?? "保存失败" });
+      setResult({ success: false, message: typeof e === "string" ? e : e?.message ?? "连接失败" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConnect = () => {
+    if (hasOther) {
+      setShowConfirm(true);
+    } else {
+      doConnect();
     }
   };
 
   const handleDisconnect = async () => {
     setLoading(true);
     try {
-      const state = await deleteExchangeKey(exchangeId);
-      setAuth(exchangeId, state);
+      await deleteExchangeKey(exchangeId);
+      const states = await getAllExchangeAuthStates();
+      setAllAuth(states);
       setBalance(exchangeId, null);
-      setEditing(false);
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -594,109 +639,115 @@ function ExchangeConnectCard({ exchangeId }: { exchangeId: string }) {
     }
   };
 
-  const showForm = (!isConnected && expanded) || (isConnected && editing);
-
   return (
-    <div className="stg-card exch-card">
-      {/* Header row */}
-      <div className="stg-row" style={{ alignItems: "flex-start" }}>
-        <div className="stg-row-info">
-          <div className="stg-row-title">{meta.name}</div>
-          {isConnected ? (
-            <div className="stg-row-desc">
-              <span className="stg-green">已连接</span>
-              {auth?.masked_key && <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>{auth.masked_key}</span>}
-              {loadingBal && <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>加载中…</span>}
-              {!loadingBal && balance != null && (
-                <span style={{ marginLeft: 6, color: "var(--text-muted)" }}>
-                  · 稳定币 <span style={{ color: "var(--accent)" }}>${balance.total_usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
-                </span>
-              )}
-            </div>
-          ) : (
-            <div className="stg-row-desc">未连接 — 点击配置 API Key</div>
-          )}
+    <div>
+      {/* Header */}
+      <div className="ex-detail-hd">
+        <div className="ex-detail-logo">
+          <img src={meta.logo} alt={meta.name} />
         </div>
-        <div className="stg-btn-group" style={{ flexShrink: 0 }}>
-          {isConnected ? (
-            <>
-              <button className="stg-btn sm" onClick={handleTest} disabled={loading}>
-                {loading && !editing ? "测试中…" : "测试"}
-              </button>
-              <button className="stg-btn sm" onClick={() => { setEditing((v) => !v); setResult(null); }}>
-                {editing ? "取消" : "更换"}
-              </button>
-              <button className="stg-btn sm danger" onClick={handleDisconnect} disabled={loading}>断开</button>
-            </>
-          ) : (
-            <button className="stg-btn sm" onClick={() => { setExpanded((v) => !v); setResult(null); }}>
-              {expanded ? "收起" : "配置"}
+        <div className="ex-detail-hd-info">
+          <div className="ex-detail-name">{meta.name}</div>
+          <div className="ex-detail-sub">
+            {isConnected ? (
+              <><span className="stg-green">已连接</span>{auth?.masked_key && <span style={{ marginLeft: 6 }}>{auth.masked_key}</span>}</>
+            ) : "未连接"}
+          </div>
+        </div>
+        {isConnected && (
+          <div className="stg-btn-group">
+            <button className="stg-btn sm" onClick={handleTest} disabled={loading}>
+              {loading ? "测试中…" : "测试"}
             </button>
-          )}
-        </div>
+            <button className="stg-btn sm danger" onClick={handleDisconnect} disabled={loading}>断开</button>
+          </div>
+        )}
       </div>
 
-      {/* Test result for connected state */}
-      {isConnected && result && !editing && (
-        <div className={`md-note ${result.success ? "" : "md-error"}`} style={{ marginTop: 4 }}>
+      {/* Test result */}
+      {result && (
+        <div className={`md-note${result.success ? "" : " md-error"}`} style={{ marginBottom: 12 }}>
           {result.message}
         </div>
       )}
 
-      {/* Inline form */}
-      {showForm && (
-        <div className="exch-form">
-          <div className="md-key-row">
-            <input
-              className="stg-input"
-              type="password"
-              placeholder={meta.keyPlaceholder}
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              autoComplete="off"
-            />
+      {/* Balance tabs (connected) */}
+      {isConnected && (
+        <div style={{ marginTop: 4 }}>
+          <div className="ex-bal-tabs">
+            <button className={`ex-bal-tab${balTab === "spot" ? " active" : ""}`} onClick={() => setBalTab("spot")}>现货</button>
+            <button className={`ex-bal-tab${balTab === "futures" ? " active" : ""}`} onClick={() => setBalTab("futures")}>合约</button>
           </div>
-          <div className="md-key-row">
-            <input
-              className="stg-input"
-              type="password"
-              placeholder={meta.secretPlaceholder}
-              value={secretInput}
-              onChange={(e) => setSecretInput(e.target.value)}
-              autoComplete="off"
-            />
+          {loadingBal && <div className="ex-detail-sub" style={{ padding: "12px 0" }}>加载余额中…</div>}
+          {!loadingBal && balance && (() => {
+            const view = balTab === "spot" ? balance.spot : balance.futures;
+            return (
+              <>
+                <div className="ex-bal-grid">
+                  <div className="ex-bal-cell"><div className="ex-bal-k">余额</div><div className="ex-bal-v accent">${view.total_usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                  <div className="ex-bal-cell"><div className="ex-bal-k">可用</div><div className="ex-bal-v green">${view.available_usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                </div>
+                {view.assets.length > 0 && (
+                  <table className="ex-asset-table">
+                    <thead><tr><th>币种</th><th className="num">可用</th><th className="num">冻结</th></tr></thead>
+                    <tbody>
+                      {view.assets.slice(0, 8).map((a) => (
+                        <tr key={a.asset}><td>{a.asset}</td><td className="num">{a.free.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td><td className="num muted">{a.locked.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {view.assets.length === 0 && (
+                  <div className="ex-detail-sub" style={{ padding: "12px 0", textAlign: "center" }}>暂无{balTab === "spot" ? "现货" : "合约"}资产</div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Form (not connected) */}
+      {!isConnected && (
+        <div className="ex-form">
+          <div className="ex-form-row">
+            <label className="ex-form-label">API Key</label>
+            <input className="ex-form-input" type="password" placeholder={meta.keyPlaceholder} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} autoComplete="off" />
+          </div>
+          <div className="ex-form-row">
+            <label className="ex-form-label">Secret Key</label>
+            <input className="ex-form-input" type="password" placeholder={meta.secretPlaceholder} value={secretInput} onChange={(e) => setSecretInput(e.target.value)} autoComplete="off" />
           </div>
           {meta.needsPassphrase && (
-            <div className="md-key-row">
-              <input
-                className="stg-input"
-                type="password"
-                placeholder={meta.passphraseLabel}
-                value={passphraseInput}
-                onChange={(e) => setPassphraseInput(e.target.value)}
-                autoComplete="off"
-              />
+            <div className="ex-form-row">
+              <label className="ex-form-label">Passphrase</label>
+              <input className="ex-form-input" type="password" placeholder="创建 API 时设置的口令" value={passphraseInput} onChange={(e) => setPassphraseInput(e.target.value)} autoComplete="off" />
             </div>
           )}
-          <div className="md-key-row" style={{ marginTop: 2 }}>
+          <div className="ex-form-footer">
             <button
               className="stg-btn sm green"
               onClick={handleConnect}
-              disabled={
-                loading ||
-                !keyInput.trim() ||
-                !secretInput.trim() ||
-                (meta.needsPassphrase && !passphraseInput.trim())
-              }
+              disabled={loading || !keyInput.trim() || !secretInput.trim() || (meta.needsPassphrase && !passphraseInput.trim())}
             >
               {loading ? "连接中…" : "连接"}
             </button>
+            <a className="ex-form-link" href={meta.apiLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>获取 API Key →</a>
           </div>
-          {result && (
-            <div className={`md-note ${result.success ? "" : "md-error"}`}>{result.message}</div>
-          )}
-          <div className="md-key-hint">
-            在 <a href="#" onClick={(e) => e.preventDefault()}>{meta.hint}</a> 获取 API Key
+        </div>
+      )}
+
+      {/* Switch confirm overlay */}
+      {showConfirm && (
+        <div className="ex-confirm-overlay">
+          <div className="ex-confirm-box">
+            <div className="ex-confirm-title">切换交易所</div>
+            <div className="ex-confirm-body">
+              当前已连接 <strong>{otherName}</strong>，连接新交易所将自动断开。确认切换到 <strong>{meta.name}</strong> 吗？
+            </div>
+            <div className="ex-confirm-acts">
+              <button className="stg-btn sm" onClick={() => setShowConfirm(false)}>取消</button>
+              <button className="stg-btn sm danger" onClick={doConnect}>断开并切换</button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "./TradingBar.css";
-import { useExchangeStore, EXCHANGE_IDS } from "../store/exchangeStore";
+import { useExchangeStore } from "../store/exchangeStore";
 
 /* ═══ Types ═══ */
 interface PositionItem {
@@ -276,28 +276,20 @@ export default function TradingBar({ onClose }: { onClose: () => void }) {
     Array.from({ length: 24 }, (_, i) => 250 - 80 + i * 7 + (Math.random() - 0.5) * 18)
   );
 
-  // Real exchange data
-  const exAuth = useExchangeStore(s => s.auth);
-  const exBalances = useExchangeStore(s => s.balances);
-  const exLoading = useExchangeStore(s => s.loadingBalance);
+  // Real exchange data — single active exchange
+  const activeId = useExchangeStore(s => s.activeId);
+  const activeBalance = useExchangeStore(s => activeId ? s.balances[activeId] : null);
+  const activeLoading = useExchangeStore(s => activeId ? s.loadingBalance[activeId] : false);
   const refreshBalance = useExchangeStore(s => s.refreshBalance);
 
-  const hasExchange = EXCHANGE_IDS.some(id => exAuth[id]?.connected);
-  const equity = EXCHANGE_IDS.reduce((sum, id) => {
-    if (exAuth[id]?.connected && exBalances[id]) return sum + (exBalances[id]?.total_usd ?? 0);
-    return sum;
-  }, 0);
-  const free = EXCHANGE_IDS.reduce((sum, id) => {
-    if (exAuth[id]?.connected && exBalances[id]) return sum + (exBalances[id]?.available_usd ?? 0);
-    return sum;
-  }, 0);
-  const refreshing = EXCHANGE_IDS.some(id => exAuth[id]?.connected && exLoading[id]);
+  const hasExchange = activeId !== null;
+  const equity = (activeBalance?.spot.total_usd ?? 0) + (activeBalance?.futures.total_usd ?? 0);
+  const free = (activeBalance?.spot.available_usd ?? 0) + (activeBalance?.futures.available_usd ?? 0);
+  const refreshing = !!activeLoading;
 
   const handleRefreshBalance = useCallback(() => {
-    EXCHANGE_IDS.forEach(id => {
-      if (exAuth[id]?.connected) refreshBalance(id);
-    });
-  }, [exAuth, refreshBalance]);
+    if (activeId) refreshBalance(activeId);
+  }, [activeId, refreshBalance]);
 
   const pnlRef = useRef(pnl);
   pnlRef.current = pnl;

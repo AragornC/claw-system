@@ -3,72 +3,92 @@ import {
   getAllExchangeAuthStates,
   fetchExchangeBalance,
   type ExchangeAuthState,
-  type ExchangeBalance,
+  type AccountBalance,
 } from "../lib/exchange";
+
+import binanceLogo from "../assets/exchanges/binance.png";
+import okxLogo from "../assets/exchanges/okx.png";
+import bitgetLogo from "../assets/exchanges/bitget.png";
 
 export const EXCHANGE_IDS = ["binance", "okx", "bitget"] as const;
 export type ExchangeId = (typeof EXCHANGE_IDS)[number];
 
 export interface ExchangeMeta {
   name: string;
+  logo: string;
   needsPassphrase: boolean;
-  passphraseLabel: string;
   keyPlaceholder: string;
   secretPlaceholder: string;
-  hint: string;
+  apiLink: string;
 }
 
 export const EXCHANGE_META: Record<string, ExchangeMeta> = {
   binance: {
     name: "Binance",
+    logo: binanceLogo,
     needsPassphrase: false,
-    passphraseLabel: "",
-    keyPlaceholder: "API Key",
-    secretPlaceholder: "Secret Key",
-    hint: "binance.com/zh-CN/my/settings/api-management",
+    keyPlaceholder: "粘贴你的 API Key",
+    secretPlaceholder: "粘贴你的 Secret Key",
+    apiLink: "https://www.binance.com/zh-CN/my/settings/api-management",
   },
   okx: {
     name: "OKX",
+    logo: okxLogo,
     needsPassphrase: true,
-    passphraseLabel: "Passphrase",
-    keyPlaceholder: "API Key",
-    secretPlaceholder: "Secret Key",
-    hint: "okx.com/account/my-api",
+    keyPlaceholder: "粘贴你的 API Key",
+    secretPlaceholder: "粘贴你的 Secret Key",
+    apiLink: "https://www.okx.com/account/my-api",
   },
   bitget: {
     name: "Bitget",
+    logo: bitgetLogo,
     needsPassphrase: true,
-    passphraseLabel: "Passphrase",
-    keyPlaceholder: "API Key",
-    secretPlaceholder: "Secret Key",
-    hint: "bitget.com/zh-CN/account/newapi",
+    keyPlaceholder: "粘贴你的 API Key",
+    secretPlaceholder: "粘贴你的 Secret Key",
+    apiLink: "https://www.bitget.com/zh-CN/account/newapi",
   },
 };
 
-interface ExchangeStore {
+interface ExchangeStoreState {
   auth: Record<string, ExchangeAuthState>;
-  balances: Record<string, ExchangeBalance | null>;
+  balances: Record<string, AccountBalance | null>;
   loadingBalance: Record<string, boolean>;
 
+  activeId: string | null;
+
   setAuth: (exchangeId: string, state: ExchangeAuthState) => void;
-  setBalance: (exchangeId: string, balance: ExchangeBalance | null) => void;
+  setAllAuth: (states: ExchangeAuthState[]) => void;
+  setBalance: (exchangeId: string, balance: AccountBalance | null) => void;
   setLoadingBalance: (exchangeId: string, v: boolean) => void;
 
   initFromBackend: () => Promise<void>;
   refreshBalance: (exchangeId: string) => Promise<void>;
-
-  // Computed helper — total USD across all connected exchanges
-  totalUsd: () => number;
-  availableUsd: () => number;
 }
 
-export const useExchangeStore = create<ExchangeStore>((set, get) => ({
+function deriveActiveId(auth: Record<string, ExchangeAuthState>): string | null {
+  for (const id of EXCHANGE_IDS) {
+    if (auth[id]?.connected) return id;
+  }
+  return null;
+}
+
+export const useExchangeStore = create<ExchangeStoreState>((set, get) => ({
   auth: {},
   balances: {},
   loadingBalance: {},
+  activeId: null,
 
   setAuth(exchangeId, state) {
-    set((s) => ({ auth: { ...s.auth, [exchangeId]: state } }));
+    set((s) => {
+      const auth = { ...s.auth, [exchangeId]: state };
+      return { auth, activeId: deriveActiveId(auth) };
+    });
+  },
+
+  setAllAuth(states) {
+    const auth: Record<string, ExchangeAuthState> = {};
+    for (const s of states) auth[s.exchange_id] = s;
+    set({ auth, activeId: deriveActiveId(auth) });
   },
 
   setBalance(exchangeId, balance) {
@@ -82,17 +102,11 @@ export const useExchangeStore = create<ExchangeStore>((set, get) => ({
   async initFromBackend() {
     try {
       const states = await getAllExchangeAuthStates();
-      const auth: Record<string, ExchangeAuthState> = {};
-      for (const s of states) {
-        auth[s.exchange_id] = s;
-      }
-      set({ auth });
-
-      for (const s of states) {
-        if (s.connected) {
-          get().refreshBalance(s.exchange_id);
-        }
-      }
+      get().setAllAuth(states);
+      const active = deriveActiveId(
+        Object.fromEntries(states.map((s) => [s.exchange_id, s]))
+      );
+      if (active) get().refreshBalance(active);
     } catch {
       // backend not ready
     }
@@ -108,25 +122,5 @@ export const useExchangeStore = create<ExchangeStore>((set, get) => ({
     } finally {
       get().setLoadingBalance(exchangeId, false);
     }
-  },
-
-  totalUsd() {
-    const { auth, balances } = get();
-    return EXCHANGE_IDS.reduce((sum, id) => {
-      if (auth[id]?.connected && balances[id]) {
-        return sum + (balances[id]?.total_usd ?? 0);
-      }
-      return sum;
-    }, 0);
-  },
-
-  availableUsd() {
-    const { auth, balances } = get();
-    return EXCHANGE_IDS.reduce((sum, id) => {
-      if (auth[id]?.connected && balances[id]) {
-        return sum + (balances[id]?.available_usd ?? 0);
-      }
-      return sum;
-    }, 0);
   },
 }));

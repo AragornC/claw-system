@@ -10,9 +10,10 @@ interface Props {
   session: Session;
   onSend: (text: string) => void;
   streaming: boolean;
+  onOpenSettings: () => void;
 }
 
-export default function AgentPanel({ width, onResize, session, onSend, streaming }: Props) {
+export default function AgentPanel({ width, onResize, session, onSend, streaming, onOpenSettings }: Props) {
   const [input, setInput] = useState("");
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -27,6 +28,8 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
   const auth = useModelStore((s) => s.auth);
   const enabledModels = useModelStore((s) => s.enabledModels);
   const selectModel = useModelStore((s) => s.selectModel);
+
+  const hasConnectedModel = Object.values(auth).some(a => a.connected);
 
   useEffect(() => {
     if (!showModelPicker) return;
@@ -149,13 +152,23 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
 
         {/* 底部输入框 */}
         <div className="agent-input-area">
+          {!hasConnectedModel && (
+            <div className="agent-no-model-banner">
+              <span className="agent-no-model-text">
+                <b>未连接任何模型</b>
+                <span>请先在设置中连接一个 AI 模型后再开始对话</span>
+              </span>
+              <button className="agent-no-model-action" onClick={onOpenSettings}>去设置</button>
+            </div>
+          )}
           <div className="agent-input-box">
             <textarea
               ref={inputRef}
               className="agent-input"
               rows={1}
-              placeholder="描述你的需求…"
+              placeholder={hasConnectedModel ? "描述你的需求…" : "请先连接模型"}
               value={input}
+              disabled={!hasConnectedModel}
               onChange={(e) => {
                 setInput(e.target.value);
                 e.target.style.height = "auto";
@@ -166,48 +179,89 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
             <div className="agent-input-toolbar">
               <div className="agent-toolbar-left">
                 <div ref={dropdownRef} style={{ position: "relative" }}>
-                  <div className="agent-model-selector" onClick={() => setShowModelPicker(v => !v)}>
-                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.4">
-                      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-                      <path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/>
-                    </svg>
-                    <span>{selectedModel.modelId}</span>
+                  <div
+                    className={`agent-model-selector${hasConnectedModel ? "" : " warn"}`}
+                    onClick={() => setShowModelPicker(v => !v)}
+                  >
+                    {hasConnectedModel ? (
+                      <>
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.4">
+                          <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+                          <path d="M5.5 7h5M5.5 9.5h3" strokeLinecap="round"/>
+                        </svg>
+                        <span>{selectedModel.modelId}</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.4">
+                          <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-4 5a.75.75 0 0 1-1.08.02L4.97 9.01a.75.75 0 1 1 1.07-1.05l1.47 1.49 3.46-4.48Z" fill="none" stroke="currentColor" strokeWidth="0"/>
+                          <circle cx="8" cy="8" r="6.25"/>
+                          <line x1="3" y1="13" x2="13" y2="3" strokeWidth="1.4"/>
+                        </svg>
+                        <span>未连接模型</span>
+                      </>
+                    )}
                     <svg viewBox="0 0 10 6" width="8" height="5" fill="currentColor">
                       <path d="M1 1l4 4 4-4"/>
                     </svg>
                   </div>
                   {showModelPicker && (
-                    <div className="agent-model-dropdown" onClick={e => e.stopPropagation()}>
-                      {PROVIDER_IDS.map(pid => {
-                        const provAuth = auth[pid];
-                        if (!provAuth?.connected) return null;
-                        const enabled = enabledModels[pid] ?? [];
-                        if (enabled.length === 0) return null;
-                        const meta = PROVIDER_META[pid];
-                        return (
-                          <div key={pid}>
-                            <div className="agent-model-group">{meta.name}</div>
-                            {enabled.map(modelId => (
-                              <div
-                                key={modelId}
-                                className={`agent-model-option ${selectedModel.providerId === pid && selectedModel.modelId === modelId ? "active" : ""}`}
-                                onClick={() => {
-                                  selectModel(pid, modelId);
-                                  setShowModelPicker(false);
-                                }}
-                              >
-                                {modelId}
+                    hasConnectedModel ? (
+                      <div className="agent-model-dropdown" onClick={e => e.stopPropagation()}>
+                        {PROVIDER_IDS.map(pid => {
+                          const provAuth = auth[pid];
+                          if (!provAuth?.connected) return null;
+                          const enabled = enabledModels[pid] ?? [];
+                          if (enabled.length === 0) return null;
+                          const meta = PROVIDER_META[pid];
+                          return (
+                            <div key={pid}>
+                              <div className="agent-model-group">{meta.name}</div>
+                              {enabled.map(modelId => (
+                                <div
+                                  key={modelId}
+                                  className={`agent-model-option ${selectedModel.providerId === pid && selectedModel.modelId === modelId ? "active" : ""}`}
+                                  onClick={() => {
+                                    selectModel(pid, modelId);
+                                    setShowModelPicker(false);
+                                  }}
+                                >
+                                  {modelId}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="agent-model-dropdown agent-guide-dropdown" onClick={e => e.stopPropagation()}>
+                        <div className="agent-guide-title">快速连接</div>
+                        {PROVIDER_IDS.map(pid => {
+                          const meta = PROVIDER_META[pid];
+                          const provAuth = auth[pid];
+                          return (
+                            <div
+                              key={pid}
+                              className="agent-guide-item"
+                              onClick={() => { setShowModelPicker(false); onOpenSettings(); }}
+                            >
+                              <div className="agent-guide-logo" style={{ background: meta.logoBg }}>
+                                <img src={meta.logo} width="14" height="14" style={{ objectFit: "contain", filter: meta.logoFilter || undefined }} alt="" />
                               </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
+                              <span className="agent-guide-name">{meta.name}</span>
+                              <span className={`agent-guide-status ${provAuth?.connected ? "ok" : ""}`}>
+                                {provAuth?.connected ? "已连接" : "未连接"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
                   )}
                 </div>
               </div>
               <div className="agent-toolbar-right">
-                <button className="agent-send" disabled={!input.trim() || streaming} onClick={handleSend}>↑</button>
+                <button className="agent-send" disabled={!input.trim() || streaming || !hasConnectedModel} onClick={handleSend}>↑</button>
               </div>
             </div>
           </div>

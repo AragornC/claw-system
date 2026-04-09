@@ -257,6 +257,29 @@
   flex-shrink: 0; font-family: var(--font-mono);
 }
 
+/* ═══ Agent sidebar panel ═══ */
+.sb-agent-item, .sb-skill-item, .sb-fn-item {
+  cursor: pointer;
+}
+.sb-agent-icon {
+  width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.sb-agent-item.active .sb-agent-icon,
+.sb-skill-item.active .sb-agent-icon,
+.sb-fn-item.active .sb-agent-icon { color: var(--text-primary); }
+.sb-mono { font-family: var(--font-mono); font-size: 10px !important; }
+.sb-perm {
+  font-size: 8px; font-weight: 600; padding: 1px 5px;
+  border-radius: 3px; flex-shrink: 0;
+  text-transform: uppercase; letter-spacing: .3px;
+}
+.sb-perm-auto { color: var(--accent); background: rgba(60,200,122,.08); }
+.sb-perm-ask { color: var(--accent-gold); background: rgba(232,168,74,.08); }
+.sb-perm-deny { color: var(--red); background: rgba(224,80,80,.08); }
+
 /* ═══ Resizer ═══ */
 .sidebar-resizer {
   width: 4px;

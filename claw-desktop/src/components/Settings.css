@@ -438,14 +438,93 @@
   background: #22c55e; flex-shrink: 0; display: inline-block;
 }
 
-/* ── Exchange Connect Card ── */
-.exch-card { margin-bottom: 8px; }
-.exch-card:last-of-type { margin-bottom: 0; }
-.exch-form {
-  padding: 10px 0 4px;
-  border-top: 1px solid var(--border);
-  margin-top: 8px;
+/* ── Exchange Panel (方案 B 左右分栏) ── */
+.ex-panel { display:flex; border:1px solid var(--border); border-radius:10px; overflow:hidden; min-height:320px; }
+.ex-panel-list { width:168px; flex-shrink:0; border-right:1px solid var(--border); background:rgba(12,21,32,.6); }
+.ex-panel-item {
+  display:flex; align-items:center; gap:10px; padding:13px 14px;
+  cursor:pointer; border-bottom:1px solid rgba(18,30,44,.8);
+  position:relative; transition:background .1s;
 }
+.ex-panel-item:last-child { border-bottom:none; }
+.ex-panel-item:hover { background:rgba(255,255,255,.03); }
+.ex-panel-item.active { background:rgba(255,255,255,.05); }
+.ex-panel-item.active::before {
+  content:''; position:absolute; left:0; top:16%; bottom:16%;
+  width:2px; border-radius:0 1px 1px 0; background:var(--accent);
+}
+.ex-panel-logo { width:30px; height:30px; border-radius:7px; border:1px solid var(--border-light, #1e2d40); display:flex; align-items:center; justify-content:center; flex-shrink:0; overflow:hidden; }
+.ex-panel-logo img { width:20px; height:20px; object-fit:contain; }
+.ex-panel-item-info { flex:1; min-width:0; }
+.ex-panel-item-name { font-size:12px; font-weight:600; color:var(--text); }
+.ex-panel-item-sub { font-size:10px; color:var(--text-muted); margin-top:2px; }
+.ex-panel-item-sub.on { color:var(--accent); }
+.ex-panel-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:#2a3d52; }
+.ex-panel-dot.on { background:var(--accent); box-shadow:0 0 5px rgba(60,200,122,.5); }
+.ex-panel-detail { flex:1; padding:20px 22px; overflow-y:auto; }
+.ex-panel-detail::-webkit-scrollbar { width:3px; }
+.ex-panel-detail::-webkit-scrollbar-thumb { background:#1e2d40; border-radius:2px; }
+
+.ex-detail-hd { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.ex-detail-logo { width:38px; height:38px; border-radius:9px; border:1px solid #1e2d40; display:flex; align-items:center; justify-content:center; flex-shrink:0; overflow:hidden; }
+.ex-detail-logo img { width:24px; height:24px; object-fit:contain; }
+.ex-detail-hd-info { flex:1; }
+.ex-detail-name { font-size:15px; font-weight:600; color:var(--text); }
+.ex-detail-sub { font-size:11px; color:var(--text-muted); margin-top:3px; }
+
+/* Balance tabs */
+.ex-bal-tabs { display:flex; gap:0; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.ex-bal-tab {
+  padding:7px 18px; font-size:12px; font-weight:500;
+  color:var(--text-muted); background:none; border:none; cursor:pointer;
+  border-bottom:2px solid transparent; transition:all .12s;
+}
+.ex-bal-tab:hover { color:var(--text); }
+.ex-bal-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* Balance grid */
+.ex-bal-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.ex-bal-cell { padding:11px 13px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,.015); }
+.ex-bal-k { font-size:10px; color:var(--text-muted); margin-bottom:3px; }
+.ex-bal-v { font-size:14px; font-weight:600; color:var(--text); letter-spacing:-.3px; }
+.ex-bal-v.accent { color:var(--accent); }
+.ex-bal-v.green { color:var(--accent); }
+.ex-asset-table { width:100%; border-collapse:collapse; }
+.ex-asset-table th { font-size:10px; color:#3a5068; text-align:left; padding:5px 8px; border-bottom:1px solid var(--border); font-weight:500; letter-spacing:.3px; }
+.ex-asset-table td { font-size:12px; color:var(--text); padding:7px 8px; border-bottom:1px solid rgba(14,26,40,.8); }
+.ex-asset-table tr:last-child td { border-bottom:none; }
+.ex-asset-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+.ex-asset-table .muted { color:var(--text-muted); }
+
+/* Form */
+.ex-form { margin-top:4px; }
+.ex-form-row { margin-bottom:12px; }
+.ex-form-label { font-size:10px; color:var(--text-muted); margin-bottom:5px; display:block; letter-spacing:.2px; }
+.ex-form-input {
+  width:100%; height:38px; padding:0 14px; border-radius:8px;
+  border:1px solid #243448; background:#080f1a; color:var(--text);
+  font-size:12px; outline:none; transition:border-color .12s;
+}
+.ex-form-input::placeholder { color:#3a5068; }
+.ex-form-input:focus { border-color:rgba(91,141,239,.5); }
+.ex-form-footer { display:flex; align-items:center; gap:14px; margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.ex-form-link { font-size:11px; color:#5b8def; text-decoration:none; }
+.ex-form-link:hover { text-decoration:underline; }
+
+/* Confirm overlay */
+.ex-confirm-overlay {
+  position:fixed; inset:0; z-index:300;
+  background:rgba(4,10,20,.7); backdrop-filter:blur(4px);
+  display:flex; align-items:center; justify-content:center;
+}
+.ex-confirm-box {
+  background:#0e1928; border:1px solid #243448; border-radius:12px;
+  padding:22px 24px; width:340px; box-shadow:0 24px 60px rgba(0,0,0,.5);
+}
+.ex-confirm-title { font-size:14px; font-weight:600; color:var(--text); margin-bottom:8px; }
+.ex-confirm-body { font-size:12px; color:var(--text-muted); line-height:1.65; margin-bottom:18px; }
+.ex-confirm-body strong { color:#d0a84a; }
+.ex-confirm-acts { display:flex; gap:10px; justify-content:flex-end; }
 
 /* ── Feature 4: Conflict Warning ── */
 .md-conflict-warn {

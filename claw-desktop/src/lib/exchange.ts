@@ -19,6 +19,11 @@ export interface ExchangeBalance {
   assets: AssetBalance[];
 }
 
+export interface AccountBalance {
+  spot: ExchangeBalance;
+  futures: ExchangeBalance;
+}
+
 export interface ExchangeTestResult {
   success: boolean;
   message: string;
@@ -56,6 +61,10 @@ export async function testExchangeConnection(
 
 export async function fetchExchangeBalance(
   exchangeId: string
-): Promise<ExchangeBalance> {
+): Promise<AccountBalance> {
   return invoke("fetch_exchange_balance", { exchangeId });
+}
+
+export async function getActiveExchange(): Promise<ExchangeAuthState | null> {
+  return invoke("get_active_exchange");
 }

@@ -2,9 +2,9 @@ use reqwest::Client;
 use tauri::{AppHandle, State};
 
 use crate::exchange::{
-    client::{fetch_balance, test_exchange},
+    client::{fetch_account_balance, test_exchange},
     store::ExchangeStore,
-    types::{ExchangeAuthState, ExchangeBalance, ExchangeCred, ExchangeTestResult},
+    types::{AccountBalance, ExchangeAuthState, ExchangeCred, ExchangeTestResult},
 };
 
 pub struct ExchangeClient {
@@ -80,11 +80,11 @@ pub async fn fetch_exchange_balance(
     store: State<'_, ExchangeStore>,
     client: State<'_, ExchangeClient>,
     exchange_id: String,
-) -> Result<ExchangeBalance, String> {
+) -> Result<AccountBalance, String> {
     let cred = store
         .get_cred(&exchange_id)
         .ok_or("未配置凭据")?;
-    fetch_balance(
+    fetch_account_balance(
         &client.http,
         &exchange_id,
         &cred.api_key,
@@ -92,4 +92,11 @@ pub async fn fetch_exchange_balance(
         cred.passphrase.as_deref(),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn get_active_exchange(
+    store: State<'_, ExchangeStore>,
+) -> Result<Option<ExchangeAuthState>, String> {
+    Ok(store.get_active().map(|c| store.get_auth_state(&c.exchange_id)))
 }

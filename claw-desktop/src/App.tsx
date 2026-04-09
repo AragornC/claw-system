@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import Workspace from "./components/Workspace";
 import AgentPanel from "./components/AgentPanel";
+import AgentConfigPanel from "./components/AgentConfig/AgentConfigPanel";
 import TradingBar from "./components/TradingBar";
 import TitleBar from "./components/TitleBar";
 import SubHeader from "./components/SubHeader";
@@ -10,6 +11,7 @@ import { chatStream, generateTitle } from "./lib/llm";
 import { useModelStore } from "./store/modelStore";
 import { useChatStore } from "./store/chatStore";
 import { useExchangeStore } from "./store/exchangeStore";
+import { useAgentStore } from "./store/agentStore";
 import type { Session } from "./store/chatStore";
 import "./App.css";
 
@@ -29,9 +31,12 @@ export default function App() {
   const activeId = useChatStore(s => s.activeId);
   const openTabIds = useChatStore(s => s.openTabIds);
 
+  const agentActiveView = useAgentStore(s => s.activeView);
+
   useEffect(() => {
     useModelStore.getState().initFromBackend();
     useExchangeStore.getState().initFromBackend();
+    useAgentStore.getState().initFromBackend();
   }, []);
 
   const openTabs = openTabIds
@@ -56,7 +61,9 @@ export default function App() {
 
   const handleSendMessage = useCallback(async (text: string) => {
     const sid = activeId;
-    const { selectedModel } = useModelStore.getState();
+    const { selectedModel, auth } = useModelStore.getState();
+    const hasConnected = Object.values(auth).some(a => a.connected);
+    if (!hasConnected) return;
     const store = useChatStore.getState();
 
     const currentSession = store.sessions.find(s => s.id === sid);
@@ -136,7 +143,9 @@ export default function App() {
             <div className="app-center">
               {showSettings
                 ? <Settings onClose={() => setShowSettings(false)} />
-                : <Workspace />
+                : agentActiveView
+                  ? <AgentConfigPanel />
+                  : <Workspace />
               }
               {showTrading && <TradingBar onClose={() => setShowTrading(false)} />}
             </div>
@@ -146,6 +155,7 @@ export default function App() {
               session={activeSession}
               onSend={handleSendMessage}
               streaming={streaming}
+              onOpenSettings={() => setShowSettings(true)}
             />
           </div>
         </div>
