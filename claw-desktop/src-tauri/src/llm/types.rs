@@ -122,3 +122,75 @@ pub struct TestResult {
     pub message: String,
     pub model: Option<String>,
 }
+
+// ── Workflow types (tool calling support) ───────────────────
+
+/// Tool definition passed from frontend (OpenAI function calling format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDef {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: ToolFnDef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolFnDef {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+/// Flexible message for workflow (supports tool role + tool_calls)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowMessage {
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<WorkflowToolCall>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: WorkflowFnCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowFnCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+/// Rich stream chunk for workflow — provider-normalized
+/// Different providers map to the same fields:
+///   DeepSeek Chat:     content → content_delta
+///   DeepSeek R1:       reasoning_content → thinking_delta, content → content_delta
+///   OpenAI:            content → content_delta
+///   Anthropic Claude:  thinking block → thinking_delta, text block → content_delta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowChunk {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_delta: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_delta: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_delta: Option<ToolCallDelta>,
+    pub done: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallDelta {
+    pub index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub arguments_fragment: String,
+}
