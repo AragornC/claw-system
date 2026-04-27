@@ -3,7 +3,10 @@ mod agent_commands;
 mod commands;
 mod exchange;
 mod exchange_commands;
+mod feature_commands;
+mod features;
 mod llm;
+mod tools;
 
 use agent::store::AgentConfigStore;
 use exchange::store::ExchangeStore;
@@ -57,6 +60,12 @@ pub fn run() {
             exchange_commands::get_active_exchange,
             agent_commands::load_agent_config,
             agent_commands::save_agent_config,
+            feature_commands::list_features,
+            feature_commands::read_feature,
+            feature_commands::write_feature,
+            feature_commands::delete_feature,
+            feature_commands::features_dir_path,
+            feature_commands::record_feature_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
