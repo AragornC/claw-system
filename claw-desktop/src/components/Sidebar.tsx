@@ -1,15 +1,9 @@
 import { useState, useCallback, useRef, type ReactNode } from "react";
-import { useAgentStore } from "../store/agentStore";
+import { useFeatureStore } from "../store/featureStore";
 import "./Sidebar.css";
 
 /* ═══ Types ═══ */
-type SidebarTab = "strategy" | "market" | "community" | "task" | "agent";
-
-interface FeatureItem {
-  name: string;
-  cat: string;
-  status: "done" | "running" | "idle";
-}
+type SidebarTab = "strategy" | "market" | "community" | "task";
 
 interface StrategyItem {
   name: string;
@@ -42,13 +36,7 @@ interface TaskItem {
 }
 
 /* ═══ Demo data ═══ */
-const FEATURES: FeatureItem[] = [
-  { name: "volatility_prediction", cat: "波动类", status: "done" },
-  { name: "dead_cross_risk", cat: "风控类", status: "done" },
-  { name: "macd_momentum", cat: "动量类", status: "running" },
-  { name: "volume_breakout", cat: "成交量类", status: "idle" },
-  { name: "trend_strength", cat: "趋势类", status: "idle" },
-];
+// FEATURES is no longer mocked — sourced from useFeatureStore (disk).
 
 const STRATEGIES: StrategyItem[] = [
   { name: "均线交叉策略", status: "active" },
@@ -171,16 +159,35 @@ function CollapsibleSection({ label, hasPlus, collapsed, onToggle, children }: {
 }
 
 /* ═══ StrategyPanel ═══ */
+// Map a FeatureRecord's last-run state to one of the legacy sidebar status
+// dots: error → "running" (orange), success → "done" (green), unrun → "idle".
+function statusDotForFeature(f: { last_error?: string | null; last_run_at?: number | null }): string {
+  if (f.last_error) return "running"; // re-uses orange dot
+  if (f.last_run_at) return "done";
+  return "idle";
+}
+
 function StrategyPanel({ collapsed, onToggle }: { collapsed: Set<string>; onToggle: (k: string) => void }) {
+  const features = useFeatureStore((s) => s.features);
+  const activeTabSlug = useFeatureStore((s) => s.activeTabSlug);
+  const openTab = useFeatureStore((s) => s.openTab);
+
   return (
     <>
       <CollapsibleSection label="特征库" hasPlus collapsed={collapsed.has("特征库")} onToggle={() => onToggle("特征库")}>
-        {FEATURES.map(f => (
-          <div className={`sb-item ${f.name === "volatility_prediction" ? "active" : ""}`} key={f.name}>
-            <span className={`sb-dot ${f.status}`} />
+        {features.length === 0 && (
+          <div className="sb-empty-hint">暂无特征 — 让 Agent 帮你写一个</div>
+        )}
+        {features.map((f) => (
+          <div
+            className={`sb-item ${f.slug === activeTabSlug ? "active" : ""}`}
+            key={f.slug}
+            onClick={() => openTab(f.slug)}
+          >
+            <span className={`sb-dot ${statusDotForFeature(f)}`} />
             <div className="sb-item-info">
-              <div className="sb-name">{f.name}</div>
-              <div className="sb-meta">{f.cat}</div>
+              <div className="sb-name">{f.display_name || f.slug}</div>
+              <div className="sb-meta">{f.category || f.slug}</div>
             </div>
           </div>
         ))}
@@ -297,111 +304,12 @@ function TaskRow({ task: t }: { task: TaskItem }) {
   );
 }
 
-/* ═══ Agent Icons (line-art, matching demo) ═══ */
-const AGENT_ICON_MAP: Record<string, React.ReactNode> = {
-  analyst: <svg width={12} height={12} viewBox="0 0 14 14" fill="none"><polyline points="1,11 4,6 7,8 10,3 13,5" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round"/></svg>,
-  quant: <svg width={12} height={12} viewBox="0 0 14 14" fill="none"><path d="M5 1h4l1 3H4L5 1z" stroke="currentColor" strokeWidth={1.1} strokeLinejoin="round"/><path d="M4 4h6l1 8H3L4 4z" stroke="currentColor" strokeWidth={1.1} strokeLinejoin="round"/><line x1={5.5} y1={6.5} x2={8.5} y2={6.5} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/></svg>,
-  risk: <svg width={12} height={12} viewBox="0 0 14 14" fill="none"><path d="M7 1L2 3.5v4C2 10.5 4.2 12.8 7 13c2.8-.2 5-2.5 5-5.5v-4L7 1z" stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round"/></svg>,
-  sentinel: <svg width={12} height={12} viewBox="0 0 14 14" fill="none"><circle cx={7} cy={7} r={2} stroke="currentColor" strokeWidth={1.2}/><circle cx={7} cy={7} r={4.5} stroke="currentColor" strokeWidth={1} strokeDasharray="2 1.5" fill="none"/></svg>,
-  coordinator: <svg width={12} height={12} viewBox="0 0 14 14" fill="none"><circle cx={7} cy={7} r={5.5} stroke="currentColor" strokeWidth={1.2}/><circle cx={7} cy={7} r={1.5} fill="currentColor"/><line x1={7} y1={1.5} x2={7} y2={4} stroke="currentColor" strokeWidth={1.1}/><line x1={7} y1={10} x2={7} y2={12.5} stroke="currentColor" strokeWidth={1.1}/><line x1={1.5} y1={7} x2={4} y2={7} stroke="currentColor" strokeWidth={1.1}/><line x1={10} y1={7} x2={12.5} y2={7} stroke="currentColor" strokeWidth={1.1}/></svg>,
-};
-
-const IconSkillSmall = () => (
-  <svg width={11} height={11} viewBox="0 0 12 12" fill="none">
-    <rect x={1} y={1} width={10} height={10} rx={2} stroke="currentColor" strokeWidth={1.1}/>
-    <line x1={3.5} y1={6} x2={8.5} y2={6} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
-    <line x1={3.5} y1={4} x2={7} y2={4} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
-    <line x1={3.5} y1={8} x2={6.5} y2={8} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
-  </svg>
-);
-
-const IconFnSmall = () => (
-  <svg width={11} height={11} viewBox="0 0 12 12" fill="none">
-    <circle cx={6} cy={6} r={5} stroke="currentColor" strokeWidth={1.1}/>
-    <text x={6} y={8.5} textAnchor="middle" fontSize={7} fill="currentColor" fontFamily="var(--font-mono)">f</text>
-  </svg>
-);
-
-const IconAgent = () => (
-  <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-    <circle cx={6} cy={5} r={2.5} stroke="currentColor" strokeWidth={1.2}/>
-    <circle cx={11} cy={5} r={1.8} stroke="currentColor" strokeWidth={1.1}/>
-    <path d="M1 14c0-3 2.5-5 5-5s5 2 5 5" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" fill="none"/>
-    <path d="M11 9c1.8 0 3.5 1.2 3.5 3.5" stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" fill="none"/>
-  </svg>
-);
-
-const PERM_LABELS: Record<string, string> = { auto: "auto", ask: "ask", deny: "deny" };
-
-/* ═══ AgentSidebarPanel ═══ */
-function AgentSidebarPanel({ collapsed, onToggle }: { collapsed: Set<string>; onToggle: (k: string) => void }) {
-  const agents = useAgentStore(s => s.agents);
-  const skills = useAgentStore(s => s.skills);
-  const functions = useAgentStore(s => s.functions);
-  const activeView = useAgentStore(s => s.activeView);
-  const setView = useAgentStore(s => s.setActiveView);
-
-  return (
-    <>
-      <CollapsibleSection label="Agents" hasPlus collapsed={collapsed.has("Agents")} onToggle={() => onToggle("Agents")}>
-        {agents.map(a => (
-          <div
-            key={a.id}
-            className={`sb-item sb-agent-item ${activeView?.type === "agent" && activeView.id === a.id ? "active" : ""}`}
-            onClick={() => setView({ type: "agent", id: a.id })}
-          >
-            <span className="sb-agent-icon">{AGENT_ICON_MAP[a.id] ?? <IconAgent />}</span>
-            <div className="sb-item-info">
-              <div className="sb-name">{a.name}</div>
-              <div className="sb-meta">{a.role.slice(0, 4)}</div>
-            </div>
-            <span className={`sb-dot ${a.active ? "running" : ""}`} />
-          </div>
-        ))}
-      </CollapsibleSection>
-
-      <CollapsibleSection label="Skills" collapsed={collapsed.has("Skills")} onToggle={() => onToggle("Skills")}>
-        {skills.map(sk => (
-          <div
-            key={sk.id}
-            className={`sb-item sb-skill-item ${activeView?.type === "skill" && activeView.id === sk.id ? "active" : ""}`}
-            onClick={() => setView({ type: "skill", id: sk.id })}
-          >
-            <span className="sb-agent-icon"><IconSkillSmall /></span>
-            <div className="sb-item-info">
-              <div className="sb-name sb-mono">{sk.id}</div>
-              <div className="sb-meta">{sk.agent.slice(0, 3)}</div>
-            </div>
-          </div>
-        ))}
-      </CollapsibleSection>
-
-      <CollapsibleSection label="Functions" hasPlus collapsed={collapsed.has("Functions")} onToggle={() => onToggle("Functions")}>
-        {functions.map(fn => (
-          <div
-            key={fn.id}
-            className={`sb-item sb-fn-item ${activeView?.type === "fn" && activeView.id === fn.id ? "active" : ""}`}
-            onClick={() => setView({ type: "fn", id: fn.id })}
-          >
-            <span className="sb-agent-icon"><IconFnSmall /></span>
-            <div className="sb-item-info">
-              <div className="sb-name sb-mono">{fn.id}</div>
-            </div>
-            <span className={`sb-perm sb-perm-${fn.perm}`}>{PERM_LABELS[fn.perm]}</span>
-          </div>
-        ))}
-      </CollapsibleSection>
-    </>
-  );
-}
-
 /* ═══ Tab config ═══ */
 const TABS: { id: SidebarTab; icon: () => React.ReactNode; title: string }[] = [
   { id: "strategy", icon: IconStrategy, title: "策略管理" },
   { id: "market", icon: IconMarket, title: "大盘" },
   { id: "community", icon: IconCommunity, title: "社区" },
   { id: "task", icon: IconTask, title: "任务" },
-  { id: "agent", icon: IconAgent, title: "Agent" },
 ];
 
 /* ═══ Main Sidebar ═══ */
@@ -484,7 +392,6 @@ export default function Sidebar({ width, onResize }: Props) {
           {activeTab === "market" && <MarketPanel collapsed={collapsed} onToggle={toggleCollapsed} />}
           {activeTab === "community" && <CommunityPanel collapsed={collapsed} onToggle={toggleCollapsed} />}
           {activeTab === "task" && <TaskPanel collapsed={collapsed} onToggle={toggleCollapsed} />}
-          {activeTab === "agent" && <AgentSidebarPanel collapsed={collapsed} onToggle={toggleCollapsed} />}
         </div>
       </div>
 

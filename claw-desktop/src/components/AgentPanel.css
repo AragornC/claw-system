@@ -61,7 +61,9 @@
 /* 消息区 */
 .agent-messages {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px 20px;
   display: flex;
   flex-direction: column;
@@ -131,7 +133,8 @@
 /* AI 消息：嵌入式无气泡，居中 */
 .msg-agent-wrap {
   width: 100%;
-  margin-bottom: 16px;
+  min-width: 0;
+  margin-bottom: 4px;
 }
 .msg-agent-body {
   font-size: 12px;
@@ -314,7 +317,7 @@
 }
 
 /* ── Markdown 渲染 ── */
-.msg-agent-md { line-height: 1.65; }
+.msg-agent-md { line-height: 1.65; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .msg-agent-md p { margin: 0 0 8px; }
 .msg-agent-md p:last-child { margin-bottom: 0; }
 .msg-agent-md h1,.msg-agent-md h2,.msg-agent-md h3,
@@ -369,11 +372,16 @@
 }
 .msg-agent-md a { color: var(--accent); text-decoration: none; }
 .msg-agent-md a:hover { text-decoration: underline; }
+/* Tables can easily exceed the bubble width (many columns / long numbers).
+   Wrap in a block-level scroller so the chat column never widens. */
 .msg-agent-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
-  width: 100%;
   font-size: 11px;
   margin: 8px 0;
+  white-space: nowrap;
 }
 .msg-agent-md th,.msg-agent-md td {
   border: 1px solid rgba(255,255,255,0.1);
@@ -480,3 +488,424 @@
 .agent-guide-status.ok {
   color: var(--accent);
 }
+
+/* ── Thinking Block ── */
+.thinking-block { margin: 2px 0; width: 100%; }
+.thinking-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.thinking-header:hover { background: rgba(255,255,255,.04); }
+.thinking-arrow {
+  color: #484f58;
+  font-size: 9px;
+  display: inline-block;
+  transition: transform .12s;
+}
+.thinking-arrow.open { transform: rotate(90deg); }
+.thinking-title { font-size: 13px; color: #484f58; }
+.thinking-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #d4a04a;
+  animation: thinking-pulse 1s infinite;
+  margin-left: 4px;
+}
+@keyframes thinking-pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+.thinking-time {
+  font-size: 11px; color: #484f58;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  margin-left: 4px; opacity: .7;
+}
+.thinking-body {
+  margin-left: 7px;
+  padding: 4px 0 4px 14px;
+  border-left: 1.5px solid rgba(255,255,255,.07);
+}
+.thinking-content {
+  font-size: 13px; color: #484f58;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Tool Group Block ── */
+.toolgroup-block { margin: 2px 0; width: 100%; }
+.toolgroup-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.toolgroup-header:hover { background: rgba(255,255,255,.04); }
+.toolgroup-arrow {
+  color: #484f58;
+  font-size: 9px;
+  display: inline-block;
+  transition: transform .12s;
+}
+.toolgroup-arrow.open { transform: rotate(90deg); }
+.toolgroup-title { font-size: 13px; color: #8b949e; }
+.toolgroup-body {
+  margin-left: 7px;
+  padding: 2px 0 2px 14px;
+  border-left: 1.5px solid rgba(255,255,255,.07);
+}
+.tool-line {
+  padding: 2px 0;
+  font-size: 13px;
+  color: #8b949e;
+  line-height: 1.5;
+}
+.tool-line b {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  font-size: 12px;
+  margin-right: 6px;
+}
+.tool-brief { color: #8b949e; }
+
+/* ── Narration (prose bridges between action blocks) ── */
+.narration {
+  margin: 14px 0 12px;
+  color: var(--text-primary, #cdd9e5);
+  font-size: 13px;
+  line-height: 1.78;
+}
+.narration code {
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary, #cdd9e5);
+  padding: 1px 5px;
+  background: rgba(255,255,255,.04);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+
+/* ── Coordinator Thinking (agent-card variant) ── */
+.coord-block { margin: 10px 0; width: 100%; }
+.coord-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.coord-header:hover { background: rgba(255,255,255,.04); }
+.coord-arrow {
+  color: #484f58;
+  font-size: 9px;
+  display: inline-block;
+  transition: transform .12s;
+}
+.coord-arrow.open { transform: rotate(90deg); }
+.coord-title { font-size: 13px; color: #484f58; }
+.coord-title .agent {
+  color: #8b949e;
+  margin-right: 6px;
+}
+.coord-title .sep {
+  color: #2a3f55;
+  margin-right: 6px;
+}
+.coord-title .brief-sep {
+  color: #2a3f55;
+  margin: 0 8px;
+}
+.coord-title .brief-tag {
+  color: #8b949e;
+  font-size: 12px;
+}
+.coord-body {
+  margin-top: 6px;
+  background: rgba(255,255,255,.022);
+  border: 1px solid rgba(255,255,255,.04);
+  border-radius: 8px;
+  padding: 10px 14px 12px;
+}
+.coord-empty {
+  font-size: 12px;
+  color: #484f58;
+  padding: 2px 0;
+  font-style: italic;
+}
+
+/* ── Tool line (a row inside the agent card) ──
+   Matches demo .tool-line: verb · arg · → result · chevron */
+.tool-line-wrap { margin: 0; }
+.tool-line {
+  padding: 3px 0;
+  font-size: 12.5px;
+  color: #8b949e;
+  line-height: 1.7;
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+  display: block;
+}
+.tool-line .tn { color: #4a6580; font-weight: 500; margin-right: 10px; }
+.tool-line .tv { color: #2a3f55; }
+.tool-line .tr { color: #4a6580; margin-left: 6px; }
+.tool-line .tr::before { content: "→ "; color: #2a3f55; }
+
+.tool-line.expandable { cursor: pointer; border-radius: 3px; }
+.tool-line.expandable::after {
+  content: "›";
+  display: inline-block;
+  margin-left: 8px;
+  color: #2a3f55;
+  font-size: 12px;
+  transition: transform .15s ease;
+  transform-origin: center;
+  opacity: 0;
+}
+.tool-line.expandable.done::after { opacity: 1; }
+.tool-line.expandable.open::after { transform: rotate(90deg); }
+.tool-line.expandable:hover { background: rgba(255,255,255,.02); }
+.tool-line.errored .tn { color: #ff6b6b; }
+
+/* running state — shimmer on verb */
+.tool-line.running .tn {
+  background: linear-gradient(90deg, #2a3f55 0%, #4a6580 50%, #2a3f55 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer 1.4s infinite linear;
+}
+.tool-line.running .tn::after {
+  content: "...";
+  color: #2a3f55;
+  -webkit-text-fill-color: #2a3f55;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── Tool preview (expandable card beneath a tool-line) ── */
+.tool-preview {
+  display: none;
+  margin: 6px 0 8px 0;
+  background: rgba(255,255,255,.018);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: #4a6580;
+  overflow: hidden;
+}
+.tool-preview.open { display: block; }
+.tool-preview .path {
+  display: block;
+  padding: 7px 14px;
+  background: rgba(255,255,255,.035);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  color: #4a6580;
+  font-size: 11px;
+  letter-spacing: .2px;
+  word-break: break-all;
+}
+.tool-preview .code { counter-reset: ln; padding: 8px 0; margin: 0; }
+.tool-preview .ln {
+  counter-increment: ln;
+  display: block;
+  position: relative;
+  padding: 0 14px 0 44px;
+  min-height: 1.75em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-preview .ln::before {
+  content: counter(ln);
+  position: absolute;
+  left: 0; width: 32px;
+  text-align: right;
+  color: #2a3f55;
+  opacity: .45;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.tool-preview .ln.errored { color: #ff6b6b; }
+.tool-preview .ln .h1 { color: #cdd9e5; font-weight: 600; }
+.tool-preview .ln .h2 { color: #4a6580; font-weight: 500; }
+.tool-preview .ln .k  { color: #cdd9e5; }
+.tool-preview .ln .dim,
+.tool-preview .ln.dim { color: #2a3f55; }
+
+/* raw-JSON variant — no line numbers, pre-formatted */
+.tool-preview.json-raw .code,
+.tool-preview .code.json-raw {
+  padding: 10px 14px;
+  white-space: pre;
+  overflow-x: auto;
+  counter-reset: none;
+}
+.tool-preview.json-raw .ln { padding: 0; counter-increment: none; }
+.tool-preview.json-raw .ln::before { content: none; }
+.tool-preview .code.json-raw {
+  color: #8b949e;
+  font-size: 11.5px;
+  margin: 0;
+}
+.tool-preview .json-wrap pre.code.json-raw { padding: 10px 14px; }
+
+/* prose variant — for Objective (no line numbers, sans-serif, wraps) */
+.tool-preview.prose .code {
+  padding: 10px 16px;
+  counter-reset: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: #484f58;
+}
+.tool-preview.prose .ln {
+  padding: 3px 0; counter-increment: none; min-height: 0;
+}
+.tool-preview.prose .ln::before { content: none; }
+
+/* plan-approach inline markers */
+.tool-preview .ln .step-marker { color: #4a6580; font-weight: 500; }
+.tool-preview .ln .agent-cell {
+  color: #cdd9e5;
+  font-weight: 500;
+  display: inline-block;
+  min-width: 88px;
+  margin-right: 6px;
+}
+
+/* blinking cursor after "Thinking" / "Planning" */
+.cursor-dots::after {
+  content: "";
+  display: inline-block;
+  width: 4px; height: 4px; margin-left: 6px;
+  border-radius: 50%;
+  background: #4a6580;
+  animation: blink 1s infinite;
+  vertical-align: middle;
+}
+@keyframes blink { 0%,100% {opacity:1} 50% {opacity:.2} }
+
+/* ── Plan Block — reuses .coord-block shell (outer agent-card) ──
+   Inside the body we render 3 .plan-section blocks, each a collapsible
+   header + a .tool-preview card wrapping the structured content. */
+.plan-section { margin-bottom: 12px; }
+.plan-section:last-child { margin-bottom: 0; }
+.plan-section-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+}
+.plan-section-head .sec-title {
+  color: #4a6580;
+  font-size: 11.5px;
+  letter-spacing: .5px;
+  font-weight: 600;
+}
+.plan-section-head .sec-sep {
+  color: #2a3f55;
+  margin: 0 2px;
+  font-weight: 400;
+}
+.plan-section-head .sec-brief {
+  color: #4a6580;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .2px;
+}
+.plan-section-head .sec-arrow {
+  color: #2a3f55;
+  font-size: 12px;
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform .15s;
+  transform-origin: center;
+}
+.plan-section-head .sec-arrow.open { transform: rotate(90deg); }
+.plan-section-body {
+  padding: 4px 0 2px 0;
+}
+.plan-section-body .tool-preview { margin: 6px 0 0 0; }
+
+/* ── AgentTask Block (sub-agent work unit) ── */
+.agenttask-block { margin: 8px 0; width: 100%; }
+.agenttask-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.agenttask-header:hover { background: rgba(255,255,255,.04); }
+.agenttask-arrow {
+  color: #484f58;
+  font-size: 9px;
+  transition: transform .12s;
+}
+.agenttask-arrow.open { transform: rotate(90deg); }
+.agenttask-title { font-size: 13px; color: #484f58; }
+.agenttask-title .agent {
+  color: #d4a04a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  margin-right: 6px;
+}
+.agenttask-title .sep {
+  color: #2a3f55;
+  margin-right: 6px;
+}
+.agenttask-title .status-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.agenttask-title .status-dot.pending { background: #484f58; }
+.agenttask-title .status-dot.running {
+  background: #d4a04a;
+  animation: thinking-pulse 1s infinite;
+}
+.agenttask-title .status-dot.done    { background: #3cc87a; }
+.agenttask-title .status-dot.error   { background: #ff6b6b; }
+.agenttask-body {
+  margin-top: 6px;
+  margin-left: 7px;
+  padding: 6px 0 6px 14px;
+  border-left: 1.5px solid rgba(255,255,255,.07);
+  font-size: 12.5px;
+  color: #8b949e;
+  line-height: 1.6;
+}
+.agenttask-body .task-line {
+  color: #484f58;
+  margin-bottom: 6px;
+}
+.agenttask-body .summary-line {
+  color: #cdd9e5;
+}
+
+/* ── Streaming cursor ── */
+.msg-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: var(--text-primary, #e6edf3);
+  margin-left: 1px;
+  animation: msg-cursor-blink .7s infinite;
+  vertical-align: text-bottom;
+}
+@keyframes msg-cursor-blink { 0%,100%{opacity:1} 50%{opacity:0} }

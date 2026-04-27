@@ -92,7 +92,14 @@ function PnlPanel({ pnl, pct, equity, winRate, maxDD, free, pnlHist, dailyPnl, h
   if (!hasExchange) {
     return (
       <div className="tb-pnl-panel tb-no-exchange">
-        <div className="tb-no-ex-icon">📊</div>
+        <div className="tb-no-ex-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <rect x="3" y="3" width="22" height="22" rx="3" stroke="currentColor" strokeWidth="1.4"/>
+            <line x1="3" y1="9" x2="25" y2="9" stroke="currentColor" strokeWidth="1.2"/>
+            <line x1="9" y1="9" x2="9" y2="25" stroke="currentColor" strokeWidth="1.2"/>
+            <polyline points="12,20 15,16 18,18 22,12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
         <div className="tb-no-ex-title">未连接交易所</div>
         <div className="tb-no-ex-desc">在设置 → 交易 中配置 API Key，即可查看实时账户余额</div>
       </div>

@@ -151,6 +151,13 @@
 .sb-dot.failed  { background: var(--red); }
 .sb-dot.blue    { background: var(--sb-blue); }
 
+.sb-empty-hint {
+  padding: 6px 12px 6px 30px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .sb-item-info { min-width: 0; }
 .sb-name {
   font-size: 12px;

@@ -3,21 +3,22 @@
   flex-direction: row;
   height: 36px;
   flex-shrink: 0;
-  /* overflow: visible 让 active tab 的 margin-bottom:-1px 能穿透边框 */
 }
 
 /* ── 左：文件 tabs —— 中等深度，对应工作区列 ── */
 .subheader-tabs {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: stretch;
-  /* overflow: visible 让 active tab 的 margin-bottom:-1px 生效 */
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--bg-panel);
-  /* 不用 border-right，改由 subheader-agent 用 border-left 绘制，保证与 agent-panel 对齐 */
   border-bottom: 1px solid var(--border);
   position: relative;
+  scrollbar-width: none;
 }
+.subheader-tabs::-webkit-scrollbar { display: none; }
 
 .sh-tab {
   display: flex;
@@ -33,20 +34,33 @@
 }
 .sh-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
 .sh-tab.active {
-  background: var(--bg-base);        /* 和工作区同色 */
+  background: var(--bg-base);
   color: var(--text-primary);
   position: relative;
-  z-index: 2;
-  margin-bottom: -1px;               /* 下探 1px 盖住父容器底部线 */
-  border-bottom: 1px solid var(--bg-base); /* 用工作区色"抹掉"那条线 */
+  box-shadow: inset 0 -2px 0 var(--text-primary);
 }
-.sh-tab-icon { font-size: 11px; opacity: 0.6; }
+.sh-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  opacity: 0.6;
+  line-height: 0; /* kill the descender so SVGs sit on the text baseline */
+}
+.sh-tab-icon svg { display: block; }
 .sh-tab-close {
   opacity: 0;
   font-size: 14px;
   margin-left: 2px;
 }
 .sh-tab:hover .sh-tab-close { opacity: 0.5; }
+
+/* agent config 标签页 */
+.sh-tab-agentcfg.active {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.sh-tab-agentcfg-icon { opacity: 0.7; }
+.sh-tab-agentcfg-icon svg { display: block; }
 
 .sh-tab-add {
   background: none; border: none;

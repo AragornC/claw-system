@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
 import type { Session } from "../store/chatStore";
 import { useModelStore, PROVIDER_IDS, PROVIDER_META } from "../store/modelStore";
+import ChatItemList from "./chat/ChatItemList";
 import "./AgentPanel.css";
 
 interface Props {
@@ -15,11 +15,8 @@ interface Props {
 
 export default function AgentPanel({ width, onResize, session, onSend, streaming, onOpenSettings }: Props) {
   const [input, setInput] = useState("");
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  const [editingText, setEditingText] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const editRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -44,7 +41,7 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [session.messages]);
+  }, [session.items]);
 
   function onMouseDown() {
     dragging.current = true;
@@ -56,26 +53,6 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
     const onUp = () => { dragging.current = false; window.removeEventListener("mousemove", onMove); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp, { once: true });
-  }
-
-  function handleUserBubbleClick(text: string, idx: number) {
-    setEditingIdx(idx);
-    setEditingText(text);
-    setTimeout(() => {
-      editRef.current?.focus();
-      editRef.current?.select();
-    }, 0);
-  }
-
-  function handleEditSend() {
-    if (!editingText.trim()) return;
-    setEditingIdx(null);
-    setEditingText("");
-  }
-
-  function handleEditCancel() {
-    setEditingIdx(null);
-    setEditingText("");
   }
 
   function handleSend() {
@@ -91,62 +68,12 @@ export default function AgentPanel({ width, onResize, session, onSend, streaming
 
       <div className="agent-inner">
         <div className="agent-messages">
-          {session.messages.length === 0 && (
+          {(session.items || []).length === 0 && (
             <div className="agent-empty">
               <p>开始一个新的对话</p>
             </div>
           )}
-          {session.messages.map((m, i) => (
-            m.role === "user" ? (
-              <div key={i} className="msg-user-wrap">
-                {editingIdx === i ? (
-                  <div className="msg-user-editing agent-input-box">
-                    <textarea
-                      ref={editRef}
-                      className="agent-input"
-                      value={editingText}
-                      onChange={(e) => {
-                        setEditingText(e.target.value);
-                        e.target.style.height = "auto";
-                        e.target.style.height = e.target.scrollHeight + "px";
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditSend(); }
-                        if (e.key === "Escape") handleEditCancel();
-                      }}
-                    />
-                    <div className="agent-input-toolbar">
-                      <div className="agent-toolbar-left" />
-                      <div className="agent-toolbar-right">
-                        <button className="msg-edit-cancel-btn" onClick={handleEditCancel}>取消</button>
-                        <button className="agent-send" onClick={handleEditSend} disabled={!editingText.trim()}>↑</button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    className="msg-user-bubble"
-                    onClick={() => handleUserBubbleClick(m.text, i)}
-                    title="点击重新编辑"
-                  >
-                    {m.text}
-                    <span className="msg-edit-icon">✎</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div key={i} className="msg-agent-wrap">
-                <div className="msg-agent-body msg-agent-md">
-                  {m.text
-                    ? <ReactMarkdown>{m.text}</ReactMarkdown>
-                    : streaming && i === session.messages.length - 1
-                      ? <div className="msg-typing"><span /><span /><span /></div>
-                      : null
-                  }
-                </div>
-              </div>
-            )
-          ))}
+          <ChatItemList items={session.items || []} streaming={streaming} />
           <div ref={messagesEndRef} />
         </div>
 

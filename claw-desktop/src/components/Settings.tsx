@@ -29,12 +29,29 @@ import {
   EXCHANGE_IDS,
   EXCHANGE_META,
 } from "../store/exchangeStore";
+import {
+  useMemoryStore,
+  NAMESPACE_IDS,
+  NAMESPACE_META,
+  type MemoryNamespace,
+  type MemoryFile,
+} from "../store/memoryStore";
+import { useAgentStore } from "../store/agentStore";
+import AgentDetail from "./AgentConfig/AgentDetail";
+import SkillEditor from "./AgentConfig/SkillEditor";
+import FunctionDetail from "./AgentConfig/FunctionDetail";
+import "./AgentConfig/AgentConfig.css";
+import {
+  getToolStatus,
+  STATUS_META,
+  STATUS_RANK,
+} from "../lib/toolStatus";
 
 interface Props {
   onClose: () => void;
 }
 
-type NavPanel = "general" | "model" | "trading" | "notify";
+type NavPanel = "general" | "model" | "memory" | "agent" | "trading" | "notify";
 
 /* ═══════════════ Settings Component ═══════════════ */
 export default function Settings({ onClose: _onClose }: Props) {
@@ -51,6 +68,8 @@ export default function Settings({ onClose: _onClose }: Props) {
         <div className="stg-nav-group">应用</div>
         <NavItem icon="gear" label="通用" active={panel === "general"} onClick={() => setPanel("general")} />
         <NavItem icon="model" label="模型" active={panel === "model"} onClick={() => setPanel("model")} />
+        <NavItem icon="memory" label="记忆" active={panel === "memory"} onClick={() => setPanel("memory")} />
+        <NavItem icon="agent" label="Agent" active={panel === "agent"} onClick={() => setPanel("agent")} />
 
         <div className="stg-nav-divider" />
         <div className="stg-nav-group">交易</div>
@@ -65,6 +84,8 @@ export default function Settings({ onClose: _onClose }: Props) {
       <div className="stg-content">
         {panel === "general" && <GeneralPanel />}
         {panel === "model" && <ModelPanel />}
+        {panel === "memory" && <MemoryPanel />}
+        {panel === "agent" && <AgentSettingsPanel />}
         {panel === "trading" && <TradingPanel />}
         {panel === "notify" && <NotifyPanel />}
       </div>
@@ -110,6 +131,35 @@ function NavIcon({ type }: { type: string }) {
         <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
           <path d="M8 2a5 5 0 0 0-5 5v2.5l-1 1.5h12l-1-1.5V7a5 5 0 0 0-5-5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
           <path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.2"/>
+        </svg>
+      );
+    case "agent":
+      return (
+        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+          {/* Robot head */}
+          <rect x="2.5" y="4" width="11" height="9" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+          {/* Antenna */}
+          <line x1="8" y1="4" x2="8" y2="1.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+          <circle cx="8" cy="1.5" r="0.8" fill="currentColor"/>
+          {/* Eyes */}
+          <circle cx="6" cy="8" r="1" fill="currentColor"/>
+          <circle cx="10" cy="8" r="1" fill="currentColor"/>
+          {/* Mouth */}
+          <line x1="6" y1="11" x2="10" y2="11" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        </svg>
+      );
+    case "memory":
+      return (
+        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+          {/* Left hemisphere */}
+          <path d="M7.5 3.2c-.4-.7-1.2-1.2-2.1-1.2-1.3 0-2.4 1-2.4 2.3 0 .3.05.6.15.86-.65.35-1.1 1.03-1.1 1.81 0 .5.18.96.48 1.31-.3.35-.48.81-.48 1.31 0 .78.45 1.46 1.1 1.81-.1.26-.15.56-.15.86 0 1.27 1.07 2.3 2.4 2.3.9 0 1.7-.5 2.1-1.2V3.2z"
+                stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          {/* Right hemisphere */}
+          <path d="M8.5 3.2c.4-.7 1.2-1.2 2.1-1.2 1.33 0 2.4 1.03 2.4 2.3 0 .3-.05.6-.15.86.65.35 1.1 1.03 1.1 1.81 0 .5-.18.96-.48 1.31.3.35.48.81.48 1.31 0 .78-.45 1.46-1.1 1.81.1.26.15.56.15.86 0 1.27-1.07 2.3-2.4 2.3-.9 0-1.7-.5-2.1-1.2V3.2z"
+                stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          {/* Inner folds */}
+          <path d="M4.8 6.3c.4.2.7.5.9.9M4.5 9.8c.4-.2.8-.3 1.2-.3M11.2 6.3c-.4.2-.7.5-.9.9M11.5 9.8c-.4-.2-.8-.3-1.2-.3"
+                stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".55"/>
         </svg>
       );
     default:
@@ -349,7 +399,13 @@ function OAuthContent({ providerId, auth, otherActive }: { providerId: string; a
     <>
       {otherActive && (
         <div className="md-conflict-warn">
-          <span className="md-conflict-warn-icon">⚠</span>
+          <span className="md-conflict-warn-icon">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1.5 12.5 11.5h-11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <line x1="7" y1="5.5" x2="7" y2="8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <circle cx="7" cy="10.2" r="0.55" fill="currentColor"/>
+            </svg>
+          </span>
           <span>当前已通过 API Key 连接。使用 OAuth 登录后将<strong>自动断开 API Key</strong>，并切换至 Codex 接口。</span>
         </div>
       )}
@@ -448,7 +504,13 @@ function ApiKeyContent({ providerId, auth, otherActive }: { providerId: string; 
     <>
       {otherActive && (
         <div className="md-conflict-warn">
-          <span className="md-conflict-warn-icon">⚠</span>
+          <span className="md-conflict-warn-icon">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1.5 12.5 11.5h-11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <line x1="7" y1="5.5" x2="7" y2="8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <circle cx="7" cy="10.2" r="0.55" fill="currentColor"/>
+            </svg>
+          </span>
           <span>当前已通过 OAuth 登录。连接 API Key 后将<strong>自动退出 OAuth 登录</strong>，并切换至标准接口。</span>
         </div>
       )}
@@ -480,6 +542,430 @@ function ApiKeyContent({ providerId, auth, otherActive }: { providerId: string; 
         <button className="stg-btn sm" style={{ marginTop: 6 }} onClick={() => setEditing(false)}>取消修改</button>
       )}
     </>
+  );
+}
+
+/* ══════ Memory Panel ══════ */
+function MemoryPanel() {
+  const index = useMemoryStore((s) => s.index);
+  const files = useMemoryStore((s) => s.files);
+  const clearAll = useMemoryStore((s) => s.clearAll);
+  const deleteMemory = useMemoryStore((s) => s.deleteMemory);
+
+  const [viewing, setViewing] = useState<"__index__" | string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const allFiles = Object.values(files);
+  const totalChars = allFiles.reduce((sum, f) => sum + f.content.length, 0);
+
+  // Filter by search query
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (f: MemoryFile) =>
+    !q ||
+    f.path.toLowerCase().includes(q) ||
+    f.content.toLowerCase().includes(q);
+
+  // Group by namespace
+  const byNamespace: Record<MemoryNamespace, MemoryFile[]> = {
+    shared: [],
+    analyst: [],
+    risk: [],
+    coordinator: [],
+  };
+  for (const f of allFiles) {
+    const ns = f.path.split("/")[0] as MemoryNamespace;
+    if (byNamespace[ns] && matchesSearch(f)) {
+      byNamespace[ns].push(f);
+    }
+  }
+
+  const viewFile =
+    viewing === "__index__"
+      ? { path: "MEMORY.md", content: index }
+      : viewing
+        ? files[viewing]
+        : null;
+
+  const handleClearAll = () => {
+    clearAll();
+    setShowClearConfirm(false);
+    setViewing(null);
+  };
+
+  const handleDelete = (path: string) => {
+    deleteMemory(path);
+    if (viewing === path) setViewing(null);
+  };
+
+  return (
+    <div>
+      <div className="stg-title">记忆</div>
+      <div className="stg-desc">
+        记忆系统让 Agent 跨对话保留上下文。Coordinator 自主管理目录结构，
+        Agent 按 namespace 分区各自拥有记忆空间，通过 MEMORY.md 索引实现渐进式加载。
+      </div>
+
+      {/* Stats */}
+      <div className="mem-stats">
+        <div className="mem-stat">
+          <div className="mem-stat-k">文件数</div>
+          <div className="mem-stat-v">{allFiles.length}</div>
+        </div>
+        <div className="mem-stat">
+          <div className="mem-stat-k">总字符</div>
+          <div className="mem-stat-v">{totalChars.toLocaleString()}</div>
+        </div>
+        {NAMESPACE_IDS.map((ns) => {
+          const count = allFiles.filter((f) => f.path.startsWith(ns + "/")).length;
+          const meta = NAMESPACE_META[ns];
+          return (
+            <div className="mem-stat" key={ns}>
+              <div className="mem-stat-k" style={{ color: meta.color }}>
+                {meta.label}
+              </div>
+              <div className="mem-stat-v">{count}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* MEMORY.md Index card */}
+      <div className="stg-group-label">MEMORY.md 索引</div>
+      <div
+        className="mem-index-card"
+        onClick={() => setViewing("__index__")}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="mem-index-hd">
+          <span className="mem-index-icon">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <rect x="2.5" y="2" width="9" height="11" rx="1.2" stroke="currentColor" strokeWidth="1.1"/>
+              <rect x="5" y="0.8" width="4" height="2" rx="0.6" stroke="currentColor" strokeWidth="1.1" fill="currentColor" fillOpacity="0.15"/>
+              <line x1="4.5" y1="6" x2="9.5" y2="6" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="4.5" y1="10" x2="8" y2="10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <span className="mem-index-name">MEMORY.md</span>
+          <span className="mem-index-tag">自动加载</span>
+          <span className="mem-index-arr">›</span>
+        </div>
+        <div className="mem-index-preview">
+          {index
+            ? index
+                .split("\n")
+                .filter((l) => l.trim() && !l.startsWith("#"))
+                .slice(0, 3)
+                .join("\n") || "(空)"
+            : "(Coordinator 尚未创建目录结构)"}
+        </div>
+      </div>
+
+      {/* Search + actions row */}
+      <div className="mem-toolbar">
+        <input
+          className="stg-input mem-search"
+          placeholder="按路径或内容搜索…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          className="stg-btn sm danger"
+          onClick={() => setShowClearConfirm(true)}
+          disabled={!allFiles.length && !index}
+        >
+          清空记忆
+        </button>
+      </div>
+
+      {/* Namespaces + files */}
+      {NAMESPACE_IDS.map((ns) => {
+        const list = byNamespace[ns];
+        if (!list.length && q) return null;
+        const meta = NAMESPACE_META[ns];
+        return (
+          <div className="mem-ns" key={ns}>
+            <div className="mem-ns-hd">
+              <span
+                className="mem-ns-tag"
+                style={{ background: meta.colorBg, color: meta.color }}
+              >
+                {meta.label}
+              </span>
+              <span className="mem-ns-path">{ns}/</span>
+              <span className="mem-ns-desc">{meta.desc}</span>
+              <span className="mem-ns-count">{list.length}</span>
+            </div>
+            {list.length === 0 ? (
+              <div className="mem-ns-empty">暂无记忆</div>
+            ) : (
+              <div className="mem-ns-files">
+                {list.map((f) => (
+                  <div
+                    className="mem-file-row"
+                    key={f.path}
+                    onClick={() => setViewing(f.path)}
+                  >
+                    <span className="mem-file-icon">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M3 1.5h4l2 2v6.5a.7.7 0 0 1-.7.7H3a.7.7 0 0 1-.7-.7v-7.8a.7.7 0 0 1 .7-.7Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                        <path d="M7 1.5v2h2" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="none"/>
+                      </svg>
+                    </span>
+                    <span className="mem-file-name">
+                      {f.path.slice(ns.length + 1)}
+                    </span>
+                    <span className="mem-file-size">{f.content.length}c</span>
+                    <span className="mem-file-time">
+                      {timeAgo(f.updatedAt)}
+                    </span>
+                    <button
+                      className="mem-file-del"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(f.path);
+                      }}
+                      title="删除"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* File viewer modal */}
+      {viewFile && (
+        <div
+          className="mem-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewing(null);
+          }}
+        >
+          <div className="mem-modal">
+            <div className="mem-modal-hd">
+              <span className="mem-modal-path">{viewFile.path}</span>
+              {viewing !== "__index__" && viewing && files[viewing] && (
+                <span className="mem-modal-meta">
+                  {files[viewing].content.length} chars · 更新于{" "}
+                  {timeAgo(files[viewing].updatedAt)}
+                </span>
+              )}
+              <button
+                className="mem-modal-close"
+                onClick={() => setViewing(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mem-modal-body">{viewFile.content || "(空)"}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear all confirm */}
+      {showClearConfirm && (
+        <div
+          className="mem-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowClearConfirm(false);
+          }}
+        >
+          <div className="mem-confirm">
+            <div className="mem-confirm-title">清空所有记忆？</div>
+            <div className="mem-confirm-body">
+              将删除 MEMORY.md 索引和全部 {allFiles.length} 个记忆文件。此操作不可撤销。
+            </div>
+            <div className="mem-confirm-acts">
+              <button
+                className="stg-btn sm"
+                onClick={() => setShowClearConfirm(false)}
+              >
+                取消
+              </button>
+              <button className="stg-btn sm danger" onClick={handleClearAll}>
+                确认清空
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── time helper ── */
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m}分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}小时前`;
+  const d = Math.floor(h / 24);
+  return `${d}天前`;
+}
+
+/* ══════ Agent Settings Panel ══════ */
+const PERM_COLOR: Record<string, string> = {
+  auto: "stg-agent-perm-auto",
+  ask: "stg-agent-perm-ask",
+  deny: "stg-agent-perm-deny",
+};
+
+function AgentSettingsPanel() {
+  const agents = useAgentStore((s) => s.agents);
+  const skills = useAgentStore((s) => s.skills);
+  const functions = useAgentStore((s) => s.functions);
+  const activeView = useAgentStore((s) => s.activeView);
+  const setView = useAgentStore((s) => s.setActiveView);
+
+  const selected =
+    activeView?.type === "agent"
+      ? agents.find((a) => a.id === activeView.id) ?? null
+      : activeView?.type === "skill"
+        ? skills.find((s) => s.id === activeView.id) ?? null
+        : activeView?.type === "fn"
+          ? functions.find((f) => f.id === activeView.id) ?? null
+          : null;
+
+  // Detail mode — full-width
+  if (selected && activeView) {
+    const backLabel =
+      activeView.type === "agent" ? "Agents"
+      : activeView.type === "skill" ? "Skills"
+      : "Functions";
+    return (
+      <div className="stg-agent-detail-wrap">
+        <button className="stg-agent-back" onClick={() => setView(null)}>
+          <svg width={12} height={12} viewBox="0 0 12 12" fill="none">
+            <path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span>返回 {backLabel}</span>
+        </button>
+        <div className="stg-agent-detail-body">
+          {activeView.type === "agent" && (
+            <AgentDetail agent={selected as (typeof agents)[number]} />
+          )}
+          {activeView.type === "skill" && (
+            <SkillEditor
+              key={(selected as (typeof skills)[number]).id}
+              skill={selected as (typeof skills)[number]}
+            />
+          )}
+          {activeView.type === "fn" && (
+            <FunctionDetail fn={selected as (typeof functions)[number]} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // List mode — flat three sections
+  return (
+    <div>
+      <div className="stg-title">Agent</div>
+
+      {/* ── Agents ── */}
+      <div className="stg-agent-section-hd">
+        <div className="stg-agent-section-title">Agents</div>
+        <div className="stg-agent-section-hint">{agents.length} 个角色</div>
+      </div>
+      <div className="stg-agent-grid">
+        {agents.map((a) => (
+          <div
+            key={a.id}
+            className="stg-agent-card stg-agent-card-agent"
+            onClick={() => setView({ type: "agent", id: a.id })}
+          >
+            <div className="stg-agent-card-top">
+              <span className={`stg-agent-card-dot ${a.active ? "on" : ""}`} />
+              <span className="stg-agent-card-name">{a.name}</span>
+              <span className="stg-agent-card-role">{a.role}</span>
+            </div>
+            <div className="stg-agent-card-desc">{a.desc}</div>
+            <div className="stg-agent-card-meta">
+              <span>{a.skills.length} skills</span>
+              <span className="stg-agent-card-dot-sep">·</span>
+              <span>{a.fns.length} functions</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Skills ── */}
+      <div className="stg-agent-section-hd">
+        <div className="stg-agent-section-title">Skills</div>
+        <div className="stg-agent-section-hint">{skills.length} 项能力</div>
+      </div>
+      <div className="stg-agent-grid">
+        {skills.map((sk) => (
+          <div
+            key={sk.id}
+            className="stg-agent-card stg-agent-card-skill"
+            onClick={() => setView({ type: "skill", id: sk.id })}
+          >
+            <div className="stg-agent-card-top">
+              <span className="stg-agent-card-name stg-mono">{sk.id}</span>
+              <span className="stg-agent-card-tag">{sk.agent}</span>
+            </div>
+            <div className="stg-agent-card-desc">{sk.desc || "—"}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Functions ──
+          Sorted: real → mock → missing, so the usable tools sit on top.
+          Unavailable cards get an `is-off` class for dimming. */}
+      {(() => {
+        const sorted = [...functions].sort(
+          (a, b) => STATUS_RANK[getToolStatus(a.id)] - STATUS_RANK[getToolStatus(b.id)]
+        );
+        const available = sorted.filter((f) => getToolStatus(f.id) === "real").length;
+        return (
+          <>
+            <div className="stg-agent-section-hd">
+              <div className="stg-agent-section-title">Functions</div>
+              <div className="stg-agent-section-hint">
+                {available} / {functions.length} 可用
+              </div>
+            </div>
+            <div className="stg-agent-grid stg-agent-grid-fn">
+              {sorted.map((fn) => {
+                const status = getToolStatus(fn.id);
+                const meta = STATUS_META[status];
+                return (
+                  <div
+                    key={fn.id}
+                    className={`stg-agent-card stg-agent-card-fn stg-fn-${status}`}
+                    onClick={() => setView({ type: "fn", id: fn.id })}
+                  >
+                    <div className="stg-agent-card-top">
+                      <span className="stg-agent-card-name stg-mono">{fn.id}</span>
+                      <span className={`stg-fn-status stg-fn-status-${meta.tone}`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="stg-agent-card-desc">{fn.desc || "—"}</div>
+                    <div className="stg-agent-card-foot">
+                      <span className={`stg-agent-card-perm ${PERM_COLOR[fn.perm]}`}>
+                        {fn.perm}
+                      </span>
+                      <span className="stg-agent-card-cat">{fn.cat}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+    </div>
   );
 }
 

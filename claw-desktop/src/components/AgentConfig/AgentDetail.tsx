@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useAgentStore } from "../../store/agentStore";
 import type { Agent } from "../../types/agent";
 
@@ -16,7 +17,7 @@ function formatPrompt(text: string): string {
 }
 
 export default function AgentDetail({ agent }: { agent: Agent }) {
-  const skills = useAgentStore((s) => s.skills.filter((sk) => sk.agent === agent.id));
+  const skills = useAgentStore(useShallow((s) => s.skills.filter((sk) => sk.agent === agent.id)));
   const functions = useAgentStore((s) => s.functions);
   const setView = useAgentStore((s) => s.setActiveView);
   const toggleActive = useAgentStore((s) => s.toggleAgentActive);

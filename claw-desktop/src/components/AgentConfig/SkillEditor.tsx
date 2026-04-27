@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAgentStore } from "../../store/agentStore";
 import { buildSkillMd, parseMd, validateSkill, applyParsed } from "../../lib/skillMd";
 import ValidationBar, { type ValidState } from "./ValidationBar";
@@ -117,10 +117,32 @@ function VisualView({
   setView: ReturnType<typeof useAgentStore.getState>["setActiveView"];
   updateSkill: ReturnType<typeof useAgentStore.getState>["updateSkill"];
 }) {
+  const [addFnVal, setAddFnVal] = useState("");
+  const newConstraintRef = useRef<HTMLInputElement>(null);
+  const newEvalRef = useRef<HTMLInputElement>(null);
+  const prevConstraintLen = useRef(skill.constraints.length);
+  const prevEvalLen = useRef(skill.eval.length);
+
+  useEffect(() => {
+    if (skill.constraints.length > prevConstraintLen.current) {
+      newConstraintRef.current?.focus();
+    }
+    prevConstraintLen.current = skill.constraints.length;
+  }, [skill.constraints.length]);
+
+  useEffect(() => {
+    if (skill.eval.length > prevEvalLen.current) {
+      newEvalRef.current?.focus();
+    }
+    prevEvalLen.current = skill.eval.length;
+  }, [skill.eval.length]);
+
+  const availableFns = functions.filter(f => !skill.fns.includes(f.id));
+
   return (
     <div className="ac-sv-body">
       <div className="ac-sv-section">
-        <div className="ac-sv-label">描述</div>
+        <div className="ac-sv-label">Description</div>
         <input
           className="ac-sv-input"
           defaultValue={skill.desc}
@@ -143,16 +165,41 @@ function VisualView({
                 >
                   {fid}
                 </span>
-                <span className="ac-sv-tool-desc">{fn ? fn.desc : "⚠ 未注册"}</span>
+                <span className="ac-sv-tool-desc">{fn ? fn.desc : "未注册"}</span>
                 {fn && <span className={`ac-sv-perm ac-perm-${fn.perm}`}>{fn.perm}</span>}
+                <span
+                  className="ac-sv-tool-rm"
+                  title="移除"
+                  onClick={() => updateSkill(skill.id, { fns: skill.fns.filter(f => f !== fid) })}
+                >×</span>
               </div>
             );
           })}
+          {availableFns.length > 0 ? (
+            <select
+              className="ac-sv-add-fn-select"
+              value={addFnVal}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val) {
+                  updateSkill(skill.id, { fns: [...skill.fns, val] });
+                  setAddFnVal("");
+                }
+              }}
+            >
+              <option value="">+ 添加 Function</option>
+              {availableFns.map(f => (
+                <option key={f.id} value={f.id}>{f.id} — {f.desc}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="ac-sv-all-added">所有 Function 已添加</span>
+          )}
         </div>
       </div>
 
       <div className="ac-sv-section">
-        <div className="ac-sv-label">指引</div>
+        <div className="ac-sv-label">Instructions</div>
         <textarea
           className="ac-skill-editor"
           defaultValue={skill.guide}
@@ -167,6 +214,7 @@ function VisualView({
           <div key={i} className="ac-sv-list-item">
             <span className="ac-sv-bullet" style={{ color: "var(--red)" }}>•</span>
             <input
+              ref={i === skill.constraints.length - 1 ? newConstraintRef : undefined}
               className="ac-sv-list-input"
               defaultValue={c}
               spellCheck={false}
@@ -178,6 +226,10 @@ function VisualView({
             />
           </div>
         ))}
+        <button
+          className="ac-form-add ac-sv-add-btn"
+          onClick={() => updateSkill(skill.id, { constraints: [...skill.constraints, ""] })}
+        >+ 添加约束</button>
       </div>
 
       <div className="ac-sv-section">
@@ -186,6 +238,7 @@ function VisualView({
           <div key={i} className="ac-sv-list-item">
             <span className="ac-sv-bullet" style={{ color: "var(--accent)" }}>✓</span>
             <input
+              ref={i === skill.eval.length - 1 ? newEvalRef : undefined}
               className="ac-sv-list-input"
               defaultValue={ev}
               spellCheck={false}
@@ -197,9 +250,13 @@ function VisualView({
             />
           </div>
         ))}
+        <button
+          className="ac-form-add ac-sv-add-btn"
+          onClick={() => updateSkill(skill.id, { eval: [...skill.eval, ""] })}
+        >+ 添加标准</button>
       </div>
 
-      {skill.custom && skill.custom.length > 0 && skill.custom.map((c, i) => (
+      {(skill.custom ?? []).map((c, i) => (
         <div key={i} className="ac-sv-custom">
           <div className="ac-sv-custom-head">
             <span className="ac-sv-custom-prefix">##</span>
@@ -214,6 +271,15 @@ function VisualView({
               }}
             />
             <span className="ac-sv-custom-badge">自定义</span>
+            <span
+              className="ac-sv-custom-rm"
+              title="删除此模块"
+              onClick={() => {
+                const next = [...(skill.custom ?? [])];
+                next.splice(i, 1);
+                updateSkill(skill.id, { custom: next });
+              }}
+            >×</span>
           </div>
           <textarea
             className="ac-skill-editor"
@@ -228,6 +294,11 @@ function VisualView({
           />
         </div>
       ))}
+
+      <button
+        className="ac-form-add ac-sv-add-btn ac-sv-add-custom"
+        onClick={() => updateSkill(skill.id, { custom: [...(skill.custom ?? []), { title: "Untitled", content: "" }] })}
+      >+ 添加自定义模块</button>
     </div>
   );
 }

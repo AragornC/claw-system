@@ -1,9 +1,51 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { Session } from "../store/chatStore";
 import { useChatStore } from "../store/chatStore";
+import { useAgentStore } from "../store/agentStore";
+import { useFeatureStore } from "../store/featureStore";
 import "./SubHeader.css";
 
-const FILE_TABS = ["特征生成任务", "均线死叉特征"];
+/* ── Line-art icons for agent config tabs ── */
+const AGENT_ICONS: Record<string, React.ReactNode> = {
+  analyst: <svg width={11} height={11} viewBox="0 0 14 14" fill="none"><polyline points="1,11 4,6 7,8 10,3 13,5" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  quant:   <svg width={11} height={11} viewBox="0 0 14 14" fill="none"><path d="M5 1h4l1 3H4L5 1z" stroke="currentColor" strokeWidth={1.1} strokeLinejoin="round"/><path d="M4 4h6l1 8H3L4 4z" stroke="currentColor" strokeWidth={1.1} strokeLinejoin="round"/><line x1={5.5} y1={6.5} x2={8.5} y2={6.5} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/></svg>,
+  risk:    <svg width={11} height={11} viewBox="0 0 14 14" fill="none"><path d="M7 1L2 3.5v4C2 10.5 4.2 12.8 7 13c2.8-.2 5-2.5 5-5.5v-4L7 1z" stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round"/></svg>,
+  sentinel:<svg width={11} height={11} viewBox="0 0 14 14" fill="none"><circle cx={7} cy={7} r={2} stroke="currentColor" strokeWidth={1.2}/><circle cx={7} cy={7} r={4.5} stroke="currentColor" strokeWidth={1} strokeDasharray="2 1.5" fill="none"/></svg>,
+  coordinator: <svg width={11} height={11} viewBox="0 0 14 14" fill="none"><circle cx={7} cy={7} r={5.5} stroke="currentColor" strokeWidth={1.2}/><circle cx={7} cy={7} r={1.5} fill="currentColor"/><line x1={7} y1={1.5} x2={7} y2={4} stroke="currentColor" strokeWidth={1.1}/><line x1={7} y1={10} x2={7} y2={12.5} stroke="currentColor" strokeWidth={1.1}/><line x1={1.5} y1={7} x2={4} y2={7} stroke="currentColor" strokeWidth={1.1}/><line x1={10} y1={7} x2={12.5} y2={7} stroke="currentColor" strokeWidth={1.1}/></svg>,
+};
+const IconAgentGeneric = () => (
+  <svg width={11} height={11} viewBox="0 0 16 16" fill="none">
+    <rect x={2} y={2} width={12} height={12} rx={3.5} stroke="currentColor" strokeWidth={1.2}/>
+    <circle cx={5.8} cy={7} r={1} fill="currentColor"/>
+    <circle cx={10.2} cy={7} r={1} fill="currentColor"/>
+    <line x1={6} y1={10} x2={10} y2={10} stroke="currentColor" strokeWidth={1.2} strokeLinecap="round"/>
+  </svg>
+);
+const IconSkillTab = () => (
+  <svg width={11} height={11} viewBox="0 0 12 12" fill="none">
+    <rect x={1} y={1} width={10} height={10} rx={2} stroke="currentColor" strokeWidth={1.1}/>
+    <line x1={3.5} y1={6} x2={8.5} y2={6} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+    <line x1={3.5} y1={4} x2={7} y2={4} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+    <line x1={3.5} y1={8} x2={6.5} y2={8} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+  </svg>
+);
+const IconFnTab = () => (
+  <svg width={11} height={11} viewBox="0 0 12 12" fill="none">
+    <circle cx={6} cy={6} r={5} stroke="currentColor" strokeWidth={1.1}/>
+    <text x={6} y={8.5} textAnchor="middle" fontSize={7} fill="currentColor" fontFamily="var(--font-mono)">f</text>
+  </svg>
+);
+// Feature tab icon — a "factor / formula node" mark: input lines feeding a
+// boxed compute step. Monochrome line art, matches the rest of the SubHeader.
+const IconFeatureTab = () => (
+  <svg width={11} height={11} viewBox="0 0 12 12" fill="none">
+    <rect x={3.5} y={3.5} width={5} height={5} rx={1} stroke="currentColor" strokeWidth={1.1}/>
+    <line x1={1} y1={5} x2={3.5} y2={5} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+    <line x1={1} y1={7} x2={3.5} y2={7} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+    <line x1={8.5} y1={6} x2={11} y2={6} stroke="currentColor" strokeWidth={1} strokeLinecap="round"/>
+  </svg>
+);
 
 interface Props {
   agentWidth: number;
@@ -52,6 +94,18 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
   const [histSearch, setHistSearch]     = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
   const histRef = useRef<HTMLDivElement>(null);
+
+  const openViews       = useAgentStore(useShallow(s => s.openViews));
+  const activeView      = useAgentStore(s => s.activeView);
+  const setAgentView    = useAgentStore(s => s.setActiveView);
+  const closeAgentView  = useAgentStore(s => s.closeView);
+
+  // Feature tabs — one per feature opened from the sidebar.
+  const features        = useFeatureStore(useShallow(s => s.features));
+  const featureTabSlugs = useFeatureStore(useShallow(s => s.openTabSlugs));
+  const activeTabSlug   = useFeatureStore(s => s.activeTabSlug);
+  const setActiveTab    = useFeatureStore(s => s.setActiveTab);
+  const closeFeatureTab = useFeatureStore(s => s.closeTab);
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const liveRef         = useRef<Session[]>(sessions);
@@ -176,12 +230,12 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
   }
 
   const historySessions = allSessions
-    .filter(s => s.messages.length > 0)
+    .filter(s => (s.items || []).length > 0)
     .filter(s => {
       if (!histSearch) return true;
       const q = histSearch.toLowerCase();
       return s.name.toLowerCase().includes(q) ||
-        s.messages.some(m => m.text.toLowerCase().includes(q));
+        (s.items || []).some(m => 'text' in m && (m as {text:string}).text.toLowerCase().includes(q));
     })
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -191,15 +245,50 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
     <div className="subheader">
       {/* 中：文件 tabs */}
       <div className="subheader-tabs">
-        {FILE_TABS.map((t, i) => (
-          <div key={i} className={`sh-tab ${!showSettings && i === 1 ? "active" : ""}`}>
-            <span className="sh-tab-icon">⚡</span>
-            {t}
-            <span className="sh-tab-close">×</span>
-          </div>
-        ))}
+        {/* Feature tabs — opened from sidebar 特征库 */}
+        {featureTabSlugs.map((slug) => {
+          const meta = features.find((f) => f.slug === slug);
+          const label = meta?.display_name || slug;
+          // Feature tab is "active" iff its slug is the foreground feature.
+          // Settings tab presence no longer suppresses this — App routing
+          // gives features priority when activeTabSlug is set.
+          const isActive = activeTabSlug === slug;
+          return (
+            <div
+              key={slug}
+              className={`sh-tab ${isActive ? "active" : ""}`}
+              onClick={() => {
+                // Activate the feature tab without closing Settings — the
+                // App-level routing (activeTabSlug takes priority) decides
+                // what's actually rendered. Also clear any active agent
+                // sub-view so we don't end up showing AgentDetail content
+                // inside what's now meant to be a feature workspace.
+                setAgentView(null);
+                setActiveTab(slug);
+              }}
+              title={slug}
+            >
+              <span className="sh-tab-icon"><IconFeatureTab /></span>
+              {label}
+              <span
+                className="sh-tab-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeFeatureTab(slug);
+                }}
+              >×</span>
+            </div>
+          );
+        })}
         {showSettings && (
-          <div className="sh-tab active">
+          <div
+            className={`sh-tab ${activeTabSlug === null ? "active" : ""}`}
+            onClick={() => {
+              // Bring Settings to the foreground by clearing whatever
+              // feature was active. activeView (agent sub-view) stays as-is.
+              setActiveTab(null);
+            }}
+          >
             <span className="sh-tab-icon">
               <svg width="11" height="11" viewBox="0 0 20 20" fill="none">
                 <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
@@ -207,9 +296,37 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
               </svg>
             </span>
             设置
-            <span className="sh-tab-close" onClick={onCloseSettings}>×</span>
+            <span
+              className="sh-tab-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseSettings?.();
+              }}
+            >×</span>
           </div>
         )}
+        {!showSettings && openViews.map(view => {
+          const isActive = activeView?.type === view.type && activeView?.id === view.id;
+          return (
+            <div
+              key={`${view.type}:${view.id}`}
+              className={`sh-tab sh-tab-agentcfg ${isActive ? "active" : ""}`}
+              onClick={() => setAgentView(view)}
+            >
+              <span className="sh-tab-icon sh-tab-agentcfg-icon">
+                {view.type === "agent" && (AGENT_ICONS[view.id] ?? <IconAgentGeneric />)}
+                {view.type === "skill" && <IconSkillTab />}
+                {view.type === "fn" && <IconFnTab />}
+              </span>
+              {view.id}
+              <span
+                className="sh-tab-close"
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); closeAgentView(view); }}
+              >×</span>
+            </div>
+          );
+        })}
         <button className="sh-tab-add">+</button>
       </div>
 
@@ -290,7 +407,7 @@ export default function SubHeader({ agentWidth, sessions, activeId, onSwitch, on
                         >
                           <span className="sha-history-dot">●</span>
                           <span className="sha-history-name">{s.name}</span>
-                          <span className="sha-history-count">{s.messages.length} 条</span>
+                          <span className="sha-history-count">{(s.items || []).length} 条</span>
                           <span
                             className="sha-history-delete"
                             title="删除"

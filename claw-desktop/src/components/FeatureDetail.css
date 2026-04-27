@@ -1,0 +1,183 @@
+/* FeatureDetail — sits inside .workspace */
+
+.fd {
+  padding: 28px 32px 40px;
+  max-width: 920px;
+  margin: 0 auto;
+  color: var(--text-primary);
+  font-family: var(--font);
+  /* Don't constrain height — let the parent .workspace scroll naturally so
+     long code blocks aren't clipped. */
+}
+
+.fd-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* Hero */
+.fd-hero {
+  margin-bottom: 24px;
+}
+.fd-hero-top {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.fd-status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.fd-ok  { background: var(--accent, #3cc87a); box-shadow: 0 0 6px rgba(60,200,122,.5); }
+.fd-err { background: #e89a4d; box-shadow: 0 0 6px rgba(232,154,77,.5); }
+.fd-idle{ background: var(--text-dim); opacity: .5; }
+
+.fd-name {
+  font-size: 18px; font-weight: 600;
+  margin: 0; color: var(--text-primary);
+}
+.fd-cat {
+  font-size: 10.5px;
+  background: var(--bg-active); color: var(--text-muted);
+  padding: 2px 8px; border-radius: 4px;
+}
+.fd-badge {
+  font-size: 10px; padding: 2px 7px; border-radius: 3px;
+  border: 1px solid;
+}
+.fd-badge-llm {
+  color: #6da4ff; border-color: rgba(109,164,255,.3);
+  background: rgba(109,164,255,.08);
+}
+.fd-slug {
+  font-size: 11px; color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.fd-desc {
+  margin: 8px 0 0;
+  font-size: 13px; color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+/* Actions */
+.fd-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.fd-btn {
+  /* Stable footprint so the row doesn't reflow when labels change
+     (e.g. "立即运行" → "运行中…"), which is what reads as flicker. */
+  min-width: 96px;
+  padding: 6px 14px;
+  font-size: 11.5px; font-family: var(--font);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  /* Only animate visual props — animating "all" makes the disabled-state
+     hover transition wobble. */
+  transition: background-color .15s, border-color .15s, color .15s, opacity .15s;
+}
+.fd-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,.2);
+  background: rgba(255,255,255,.03);
+}
+.fd-btn:disabled {
+  /* Keep the colors as-is; just dim. The button stays visibly the same
+     button, no jarring color flip when the user's cursor is on it. */
+  opacity: .55;
+  cursor: progress;
+}
+.fd-btn-primary {
+  background: rgba(60,200,122,.1);
+  color: var(--accent, #3cc87a);
+  border-color: rgba(60,200,122,.3);
+}
+.fd-btn-primary:hover:not(:disabled) {
+  background: rgba(60,200,122,.18);
+  border-color: rgba(60,200,122,.5);
+  color: var(--accent, #3cc87a);
+}
+/* When the primary button is in its loading state, freeze it on the
+   "hovered" green look instead of falling back to the dim base —
+   that's the fix for the green→dim→green flash on click. */
+.fd-btn-primary:disabled {
+  background: rgba(60,200,122,.15);
+  border-color: rgba(60,200,122,.4);
+  color: var(--accent, #3cc87a);
+}
+.fd-btn-danger:hover:not(:disabled) {
+  color: #e85d4d;
+  border-color: rgba(232,93,77,.4);
+  background: rgba(232,93,77,.06);
+}
+
+/* Sections */
+.fd-section { margin-bottom: 22px; }
+.fd-section-title {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.fd-section-body { font-size: 12.5px; }
+
+.fd-muted { color: var(--text-dim); font-size: 12px; }
+.fd-mono { font-family: var(--font-mono); }
+
+/* Run result */
+.fd-run-meta {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px;
+}
+.fd-tag {
+  font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: .03em;
+}
+.fd-tag-ok  { background: rgba(60,200,122,.12); color: var(--accent, #3cc87a); }
+.fd-tag-err { background: rgba(232,93,77,.12); color: #e85d4d; }
+
+.fd-output, .fd-error, .fd-code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.55;
+}
+.fd-error { color: #e89a4d; }
+.fd-output { color: #cdd9e5; }
+
+/* Code section */
+.fd-code-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.fd-link {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-family: var(--font); font-size: 12px;
+  padding: 0;
+}
+.fd-link:hover { color: var(--accent, #3cc87a); }
+.fd-code {
+  color: #c4d2e0;
+  /* No max-height — page scrolls. Wrap on long lines so users don't have to
+     side-scroll inside the code block on narrow workspaces. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
