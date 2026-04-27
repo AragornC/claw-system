@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交易执行链路 — 谁来负责下单？</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1000px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .bg-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px;}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:14px 0;
+    font-size:12px;color:var(--t2);line-height:1.7;
+  }
+  .kp-gold{background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);}
+  .kp-red{background:rgba(239,83,80,.04);border:1px solid rgba(239,83,80,.15);}
+  .kp-green{background:rgba(60,200,122,.04);border:1px solid rgba(60,200,122,.15);}
+  .key-point b{color:var(--gold);}
+  .kp-red b{color:var(--red);}
+  .kp-green b{color:var(--green);}
+
+  /* ── Flow ── */
+  .flow{display:flex;flex-direction:column;gap:0;margin:12px 0;}
+  .flow-node{display:flex;gap:12px;padding:8px 0;position:relative;}
+  .flow-node::before{
+    content:"";position:absolute;left:19px;top:36px;bottom:-8px;
+    width:2px;background:var(--border);
+  }
+  .flow-node:last-child::before{display:none;}
+  .flow-avatar{
+    width:40px;height:40px;border-radius:10px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    border:2px solid;
+  }
+  .flow-body{flex:1;}
+  .flow-who{font-size:11px;font-weight:700;letter-spacing:.3px;margin-bottom:3px;}
+  .flow-text{font-size:12px;color:var(--t2);line-height:1.6;}
+  .flow-text b{color:var(--t1);}
+  .flow-box{
+    margin-top:8px;padding:10px 12px;border-radius:7px;
+    font-size:11px;line-height:1.55;
+  }
+  .fb-code{
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    background:rgba(0,0,0,.3);border:1px solid var(--border);color:var(--t2);
+    white-space:pre-wrap;
+  }
+  .fb-confirm{
+    background:rgba(232,168,74,.06);border:1.5px solid rgba(232,168,74,.25);color:var(--t2);
+  }
+  .fb-exec{
+    background:rgba(60,200,122,.06);border:1.5px solid rgba(60,200,122,.2);color:var(--t2);
+  }
+  .fb-danger{
+    background:rgba(239,83,80,.06);border:1.5px solid rgba(239,83,80,.2);color:var(--t2);
+  }
+
+  .confirm-btns{display:flex;gap:8px;margin-top:8px;}
+  .cfm-btn{
+    padding:6px 16px;border-radius:6px;font-size:11px;font-weight:600;
+    font-family:var(--font);cursor:default;
+  }
+
+  /* ── Compare ── */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0;}
+  .cmp-card{padding:14px;border-radius:8px;border:1.5px solid var(--border);}
+  .cmp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+  .cmp-item{font-size:11.5px;color:var(--t2);line-height:1.5;padding:3px 0;display:flex;align-items:flex-start;gap:6px;}
+  .cmp-item b{color:var(--t1);}
+  .cmp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:5px;}
+
+  /* ── Executor anatomy ── */
+  .exec-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;}
+  .exec-card{padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);}
+  .exec-name{font-size:12px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px;}
+  .exec-desc{font-size:11px;color:var(--t2);line-height:1.5;}
+  .exec-tag{font-size:9px;padding:1px 5px;border-radius:3px;}
+
+  /* ── Architecture ── */
+  .arch{
+    font-size:11px;padding:14px 16px;border-radius:8px;
+    background:var(--bg3);border:1px solid var(--border);
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.8;white-space:pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<h1>交易执行链路 — 谁来负责下单？</h1>
+<div class="sub">Agent 团队负责分析和建议，但真正的下单由谁执行？答案是：一个不含 LLM 的确定性系统进程。</div>
+
+<!-- ═══════ 核心结论 ═══════ -->
+<h2>先说结论</h2>
+
+<div class="compare">
+  <div class="cmp-card" style="border-color:rgba(239,83,80,.2);background:rgba(239,83,80,.015);">
+    <div class="cmp-label" style="color:var(--red);">Agent 团队（LLM 驱动）</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--blue);"></div><b>负责</b>：分析市场、评估风险、生成建议</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--red);"></div><b>不负责</b>：实际下单、管理订单、与交易所交互</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--red);"></div><b>原因</b>：LLM 有幻觉风险，不能让它碰真钱</div>
+  </div>
+  <div class="cmp-card" style="border-color:rgba(60,200,122,.2);background:rgba(60,200,122,.015);">
+    <div class="cmp-label" style="color:var(--green);">Executor（系统进程，无 LLM）</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--green);"></div><b>负责</b>：接收确认后的订单、与交易所交互、监控状态</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--green);"></div><b>特点</b>：纯代码逻辑，无 LLM，确定性执行</div>
+    <div class="cmp-item"><div class="cmp-dot" style="background:var(--green);"></div><b>类比</b>：银行柜台——你说"转5000"，它精确执行，不会"理解"错</div>
+  </div>
+</div>
+
+<div class="key-point kp-red">
+  <b>为什么不能让 Agent（LLM）直接下单？</b><br><br>
+  1. <b>LLM 有幻觉</b> — 它可能"以为"价格是 $94,000，实际已经变了<br>
+  2. <b>LLM 不精确</b> — "买入 0.11 BTC" 可能被 LLM 处理成 "买入 0.1 BTC" 或 "买入 1.1 BTC"<br>
+  3. <b>LLM 不确定性</b> — 同样的 prompt 第二次跑可能生成不同参数的订单<br>
+  4. <b>延迟</b> — LLM 调用需要秒级延迟，交易需要毫秒级<br><br>
+  所以：<b>分析用 LLM，执行用确定性代码</b>。两者之间的桥梁是用户的确认点击。
+</div>
+
+<!-- ═══════ 完整链路 ═══════ -->
+<h2>一笔交易的完整链路</h2>
+
+<div class="card">
+  <div class="card-title">用户："按照之前的分析，买入 BTC"</div>
+  <div class="flow">
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--gold);background:rgba(232,168,74,.06);">🧠</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--gold);">PLANNER</div>
+        <div class="flow-text">意图识别：实盘交易 → 标记 <b>high_risk</b><br>调度 Risk Agent 计算仓位。</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--red);background:rgba(239,83,80,.06);">🛡️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--red);">RISK · position_sizing Skill</div>
+        <div class="flow-text">
+          查余额 $52,000 → 查 BTC 价格 $94,320 → 计算合规仓位<br>
+          单笔上限 20% → 最多 $10,400 → <b>0.11 BTC</b>
+        </div>
+        <div class="flow-box fb-code">risk_output: {
+  symbol: "BTC/USDT",
+  side: "buy",
+  suggested_amount: 0.11,
+  suggested_cost: 10375,
+  pct_of_balance: "19.95%",
+  stop_loss: 91500,
+  max_loss_estimate: 311
+}</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--green);background:rgba(60,200,122,.06);">🎯</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--green);">COORDINATOR → 生成确认卡片</div>
+        <div class="flow-text">
+          综合 Risk 的仓位建议，生成一张<b>结构化的订单确认卡片</b>给用户。<br>
+          注意：此时只是建议，<b>还没有任何订单被创建</b>。
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--gold);background:rgba(232,168,74,.08);">👤</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--gold);">用户 — 确认环节（分水岭）</div>
+        <div class="flow-text">
+          用户看到确认卡片，包含所有关键信息：
+        </div>
+        <div class="flow-box fb-confirm">
+          <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px;">订单确认</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-bottom:10px;">
+            <div><span style="color:var(--t3);">方向</span> <b style="color:var(--green);">买入</b></div>
+            <div><span style="color:var(--t3);">品种</span> <b>BTC/USDT</b></div>
+            <div><span style="color:var(--t3);">数量</span> <b>0.11 BTC</b></div>
+            <div><span style="color:var(--t3);">预估花费</span> <b>≈ $10,375</b></div>
+            <div><span style="color:var(--t3);">订单类型</span> <b>限价单 @ $94,320</b></div>
+            <div><span style="color:var(--t3);">占总资金</span> <b>19.95%</b></div>
+            <div><span style="color:var(--t3);">建议止损</span> <b>$91,500 (-3%)</b></div>
+            <div><span style="color:var(--t3);">最大预期损失</span> <b style="color:var(--red);">$311</b></div>
+          </div>
+          <div style="font-size:10px;color:var(--t3);margin-bottom:10px;line-height:1.4;">
+            以上信息由 AI 分析生成，仅供参考。实际成交价可能因市场波动而不同。<br>
+            您确认提交此订单后，系统将直接与交易所交互执行。
+          </div>
+          <div class="confirm-btns">
+            <div class="cfm-btn" style="background:var(--green);color:#0d1117;">确认下单</div>
+            <div class="cfm-btn" style="background:rgba(255,255,255,.06);color:var(--t2);border:1px solid var(--border);">修改参数</div>
+            <div class="cfm-btn" style="background:rgba(255,255,255,.06);color:var(--t3);border:1px solid var(--border);">取消</div>
+          </div>
+        </div>
+        <div class="flow-text" style="margin-top:8px;">
+          <b>这里是分水岭。</b>上面全是 Agent（LLM 驱动），下面全是 Executor（纯代码）。<br>
+          用户点击"确认下单"后，数据从 LLM 世界进入确定性执行世界。
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--cyan);background:rgba(34,211,238,.08);">⚙️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--cyan);">EXECUTOR · Pre-Flight Check（系统进程，无 LLM）</div>
+        <div class="flow-text">
+          收到用户确认后，Executor 先做<b>飞行前检查</b>——全部是硬编码规则，不涉及 LLM：
+        </div>
+        <div class="flow-box fb-code">pre_flight: {
+  balance_sufficient: true,     // 余额 $52,000 > $10,375 ✓
+  within_position_limit: true,  // 19.95% < 20% ✓
+  market_open: true,            // 7×24 crypto ✓
+  api_connected: true,          // 交易所 API 连通 ✓
+  rate_limit_ok: true,          // 未触发频率限制 ✓
+  duplicate_check: true,        // 5分钟内无重复订单 ✓
+  → all checks passed → proceed
+}</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--cyan);background:rgba(34,211,238,.08);">⚙️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--cyan);">EXECUTOR · 下单执行（系统进程，无 LLM）</div>
+        <div class="flow-text">
+          Pre-Flight 通过后，Executor 向交易所提交订单，然后<b>轮询订单状态</b>直到成交或超时：
+        </div>
+        <div class="flow-box fb-exec">
+14:32:01.234  POST /api/v1/order → orderId: "ORD-8847"
+14:32:01.456  订单已提交 → status: NEW
+14:32:03.120  轮询... → status: PARTIALLY_FILLED (0.05/0.11)
+14:32:05.340  轮询... → status: FILLED
+14:32:05.341  成交确认: 0.11 BTC @ $94,318 | 实际花费 $10,374.98
+14:32:05.342  滑点: -$0.22 (-0.002%) ← 可接受</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--cyan);background:rgba(34,211,238,.08);">⚙️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--cyan);">EXECUTOR · 执行后处理（系统进程）</div>
+        <div class="flow-text">
+          成交后自动执行：
+        </div>
+        <div class="flow-box fb-code">post_execution: {
+  update_positions: true,     // 更新本地持仓记录
+  set_stop_loss: "pending",   // 设置止损单（需用户确认）
+  log_trade: true,            // 记录到 Track Record
+  notify_user: true,          // 推送成交通知
+  notify_sentinel: true       // 通知 Sentinel 开始监控此持仓
+}</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--green);background:rgba(60,200,122,.06);">🎯</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--green);">COORDINATOR → 成交报告（回到 Agent 世界）</div>
+        <div class="flow-text">
+          Executor 把执行结果传回 Agent 层。Coordinator 生成成交报告推送给用户：
+        </div>
+        <div class="flow-box fb-exec">
+          <b style="color:var(--green);">✓ 订单已成交</b><br><br>
+          买入 0.11 BTC @ $94,318<br>
+          实际花费 $10,374.98 | 滑点 -$0.22<br>
+          当前持仓 0.11 BTC | 占总资金 19.95%<br><br>
+          <span style="color:var(--gold);">是否设置止损单？建议 $91,500 (-3%) →  [设置] [暂不]</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════ Executor 解剖 ═══════ -->
+<h2>Executor 内部结构</h2>
+
+<div class="card">
+  <div class="card-title">Executor 不是 Agent 角色，是系统进程 <span class="badge bg-red">无 LLM</span></div>
+  <div class="card-desc">纯 Rust 代码实现，确定性执行，毫秒级响应。它和 Agent 团队完全隔离。</div>
+
+  <div class="exec-grid">
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-green">模块</span> Pre-Flight Check</div>
+      <div class="exec-desc">下单前的硬编码检查：余额充足、仓位合规、API 连通、无重复订单、未触发熔断。全部通过才放行。</div>
+    </div>
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-green">模块</span> Order Submitter</div>
+      <div class="exec-desc">向交易所 API 提交订单。支持市价单、限价单。大额订单可拆分执行（TWAP/冰山单）。</div>
+    </div>
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-green">模块</span> Status Monitor</div>
+      <div class="exec-desc">轮询订单状态直到终态（成交/取消/过期）。超时（如 60 秒限价单未成交）自动处理。</div>
+    </div>
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-green">模块</span> Post-Execution</div>
+      <div class="exec-desc">成交后：更新本地持仓、记录到 Track Record、通知 Sentinel 监控、生成滑点报告。</div>
+    </div>
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-red">模块</span> Circuit Breaker</div>
+      <div class="exec-desc">熔断器：连续失败 N 次、单日亏损超阈值、API 异常 → 自动冻结下单能力，通知用户。</div>
+    </div>
+    <div class="exec-card">
+      <div class="exec-name"><span class="exec-tag bg-gold">模块</span> Audit Logger</div>
+      <div class="exec-desc">完整审计日志：每笔订单的确认时间、提交时间、成交时间、价格、滑点、发起来源。不可篡改。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ 异常场景 ═══════ -->
+<h2>异常场景怎么处理</h2>
+
+<div class="card">
+  <div class="card-title">Executor 的容灾机制</div>
+
+  <div class="flow">
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--red);background:rgba(239,83,80,.06);font-size:14px;">⚠️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--red);">场景 1：下单后 API 断连</div>
+        <div class="flow-text">
+          订单已提交到交易所，但网络断了，拿不到成交结果。
+        </div>
+        <div class="flow-box fb-danger">
+处理：
+1. 标记订单为 "UNCERTAIN" 状态
+2. 30 秒后重试查询订单状态
+3. 如果仍无法连通 → 冻结后续下单
+4. 通知用户："订单 ORD-8847 状态未知，请手动在交易所确认"
+5. 网络恢复后自动同步真实订单状态
+
+绝不在状态未知时提交新订单。</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--red);background:rgba(239,83,80,.06);font-size:14px;">⚠️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--red);">场景 2：限价单长时间未成交</div>
+        <div class="flow-text">
+          限价买入 0.11 BTC @ $94,320，但价格涨到了 $95,000，一直挂着。
+        </div>
+        <div class="flow-box fb-danger">
+处理：
+1. 超时 60 秒后通知用户：
+   "限价单未成交，当前价格 $95,000（+0.72%）"
+2. 提供选项：
+   A) 继续挂单等待
+   B) 改为市价单立即成交
+   C) 取消订单
+3. 用户无响应 → 默认保持挂单（不主动取消）</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--red);background:rgba(239,83,80,.06);font-size:14px;">⚠️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--red);">场景 3：Pre-Flight 余额不足</div>
+        <div class="flow-text">
+          用户确认下单时余额充足，但提交到交易所时已被其他挂单占用。
+        </div>
+        <div class="flow-box fb-danger">
+处理：
+1. Pre-Flight 检查时锁定可用余额（扣减挂单占用）
+2. 如果仍然不足 → 拒绝下单
+3. 通知用户："可用余额不足（$X 被挂单占用），请取消部分挂单后重试"
+4. 绝不降低数量自动下单 — 数量由用户确认，Executor 不改</div>
+      </div>
+    </div>
+
+    <div class="flow-node">
+      <div class="flow-avatar" style="border-color:var(--red);background:rgba(239,83,80,.06);font-size:14px;">⚠️</div>
+      <div class="flow-body">
+        <div class="flow-who" style="color:var(--red);">场景 4：单日熔断触发</div>
+        <div class="flow-text">
+          当日已亏损超过用户预设的最大回撤（如总资金 5%）。
+        </div>
+        <div class="flow-box fb-danger">
+处理：
+1. Circuit Breaker 触发 → 冻结所有新订单提交
+2. 通知用户 + Sentinel：
+   "⚠ 单日亏损已达 5%，下单功能已冻结"
+3. 用户可手动解除冻结（需输入确认码）
+4. 冻结期间 Agent 团队仍可正常分析，只是不能执行
+
+冻结是保护机制，不是惩罚。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ 架构位置 ═══════ -->
+<h2>Executor 在整体架构中的位置</h2>
+
+<div class="card">
+  <div class="arch">
+<span style="color:var(--t3);">─── Agent 世界（LLM 驱动） ──────────────────────</span>
+
+用户: "按分析买入 BTC"
+  │
+  ├─ <span style="color:var(--gold);">Planner</span> → 调度 Risk
+  ├─ <span style="color:var(--red);">Risk</span> → 计算仓位: 0.11 BTC
+  ├─ <span style="color:var(--green);">Coordinator</span> → 生成确认卡片
+  │
+  └─ → <span style="color:var(--gold);">用户确认</span> ← <b>分水岭：LLM 世界到此为止</b>
+         │
+<span style="color:var(--t3);">─── 系统世界（纯代码，无 LLM） ─────────────────</span>
+         │
+         ├─ <span style="color:var(--cyan);">Executor</span>
+         │    ├─ Pre-Flight Check（硬编码规则）
+         │    ├─ Order Submitter（交易所 API）
+         │    ├─ Status Monitor（轮询状态）
+         │    ├─ Post-Execution（更新持仓）
+         │    ├─ Circuit Breaker（熔断保护）
+         │    └─ Audit Logger（审计日志）
+         │
+         └─ → 执行结果返回 Agent 世界
+              └─ <span style="color:var(--green);">Coordinator</span> 生成成交报告</div>
+</div>
+
+<div class="key-point kp-green">
+  <b>总结：交易执行的三个关键设计</b><br><br>
+  1. <b>Agent 和 Executor 完全隔离</b> — Agent 产出建议（JSON），Executor 接收确认后的订单参数。两者之间没有 LLM 调用。<br><br>
+  2. <b>用户确认是分水岭</b> — 确认之前是 LLM 世界（可能有幻觉、不确定性），确认之后是代码世界（确定性、毫秒级、可审计）。<br><br>
+  3. <b>Executor 只做用户确认的事</b> — 它不会修改数量、不会改价格、不会"智能优化"。用户确认什么，它精确执行什么。如果执行不了（余额不足/API 断连），它拒绝并通知用户，而不是擅自调整。
+</div>
+
+</body>
+</html>

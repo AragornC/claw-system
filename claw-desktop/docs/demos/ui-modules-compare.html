@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Memory × Reasoning · 两种组织方式对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1012;
+    --panel: #17181b;
+    --text: #d2d3d6;
+    --muted: #6d6f75;
+    --faint: #3e4046;
+    --line: #24262b;
+    --accent: #c9a575;
+    --user: #8ba6ff;
+    --mem: #6b93d6;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    font-size: 14px; line-height: 1.65;
+    overflow: hidden;
+  }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; border-bottom: 1px solid var(--line);
+  }
+  header .brand { color: var(--muted); font-size: 13px; }
+  header .brand b { color: var(--text); }
+  header .actions { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  header .actions button {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  header .actions button:hover { color: var(--text); border-color: var(--muted); }
+
+  .container {
+    height: calc(100vh - 52px);
+    display: grid; grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .col {
+    padding: 24px 32px; overflow-y: auto;
+    border-right: 1px solid var(--line);
+  }
+  .col:last-child { border-right: none; }
+  .col-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .col-sub { color: var(--faint); font-size: 12px; margin-bottom: 24px; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
+
+  /* ─── User input ─── */
+  .user-msg {
+    padding: 8px 0 18px; border-bottom: 1px solid var(--line);
+    margin-bottom: 20px;
+  }
+  .user-msg .lbl {
+    color: var(--user); font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+
+  /* ─── Shared module styling ─── */
+  .mod {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .mod:last-child { border-bottom: none; }
+  .mod-head {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; user-select: none;
+    padding: 2px 0;
+  }
+  .mod-head:hover .mod-title { color: var(--text); }
+  .mod-head .icon {
+    width: 14px; color: var(--muted); font-size: 11px;
+    font-family: "SF Mono", monospace; flex-shrink: 0;
+  }
+  .mod-head .caret {
+    color: var(--faint); font-size: 10px;
+    transition: transform 0.2s; flex-shrink: 0;
+  }
+  .mod.open .mod-head .caret { transform: rotate(90deg); }
+  .mod-title {
+    color: var(--muted); font-size: 13px;
+    transition: color 0.2s;
+    flex: 1;
+  }
+  .mod-title b { color: var(--text); font-weight: 500; }
+
+  .mod-body {
+    display: none;
+    padding: 10px 0 4px 24px;
+    font-size: 13px; color: var(--text);
+  }
+  .mod.open .mod-body { display: block; }
+
+  /* Memory tool calls inside body */
+  .mem-call {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px; padding: 3px 0;
+    color: var(--text);
+  }
+  .mem-call .n { color: var(--mem); }
+  .mem-call .a { color: var(--muted); }
+  .mem-call .r { color: var(--muted); }
+  .mem-call .sub {
+    padding-left: 16px; color: var(--faint); font-size: 11.5px;
+    margin-top: 1px;
+  }
+
+  /* Reasoning text */
+  .reason {
+    color: var(--text); line-height: 1.7;
+    font-size: 13px;
+  }
+  .reason p { margin: 6px 0; }
+  .reason .kv {
+    font-family: "SF Mono", monospace; font-size: 12px;
+    color: var(--muted); padding: 2px 0;
+  }
+  .reason .kv .k { color: var(--faint); margin-right: 8px; }
+  .reason .kv .v { color: var(--text); }
+
+  /* Method B — inline chip */
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 8px; margin: 0 2px;
+    background: rgba(107,147,214,0.08);
+    border: 1px solid rgba(107,147,214,0.25);
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--mem);
+    cursor: help;
+    vertical-align: baseline;
+  }
+  .chip .chip-i { font-size: 9px; opacity: 0.6; }
+
+  /* legend at bottom */
+  .note {
+    margin-top: 24px; padding: 12px 14px;
+    background: var(--panel); border-radius: 6px;
+    font-size: 12px; color: var(--muted); line-height: 1.7;
+  }
+  .note b { color: var(--accent); font-weight: 500; }
+  .note .pros { color: var(--text); }
+  .note .cons { color: var(--muted); }
+  .note-row { padding: 4px 0; }
+  .note-row .lbl {
+    display: inline-block; width: 32px;
+    color: var(--faint); font-size: 11px;
+    font-family: "SF Mono", monospace;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Memory × Reasoning · <b>两种组织方式对比</b></div>
+  <div class="actions">
+    <button id="expand-all">全部展开</button>
+    <button id="collapse-all">全部折叠</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ═══════════════════════════════════════════════════════
+       方案 A · 平级、顺序排列
+       ═══════════════════════════════════════════════════════ -->
+  <section class="col" id="col-a">
+    <div class="col-title">方案 A · 平级排列</div>
+    <div class="col-sub">Memory 和 Reasoning 是两个独立的可折叠块，按顺序排</div>
+
+    <div class="user-msg">
+      <div class="lbl">User</div>
+      <div>分析下 BTC 当前趋势</div>
+    </div>
+
+    <!-- Memory READ (folded by default) -->
+    <div class="mod" data-k="mem-read">
+      <div class="mod-head">
+        <span class="icon">📂</span>
+        <span class="mod-title"><b>Memory</b> · 读取了 1 条 — <span style="color:var(--faint)">search_memory("BTC") → 1 hit</span></span>
+        <span class="caret">▸</span>
+      </div>
+      <div class="mod-body">
+        <div class="mem-call">
+          <span class="n">search_memory</span><span class="a">(query="BTC")</span> <span class="r">→ 1 hit</span>
+          <div class="sub">MEMORY.md → btc-trend-2026-04-15（2026-04-15 偏多 60%）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reasoning (folded by default) -->
+    <div class="mod" data-k="reason">
+      <div class="mod-head">
+        <span class="icon">💭</span>
+        <span class="mod-title"><b>Reasoning</b> · 分类为"交易决策"，需调度 Analyst</span>
+        <span class="caret">▸</span>
+      </div>
+      <div class="mod-body">
+        <div class="reason">
+          <p>用户问 BTC 趋势 — 这是交易决策类任务。按原则必须经过 Analyst（未来还有 Risk），不能自己拍脑袋答。</p>
+          <p>索引里有 3 天前的分析，但我不读细节 — 那是 Analyst 的活，我只要调度。</p>
+          <div class="kv"><span class="k">routing</span><span class="v">mandatory_expert_dispatch</span></div>
+          <div class="kv"><span class="k">experts</span><span class="v">[analyst]  (risk 尚未上线)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- (占位提示后面还会有 dispatch / answer / memory-write) -->
+    <div style="color:var(--faint);font-size:12px;padding:14px 0;font-style:italic;">… 后续模块（dispatch / answer / memory 写入）略</div>
+
+    <div class="note">
+      <div class="note-row"><span class="lbl">结构</span>Memory / Reasoning 独立平级，各自可单独展开</div>
+      <div class="note-row"><span class="lbl">折叠</span>标题行自带摘要：看过几条、结论是什么</div>
+      <div class="note-row pros"><span class="lbl">✓</span>只想看"看了哪些证据"→ 点 Memory 就够，不用陪读 reasoning</div>
+      <div class="note-row pros"><span class="lbl">✓</span>Memory 写入可以单独放到答案之后作为"脚注"</div>
+      <div class="note-row cons"><span class="lbl">✗</span>reasoning 里若想引用具体某条证据，需要用户自己上下对照</div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       方案 B · Memory 作为 Reasoning 里的 inline chip
+       ═══════════════════════════════════════════════════════ -->
+  <section class="col" id="col-b">
+    <div class="col-title">方案 B · 内嵌 chip</div>
+    <div class="col-sub">Memory 不独立，作为 Reasoning 行内的可点击 chip</div>
+
+    <div class="user-msg">
+      <div class="lbl">User</div>
+      <div>分析下 BTC 当前趋势</div>
+    </div>
+
+    <!-- Reasoning only (folded by default) -->
+    <div class="mod" data-k="reason-b">
+      <div class="mod-head">
+        <span class="icon">💭</span>
+        <span class="mod-title"><b>Reasoning</b> · 分类为"交易决策"，需调度 Analyst</span>
+        <span class="caret">▸</span>
+      </div>
+      <div class="mod-body">
+        <div class="reason">
+          <p>
+            用户问 BTC 趋势 — 这是交易决策类任务。
+            先查索引
+            <span class="chip" title='search_memory(query="BTC")&#10;→ 1 hit: btc-trend-2026-04-15'>
+              <span class="chip-i">🔍</span>search_memory("BTC") → 1 hit
+            </span>
+            ，发现 3 天前有分析，但我不读细节 — 那是 Analyst 的活。
+          </p>
+          <p>按原则必须经过 Analyst（未来还有 Risk），决定调度。</p>
+          <div class="kv"><span class="k">routing</span><span class="v">mandatory_expert_dispatch</span></div>
+          <div class="kv"><span class="k">experts</span><span class="v">[analyst]  (risk 尚未上线)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="color:var(--faint);font-size:12px;padding:14px 0;font-style:italic;">… 后续模块（dispatch / answer / memory 写入）略</div>
+
+    <div class="note">
+      <div class="note-row"><span class="lbl">结构</span>只有一个 Reasoning 块；Memory 调用变成行内 chip</div>
+      <div class="note-row"><span class="lbl">折叠</span>折叠后 memory 的证据也一起被藏起来</div>
+      <div class="note-row pros"><span class="lbl">✓</span>证据和引用它的那句话在同一视觉位置，不用上下对照</div>
+      <div class="note-row pros"><span class="lbl">✓</span>像 Claude Desktop / Cursor 的 inline tool use 风格</div>
+      <div class="note-row cons"><span class="lbl">✗</span>想审阅"到底看过哪些数据"必须展开 reasoning 通读一遍</div>
+      <div class="note-row cons"><span class="lbl">✗</span>memory 写入的副作用不好塞进 reasoning 叙述里</div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // Click-to-toggle
+  document.querySelectorAll(".mod-head").forEach(h => {
+    h.addEventListener("click", () => {
+      h.parentElement.classList.toggle("open");
+    });
+  });
+
+  document.getElementById("expand-all").addEventListener("click", () => {
+    document.querySelectorAll(".mod").forEach(m => m.classList.add("open"));
+  });
+  document.getElementById("collapse-all").addEventListener("click", () => {
+    document.querySelectorAll(".mod").forEach(m => m.classList.remove("open"));
+  });
+</script>
+</body>
+</html>

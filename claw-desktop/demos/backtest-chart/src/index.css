@@ -1,0 +1,20 @@
+:root {
+  color-scheme: dark;
+  --bg: #0a0e14;
+  --panel: #0d1117;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #cdd9e5;
+  --text-dim: #8b949e;
+  --accent: #3cc87a;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+}

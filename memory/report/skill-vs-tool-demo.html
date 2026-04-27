@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill vs Tool — 为什么需要 Skill 抽象</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1020px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+  .bg-blue{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .bg-purple{background:rgba(167,139,250,.12);color:var(--purple);border:1px solid rgba(167,139,250,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px;}
+
+  /* ── Side by side comparison ── */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;}
+  .compare-card{padding:16px;border-radius:10px;border:1.5px solid var(--border);}
+  .compare-card.bad{border-color:rgba(239,83,80,.2);background:rgba(239,83,80,.015);}
+  .compare-card.good{border-color:rgba(60,200,122,.2);background:rgba(60,200,122,.015);}
+  .cc-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;}
+
+  .chat-bubble{
+    padding:8px 11px;border-radius:7px;font-size:11.5px;line-height:1.6;margin-bottom:8px;
+  }
+  .chat-user{background:rgba(60,200,122,.08);border:1px solid rgba(60,200,122,.12);}
+  .chat-system{background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.1);color:var(--t2);font-size:10.5px;}
+  .chat-agent{color:var(--t2);font-size:11px;line-height:1.6;}
+  .chat-agent b{color:var(--t1);}
+  .chat-label{font-size:9px;font-weight:600;color:var(--t3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px;}
+
+  .problem-tag{
+    display:inline-flex;align-items:center;gap:4px;
+    font-size:10px;padding:2px 7px;border-radius:3px;
+    background:rgba(239,83,80,.08);border:1px solid rgba(239,83,80,.15);
+    color:var(--red);margin:2px;
+  }
+  .good-tag{
+    display:inline-flex;align-items:center;gap:4px;
+    font-size:10px;padding:2px 7px;border-radius:3px;
+    background:rgba(60,200,122,.08);border:1px solid rgba(60,200,122,.15);
+    color:var(--green);margin:2px;
+  }
+
+  /* ── Skill anatomy ── */
+  .skill-box{
+    border:1.5px solid var(--border2);border-radius:10px;overflow:hidden;margin-bottom:14px;
+  }
+  .skill-header{
+    padding:12px 16px;display:flex;align-items:center;gap:10px;
+    border-bottom:1px solid var(--border);background:rgba(167,139,250,.03);
+  }
+  .skill-icon{
+    width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    font-size:16px;flex-shrink:0;
+  }
+  .skill-name{font-size:14px;font-weight:700;}
+  .skill-sub{font-size:11px;color:var(--t3);}
+  .skill-body{padding:14px 16px;}
+  .skill-section{margin-bottom:12px;}
+  .skill-section:last-child{margin-bottom:0;}
+  .skill-label{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+  .skill-items{display:flex;flex-wrap:wrap;gap:5px;}
+  .skill-item{
+    font-size:11px;padding:4px 9px;border-radius:5px;
+    background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--t2);
+  }
+  .skill-code{
+    font-size:11px;padding:10px 12px;border-radius:6px;
+    background:rgba(0,0,0,.3);border:1px solid var(--border);
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.55;white-space:pre-wrap;
+  }
+  .skill-flow{
+    display:flex;align-items:center;gap:0;flex-wrap:wrap;
+  }
+  .sf-step{
+    font-size:11px;padding:5px 10px;border-radius:5px;
+    background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);
+    color:var(--purple);white-space:nowrap;
+  }
+  .sf-arrow{color:var(--t3);font-size:12px;margin:0 4px;}
+
+  /* ── Skill catalog ── */
+  .catalog{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .cat-card{
+    padding:12px 14px;border-radius:8px;border:1px solid var(--border);
+    background:var(--bg3);cursor:pointer;transition:all .15s;
+  }
+  .cat-card:hover{border-color:var(--border2);}
+  .cat-card.active{border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.03);}
+  .cat-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .cat-icon{font-size:16px;}
+  .cat-name{font-size:12px;font-weight:600;}
+  .cat-desc{font-size:10.5px;color:var(--t3);line-height:1.4;}
+  .cat-tools{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;}
+  .cat-tool{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--t3);}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:12px 0;
+    background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);
+    font-size:12px;color:var(--t2);line-height:1.7;
+  }
+  .key-point b{color:var(--gold);}
+
+  .vs-table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0;}
+  .vs-table th{text-align:left;padding:7px 10px;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);font-weight:600;}
+  .vs-table td{padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t2);vertical-align:top;}
+  .vs-table tr:last-child td{border-bottom:none;}
+</style>
+</head>
+<body>
+
+<h1>Skill vs Tool — 为什么需要 Skill 抽象？</h1>
+<div class="sub">同一个任务"设计一个成交量异常因子"，分别用纯工具和 Skill 两种方式完成，对比效果差异。</div>
+
+<!-- ═══════════ Part 1: 对比 ═══════════ -->
+<h2>同一个需求，两种方式</h2>
+
+<div class="compare">
+  <!-- 纯工具 -->
+  <div class="compare-card bad">
+    <div class="cc-label" style="color:var(--red);">方案 A：只用工具，没有 Skill</div>
+
+    <div class="chat-label">用户</div>
+    <div class="chat-bubble chat-user">帮我设计一个基于成交量异常的交易因子</div>
+
+    <div class="chat-label">Planner（LLM 自己判断）</div>
+    <div class="chat-bubble chat-agent">
+      LLM 需要从零理解"因子设计"的完整流程。<br>
+      <b>它必须自己决定</b>：查什么资料、用什么指标、怎么回测、评估标准是什么。<br><br>
+      这些全靠 LLM 的训练知识，<b>没有任何领域约束</b>。
+    </div>
+
+    <div class="chat-label">Generator 执行</div>
+    <div class="chat-bubble chat-agent">
+      <b>web_search</b>("volume anomaly trading")<br>
+      <b>code_exec</b>(写因子代码)<br>
+      <b>get_klines</b>(取数据)<br>
+      <b>code_exec</b>(跑回测)<br><br>
+      但是...<br>
+    </div>
+
+    <div style="margin:8px 0;">
+      <span class="problem-tag">用了未来数据（前视偏差）</span>
+      <span class="problem-tag">没验证因子稳定性</span>
+      <span class="problem-tag">回测没扣手续费</span>
+      <span class="problem-tag">没考虑换手率</span>
+      <span class="problem-tag">没做多品种验证</span>
+      <span class="problem-tag">每次结果不一致</span>
+    </div>
+
+    <div class="chat-label">Evaluator</div>
+    <div class="chat-bubble chat-agent" style="color:var(--red);">
+      Evaluator 也不知道"好因子"的标准是什么。<br>
+      <b>它只能用通用逻辑去猜</b>，大概率放过了上面的问题。
+    </div>
+  </div>
+
+  <!-- 有 Skill -->
+  <div class="compare-card good">
+    <div class="cc-label" style="color:var(--green);">方案 B：使用 factor_design Skill</div>
+
+    <div class="chat-label">用户（完全一样的输入）</div>
+    <div class="chat-bubble chat-user">帮我设计一个基于成交量异常的交易因子</div>
+
+    <div class="chat-label">Planner（匹配到 Skill）</div>
+    <div class="chat-bubble chat-system">
+      <b>Skill 匹配：factor_design</b><br>
+      注入领域知识：因子设计标准流程、评估指标定义、质量红线。<br>
+      Planner 不需要"猜"怎么做，Skill 已经定义了标准工作流。
+    </div>
+
+    <div class="chat-label">Generator 按 Skill 工作流执行</div>
+    <div class="chat-bubble chat-agent">
+      <b>Step 1</b> 研究：web_search → 学术方案<br>
+      <b>Step 2</b> 设计：代码生成 + <b>Skill 约束：禁止使用未来数据</b><br>
+      <b>Step 3</b> 回测：<b>Skill 要求：必须扣手续费 0.1% + 滑点 0.05%</b><br>
+      <b>Step 4</b> 评估：<b>Skill 定义：IC>0.03, IR>0.5, 换手率<30%</b><br>
+      <b>Step 5</b> 验证：<b>Skill 要求：至少 2 个品种交叉验证</b>
+    </div>
+
+    <div style="margin:8px 0;">
+      <span class="good-tag">标准化流程保证</span>
+      <span class="good-tag">领域质量红线</span>
+      <span class="good-tag">每次执行一致</span>
+      <span class="good-tag">Evaluator 有明确标准</span>
+    </div>
+
+    <div class="chat-label">Evaluator（有 Skill 提供的评估标准）</div>
+    <div class="chat-bubble chat-agent" style="color:var(--green);">
+      按 factor_design Skill 的质量标准逐项检查：<br>
+      IC=0.08 ✓ | IR=1.2 ✓ | 换手率 22% ✓ | 无前视偏差 ✓ | 多品种 ✓
+    </div>
+  </div>
+</div>
+
+<div class="key-point">
+  <b>核心区别：Skill 封装了领域专家的知识，把"做对的标准"变成了可执行的约束。</b><br>
+  没有 Skill 时，LLM 每次都在"即兴发挥"，结果不可控。有了 Skill，LLM 是在"按规范执行"，结果可重复、可验证。<br><br>
+  <b>类比：</b>工具是"锤子、锯子、螺丝刀"，Skill 是"一份带着质检标准的施工图纸"。你不能只给工人工具就让他盖楼，还得给图纸。
+</div>
+
+<!-- ═══════════ Part 2: Skill 解剖 ═══════════ -->
+<h2>一个 Skill 长什么样</h2>
+
+<div class="skill-box">
+  <div class="skill-header">
+    <div class="skill-icon" style="background:rgba(167,139,250,.15);">📊</div>
+    <div>
+      <div class="skill-name">factor_design <span class="badge bg-purple">Skill</span></div>
+      <div class="skill-sub">交易因子研究与设计</div>
+    </div>
+  </div>
+  <div class="skill-body">
+    <div class="skill-section">
+      <div class="skill-label">使用的工具</div>
+      <div class="skill-items">
+        <div class="skill-item">web_search</div>
+        <div class="skill-item">get_klines</div>
+        <div class="skill-item">code_exec</div>
+        <div class="skill-item">backtest</div>
+        <div class="skill-item">calculate_indicator</div>
+      </div>
+    </div>
+    <div class="skill-section">
+      <div class="skill-label">标准工作流</div>
+      <div class="skill-flow">
+        <div class="sf-step">研究文献</div><span class="sf-arrow">→</span>
+        <div class="sf-step">设计因子</div><span class="sf-arrow">→</span>
+        <div class="sf-step">实现代码</div><span class="sf-arrow">→</span>
+        <div class="sf-step">历史回测</div><span class="sf-arrow">→</span>
+        <div class="sf-step">多品种验证</div><span class="sf-arrow">→</span>
+        <div class="sf-step">质量评估</div>
+      </div>
+    </div>
+    <div class="skill-section">
+      <div class="skill-label">注入给 LLM 的领域约束（Prompt 片段）</div>
+      <div class="skill-code">你正在执行「因子设计」任务，必须遵守以下规范：
+
+1. 严禁使用未来数据（前视偏差），所有计算必须用 shift(1) 滞后
+2. 回测必须扣除手续费（默认 0.1%）和滑点（默认 0.05%）
+3. 因子评估必须包含：IC、IR、换手率、最大回撤
+4. 最终因子必须在至少 2 个品种上交叉验证
+5. 如果 IC < 0.03 或 IR < 0.5，标记为不合格</div>
+    </div>
+    <div class="skill-section">
+      <div class="skill-label">Evaluator 评估标准</div>
+      <div class="skill-code">评估维度：
+  - IC > 0.03        (信息系数，因子预测力)
+  - IR > 0.5         (信息比率，风险调整后收益)
+  - 换手率 < 30%     (过高换手会吃掉手续费)
+  - 无前视偏差       (代码审查)
+  - 多品种一致性     (至少 2 个品种 IC 同向)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Part 3: Skill 目录 ═══════════ -->
+<h2>Claw 可以有哪些 Skill <span class="badge bg-blue">初步规划</span></h2>
+
+<div class="catalog" id="catalog">
+  <div class="cat-card active" onclick="selectCat(0)">
+    <div class="cat-head"><span class="cat-icon">📊</span><span class="cat-name">factor_design</span></div>
+    <div class="cat-desc">交易因子研究、设计、回测、评估全流程</div>
+    <div class="cat-tools">
+      <span class="cat-tool">web_search</span>
+      <span class="cat-tool">get_klines</span>
+      <span class="cat-tool">code_exec</span>
+      <span class="cat-tool">backtest</span>
+    </div>
+  </div>
+  <div class="cat-card" onclick="selectCat(1)">
+    <div class="cat-head"><span class="cat-icon">📈</span><span class="cat-name">strategy_backtest</span></div>
+    <div class="cat-desc">交易策略构建、回测、参数优化、风险分析</div>
+    <div class="cat-tools">
+      <span class="cat-tool">get_klines</span>
+      <span class="cat-tool">code_exec</span>
+      <span class="cat-tool">backtest</span>
+      <span class="cat-tool">calculate_indicator</span>
+    </div>
+  </div>
+  <div class="cat-card" onclick="selectCat(2)">
+    <div class="cat-head"><span class="cat-icon">📰</span><span class="cat-name">market_analysis</span></div>
+    <div class="cat-desc">综合市场分析：技术面 + 消息面 + 情绪</div>
+    <div class="cat-tools">
+      <span class="cat-tool">web_search</span>
+      <span class="cat-tool">get_klines</span>
+      <span class="cat-tool">calculate_indicator</span>
+    </div>
+  </div>
+  <div class="cat-card" onclick="selectCat(3)">
+    <div class="cat-head"><span class="cat-icon">📋</span><span class="cat-name">earnings_analysis</span></div>
+    <div class="cat-desc">财报解读：关键指标提取、同比分析、预期对比</div>
+    <div class="cat-tools">
+      <span class="cat-tool">web_search</span>
+      <span class="cat-tool">get_financial_data</span>
+      <span class="cat-tool">code_exec</span>
+    </div>
+  </div>
+  <div class="cat-card" onclick="selectCat(4)">
+    <div class="cat-head"><span class="cat-icon">🔔</span><span class="cat-name">signal_monitor</span></div>
+    <div class="cat-desc">交易信号监控：条件触发、价格预警、因子异动</div>
+    <div class="cat-tools">
+      <span class="cat-tool">get_price</span>
+      <span class="cat-tool">calculate_indicator</span>
+      <span class="cat-tool">notify</span>
+    </div>
+  </div>
+  <div class="cat-card" onclick="selectCat(5)">
+    <div class="cat-head"><span class="cat-icon">⚖️</span><span class="cat-name">risk_assessment</span></div>
+    <div class="cat-desc">持仓风险评估：集中度、相关性、极端场景模拟</div>
+    <div class="cat-tools">
+      <span class="cat-tool">check_balance</span>
+      <span class="cat-tool">get_klines</span>
+      <span class="cat-tool">code_exec</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Part 4: 关系总结 ═══════════ -->
+<h2>Tool vs Skill vs P-G-E — 三者关系</h2>
+
+<div class="card">
+  <table class="vs-table">
+    <tr>
+      <th style="width:80px;">概念</th>
+      <th style="width:120px;">是什么</th>
+      <th>包含什么</th>
+      <th>类比</th>
+    </tr>
+    <tr>
+      <td style="color:var(--green);font-weight:600;">Tool</td>
+      <td>原子操作</td>
+      <td>一个函数：输入 → 执行 → 输出。无领域知识，无流程概念。</td>
+      <td>锤子、锯子</td>
+    </tr>
+    <tr>
+      <td style="color:var(--purple);font-weight:600;">Skill</td>
+      <td>领域能力包</td>
+      <td>工具组合 + 标准工作流 + 领域约束（Prompt 片段）+ 质量标准（Evaluator 标准）</td>
+      <td>施工图纸 + 质检规范</td>
+    </tr>
+    <tr>
+      <td style="color:var(--gold);font-weight:600;">P-G-E</td>
+      <td>执行引擎</td>
+      <td>Planner 匹配 Skill → Generator 按 Skill 工作流执行 → Evaluator 按 Skill 标准验证</td>
+      <td>项目经理 + 施工队 + 质检员</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-title">它们之间的调用关系</div>
+  <div class="skill-code" style="color:var(--t2);">
+用户: "帮我设计一个成交量异常因子"
+            │
+    ┌───────▼───────┐
+    │   Planner     │  "这个需求匹配 factor_design Skill"
+    │               │  → 加载 Skill 的工作流 + 约束 + 评估标准
+    └───────┬───────┘
+            │
+    ┌───────▼───────┐
+    │  Generator    │  按 Skill 定义的工作流逐步执行
+    │               │  每步调用 Tool（web_search / code_exec / backtest）
+    │               │  Skill 的约束注入 Prompt → LLM 遵守领域规范
+    └───────┬───────┘
+            │
+    ┌───────▼───────┐
+    │  Evaluator    │  按 Skill 定义的质量标准逐项检查
+    │               │  IC > 0.03? IR > 0.5? 无前视偏差?
+    │               │  PASS → 输出  |  REVISE → 回 Generator
+    └───────────────┘
+  </div>
+</div>
+
+<div class="key-point">
+  <b>回到你的问题：因子生成应该是 Tool 还是 Skill？</b><br><br>
+  <b>答案：一定是 Skill。</b>因为因子设计不是一个原子操作，它是一个有标准流程、有质量要求、需要多个工具协作的领域能力。<br><br>
+  Tool 解决的是"能不能做"（有没有搜索、有没有回测引擎）。<br>
+  Skill 解决的是"做得对不对"（流程对不对、质量达不达标、有没有犯常见错误）。<br><br>
+  <b>Skill 的本质是把领域专家的经验编码成了可执行的约束。</b>没有 Skill，你的 Agent 就是一个什么都懂一点但什么都不精的通才；有了 Skill，它在特定领域就是一个按规范执行的专业人员。
+</div>
+
+<script>
+function selectCat(idx) {
+  document.querySelectorAll('.cat-card').forEach((c,i) => c.classList.toggle('active', i===idx));
+}
+</script>
+</body>
+</html>

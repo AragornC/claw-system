@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Agent Flow · 完整演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-base:      #0d1117;
+    --bg-panel:     #111722;
+    --border-soft:  #192438;
+    --text-primary: #cdd9e5;
+    --text-muted:   #4a6580;
+    --text-dim:     #2a3f55;
+    --accent-gold:  #e8a84a;
+    --think-gray:   #484f58;
+    --tool-gray:    #8b949e;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+    background: var(--bg-base); color: var(--text-primary);
+    font-size: 13px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 28px 80px;
+  }
+
+  /* ─── User message ─── */
+  .user-msg {
+    display: inline-block;
+    padding: 8px 14px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  /* ─── Thinking block ─── */
+  .thinking-block {
+    margin: 12px 0 10px;
+    width: 100%;
+  }
+  /* 有 .agent 标签的（= agent 工作会话）→ header 外置，body 画色块 */
+  .thinking-block:has(.thinking-title .agent) > .thinking-body {
+    margin-top: 6px;
+    background: rgba(255,255,255,.022);
+    border: 1px solid rgba(255,255,255,.04);
+    border-radius: 8px;
+    padding: 10px 14px 12px;
+  }
+  .thinking-header {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; user-select: none;
+    padding: 0; border-radius: 4px;
+  }
+  .thinking-header:hover .thinking-title { color: var(--text-muted); }
+  .thinking-arrow {
+    color: var(--think-gray); font-size: 9px;
+    display: inline-block; transition: transform .12s;
+  }
+  .thinking-arrow.open { transform: rotate(90deg); }
+  .thinking-title { font-size: 13px; color: var(--think-gray); transition: color .12s; }
+  .thinking-title .agent { color: var(--text-muted); margin-right: 6px; }
+  .thinking-title .sep { color: var(--text-dim); margin-right: 6px; }
+
+  /* thinking-body 是容器内的扁平内容区，不再自己画线 */
+  .thinking-body {
+    padding: 6px 0 0 0;
+    margin: 0;
+  }
+
+  .thinking-content {
+    font-size: 13px; color: var(--think-gray);
+    line-height: 1.7; word-break: break-word;
+  }
+  .thinking-content p { margin: 8px 0; }
+  .thinking-content p:first-child { margin-top: 0; }
+
+  /* ─── Narration（思考内的可见推理段） ─── */
+  .narration {
+    margin: 10px 0;
+    color: var(--text-primary);
+    font-size: 13px; line-height: 1.75;
+  }
+  .narration p { margin: 8px 0; }
+  .narration p:first-child { margin-top: 0; }
+
+  /* inline mono agent 名，在 narration 里标识后续会用到的 agent */
+  .narration .m {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 500;
+    padding: 1px 5px;
+    background: rgba(255,255,255,.04);
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+
+  /* ─── Dispatch dot-line ─── */
+  .dot-line {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 0 4px;
+    margin-top: 16px;
+    font-size: 13px;
+  }
+  .dot-line .dot {
+    width: 6px; height: 6px; flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transform: translateY(1px);
+  }
+  .dot-line.active .dot {
+    background: var(--accent-gold);
+    animation: pulse 1.1s infinite;
+  }
+  .dot-line .txt { color: var(--text-primary); }
+  .dot-line .txt b { color: var(--text-primary); font-weight: 500; }
+  .dot-line .brief { color: var(--text-muted); margin-left: 4px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  /* ─── Plan block: Coordinator 决策产出的独立小块 ─── */
+  .plan-block { margin: 14px 0 12px; }
+  .plan-block > .dot-line { margin-top: 0; }
+  .plan-body {
+    margin: 4px 0 0 16px;
+    padding: 2px 0;
+  }
+  .plan-row {
+    padding: 3px 0;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.7;
+  }
+  .plan-row .phase {
+    display: inline-block;
+    min-width: 34px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    letter-spacing: 0.5px;
+    margin-right: 12px;
+  }
+  .plan-row .cond { color: var(--text-dim); margin-left: 4px; }
+
+  /* 并派：每个 agent 是一个独立色块容器 */
+  .parallel-agent {
+    margin: 12px 0;
+    background: rgba(255,255,255,.022);
+    border: 1px solid rgba(255,255,255,.04);
+    border-radius: 8px;
+    padding: 10px 14px 12px;
+  }
+  .parallel-agent:first-child { margin-top: 4px; }
+  .parallel-agent-head {
+    padding: 0 0 4px;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  .parallel-agent-head .agent {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-right: 6px;
+  }
+  .parallel-agent-head .sep {
+    color: var(--text-dim);
+    margin-right: 6px;
+  }
+  .parallel-agent-head .brief { color: var(--text-muted); }
+  /* parallel-agent-body 是容器内的扁平内容区 */
+  .parallel-agent-body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* dispatch 的外层分组：只做缩进收拢，不再画线（避免和内层 agent 线重复） */
+  .nested {
+    margin: 4px 0 8px 9px;
+    padding: 2px 0 4px 0;
+  }
+  .nested > .thinking-block:first-child { margin-top: 4px; }
+
+  /* 结论一行 */
+  .conclude-line {
+    padding: 6px 0 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .conclude-line .lbl {
+    color: var(--text-dim);
+    font-size: 11px; letter-spacing: 0.6px;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+
+  /* ─── Tool group ─── */
+  .toolgroup-block { margin: 6px 0 10px 0; width: 100%; }
+  .toolgroup-block > .thinking-header { padding-left: 0; padding-right: 0; }
+  .toolgroup-body {
+    margin-left: 14px;    /* 对齐 toolgroup-header 的标题文字（跳过 arrow+gap 宽度）*/
+    padding: 2px 0 2px 0;
+  }
+  .tool-line {
+    padding: 3px 0;
+    font-size: 12.5px;
+    color: var(--tool-gray);
+    line-height: 1.6;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  .tool-line .tn { color: var(--text-muted); font-weight: 500; margin-right: 10px; }
+  .tool-line .tv { color: var(--text-dim); }
+  .tool-line .tr { color: var(--text-muted); margin-left: 6px; }
+  .tool-line .tr::before { content: "→ "; color: var(--text-dim); }
+
+  /* expandable tool line — trailing arrow indicator, left edge aligned with all rows */
+  .tool-line.expandable { cursor: pointer; border-radius: 3px; }
+  .tool-line.expandable::after {
+    content: "›";
+    display: inline-block;
+    margin-left: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    transition: transform .15s ease;
+    transform-origin: center;
+  }
+  .tool-line.expandable.open::after { transform: rotate(90deg); }
+  .tool-line.expandable:hover { background: rgba(255,255,255,.02); }
+
+  .tool-preview {
+    display: none;
+    margin: 6px 0 8px 0;              /* align left edge with parent tool-line */
+    background: rgba(255,255,255,.018);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 6px;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.75;
+    color: var(--text-muted);
+    overflow: hidden;
+  }
+  .tool-preview.open { display: block; }
+  .tool-preview .h1 { color: var(--text-primary); font-weight: 600; }
+  .tool-preview .h2 { color: var(--text-muted); font-weight: 500; }
+  .tool-preview .k  { color: var(--text-primary); }
+  .tool-preview .dim { color: var(--text-dim); }
+  /* file-header strip — distinct bg, full-width top */
+  .tool-preview .path {
+    display: block;
+    padding: 7px 14px;
+    background: rgba(255,255,255,.035);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: .2px;
+  }
+  /* code body with line-number gutter */
+  .tool-preview .code {
+    counter-reset: ln;
+    padding: 8px 0;
+  }
+  .tool-preview .ln {
+    counter-increment: ln;
+    display: block;
+    position: relative;
+    padding: 0 14px 0 44px;
+    min-height: 1.75em;
+  }
+  .tool-preview .ln::before {
+    content: counter(ln);
+    position: absolute;
+    left: 0;
+    width: 32px;
+    text-align: right;
+    color: var(--text-dim);
+    opacity: .45;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+  }
+  /* raw-JSON preview variant — keeps path strip at top, JSON body below with no line numbers */
+  .tool-preview.json-raw .code {
+    padding: 10px 14px;
+    white-space: pre;
+    overflow-x: auto;
+    counter-reset: none;
+  }
+  .tool-preview.json-raw .code::before,
+  .tool-preview.json-raw .ln { padding: 0; counter-increment: none; }
+  .tool-preview.json-raw .ln::before { content: none; }
+
+  /* ─── Answer ─── */
+  .answer {
+    margin-top: 22px;
+    color: var(--text-primary);
+    font-size: 13px; line-height: 1.75;
+  }
+  .answer p { margin: 10px 0; }
+  .answer p:first-child { margin-top: 0; }
+  .answer b { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+  <div class="user-msg">帮我分析下 BTC 趋势，看要不要加仓、加多少</div>
+
+  <!-- ① 系统路由 -->
+  <div class="thinking-block">
+    <div class="thinking-header" onclick="toggleNested(this)">
+      <span class="thinking-arrow">›</span>
+      <span class="thinking-title">Thought for 0.3 seconds</span>
+    </div>
+    <div class="thinking-body" style="display:none">
+      <div class="thinking-content">
+        <p>趋势 + 仓位建议，两步耦合。交给 Coordinator。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② Coordinator · Comprehend —— 理解情境 -->
+  <div class="thinking-block">
+    <div class="thinking-header" onclick="toggleNested(this)">
+      <span class="thinking-arrow open">›</span>
+      <span class="thinking-title">
+        <span class="agent">Coordinator</span><span class="sep">·</span><span>Thought for 14 seconds · 3 reads · 1 search · 1 fetch</span>
+      </span>
+    </div>
+    <div class="thinking-body">
+      <!-- 时间序平铺：每行外层是动作动词 (Searched/Read/Fetched)，展开后头部是 raw function call -->
+
+      <div class="tool-line expandable" onclick="togglePreview(this)"><span class="tn">Searched</span><span class="tv">"BTC"</span><span class="tr">3 hits</span></div>
+          <div class="tool-preview">
+            <span class="path">search_memory({ query: "BTC", scope: ["analyst/", "coordinator/", "shared/"] })</span>
+            <div class="code">
+              <div class="ln"><span class="h2">match 1</span>  <span class="k">analyst/btc-trend-2026-04-15.md</span>  <span class="dim">score 0.92</span></div>
+              <div class="ln"><span class="dim">        "偏多 60% · RSI 68 · MACD 金叉成立 · 4h EMA20&gt;EMA50"</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">match 2</span>  <span class="k">analyst/btc-trend-2026-04-08.md</span>  <span class="dim">score 0.74</span></div>
+              <div class="ln"><span class="dim">        "中性 50% · RSI 52 · 震荡格局，方向未明"</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">match 3</span>  <span class="k">analyst/btc-trend-2026-03-28.md</span>  <span class="dim">score 0.61</span></div>
+              <div class="ln"><span class="dim">        "偏空 40% · 回踩 58k 支撑 · 等待确认"</span></div>
+            </div>
+          </div>
+
+      <div class="tool-line expandable" onclick="togglePreview(this)"><span class="tn">Read</span><span class="tv">btc-trend-2026-04-15</span><span class="tr">12 lines</span></div>
+          <div class="tool-preview">
+            <span class="path">read_memory("analyst/btc-trend-2026-04-15.md")</span>
+            <div class="code">
+              <div class="ln"><span class="h1"># BTC Trend · 2026-04-15</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">**Conclusion:**</span> <span class="k">偏多 60%</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Indicators</span></div>
+              <div class="ln">- RSI(14): <span class="k">68</span>  <span class="dim">← 逼近超买</span></div>
+              <div class="ln">- MACD: 金叉成立，histogram +38</div>
+              <div class="ln">- EMA20 &gt; EMA50（4h）</div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Narrative</span></div>
+              <div class="ln">量能温和放大，无明显分歧。若 RSI 进入超买 (&gt;70)，</div>
+              <div class="ln">需警惕短线背离。</div>
+            </div>
+          </div>
+
+      <div class="tool-line expandable" onclick="togglePreview(this)"><span class="tn">Read</span><span class="tv">btc-trend-2026-04-08</span><span class="tr">11 lines</span></div>
+          <div class="tool-preview">
+            <span class="path">read_memory("analyst/btc-trend-2026-04-08.md")</span>
+            <div class="code">
+              <div class="ln"><span class="h1"># BTC Trend · 2026-04-08</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">**Conclusion:**</span> <span class="k">中性 50%</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Indicators</span></div>
+              <div class="ln">- RSI(14): 52</div>
+              <div class="ln">- MACD: 零轴下方缠绕</div>
+              <div class="ln">- EMA20 ≈ EMA50</div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Narrative</span></div>
+              <div class="ln">震荡格局，方向未明。等待突破信号。</div>
+            </div>
+          </div>
+
+      <div class="tool-line expandable" onclick="togglePreview(this)"><span class="tn">Fetched positions</span><span class="tv">BTC</span><span class="tr">0.3 BTC @ 60800 均价</span></div>
+          <div class="tool-preview json-raw">
+            <span class="path">get_positions({ symbol: "BTC" })</span>
+            <div class="code">{
+  <span class="h2">"symbol"</span>: <span class="k">"BTCUSDT"</span>,
+  <span class="h2">"side"</span>: <span class="k">"long"</span>,
+  <span class="h2">"qty"</span>: <span class="k">0.3</span>,
+  <span class="h2">"avg_price"</span>: <span class="k">60800</span>,
+  <span class="h2">"mark_price"</span>: <span class="k">65432</span>,
+  <span class="h2">"unrealized_pnl"</span>: <span class="k">+1389.60 USDT</span>  <span class="dim">(+7.62%)</span>,
+  <span class="h2">"opened_at"</span>: <span class="dim">"2026-04-10T09:23:14Z"</span>,
+  <span class="h2">"margin_mode"</span>: <span class="dim">"cross"</span>
+}</div>
+          </div>
+
+      <div class="tool-line expandable" onclick="togglePreview(this)"><span class="tn">Read</span><span class="tv">btc-position-2026-04-10</span><span class="tr">14 lines</span></div>
+          <div class="tool-preview">
+            <span class="path">read_memory("coordinator/btc-position-2026-04-10.md")</span>
+            <div class="code">
+              <div class="ln"><span class="h1"># BTC Position · 2026-04-10</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">**Entry:**</span> <span class="k">58,200 @ 0.3 BTC</span></div>
+              <div class="ln"><span class="h2">**Reasoning:**</span> 突破 58k 阻力后缩量回踩不破，</div>
+              <div class="ln">符合趋势跟随条件。4h 级 EMA20 &gt; EMA50 金叉保持。</div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Plan</span></div>
+              <div class="ln">- 止损：<span class="k">57,000</span> <span class="dim">(-2.1%)</span></div>
+              <div class="ln">- 目标 T1：<span class="k">66,000</span> <span class="dim">（分批减 1/3）</span></div>
+              <div class="ln">- 目标 T2：<span class="k">72,000</span> <span class="dim">（清仓）</span></div>
+              <div class="ln"></div>
+              <div class="ln"><span class="h2">## Notes</span></div>
+              <div class="ln">情绪面：彼时无明显催化，纯技术驱动。</div>
+              <div class="ln">若 RSI 进入超买区 (&gt;70)，需重新评估。</div>
+            </div>
+          </div>
+    </div>
+  </div>
+
+  <!-- ③ Plan —— Coordinator 决策产物，抽出到外层 -->
+  <div class="plan-block">
+    <div class="dot-line">
+      <span class="dot"></span>
+      <span class="txt">Plan<span class="brief"> · 3 experts</span></span>
+    </div>
+    <div class="plan-body">
+      <div class="plan-row">
+        <span class="phase">并行</span><span class="m">Analyst</span> 研判趋势 · <span class="m">NewsAgent</span> 分析情绪
+      </div>
+      <div class="plan-row">
+        <span class="phase">串行</span><span class="m">Risk</span> 算仓位<span class="cond">（等前两者结论）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ Execute · 并派 Analyst + NewsAgent -->
+  <div class="dot-line">
+    <span class="dot"></span>
+    <span class="txt">Dispatch<span class="brief"> · 并行 2 个专家</span></span>
+  </div>
+  <div class="nested">
+    <div class="parallel-agent">
+      <div class="parallel-agent-head">
+        <span class="agent">Analyst</span><span class="sep">·</span><span class="brief">研判延续 vs 反转，对照 3 天前偏多 60% 基线</span>
+      </div>
+      <div class="parallel-agent-body">
+        <div class="thinking-block">
+          <div class="thinking-header" onclick="toggleNested(this)">
+            <span class="thinking-arrow">›</span>
+            <span class="thinking-title">Thought for 8 seconds</span>
+          </div>
+          <div class="thinking-body" style="display:none">
+            <div class="thinking-content">
+              <p>要判断延续 vs 反转。看价位、RSI、量能、关键回撤位。</p>
+            </div>
+          </div>
+        </div>
+        <div class="toolgroup-block">
+          <div class="thinking-header" onclick="toggleNested(this)">
+            <span class="thinking-arrow">›</span>
+            <span class="thinking-title">Fetched data · 4 tools</span>
+          </div>
+          <div class="toolgroup-body" style="display:none">
+            <div class="tool-line"><span class="tn">get_klines</span><span class="tv">BTCUSDT 4h 100</span><span class="tr">100 bars</span></div>
+            <div class="tool-line"><span class="tn">calculate_indicator</span><span class="tv">RSI MACD EMA</span><span class="tr">RSI 67 · hist +42 · EMA20&gt;EMA50</span></div>
+            <div class="tool-line"><span class="tn">get_price</span><span class="tv">BTCUSDT</span><span class="tr">65432 (+2.3%, vol +42%)</span></div>
+            <div class="tool-line"><span class="tn">read_memory</span><span class="tv">analyst/btc-trend-2026-04-15.md</span><span class="tr">3 天前基线</span></div>
+          </div>
+        </div>
+        <div class="conclude-line">
+          <span class="lbl">Conclusion</span>偏多延续 · 65% · 支撑 63,800 / 阻力 66,500 / 失效 62,500
+        </div>
+      </div>
+    </div>
+
+    <div class="parallel-agent">
+      <div class="parallel-agent-head">
+        <span class="agent">NewsAgent</span><span class="sep">·</span><span class="brief">抓 48h BTC 新闻做情绪打分</span>
+      </div>
+      <div class="parallel-agent-body">
+        <div class="thinking-block">
+          <div class="thinking-header" onclick="toggleNested(this)">
+            <span class="thinking-arrow">›</span>
+            <span class="thinking-title">Thought for 6 seconds</span>
+          </div>
+          <div class="thinking-body" style="display:none">
+            <div class="thinking-content">
+              <p>抓近 48h BTC 相关新闻，过滤噪声来源，对标题 + 摘要做情绪打分，聚合到 [-1, +1]。</p>
+            </div>
+          </div>
+        </div>
+        <div class="toolgroup-block">
+          <div class="thinking-header" onclick="toggleNested(this)">
+            <span class="thinking-arrow">›</span>
+            <span class="thinking-title">Fetched data · 3 tools</span>
+          </div>
+          <div class="toolgroup-body" style="display:none">
+            <div class="tool-line"><span class="tn">fetch_news</span><span class="tv">BTC 48h</span><span class="tr">23 articles (CoinDesk, Bloomberg, Reuters ...)</span></div>
+            <div class="tool-line"><span class="tn">score_sentiment</span><span class="tv">batch × 23</span><span class="tr">avg +0.42 · 正面 14 / 中性 7 / 负面 2</span></div>
+            <div class="tool-line"><span class="tn">topic_cluster</span><span class="tv">-</span><span class="tr">ETF 流入 (11) · 监管明朗 (5) · 其他 (7)</span></div>
+          </div>
+        </div>
+        <div class="conclude-line">
+          <span class="lbl">Conclusion</span>偏正面 · +0.42 · 主导叙事：ETF 流入 + 监管明朗
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ Execute · 串派 Risk -->
+  <div class="dot-line active">
+    <span class="dot"></span>
+    <span class="txt">Dispatch <b>Risk</b><span class="brief"> · 基于偏多 65% + 情绪 +0.42、失效位 62,500 算加仓与止损</span></span>
+  </div>
+  <div class="nested">
+    <div class="thinking-block">
+      <div class="thinking-header" onclick="toggleNested(this)">
+        <span class="thinking-arrow">›</span>
+        <span class="thinking-title">Thought for 5 seconds</span>
+      </div>
+      <div class="thinking-body" style="display:none">
+        <div class="thinking-content">
+          <p>止损放失效位下方；最大回撤 ≤ 账户 2%。读余额和偏好。</p>
+        </div>
+      </div>
+    </div>
+    <div class="toolgroup-block">
+      <div class="thinking-header" onclick="toggleNested(this)">
+        <span class="thinking-arrow">›</span>
+        <span class="thinking-title">Fetched data · 2 tools</span>
+      </div>
+      <div class="toolgroup-body" style="display:none">
+        <div class="tool-line"><span class="tn">check_balance</span><span class="tv">-</span><span class="tr">28500 USDT 可用</span></div>
+        <div class="tool-line"><span class="tn">read_memory</span><span class="tv">shared/user-prefs.md</span><span class="tr">默认止损 5%</span></div>
+      </div>
+    </div>
+    <div class="conclude-line">
+      <span class="lbl">Conclusion</span>加仓 +0.1 BTC · 64,800 限价 0.05 + 63,800 触发 0.05 · 止损 62,400 · 回撤 $520 (1.8%)
+    </div>
+  </div>
+
+  <!-- ⑥ Coordinator · Synthesize —— 合成结论 -->
+  <div class="thinking-block">
+    <div class="thinking-header" onclick="toggleNested(this)">
+      <span class="thinking-arrow open">›</span>
+      <span class="thinking-title">
+        <span class="agent">Coordinator</span><span class="sep">·</span><span>Synthesized in 2 seconds</span>
+      </span>
+    </div>
+    <div class="thinking-body">
+      <div class="narration">
+        <p>技术面 + 新闻面双偏多对齐，<span class="m">Risk</span> 给出分批加仓 0.1 BTC，最大回撤 1.8% 在 2% 预算内。给用户完整方案 + 触发条件。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑦ Answer -->
+  <div class="answer">
+    <p>综合判断：<b>偏多延续，建议分批加仓 0.1 BTC</b>。</p>
+    <p>技术面 <b>偏多 65%</b>（从 3 天前 60% 上调），关键位 63,800 / 66,500 / 62,500；新闻面 <b>+0.42 偏正面</b>，主导叙事是 ETF 流入和监管明朗。两边一致。</p>
+    <p>入场：64,800 限价 0.05 + 63,800 触发 0.05；止损 62,400，最大回撤 $520（账户 1.8%，在 2% 预算内）。加仓后持仓 0.4 BTC。</p>
+    <p>若 65,500 快速上破，或新闻面反转（负面叙事占主导），回来重评。</p>
+  </div>
+
+</main>
+
+<script>
+  function toggleNested(header) {
+    const arrow = header.querySelector('.thinking-arrow');
+    const body = header.nextElementSibling;
+    const isOpen = arrow.classList.toggle('open');
+    body.style.display = isOpen ? 'block' : 'none';
+  }
+  function togglePreview(line) {
+    const preview = line.nextElementSibling;
+    if (!preview || !preview.classList.contains('tool-preview')) return;
+    line.classList.toggle('open');
+    preview.classList.toggle('open');
+  }
+</script>
+</body>
+</html>

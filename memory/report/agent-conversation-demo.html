@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ThunderClaw · Agent 对话周期 Demo v2</title>
+<style>
+:root {
+  --bg: #0d1117; --bg-panel: #111827; --bg-panel2: #141d2b;
+  --border: rgba(255,255,255,0.08); --border-soft: rgba(255,255,255,0.04);
+  --text: #e6edf3; --muted: #8b949e; --dim: #4a5568;
+  --accent: #3cc87a; --gold: #e8a84a; --blue: #5b8def; --red: #e05050; --purple: #a78bfa;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.title-bar { height: 36px; background: var(--bg-panel); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 8px; flex-shrink: 0; }
+.tb-logo { font-size: 13px; font-weight: 600; }
+.tb-badge { font-size: 9px; padding: 2px 7px; border-radius: 10px; background: rgba(91,141,239,.1); color: var(--blue); border: 1px solid rgba(91,141,239,.18); }
+.tb-right { margin-left: auto; font-size: 10.5px; color: var(--dim); }
+#app { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+/* ── Left panel ── */
+.left { width: 234px; flex-shrink: 0; background: var(--bg-panel); border-right: 1px solid var(--border); overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.left::-webkit-scrollbar { width: 3px; }
+.left::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 2px; }
+.lp-sec { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.lp-sec:last-child { border-bottom: none; }
+.lp-ttl { font-size: 9px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; padding: 0 14px 6px; }
+
+/* Architecture box */
+.arch-box { margin: 0 12px 4px; padding: 8px 10px; background: rgba(0,0,0,.2); border-radius: 6px; border: 1px solid var(--border); font-size: 9.5px; }
+.arch-section-lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.arch-row { display: flex; align-items: baseline; gap: 7px; padding: 1.5px 0; }
+.ar-bullet { flex-shrink: 0; }
+.ar-name { font-family: var(--mono); font-size: 9.5px; font-weight: 700; min-width: 72px; }
+.ar-desc { font-size: 9.5px; color: var(--muted); }
+.ar-sub { font-size: 8.5px; color: var(--dim); padding: 0 0 1px 16px; line-height: 1.55; }
+.ar-div { height: 1px; background: var(--border-soft); margin: 6px 0; }
+
+/* Agent list */
+.agent-row { display: flex; align-items: center; gap: 8px; padding: 4px 14px; }
+.ag-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); flex-shrink: 0; transition: background .3s; }
+.ag-dot.running { background: var(--gold); animation: pulse .9s infinite; }
+.ag-dot.done { background: var(--accent); }
+.ag-dot.retry { background: var(--red); animation: pulse .6s infinite; }
+.ag-dot.coord { background: var(--blue); animation: pulse .9s infinite; }
+.ag-dot.main { background: var(--muted); animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.ag-name { font-size: 11.5px; color: var(--text); flex: 1; }
+.ag-state { font-size: 9.5px; color: var(--dim); white-space: nowrap; }
+.ag-state.active { color: var(--blue); }
+.ag-state.retry { color: var(--red); }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 4px 14px; }
+.stat { background: rgba(0,0,0,.2); border-radius: 5px; padding: 5px 8px; }
+.stat-val { font-size: 13px; font-weight: 600; font-family: var(--mono); }
+.stat-lbl { font-size: 9px; color: var(--dim); margin-top: 1px; }
+
+/* Presets */
+.preset { display: block; width: calc(100% - 28px); margin: 0 14px 5px; padding: 7px 10px; background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 11px; font-family: var(--font); text-align: left; cursor: pointer; transition: all .12s; line-height: 1.5; }
+.preset:hover:not(:disabled) { border-color: rgba(91,141,239,.25); color: var(--text); background: rgba(91,141,239,.04); }
+.preset:disabled { opacity: .35; cursor: not-allowed; }
+.ptag { display: inline-block; font-size: 8px; padding: 1px 5px; border-radius: 3px; margin-bottom: 3px; }
+.pt-a { background: rgba(91,141,239,.1); color: var(--blue); }
+.pt-q { background: rgba(167,139,250,.1); color: var(--purple); }
+.pt-r { background: rgba(224,80,80,.1); color: var(--red); }
+.pt-s { background: rgba(60,200,122,.08); color: var(--accent); }
+.pt-d { background: rgba(139,148,158,.1); color: var(--muted); }
+.pt-m { background: rgba(232,168,74,.1); color: var(--gold); }
+
+/* ── Right panel ── */
+.right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.chat-area { flex: 1; overflow-y: auto; padding: 14px 0 6px; }
+.chat-area::-webkit-scrollbar { width: 3px; }
+.chat-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 2px; }
+
+/* Messages */
+.msg { display: flex; gap: 11px; padding: 7px 28px; }
+.msg:hover { background: rgba(255,255,255,.02); }
+.av { width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.av-u { background: rgba(91,141,239,.12); color: var(--blue); border: 1px solid rgba(91,141,239,.18); }
+.av-c { background: rgba(60,200,122,.08); color: var(--accent); border: 1px solid rgba(60,200,122,.15); }
+.av-s { background: rgba(255,255,255,.04); color: var(--dim); border: 1px solid var(--border); }
+.msg-body { flex: 1; min-width: 0; }
+.msg-who { font-size: 10px; font-weight: 600; color: var(--dim); margin-bottom: 3px; }
+.msg-text { font-size: 13px; line-height: 1.7; color: var(--text); }
+.msg-text p { margin-bottom: 7px; }
+.msg-text p:last-child { margin-bottom: 0; }
+.msg-text strong { font-weight: 600; }
+.msg-text hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.msg-text .disc { font-size: 10.5px; color: var(--dim); font-style: italic; }
+
+/* ── Work block ── */
+.wb { margin: 3px 28px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.wb-hd { display: flex; align-items: center; gap: 7px; padding: 7px 12px; cursor: pointer; user-select: none; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.wb-hd:hover { background: rgba(255,255,255,.02); }
+.wb-title { font-weight: 500; color: var(--text); }
+.wb-meta { color: var(--dim); font-size: 10.5px; }
+.wb-meta.running { color: var(--gold); } .wb-meta.wait { color: var(--gold); } .wb-meta.done { color: var(--accent); }
+.wb-arr { margin-left: auto; color: var(--dim); transition: transform .2s; font-size: 10px; }
+.wb-arr.closed { transform: rotate(-90deg); }
+.wb-body { border-top: 1px solid var(--border); transition: max-height .3s ease; max-height: 5000px; overflow: hidden; }
+.wb-body.closed { max-height: 0; border-top: none; }
+
+/* Sections */
+.wbs { border-bottom: 1px solid var(--border-soft); padding: 6px 12px; }
+.wbs:last-child { border-bottom: none; }
+.wbs.sys { background: rgba(232,168,74,.02); }
+.wbs-hd { display: flex; align-items: center; gap: 7px; padding: 1px 0 4px; font-family: var(--mono); font-size: 11px; }
+.wbs-bullet { font-size: 10px; flex-shrink: 0; }
+.wbs-name { font-weight: 600; }
+.wbs-role { color: var(--dim); }
+.wbs-sys-badge { font-size: 8px; padding: 1px 5px; border-radius: 3px; background: rgba(232,168,74,.1); color: var(--gold); border: 1px solid rgba(232,168,74,.15); }
+.wbs-st { margin-left: auto; font-size: 9.5px; color: var(--dim); }
+.wbs-st.running { color: var(--gold); } .wbs-st.retry { color: var(--red); } .wbs-st.done { color: var(--accent); }
+.wbs-body { padding-left: 18px; }
+
+/* Lines */
+.th-line { display: flex; gap: 6px; font-family: var(--mono); font-size: 10.5px; padding: 1.5px 0; color: var(--dim); }
+.th-k { min-width: 52px; flex-shrink: 0; }
+.th-v { color: var(--muted); }
+.th-v strong { color: var(--text); font-weight: 500; }
+.th-sub { padding: 0 0 1px 0; font-family: var(--mono); font-size: 10px; color: var(--dim); line-height: 1.55; }
+.plan-line { font-family: var(--mono); font-size: 10.5px; color: var(--dim); padding: 1.5px 0; line-height: 1.6; }
+.plan-line .pa { color: var(--dim); }
+.p-tag { display: inline-block; font-size: 8.5px; padding: 0 4px; border-radius: 2px; margin-left: 4px; }
+.pt-par { background: rgba(91,141,239,.1); color: var(--blue); }
+.pt-seq { background: rgba(232,168,74,.1); color: var(--gold); }
+.rt-agent { color: var(--blue); font-weight: 600; }
+.rt-simple { color: var(--accent); font-weight: 600; }
+.rt-direct { color: var(--muted); font-weight: 600; }
+.reason-line { font-family: var(--mono); font-size: 10.5px; color: var(--dim); padding: 1.5px 0; }
+.reason-line .rv { color: var(--muted); }
+
+/* Tool calls */
+.tool-wrap { margin: 1px 0; }
+.tl { display: flex; align-items: center; gap: 5px; padding: 2px 4px; border-radius: 3px; cursor: pointer; font-family: var(--mono); font-size: 10.5px; }
+.tl:hover { background: rgba(255,255,255,.03); }
+.tl-st { flex-shrink: 0; width: 12px; text-align: center; color: var(--dim); }
+.tl-st.running { color: var(--gold); display: inline-block; animation: spin .9s linear infinite; }
+.tl-st.done { color: var(--accent); }
+.tl-st.ask { color: var(--gold); }
+.tl-st.denied { color: var(--red); }
+@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+.tl-fn { color: var(--blue); font-weight: 600; }
+.tl-args { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-note { font-size: 9px; color: var(--dim); padding: 1px 4px; background: rgba(255,255,255,.04); border-radius: 2px; flex-shrink: 0; }
+.tl-exp { font-size: 9px; color: var(--dim); flex-shrink: 0; opacity: 0; }
+.tl:hover .tl-exp { opacity: .7; }
+.tl-io { display: none; margin: 2px 0 4px 12px; border: 1px solid var(--border); border-radius: 4px; }
+.tl-io.open { display: block; }
+.tio-sec { padding: 5px 9px; border-bottom: 1px solid var(--border-soft); }
+.tio-sec:last-child { border-bottom: none; }
+.tio-lbl { font-size: 8.5px; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+.tio-code { font-family: var(--mono); font-size: 9.5px; color: var(--muted); white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+
+/* Prog, eval, retry, concl */
+.prog-bar { height: 1.5px; background: var(--border); border-radius: 1px; margin: 2px 0; overflow: hidden; }
+.prog-fill { height: 100%; background: var(--accent); border-radius: 1px; transition: width .4s ease; width: 0; }
+.prog-fill.retry { background: var(--gold); }
+.eval-line { display: flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 10.5px; padding: 3px 0; color: var(--dim); }
+.eval-lbl { color: var(--dim); flex-shrink: 0; }
+.ec { cursor: default; }
+.ec.pass { color: var(--accent); } .ec.warn { color: var(--gold); } .ec.fail { color: var(--red); }
+.eval-detail { font-size: 9.5px; color: var(--dim); margin-left: 2px; }
+.retry-strip { display: flex; align-items: center; gap: 7px; padding: 4px 6px; margin: 4px 0; background: rgba(224,80,80,.05); border: 1px solid rgba(224,80,80,.14); border-radius: 4px; font-family: var(--mono); font-size: 10.5px; }
+.rts-badge { color: var(--red); font-weight: 700; flex-shrink: 0; }
+.rts-txt { color: var(--muted); }
+.rts-txt strong { color: var(--red); }
+.replan-line { font-family: var(--mono); font-size: 10.5px; color: var(--gold); padding: 1.5px 0; }
+.replan-line .rpl-k { opacity: .6; margin-right: 4px; }
+.concl-line { font-family: var(--mono); font-size: 10.5px; padding: 3px 0 3px 7px; color: var(--muted); border-left: 1.5px solid rgba(91,141,239,.2); margin: 3px 0; }
+.concl-line .ca { color: var(--dim); margin-right: 4px; }
+
+/* Input */
+.input-area { padding: 9px 28px 13px; border-top: 1px solid var(--border); display: flex; gap: 9px; align-items: flex-end; }
+#chat-input { flex: 1; min-height: 38px; max-height: 96px; padding: 9px 13px; border-radius: 7px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--text); font-size: 13px; font-family: var(--font); outline: none; resize: none; line-height: 1.5; transition: border-color .15s; }
+#chat-input:focus { border-color: rgba(91,141,239,.3); }
+#chat-input::placeholder { color: var(--dim); }
+#send-btn { height: 38px; padding: 0 15px; border-radius: 6px; border: 1px solid rgba(60,200,122,.2); background: rgba(60,200,122,.07); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font); transition: all .12s; }
+#send-btn:hover:not(:disabled) { background: rgba(60,200,122,.13); }
+#send-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Permission modal */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity .18s; }
+.overlay.show { opacity: 1; pointer-events: all; }
+.perm { width: 380px; background: var(--bg-panel); border: 1px solid rgba(232,168,74,.18); border-radius: 9px; overflow: hidden; transform: scale(.95); transition: transform .2s; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.overlay.show .perm { transform: scale(1); }
+.pm-hd { padding: 11px 15px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 7px; }
+.pm-title { font-size: 13px; font-weight: 600; }
+.pm-tag { font-size: 9px; padding: 2px 6px; border-radius: 8px; background: rgba(232,168,74,.1); color: var(--gold); border: 1px solid rgba(232,168,74,.18); margin-left: auto; }
+.pm-body { padding: 13px 15px; }
+.pm-row { font-size: 11.5px; color: var(--muted); margin-bottom: 5px; }
+.pm-row strong { color: var(--text); }
+.pm-fn { font-family: var(--mono); color: var(--blue); }
+.pm-toggle { font-size: 10.5px; color: var(--blue); cursor: pointer; margin: 7px 0 4px; }
+.pm-code { background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 4px; padding: 7px 9px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); white-space: pre; max-height: 120px; overflow-y: auto; display: none; line-height: 1.5; }
+.pm-code.open { display: block; }
+.pm-actions { padding: 9px 15px; border-top: 1px solid var(--border); display: flex; gap: 6px; justify-content: flex-end; }
+.pm-btn { padding: 5px 13px; border-radius: 5px; border: 1px solid var(--border); background: transparent; font-size: 11.5px; cursor: pointer; font-family: var(--font); transition: all .12s; }
+.pm-deny { color: var(--muted); } .pm-deny:hover { color: var(--red); border-color: rgba(224,80,80,.4); }
+.pm-allow { color: var(--accent); border-color: rgba(60,200,122,.25); background: rgba(60,200,122,.06); font-weight: 600; }
+.pm-allow:hover { background: rgba(60,200,122,.12); }
+
+/* ── Event log panel ── */
+.event-log-toggle { position: fixed; bottom: 8px; right: 12px; z-index: 50; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--dim); font-size: 10px; font-family: var(--mono); cursor: pointer; transition: all .12s; }
+.event-log-toggle:hover { color: var(--blue); border-color: rgba(91,141,239,.3); }
+.event-log { position: fixed; bottom: 0; left: 234px; right: 0; height: 220px; background: var(--bg-panel2); border-top: 1px solid var(--border); z-index: 40; display: none; flex-direction: column; }
+.event-log.open { display: flex; }
+.el-header { display: flex; align-items: center; padding: 5px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.el-title { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+.el-count { font-size: 9px; color: var(--dim); margin-left: 8px; font-family: var(--mono); }
+.el-clear { margin-left: auto; font-size: 9px; color: var(--dim); cursor: pointer; border: none; background: none; font-family: var(--font); }
+.el-clear:hover { color: var(--red); }
+.el-close { margin-left: 8px; font-size: 12px; color: var(--dim); cursor: pointer; border: none; background: none; }
+.el-close:hover { color: var(--text); }
+.el-body { flex: 1; overflow-y: auto; padding: 4px 0; font-family: var(--mono); font-size: 9.5px; }
+.el-body::-webkit-scrollbar { width: 3px; }
+.el-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 2px; }
+.el-row { display: flex; gap: 8px; padding: 2px 12px; line-height: 1.5; }
+.el-row:hover { background: rgba(255,255,255,.02); }
+.el-ts { color: var(--dim); flex-shrink: 0; min-width: 52px; }
+.el-type { font-weight: 600; flex-shrink: 0; min-width: 130px; }
+.el-type.t-route { color: var(--blue); }
+.el-type.t-text_delta { color: var(--muted); }
+.el-type.t-tool_call { color: var(--gold); }
+.el-type.t-tool_result { color: var(--accent); }
+.el-type.t-permission_request { color: var(--gold); }
+.el-type.t-permission_response { color: var(--gold); }
+.el-type.t-agent_start { color: var(--blue); }
+.el-type.t-agent_done { color: var(--accent); }
+.el-type.t-agent_error { color: var(--red); }
+.el-type.t-eval_result { color: var(--purple); }
+.el-type.t-retry { color: var(--red); }
+.el-type.t-coordinator_plan { color: var(--accent); }
+.el-type.t-coordinator_context { color: var(--accent); }
+.el-type.t-coordinator_synthesis { color: var(--accent); }
+.el-type.t-pre_context { color: var(--dim); }
+.el-type.t-done { color: var(--accent); }
+.el-type.t-error { color: var(--red); }
+.el-data { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@keyframes fadeUp { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+.anim { animation: fadeUp .18s ease forwards; }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="perm-overlay">
+  <div class="perm">
+    <div class="pm-hd">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1L2 3.5v4C2 10.5 4.2 12.8 7 13c2.8-.2 5-2.5 5-5.5v-4L7 1z" stroke="#e8a84a" stroke-width="1.2" stroke-linejoin="round"/><line x1="7" y1="5" x2="7" y2="8" stroke="#e8a84a" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r=".7" fill="#e8a84a"/></svg>
+      <span class="pm-title">需要授权</span>
+      <span class="pm-tag">perm: ask</span>
+    </div>
+    <div class="pm-body">
+      <div class="pm-row" id="pm-who"></div>
+      <div class="pm-row" id="pm-desc" style="font-size:10.5px;color:var(--dim)"></div>
+      <div class="pm-toggle" onclick="document.getElementById('pm-code').classList.toggle('open')">▸ 展开查看详情</div>
+      <div class="pm-code" id="pm-code"></div>
+    </div>
+    <div class="pm-actions">
+      <button class="pm-btn pm-deny" onclick="handlePerm(false)">拒绝</button>
+      <button class="pm-btn pm-allow" onclick="handlePerm(true)">允许一次</button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="title-bar">
+    <span class="tb-logo">ThunderClaw</span>
+    <span style="color:var(--border)">·</span>
+    <span style="font-size:11.5px;color:var(--muted)">Agent 对话周期 Demo v2</span>
+    <span class="tb-badge">EVENT-DRIVEN</span>
+    <span class="tb-right">Pre-Context → Router → [ direct_reply | simple_tool | agent_task(Coordinator + Workers) ]</span>
+  </div>
+  <div class="main">
+
+    <div class="left">
+      <!-- Architecture -->
+      <div class="lp-sec">
+        <div class="lp-ttl" style="margin-bottom:5px">架构分层</div>
+        <div class="arch-box">
+          <div class="arch-section-lbl" style="color:var(--gold)">系统侧（非 LLM）</div>
+          <div class="arch-row">
+            <span class="ar-bullet" style="color:var(--dim)">⊙</span>
+            <span class="ar-name" style="color:var(--gold)">Pre-Context</span>
+            <span class="ar-desc">轻量，始终注入</span>
+          </div>
+          <div class="ar-sub">账户概况 · Agent 列表 · 对话历史</div>
+          <div class="ar-div"></div>
+          <div class="arch-section-lbl" style="color:var(--muted)">LLM 调用</div>
+          <div class="arch-row">
+            <span class="ar-bullet" style="color:var(--muted)">◉</span>
+            <span class="ar-name" style="color:var(--muted)">Router</span>
+            <span class="ar-desc">意图分类 + 路由</span>
+          </div>
+          <div class="ar-sub">direct_reply · simple_tool · agent_task</div>
+          <div class="ar-div"></div>
+          <div class="arch-section-lbl" style="color:var(--accent)">仅 agent_task 进入↓</div>
+          <div class="arch-row">
+            <span class="ar-bullet" style="color:var(--accent)">◉</span>
+            <span class="ar-name" style="color:var(--accent)">Coordinator</span>
+            <span class="ar-desc">加载 heavy context · 调度</span>
+          </div>
+          <div class="arch-row" style="margin-top:3px">
+            <span class="ar-bullet" style="color:var(--blue)">◉</span>
+            <span class="ar-name" style="color:var(--blue)">Workers</span>
+            <span class="ar-desc">ReAct + Evaluator + Retry</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents -->
+      <div class="lp-sec">
+        <div class="lp-ttl">运行状态</div>
+        <div class="agent-row"><div class="ag-dot" id="d-router"></div><span class="ag-name" style="color:var(--muted)">Router</span><span class="ag-state" id="s-router">待命</span></div>
+        <div class="agent-row"><div class="ag-dot" id="d-coordinator"></div><span class="ag-name">Coordinator</span><span class="ag-state" id="s-coordinator">待命</span></div>
+        <div class="agent-row"><div class="ag-dot" id="d-analyst"></div><span class="ag-name">Analyst</span><span class="ag-state" id="s-analyst">待命</span></div>
+        <div class="agent-row"><div class="ag-dot" id="d-quant"></div><span class="ag-name">Quant</span><span class="ag-state" id="s-quant">待命</span></div>
+        <div class="agent-row"><div class="ag-dot" id="d-risk"></div><span class="ag-name">Risk</span><span class="ag-state" id="s-risk">待命</span></div>
+      </div>
+
+      <!-- Stats -->
+      <div class="lp-sec" id="stats-sec" style="display:none">
+        <div class="lp-ttl">本次调用</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-val" id="sv-tools">0</div><div class="stat-lbl">tools</div></div>
+          <div class="stat"><div class="stat-val" id="sv-path">—</div><div class="stat-lbl">路径</div></div>
+          <div class="stat"><div class="stat-val" id="sv-time">0s</div><div class="stat-lbl">耗时</div></div>
+          <div class="stat"><div class="stat-val" id="sv-retries">0</div><div class="stat-lbl">retries</div></div>
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="lp-sec">
+        <div class="lp-ttl">预设场景</div>
+        <button class="preset" onclick="run('direct_reply')">
+          <div class="ptag pt-d">direct_reply · 纯文本</div>
+          <div>你好，你是谁？能做什么？</div>
+        </button>
+        <button class="preset" onclick="run('simple_tool')">
+          <div class="ptag pt-s">simple_tool · 直接工具调用</div>
+          <div>BTC 现在多少钱，成交量怎么样？</div>
+        </button>
+        <button class="preset" onclick="run('analyst_risk')">
+          <div class="ptag pt-a">agent_task · Analyst + Risk 并行</div>
+          <div>帮我分析一下 BTC 近期走势，给出操作建议</div>
+        </button>
+        <button class="preset" onclick="run('quant_retry')">
+          <div class="ptag pt-q">agent_task · Quant · Evaluator 重试</div>
+          <div>设计一个均线交叉量化因子并回测</div>
+        </button>
+        <button class="preset" onclick="run('risk_only')">
+          <div class="ptag pt-r">agent_task · Risk only</div>
+          <div>现在我的持仓风险怎么样？</div>
+        </button>
+        <button class="preset" onclick="run('perm_deny')">
+          <div class="ptag pt-m">权限拒绝 · 降级处理</div>
+          <div>帮我快速算一下 BTC 的动量因子</div>
+        </button>
+        <button class="preset" onclick="run('multi_retry')">
+          <div class="ptag pt-r">连续重试 · 降级通过</div>
+          <div>设计一个高频反转因子</div>
+        </button>
+        <button class="preset" onclick="run('mixed_dispatch')">
+          <div class="ptag pt-a">混合调度 · 串行→并行</div>
+          <div>先分析 ETH 趋势，再做因子和风控</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="chat-area" id="chat-area">
+        <div class="msg anim">
+          <div class="av av-s">◎</div>
+          <div class="msg-body">
+            <div class="msg-who">系统说明</div>
+            <div class="msg-text" style="color:var(--muted);font-size:12px">
+              <p><strong>事件驱动架构 Demo v2</strong> — 所有 UI 渲染由 WorkflowEvent 事件流驱动</p>
+              <p>· <strong>direct_reply</strong>：Router 直接回复，不调工具不走 Agent<br>
+              · <strong>simple_tool</strong>：Router 直接调工具回复，不经过 Coordinator<br>
+              · <strong>agent_task</strong>：Router → Coordinator → Workers（ReAct + Evaluator）</p>
+              <p>点击右下角 <strong>Event Log</strong> 按钮查看实时事件流 JSON。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="input-area">
+        <textarea id="chat-input" placeholder="发送消息，或点击左侧预设场景..." rows="1"></textarea>
+        <button id="send-btn" onclick="handleSend()">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Event Log Panel -->
+<button class="event-log-toggle" id="el-toggle" onclick="toggleEventLog()">Event Log</button>
+<div class="event-log" id="event-log">
+  <div class="el-header">
+    <span class="el-title">Event Log</span>
+    <span class="el-count" id="el-count">0 events</span>
+    <button class="el-clear" onclick="clearEventLog()">清空</button>
+    <button class="el-close" onclick="toggleEventLog()">✕</button>
+  </div>
+  <div class="el-body" id="el-body"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// §1. 基础工具
+// ══════════════════════════════════════════════════════════════
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const uid = () => Math.random().toString(36).slice(2, 7);
+const scrollEnd = () => { const c = document.getElementById('chat-area'); requestAnimationFrame(() => c.scrollTop = c.scrollHeight); };
+const now = () => (performance.now() / 1000).toFixed(2);
+
+// ══════════════════════════════════════════════════════════════
+// §2. 事件日志
+// ══════════════════════════════════════════════════════════════
+let eventLogEntries = [];
+let eventLogOpen = false;
+let eventStartTime = 0;
+
+function toggleEventLog() {
+  eventLogOpen = !eventLogOpen;
+  document.getElementById('event-log').classList.toggle('open', eventLogOpen);
+  document.getElementById('el-toggle').style.display = eventLogOpen ? 'none' : 'block';
+}
+
+function clearEventLog() {
+  eventLogEntries = [];
+  document.getElementById('el-body').innerHTML = '';
+  document.getElementById('el-count').textContent = '0 events';
+}
+
+function logEvent(evt) {
+  const elapsed = ((Date.now() - eventStartTime) / 1000).toFixed(2);
+  eventLogEntries.push({ t: elapsed, ...evt });
+  const body = document.getElementById('el-body');
+  const { event, ...data } = evt;
+  const dataStr = JSON.stringify(data);
+  const short = dataStr.length > 120 ? dataStr.slice(0, 120) + '…' : dataStr;
+  const row = document.createElement('div');
+  row.className = 'el-row';
+  row.innerHTML = `<span class="el-ts">${elapsed}s</span><span class="el-type t-${event}">${event}</span><span class="el-data">${short}</span>`;
+  body.appendChild(row);
+  body.scrollTop = body.scrollHeight;
+  document.getElementById('el-count').textContent = eventLogEntries.length + ' events';
+}
+
+// ══════════════════════════════════════════════════════════════
+// §3. 权限系统
+// ══════════════════════════════════════════════════════════════
+let permResolve = null;
+
+function showPerm(agentName, tool, input, desc) {
+  return new Promise(res => {
+    permResolve = res;
+    document.getElementById('pm-who').innerHTML = `<strong>${agentName}</strong> 请求调用 <span class="pm-fn">${tool}</span>`;
+    document.getElementById('pm-desc').textContent = desc || '';
+    document.getElementById('pm-code').textContent = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+    document.getElementById('pm-code').classList.remove('open');
+    document.getElementById('perm-overlay').classList.add('show');
+  });
+}
+
+function handlePerm(ok) {
+  document.getElementById('perm-overlay').classList.remove('show');
+  if (permResolve) { permResolve(ok); permResolve = null; }
+}
+
+// ══════════════════════════════════════════════════════════════
+// §4. Agent 状态管理
+// ══════════════════════════════════════════════════════════════
+function setAg(id, st, label) {
+  const dot = document.getElementById('d-' + id);
+  const stEl = document.getElementById('s-' + id);
+  if (!dot || !stEl) return;
+  const cls = { running: 'running', done: 'done', retry: 'retry', coord: 'coord', main: 'main' }[st] || '';
+  dot.className = 'ag-dot ' + cls;
+  if (st === 'running') { stEl.textContent = label || '执行中'; stEl.className = 'ag-state active'; }
+  else if (st === 'coord') { stEl.textContent = label || '协调中'; stEl.className = 'ag-state active'; }
+  else if (st === 'main') { stEl.textContent = label || '处理中'; stEl.className = 'ag-state active'; }
+  else if (st === 'done') { stEl.textContent = '完成'; stEl.className = 'ag-state'; }
+  else if (st === 'retry') { stEl.textContent = '重试中'; stEl.className = 'ag-state retry'; }
+  else { stEl.textContent = '待命'; stEl.className = 'ag-state'; }
+}
+
+function resetAll() {
+  ['router', 'coordinator', 'analyst', 'quant', 'risk'].forEach(id => setAg(id, ''));
+  document.getElementById('stats-sec').style.display = 'none';
+}
+
+// ══════════════════════════════════════════════════════════════
+// §5. DOM 构建工具（Chat + Work Block）
+// ══════════════════════════════════════════════════════════════
+function addMsg(role, html) {
+  const ca = document.getElementById('chat-area');
+  const d = document.createElement('div'); d.className = 'msg anim';
+  const id = uid();
+  const [avCls, avTxt, who] = role === 'user' ? ['av-u', 'U', '用户'] : ['av-c', 'M', 'Main LLM'];
+  d.innerHTML = `<div class="av ${avCls}">${avTxt}</div><div class="msg-body"><div class="msg-who">${who}</div><div class="msg-text" id="mt-${id}"></div></div>`;
+  ca.appendChild(d);
+  const el = d.querySelector('.msg-text');
+  if (html) el.innerHTML = html;
+  scrollEnd(); return el;
+}
+
+function makeWB() {
+  const ca = document.getElementById('chat-area');
+  const wbId = uid();
+  const d = document.createElement('div'); d.className = 'wb anim';
+  d.innerHTML = `
+    <div class="wb-hd" onclick="toggleWB('${wbId}')">
+      <span style="opacity:.4">⊞</span>
+      <span class="wb-title">Agent Work</span>
+      <span class="wb-meta running" id="wm-${wbId}">处理中...</span>
+      <span class="wb-arr" id="wa-${wbId}">▾</span>
+    </div>
+    <div class="wb-body" id="wb-${wbId}"></div>`;
+  ca.appendChild(d); scrollEnd();
+
+  return {
+    id: wbId,
+    setMeta(txt, cls) { const el = document.getElementById('wm-' + wbId); if (el) { el.textContent = txt; el.className = 'wb-meta ' + (cls || ''); } },
+    collapse() { document.getElementById('wb-' + wbId)?.classList.add('closed'); document.getElementById('wa-' + wbId)?.classList.add('closed'); },
+    section(agentId, name, role, opts = {}) {
+      const body = document.getElementById('wb-' + wbId);
+      const sid = uid();
+      const isSystem = opts.type === 'system';
+      const isRouter = opts.type === 'router';
+      const bullet = isSystem ? '⊙' : '◉';
+      const colMap = { analyst: '#5b8def', quant: '#a78bfa', risk: '#e05050', coordinator: '#3cc87a' };
+      const bulletColor = isSystem ? 'var(--dim)' : isRouter ? 'var(--muted)' : (colMap[agentId] || 'var(--muted)');
+      const sysBadge = isSystem ? `<span class="wbs-sys-badge">系统侧</span>` : '';
+      const el = document.createElement('div');
+      el.className = 'wbs' + (isSystem ? ' sys' : '');
+      el.innerHTML = `
+        <div class="wbs-hd">
+          <span class="wbs-bullet" style="color:${bulletColor}">${bullet}</span>
+          <span class="wbs-name">${name}</span>
+          ${role ? `<span class="wbs-role">&nbsp;[${role}]</span>` : ''}
+          ${sysBadge}
+          <span class="wbs-st running" id="ss-${sid}">${opts.status || '...'}</span>
+        </div>
+        <div class="wbs-body" id="sb-${sid}"></div>`;
+      body.appendChild(el); scrollEnd();
+      return makeSectionApi(sid);
+    }
+  };
+}
+
+function makeSectionApi(sid) {
+  return {
+    line(html) { appendToSec(sid, 'plan-line', html); },
+    sub(txt) { appendToSec(sid, 'th-sub', txt, true); },
+    reason(items) { appendToSec(sid, 'reason-line', `<span style="color:var(--dim);margin-right:5px">reason</span><span class="rv">${items.join(' → ')}</span>`); },
+    prog(done, total, isRetry) {
+      const b = document.getElementById('sb-' + sid);
+      let bar = b.querySelector('.prog-bar');
+      if (!bar) { bar = document.createElement('div'); bar.className = 'prog-bar'; bar.innerHTML = `<div class="prog-fill" id="pf-${sid}"></div>`; b.appendChild(bar); }
+      const fill = document.getElementById('pf-' + sid);
+      if (fill) { fill.style.width = (total > 0 ? done / total * 100 : 0) + '%'; fill.className = 'prog-fill' + (isRetry ? ' retry' : ''); }
+    },
+    tool(fnName, args, note) {
+      const b = document.getElementById('sb-' + sid);
+      const tcId = uid();
+      const argsStr = Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ');
+      const short = argsStr.length > 62 ? argsStr.slice(0, 62) + '…' : argsStr;
+      const wrap = document.createElement('div'); wrap.className = 'tool-wrap';
+      wrap.innerHTML = `
+        <div class="tl" onclick="toggleIO('${tcId}')">
+          <span class="tl-st" id="ts-${tcId}">○</span>
+          <span class="tl-fn">${fnName}</span>
+          <span class="tl-args">(${short})</span>
+          ${note ? `<span class="tl-note">${note}</span>` : ''}
+          <span class="tl-exp">▸ I/O</span>
+        </div>
+        <div class="tl-io" id="io-${tcId}"></div>`;
+      b.appendChild(wrap); scrollEnd();
+      return {
+        setRunning() { const s = document.getElementById('ts-' + tcId); if (s) { s.className = 'tl-st running'; s.textContent = '↻'; } scrollEnd(); },
+        setDone(out) {
+          const s = document.getElementById('ts-' + tcId); if (s) { s.className = 'tl-st done'; s.textContent = '✓'; }
+          const io = document.getElementById('io-' + tcId);
+          if (io) io.innerHTML = `<div class="tio-sec"><div class="tio-lbl">Input</div><pre class="tio-code">${JSON.stringify(args, null, 2)}</pre></div><div class="tio-sec"><div class="tio-lbl">Output</div><pre class="tio-code">${typeof out === 'string' ? out : JSON.stringify(out, null, 2)}</pre></div>`;
+        },
+        setAsk() { const s = document.getElementById('ts-' + tcId); if (s) { s.className = 'tl-st ask'; s.textContent = '⚠'; } },
+        setDenied() { const s = document.getElementById('ts-' + tcId); if (s) { s.className = 'tl-st denied'; s.textContent = '✗'; } }
+      };
+    },
+    eval(skill, items) {
+      const b = document.getElementById('sb-' + sid);
+      const chips = items.map(i => {
+        const icon = i.pass === 'pass' ? '✓' : i.pass === 'warn' ? '△' : '✗';
+        return `<span class="ec ${i.pass}" title="${i.text}${i.note ? ' (' + i.note + ')' : ''}">${icon}</span>`;
+      }).join(' ');
+      const fail = items.filter(i => i.pass === 'fail').map(i => i.text).join(', ');
+      const warn = items.filter(i => i.pass === 'warn').map(i => i.note || i.text).join(', ');
+      const detail = fail ? `<span class="eval-detail">✗ ${fail}</span>` : warn ? `<span class="eval-detail">△ ${warn}</span>` : '';
+      const l = document.createElement('div'); l.className = 'eval-line';
+      l.innerHTML = `<span class="eval-lbl">eval</span>${chips}${detail}`;
+      const chipEls = [...l.querySelectorAll('.ec')].map(el => { el.style.opacity = '0'; return el; });
+      b.appendChild(l);
+      chipEls.forEach((el, i) => setTimeout(() => el.style.opacity = '1', 80 + i * 200));
+      scrollEnd();
+      return items.length * 200 + 200;
+    },
+    retry(round, max, reason) { appendToSec(sid, 'retry-strip', `<span class="rts-badge">重试 ${round}/${max}</span><span class="rts-txt">${reason}</span>`); },
+    replan(txt) { appendToSec(sid, 'replan-line', `<span class="rpl-k">replan</span>${txt}`); },
+    concl(txt) { appendToSec(sid, 'concl-line', `<span class="ca">→</span> ${txt}`); },
+    setSt(cls, txt) { const el = document.getElementById('ss-' + sid); if (el) { el.className = 'wbs-st ' + cls; el.textContent = txt; } }
+  };
+}
+
+function appendToSec(sid, cls, content, isText) {
+  const b = document.getElementById('sb-' + sid);
+  const l = document.createElement('div'); l.className = cls;
+  if (isText) l.textContent = content; else l.innerHTML = content;
+  b.appendChild(l); scrollEnd();
+}
+
+function toggleWB(id) { document.getElementById('wb-' + id)?.classList.toggle('closed'); document.getElementById('wa-' + id)?.classList.toggle('closed'); }
+function toggleIO(id) { document.getElementById('io-' + id)?.classList.toggle('open'); }
+
+// ══════════════════════════════════════════════════════════════
+// §6. 事件驱动引擎 — 场景转换为事件序列并逐个执行
+// ══════════════════════════════════════════════════════════════
+
+// 当前渲染上下文（work block, sections 等），由 handleEvent 管理
+let ctx = {};
+let running = false;
+let nTools = 0, nRetries = 0;
+
+async function emitAndRender(evt) {
+  logEvent(evt);
+  await handleEvent(evt);
+}
+
+// 核心事件处理器 — 所有 UI 渲染都由此驱动
+async function handleEvent(evt) {
+  switch (evt.event) {
+
+    case 'pre_context': {
+      const sec = ctx.wb.section('ctx', 'Pre-Context', null, { type: 'system', status: '注入中' });
+      ctx.preCtxSec = sec;
+      await sleep(150);
+      for (const item of evt.items) { await sleep(130); sec.sub(`· ${item.k}：${item.v}`); }
+      await sleep(120);
+      sec.line(`<span class="pa">→</span> 已注入 Router prompt`);
+      sec.setSt('done', '✓');
+      break;
+    }
+
+    case 'route': {
+      setAg('router', 'main', '分类中');
+      const sec = ctx.wb.section('router', 'Router', null, { type: 'router', status: '分类中' });
+      ctx.routerSec = sec;
+      await sleep(500);
+      sec.line(`<span class="pa">分析</span> ${evt.reasoning}`);
+      await sleep(250);
+      const tag = evt.path === 'agent_task' ? 'rt-agent' : evt.path === 'simple_tool' ? 'rt-simple' : 'rt-direct';
+      const desc = evt.path === 'agent_task' ? '转交 Coordinator' : evt.path === 'simple_tool' ? '直接调工具' : '直接回复';
+      sec.line(`<span class="pa">路由</span> <span class="${tag}">${evt.path}</span> → ${desc}`);
+      sec.setSt('done', '✓');
+      setAg('router', 'done');
+      ctx.routePath = evt.path;
+      await sleep(200);
+      break;
+    }
+
+    case 'text_delta': {
+      if (!ctx.msgEl) ctx.msgEl = addMsg('assistant', '');
+      const tmp = document.createElement('div'); tmp.innerHTML = evt.delta;
+      for (const child of Array.from(tmp.children.length ? tmp.children : [tmp])) {
+        await sleep(60);
+        if (child.nodeType === 3) { ctx.msgEl.appendChild(document.createTextNode(child.textContent)); }
+        else { ctx.msgEl.appendChild(child.cloneNode(true)); }
+        scrollEnd();
+      }
+      break;
+    }
+
+    case 'coordinator_context': {
+      setAg('coordinator', 'coord', 'planning');
+      const sec = ctx.wb.section('coordinator', 'Coordinator', 'context', { status: '加载中' });
+      ctx.coordCtxSec = sec;
+      await sleep(250);
+      sec.line(`<span class="pa">加载 heavy context</span>`);
+      for (const item of evt.items) { await sleep(170); sec.sub(`· ${item.k}：${item.v}`); }
+      sec.setSt('done', '✓');
+      await sleep(150);
+      break;
+    }
+
+    case 'coordinator_plan': {
+      const sec = ctx.wb.section('coordinator', 'Coordinator', 'dispatch', { status: '分派中' });
+      ctx.coordPlanSec = sec;
+      for (const line of evt.lines) { await sleep(200); sec.line(line); }
+      sec.setSt('done', '✓');
+      setAg('coordinator', 'done');
+      await sleep(150);
+      break;
+    }
+
+    case 'agent_start': {
+      setAg(evt.agent_id, 'running', evt.skill_id);
+      const sec = ctx.wb.section(evt.agent_id, evt.agent_name, evt.skill_id);
+      ctx.agentSections = ctx.agentSections || {};
+      ctx.agentSections[evt.agent_id] = sec;
+      if (evt.reasoning) { sec.reason(evt.reasoning); await sleep(500); }
+      break;
+    }
+
+    case 'tool_call': {
+      const sec = ctx.agentSections?.[evt.agent_id] || ctx.routerSec;
+      if (!sec) break;
+      const tc = sec.tool(evt.tool, evt.input, evt.note);
+      ctx.toolCalls = ctx.toolCalls || {};
+      ctx.toolCalls[evt.call_id] = tc;
+      if (evt.total) sec.prog(evt.step, evt.total, evt.is_retry);
+      await sleep(180);
+      tc.setRunning();
+      nTools++;
+      break;
+    }
+
+    case 'tool_result': {
+      const tc = ctx.toolCalls?.[evt.call_id];
+      if (!tc) break;
+      tc.setDone(evt.output);
+      const sec = ctx.agentSections?.[evt.agent_id] || ctx.routerSec;
+      if (sec && evt.total) sec.prog(evt.step, evt.total, evt.is_retry);
+      scrollEnd();
+      await sleep(60);
+      break;
+    }
+
+    case 'permission_request': {
+      const tc = ctx.toolCalls?.[evt.call_id];
+      if (tc) tc.setAsk();
+      ctx.wb.setMeta('等待授权...', 'wait');
+      const ok = await showPerm(evt.agent_name, evt.tool, evt.input, evt.description);
+      logEvent({ event: 'permission_response', call_id: evt.call_id, approved: ok });
+      ctx.wb.setMeta('处理中...', 'running');
+      if (ok) {
+        if (tc) tc.setRunning();
+        ctx.permResult = true;
+      } else {
+        if (tc) tc.setDenied();
+        ctx.permResult = false;
+      }
+      break;
+    }
+
+    case 'eval_result': {
+      const sec = ctx.agentSections?.[evt.agent_id];
+      if (!sec) break;
+      await sleep(300);
+      const w = sec.eval(evt.skill_id, evt.items);
+      await sleep(w);
+      break;
+    }
+
+    case 'retry': {
+      const sec = ctx.agentSections?.[evt.agent_id];
+      if (!sec) break;
+      sec.retry(evt.attempt, evt.max, evt.reason);
+      nRetries++;
+      setAg(evt.agent_id, 'retry');
+      await sleep(400);
+      if (evt.replan) { sec.replan(evt.replan); await sleep(500); }
+      setAg(evt.agent_id, 'running', evt.skill_id + ' [retry]');
+      break;
+    }
+
+    case 'agent_done': {
+      const sec = ctx.agentSections?.[evt.agent_id];
+      if (sec) { sec.concl(evt.summary); sec.setSt('done', evt.status_text || '完成'); }
+      setAg(evt.agent_id, 'done');
+      scrollEnd();
+      break;
+    }
+
+    case 'agent_error': {
+      const sec = ctx.agentSections?.[evt.agent_id];
+      if (sec) { sec.concl(`<span style="color:var(--red)">${evt.error}</span>`); sec.setSt('retry', '出错'); }
+      setAg(evt.agent_id, 'retry');
+      break;
+    }
+
+    case 'coordinator_synthesis': {
+      setAg('coordinator', 'coord', 'synthesizing');
+      const sec = ctx.wb.section('coordinator', 'Coordinator', 'synthesis', { status: '综合中' });
+      for (const line of evt.lines) { await sleep(230); sec.line(line); }
+      await sleep(350);
+      sec.setSt('done', '✓');
+      break;
+    }
+
+    case 'done': {
+      const elapsed = ((Date.now() - ctx.startTime) / 1000).toFixed(1);
+      ctx.wb.setMeta(`${evt.path} · ${evt.agent_count || 0} agents · ${nTools} tools · ${elapsed}s`, 'done');
+      await sleep(500);
+      ctx.wb.collapse();
+      // Show stats
+      document.getElementById('stats-sec').style.display = 'block';
+      document.getElementById('sv-tools').textContent = nTools;
+      document.getElementById('sv-path').textContent = evt.path;
+      document.getElementById('sv-time').textContent = elapsed + 's';
+      document.getElementById('sv-retries').textContent = nRetries;
+      // Reset agent dots
+      ['router', 'coordinator', 'analyst', 'quant', 'risk'].forEach(id => setAg(id, ''));
+      break;
+    }
+
+    case 'error': {
+      const el = addMsg('assistant', `<p style="color:var(--red)">[错误] ${evt.message}</p>`);
+      break;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// §7. 场景定义 — 每个场景是一个异步函数，产出事件序列
+// ══════════════════════════════════════════════════════════════
+
+const PRE_CTX = [
+  { k: '账户概况', v: '余额 $10,000，持仓 0，可用 100%' },
+  { k: '可用 Agents', v: 'Coordinator · Analyst · Quant · Risk · Sentinel' },
+  { k: '对话历史', v: '本次会话首条消息' },
+];
+const PRE_CTX_RISK = [
+  { k: '账户概况', v: '余额 $10,000，持仓 2 个，可用 32%' },
+  { k: '可用 Agents', v: 'Coordinator · Analyst · Quant · Risk · Sentinel' },
+  { k: '对话历史', v: '本次会话首条消息' },
+];
+
+// Helper: run a standard agent with tools + eval
+async function runStandardAgent(agentId, agentName, skillId, reasoning, tools, evalItems, conclusion) {
+  await emitAndRender({ event: 'agent_start', agent_id: agentId, agent_name: agentName, skill_id: skillId, reasoning });
+  const total = tools.length;
+  for (let i = 0; i < tools.length; i++) {
+    const t = tools[i];
+    const callId = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: agentId, call_id: callId, tool: t.fn, input: t.args, step: i, total, note: t.note });
+    await sleep(t.delay || 500);
+    await emitAndRender({ event: 'tool_result', agent_id: agentId, call_id: callId, tool: t.fn, output: t.out, step: i + 1, total });
+  }
+  await emitAndRender({ event: 'eval_result', agent_id: agentId, skill_id: skillId, items: evalItems });
+  await emitAndRender({ event: 'agent_done', agent_id: agentId, summary: conclusion });
+}
+
+const SCENARIOS = {
+
+  // ── 场景 1: direct_reply ─────────────────────────────────
+  async direct_reply() {
+    addMsg('user', '你好，你是谁？能做什么？');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'direct_reply', reasoning: '简单问候/自我介绍，无需调用工具或 Agent' });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'router', delta: '<p>你好！我是 <strong>ThunderClaw</strong>，一个 AI 驱动的加密货币交易助手。</p>' });
+    await sleep(120);
+    await emitAndRender({ event: 'text_delta', source: 'router', delta: '<p>我可以帮你：<strong>市场分析</strong>（技术面 + 消息面）、<strong>量化因子设计与回测</strong>、<strong>持仓风险评估</strong>、<strong>实时行情查询</strong>。</p>' });
+    await sleep(120);
+    await emitAndRender({ event: 'text_delta', source: 'router', delta: '<p>试试问我「BTC 现在多少钱」或「帮我分析 BTC 走势」？</p>' });
+
+    await emitAndRender({ event: 'done', path: 'direct_reply', agent_count: 0 });
+  },
+
+  // ── 场景 2: simple_tool ──────────────────────────────────
+  async simple_tool() {
+    addMsg('user', 'BTC 现在多少钱，成交量怎么样？');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'simple_tool', reasoning: '简单价格查询，调用 1 个工具即可直接回答，无需 Coordinator 和 Worker Agents' });
+    await sleep(200);
+
+    const callId = uid();
+    const args = { symbol: 'BTC/USDT', include_volume: true };
+    const out = { price: 82340, change_24h: '-3.2%', change_1h: '+0.4%', volume_24h: '$18.2B', volume_rank: '全市场第 2' };
+    await emitAndRender({ event: 'tool_call', agent_id: 'router', call_id: callId, tool: 'get_price', input: args, step: 0, total: 1 });
+    await sleep(420);
+    await emitAndRender({ event: 'tool_result', agent_id: 'router', call_id: callId, tool: 'get_price', output: out, step: 1, total: 1 });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'router', delta: '<p>BTC/USDT 当前价格：<strong>$82,340</strong>（24h -3.2%，1h +0.4%）</p>' });
+    await sleep(100);
+    await emitAndRender({ event: 'text_delta', source: 'router', delta: '<p>24h 成交量：<strong>$18.2B</strong>，全市场成交量排名第 2。成交量较前日下降约 12%，价格在缩量中小幅反弹。</p>' });
+
+    await emitAndRender({ event: 'done', path: 'simple_tool', agent_count: 0 });
+  },
+
+  // ── 场景 3: Analyst + Risk 并行 ──────────────────────────
+  async analyst_risk() {
+    addMsg('user', '帮我分析一下 BTC 近期走势，给出操作建议');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '需要技术面 + 消息面分析，叠加风险评估，超出单次工具调用范围' });
+    await sleep(200);
+
+    await emitAndRender({
+      event: 'coordinator_context',
+      items: [
+        { k: '因子库', v: '3 个已有因子 (ma_cross_v2 · rsi_factor · momentum_v1)' },
+        { k: '风险规则', v: '单笔 ≤ 20%，日内最大回撤 5%' },
+      ]
+    });
+
+    await emitAndRender({
+      event: 'coordinator_plan',
+      parallel: true,
+      lines: [
+        '<span class="pa">dispatch</span> Analyst · market_analysis <span class="p-tag pt-par">parallel</span>',
+        '<span class="pa">dispatch</span> Risk &nbsp;&nbsp;· risk_assessment <span class="p-tag pt-par">parallel</span>',
+      ]
+    });
+
+    // Run Analyst and Risk in parallel
+    await Promise.all([
+      runStandardAgent('analyst', 'Analyst', 'market_analysis',
+        ['消息面检索', 'K线数据', 'RSI + MACD', '综合判断'],
+        [
+          { fn: 'web_search', args: { query: 'BTC 近期走势 消息面', max_results: 5 }, delay: 750, out: [{ title: 'BTC 24h -3.2%，跌破 83000 支撑', src: 'CoinDesk' }, { title: '大户链上净流入持续 3 日', src: 'Glassnode' }] },
+          { fn: 'get_klines', args: { symbol: 'BTC/USDT', interval: '1h', limit: 500 }, delay: 600, out: { count: 500, trend: '短期下行通道，20MA 下方 2.1%' } },
+          { fn: 'calculate_indicator', args: { indicator: 'RSI', period: 14 }, delay: 400, out: { value: 28.4, signal: '超卖' } },
+          { fn: 'calculate_indicator', args: { indicator: 'MACD', fast: 12, slow: 26 }, delay: 400, out: { macd: -124.3, trend: '空头延续，动能走弱' } },
+        ],
+        [{ pass: 'pass', text: '技术指标与数据一致' }, { pass: 'pass', text: '消息面最新（24h 内）' }, { pass: 'warn', text: '信息源覆盖', note: '仅 2 个，建议 ≥4' }],
+        'RSI=28.4 超卖，MACD 空头延续。消息面偏鸽，大户积累。<strong>偏多 66%</strong>'
+      ),
+      (async () => {
+        await sleep(80); // slight offset for parallel visual
+        await runStandardAgent('risk', 'Risk', 'risk_assessment',
+          ['账户余额', '当前持仓', '波动率 → 仓位建议'],
+          [
+            { fn: 'check_balance', args: {}, delay: 420, out: { total: 10000, available: 10000, used: 0 } },
+            { fn: 'get_positions', args: {}, delay: 380, out: { positions: [], total_pnl: 0 } },
+            { fn: 'get_klines', args: { symbol: 'BTC/USDT', interval: '1d', limit: 30 }, delay: 480, out: { vol_30d: '4.2%/day', atr_14: 1840 } },
+          ],
+          [{ pass: 'pass', text: '持仓数据最新' }, { pass: 'pass', text: '相关性合理（空仓）' }, { pass: 'pass', text: '风险等级与数据一致' }],
+          '空仓，可用 $10,000。30d 波动率 4.2%/天。<strong>建议仓位 ≤15%，止损 $81,200</strong>'
+        );
+      })()
+    ]);
+
+    await emitAndRender({
+      event: 'coordinator_synthesis',
+      lines: [
+        '<span class="pa">整合</span> Analyst（偏多 66%）+ Risk（仓位 ≤15%）',
+        '<span class="pa">分歧</span> 一致，置信度 → <strong>62%</strong>',
+      ]
+    });
+    await sleep(400);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>方向：偏多 · 置信度：62% · 建议仓位：≤ 15%</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>Analyst：RSI(14) = 28.4 超卖，价格在 20MA 下方 2.1%，MACD 空头延续但动能走弱。消息面偏鸽 + 大户积累，综合偏多 66%。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>Risk：账户空仓，可用 $10,000。30日波动率 4.2%/天，建议仓位 ≤ 15%（$1,500），止损参考 $81,200。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<hr><p><strong>操作建议：</strong>可在 ≈$82,340 分批建立小仓多单，首仓 ≤ $1,000。关注 $83,500 能否收复，若破 $81,200 止损出局。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 仅供参考，不构成投资建议</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 2 });
+  },
+
+  // ── 场景 4: Quant with retry ─────────────────────────────
+  async quant_retry() {
+    addMsg('user', '设计一个均线交叉量化因子并回测');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '需要因子设计、代码执行和回测，属于复杂研究任务' });
+    await sleep(200);
+
+    await emitAndRender({
+      event: 'coordinator_context',
+      items: [
+        { k: '因子库', v: '3 个已有因子 (ma_cross_v2 · rsi_factor · momentum_v1)，避免重复' },
+        { k: '数据源', v: 'BTC/USDT 日线可用至 2023-09-30' },
+        { k: '评估标准', v: 'IC ≥ 0.03，IR ≥ 0.5，换手率 < 30%' },
+      ]
+    });
+
+    await emitAndRender({
+      event: 'coordinator_plan',
+      parallel: false,
+      lines: [
+        '<span class="pa">dispatch</span> Quant · factor_design <span class="p-tag pt-seq">sequential</span>',
+        '<span class="pa">*</span> Quant 将自主规划执行，Evaluator 不通过则自动重试',
+      ]
+    });
+
+    // Agent start
+    await emitAndRender({ event: 'agent_start', agent_id: 'quant', agent_name: 'Quant', skill_id: 'factor_design', reasoning: ['检索因子文献', '获取历史数据', '实现 MA(5,20) 因子', 'Evaluator 通过后回测'] });
+
+    const sec = ctx.agentSections['quant'];
+    sec.prog(0, 5);
+
+    // Tool 1: web_search
+    let cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'web_search', input: { query: 'MA cross factor research', max_results: 3 }, step: 0, total: 5 });
+    await sleep(680);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'web_search', output: [{ title: 'Moving Average Crossover: A Factor Revisit', src: 'SSRN' }], step: 1, total: 5 });
+
+    // Tool 2: get_klines
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'get_klines', input: { symbol: 'BTC/USDT', interval: '1d', limit: 1000 }, step: 1, total: 5 });
+    await sleep(780);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'get_klines', output: { count: 1000, date_range: '2021-01-01 ~ 2023-09-30' }, step: 2, total: 5 });
+
+    // Tool 3: code_exec (permission: ask)
+    const code1 = `# MA Cross Factor  fast=5, slow=20\ndef ma_cross(df, fast=5, slow=20):\n    df['mf'] = df['close'].rolling(fast).mean()\n    df['ms'] = df['close'].rolling(slow).mean()\n    cross = np.sign(df['mf'] - df['ms'])\n    return cross.diff().fillna(0)\nic = ma_cross(klines_df).shift(1).corr(returns)\n# → IC = 0.028`;
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { params: { fast: 5, slow: 20 }, timeout: 30 }, step: 2, total: 5 });
+
+    // Permission request
+    await emitAndRender({ event: 'permission_request', agent_id: 'quant', agent_name: 'Quant', call_id: cid, tool: 'code_exec', input: code1, description: 'MA(5,20) 因子计算 · 沙箱执行' });
+
+    if (ctx.permResult) {
+      await sleep(950);
+      await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { ic_mean: 0.028, note: 'IC=0.028 低于阈值 0.03' }, step: 3, total: 5 });
+    } else {
+      await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { error: '用户拒绝执行' }, step: 3, total: 5 });
+    }
+
+    // Eval: fail
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'factor_design', items: [{ pass: 'fail', text: 'IC ≥ 0.03 (实际 0.028，低于阈值)' }] });
+
+    // Retry
+    await emitAndRender({ event: 'retry', agent_id: 'quant', attempt: 1, max: 3, skill_id: 'factor_design', reason: 'IC = 0.028 &lt; 0.03 → <strong>调整 MA(5,20) → MA(7,21)</strong>', replan: 'IC 偏低：fast 窗口过短，增大 fast(5→7) slow(20→21)' });
+
+    // Retry code_exec
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { params: { fast: 7, slow: 21 }, timeout: 30 }, step: 3, total: 5, is_retry: true, note: '已授权' });
+    await sleep(820);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { ic_mean: 0.042, ir: 2.33, turnover: '18.4%' }, step: 4, total: 5, is_retry: true });
+
+    // Eval: pass
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'factor_design', items: [
+      { pass: 'pass', text: 'IC ≥ 0.03 (0.042)' },
+      { pass: 'pass', text: 'IR ≥ 0.5 (2.33)' },
+      { pass: 'pass', text: '换手率 < 30% (18.4%)' },
+      { pass: 'warn', text: '前视偏差', note: '建议人工复核 shift(1)' }
+    ] });
+
+    // Backtest
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'backtest', input: { strategy: 'ma_cross_v2', start: '2021-01-01', end: '2022-12-31' }, step: 4, total: 5 });
+    await sleep(1050);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'backtest', output: { sharpe: 1.34, max_drawdown: '-18.2%', win_rate: '54.3%', total_return: '+47.6%' }, step: 5, total: 5 });
+
+    await emitAndRender({ event: 'agent_done', agent_id: 'quant', summary: 'MA(7,21) 经重试后通过 Evaluator。IC=0.042，Sharpe=1.34，MaxDD=-18.2%。<strong>建议样本外验证</strong>', status_text: '完成（重试 1 次）' });
+
+    await emitAndRender({
+      event: 'coordinator_synthesis',
+      lines: [
+        '<span class="pa">整合</span> Quant 研究结论（经 1 次重试后通过）',
+        '<span class="pa">记录</span> <strong style="color:var(--red)">1 次重试</strong>，最终参数 MA(7,21)',
+      ]
+    });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>因子：MA Cross (7,21) · IC = 0.042 · Sharpe = 1.34 · MaxDD = -18.2%</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>初始参数 MA(5,20) IC=0.028，未达阈值 0.03。Evaluator 触发重试 → 调整参数 MA(7,21) → IC=0.042，IR=2.33，Sharpe=1.34。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<hr><p><strong>建议下一步：</strong>ETH/SOL 交叉品种验证 · 2023 年样本外回测 · 参数敏感性分析</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 因子表现具有时变性，历史统计不代表未来收益</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 1 });
+  },
+
+  // ── 场景 5: Risk only ────────────────────────────────────
+  async risk_only() {
+    addMsg('user', '现在我的持仓风险怎么样？');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX_RISK });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '需要查询持仓详情、计算风险指标，适合 Risk Agent' });
+    await sleep(200);
+
+    await emitAndRender({ event: 'coordinator_context', items: [{ k: '风险规则', v: '单品种浮亏 > 5% 触发告警，仓位集中度 < 60%' }] });
+    await emitAndRender({ event: 'coordinator_plan', parallel: false, lines: ['<span class="pa">dispatch</span> Risk · risk_assessment <span class="p-tag pt-seq">sequential</span>'] });
+
+    await runStandardAgent('risk', 'Risk', 'risk_assessment',
+      ['账户余额使用率', '持仓浮亏 + 强平价', '品种相关性 + 整体风险等级'],
+      [
+        { fn: 'check_balance', args: {}, delay: 400, out: { total: 10000, available: 3200, used: 6800, margin_ratio: '32%' } },
+        { fn: 'get_positions', args: {}, delay: 470, out: { positions: [{ symbol: 'BTC/USDT', side: 'LONG', pnl: -143, liq: 72000 }, { symbol: 'ETH/USDT', side: 'LONG', pnl: -253.6, liq: 1200 }], total_pnl: -396.6 } },
+        { fn: 'get_klines', args: { symbol: 'BTC/USDT', interval: '1d', limit: 30 }, delay: 430, out: { vol_30d: '4.2%/day', corr_btc_eth: 0.84 } },
+        { fn: 'get_price', args: { symbol: 'ETH/USDT' }, delay: 280, out: { price: 1923, chg_7d: '-8.4%' } },
+      ],
+      [{ pass: 'pass', text: '持仓数据最新' }, { pass: 'pass', text: '品种相关性已考虑（BTC/ETH 0.84）' }, { pass: 'warn', text: 'ETH 浮亏较大', note: '需重点关注' }],
+      '<strong style="color:var(--red)">风险等级：高</strong> · BTC -$143 · ETH -$254 · 合计 -$397 · 可用余额仅 32%'
+    );
+
+    await emitAndRender({ event: 'coordinator_synthesis', lines: ['<span class="pa">整合</span> Risk 结论（高风险态）', '<span class="pa">优先</span> 推送风险提示'] });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>风险等级：高 · 浮亏：-$396.6 · 可用余额：$3,200（32%）</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>BTC 多单浮亏 -$143（强平 $72,000），ETH 多单浮亏 -$254（强平 $1,200）。BTC/ETH 相关性 0.84，双仓无分散效果。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<hr><p><strong>建议：</strong>设定止损 ETH $1,750 / BTC $80,000；考虑减仓 ETH 释放保证金。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 仅供参考。强平价格为估算值，以交易所实时计算为准</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 1 });
+  },
+
+  // ── 场景 6: 权限拒绝 + 降级 ──────────────────────────────
+  async perm_deny() {
+    addMsg('user', '帮我快速算一下 BTC 的动量因子');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '需要计算因子，属于量化研究任务' });
+    await sleep(200);
+
+    await emitAndRender({ event: 'coordinator_context', items: [{ k: '评估标准', v: 'IC ≥ 0.02（快速版降低阈值）' }] });
+    await emitAndRender({ event: 'coordinator_plan', parallel: false, lines: ['<span class="pa">dispatch</span> Quant · quant_signal <span class="p-tag pt-seq">sequential</span>'] });
+
+    await emitAndRender({ event: 'agent_start', agent_id: 'quant', agent_name: 'Quant', skill_id: 'quant_signal', reasoning: ['获取K线', '代码计算动量因子', '如被拒绝则用内置指标替代'] });
+
+    // get_klines
+    let cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'get_klines', input: { symbol: 'BTC/USDT', interval: '1d', limit: 100 }, step: 0, total: 3 });
+    await sleep(520);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'get_klines', output: { count: 100 }, step: 1, total: 3 });
+
+    // code_exec → permission denied
+    cid = uid();
+    const code = `# Momentum Factor\nmomentum = df['close'].pct_change(10)\nic = momentum.shift(1).corr(returns)`;
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { code, timeout: 15 }, step: 1, total: 3 });
+    await emitAndRender({ event: 'permission_request', agent_id: 'quant', agent_name: 'Quant', call_id: cid, tool: 'code_exec', input: code, description: '动量因子计算 · 沙箱执行' });
+    // User denies (simulated)
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { error: '用户拒绝执行' }, step: 2, total: 3 });
+
+    // Fallback to calculate_indicator
+    const sec = ctx.agentSections['quant'];
+    sec.line('<span class="pa" style="color:var(--gold)">降级</span> code_exec 被拒绝 → 改用 calculate_indicator 内置指标');
+    await sleep(400);
+
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'calculate_indicator', input: { indicator: 'ROC', period: 10 }, step: 2, total: 3, note: '降级方案' });
+    await sleep(500);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'calculate_indicator', output: { value: -4.2, signal: '弱势', note: '近10日收益率 -4.2%' }, step: 3, total: 3 });
+
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'quant_signal', items: [
+      { pass: 'warn', text: '使用降级方案', note: '内置指标精度有限' },
+      { pass: 'pass', text: '数据时效性' }
+    ] });
+
+    await emitAndRender({ event: 'agent_done', agent_id: 'quant', summary: 'ROC(10) = -4.2%，弱势动量。<strong>降级方案：用内置 ROC 替代自定义因子</strong>' });
+
+    await emitAndRender({ event: 'coordinator_synthesis', lines: ['<span class="pa">整合</span> Quant 结论（降级方案）', '<span class="pa">标注</span> <strong style="color:var(--gold)">精度有限</strong>，建议后续授权 code_exec 获取更精确结果'] });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>BTC 动量因子（降级版）：ROC(10) = -4.2%</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>近 10 日收益率 -4.2%，处于弱势区间。由于代码执行被拒绝，使用了内置 ROC 指标替代，精度有限。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 如需更精确的因子计算，请授权 code_exec 工具</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 1 });
+  },
+
+  // ── 场景 7: 连续重试 + 降级通过 ──────────────────────────
+  async multi_retry() {
+    addMsg('user', '设计一个高频反转因子');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '高频因子设计需要多轮迭代，适合 Quant Agent' });
+    await sleep(200);
+
+    await emitAndRender({ event: 'coordinator_context', items: [{ k: '评估标准', v: 'IC ≥ 0.03，最大回撤 < 15%' }, { k: '重试策略', v: '最多 3 轮，第 3 轮降低阈值为 warn 通过' }] });
+    await emitAndRender({ event: 'coordinator_plan', parallel: false, lines: ['<span class="pa">dispatch</span> Quant · factor_design <span class="p-tag pt-seq">sequential</span>', '<span class="pa">*</span> 最多 3 轮重试，第 3 轮可降级通过'] });
+
+    await emitAndRender({ event: 'agent_start', agent_id: 'quant', agent_name: 'Quant', skill_id: 'factor_design', reasoning: ['设计 RSI 反转因子', '迭代优化参数', '达到评估标准后回测'] });
+
+    // Round 1: IC=0.018 → fail
+    let cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { factor: 'rsi_reversal_v1', period: 7 }, step: 0, total: 2, note: '已授权' });
+    await sleep(700);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { ic: 0.018, drawdown: '-22%' }, step: 1, total: 2 });
+
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'factor_design', items: [{ pass: 'fail', text: 'IC ≥ 0.03 (实际 0.018)' }, { pass: 'fail', text: '最大回撤 < 15% (实际 -22%)' }] });
+    await emitAndRender({ event: 'retry', agent_id: 'quant', attempt: 1, max: 3, skill_id: 'factor_design', reason: 'IC=0.018, DD=-22% → <strong>增大周期 7→14，加入波动率过滤</strong>', replan: '增大 RSI 周期 + 加波动率过滤' });
+
+    // Round 2: IC=0.025 → fail
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { factor: 'rsi_reversal_v2', period: 14, vol_filter: true }, step: 0, total: 2, is_retry: true, note: '已授权' });
+    await sleep(750);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { ic: 0.025, drawdown: '-16%' }, step: 1, total: 2, is_retry: true });
+
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'factor_design', items: [{ pass: 'fail', text: 'IC ≥ 0.03 (实际 0.025)' }, { pass: 'fail', text: '最大回撤 < 15% (实际 -16%)' }] });
+    await emitAndRender({ event: 'retry', agent_id: 'quant', attempt: 2, max: 3, skill_id: 'factor_design', reason: 'IC=0.025, DD=-16% → <strong>加入均值回归确认信号</strong>', replan: '叠加布林带确认 + 缩短持仓周期' });
+
+    // Round 3: IC=0.029 → warn (降级通过)
+    cid = uid();
+    await emitAndRender({ event: 'tool_call', agent_id: 'quant', call_id: cid, tool: 'code_exec', input: { factor: 'rsi_reversal_v3', period: 14, vol_filter: true, bb_confirm: true }, step: 0, total: 2, is_retry: true, note: '已授权' });
+    await sleep(800);
+    await emitAndRender({ event: 'tool_result', agent_id: 'quant', call_id: cid, tool: 'code_exec', output: { ic: 0.029, drawdown: '-14.8%' }, step: 1, total: 2, is_retry: true });
+
+    await emitAndRender({ event: 'eval_result', agent_id: 'quant', skill_id: 'factor_design', items: [
+      { pass: 'warn', text: 'IC ≥ 0.03', note: '0.029 接近阈值，第 3 轮降级通过' },
+      { pass: 'pass', text: '最大回撤 < 15% (14.8%)' },
+    ] });
+
+    await emitAndRender({ event: 'agent_done', agent_id: 'quant', summary: 'RSI 反转因子 v3 经 2 次重试后降级通过。IC=0.029（接近阈值），DD=-14.8%。<strong>需进一步优化</strong>', status_text: '完成（重试 2 次，降级）' });
+
+    await emitAndRender({ event: 'coordinator_synthesis', lines: ['<span class="pa">整合</span> Quant 结论（2 次重试 + 降级通过）', '<span class="pa">标注</span> <strong style="color:var(--gold)">因子质量中等</strong>，IC 未严格达标'] });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>因子：RSI Reversal v3 · IC = 0.029 · MaxDD = -14.8%</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>经过 2 轮优化迭代，最终版本 IC=0.029 接近但未严格达到 0.03 阈值，第 3 轮降级通过。建议作为辅助信号使用，不作为单独交易因子。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 降级通过表示因子质量尚可但不理想，需结合其他信号使用</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 1 });
+  },
+
+  // ── 场景 8: 混合调度（串行→并行）─────────────────────────
+  async mixed_dispatch() {
+    addMsg('user', '先分析 ETH 趋势，再做因子和风控');
+    await sleep(300);
+    ctx.wb = makeWB();
+    await sleep(100);
+
+    await emitAndRender({ event: 'pre_context', items: PRE_CTX });
+    await sleep(150);
+    await emitAndRender({ event: 'route', path: 'agent_task', reasoning: '多步骤复合任务：先分析（Analyst），分析结果输入因子设计（Quant）+ 风险评估（Risk）' });
+    await sleep(200);
+
+    await emitAndRender({
+      event: 'coordinator_context',
+      items: [
+        { k: 'ETH 持仓', v: '无当前持仓' },
+        { k: '依赖关系', v: 'Quant 和 Risk 依赖 Analyst 的趋势判断' },
+      ]
+    });
+    await emitAndRender({
+      event: 'coordinator_plan',
+      parallel: false,
+      lines: [
+        '<span class="pa">Phase 1</span> Analyst · market_analysis <span class="p-tag pt-seq">先行</span>',
+        '<span class="pa">Phase 2</span> Quant · quant_signal + Risk · risk_assessment <span class="p-tag pt-par">并行</span>',
+        '<span class="pa">*</span> Phase 2 依赖 Phase 1 的趋势结论',
+      ]
+    });
+
+    // Phase 1: Analyst (serial)
+    await runStandardAgent('analyst', 'Analyst', 'market_analysis',
+      ['ETH K线数据', '技术指标', '趋势判断'],
+      [
+        { fn: 'get_klines', args: { symbol: 'ETH/USDT', interval: '1h', limit: 200 }, delay: 520, out: { trend: '下行通道中段' } },
+        { fn: 'calculate_indicator', args: { indicator: 'RSI', period: 14, symbol: 'ETH' }, delay: 380, out: { value: 35.2, signal: '偏弱' } },
+        { fn: 'calculate_indicator', args: { indicator: 'MACD', symbol: 'ETH' }, delay: 380, out: { macd: -18.7, trend: '空头但收敛' } },
+      ],
+      [{ pass: 'pass', text: '技术指标一致' }, { pass: 'pass', text: '数据时效性' }],
+      'ETH 下行通道中段，RSI=35.2 偏弱，MACD 空头但收敛。<strong>趋势评分：偏空 58%</strong>'
+    );
+
+    // Coordinator Phase 2 dispatch
+    const sec2 = ctx.wb.section('coordinator', 'Coordinator', 'phase 2 dispatch', { status: '分派中' });
+    setAg('coordinator', 'coord', 'phase 2');
+    await sleep(300);
+    sec2.line('<span class="pa">传递</span> Analyst 结论（偏空 58%）→ Quant + Risk');
+    sec2.line('<span class="pa">dispatch</span> Quant + Risk <span class="p-tag pt-par">parallel</span>');
+    sec2.setSt('done', '✓');
+    await sleep(200);
+
+    // Phase 2: Quant + Risk in parallel
+    await Promise.all([
+      runStandardAgent('quant', 'Quant', 'quant_signal',
+        ['基于偏空趋势', '计算做空信号强度'],
+        [
+          { fn: 'calculate_indicator', args: { indicator: 'BB', period: 20, symbol: 'ETH' }, delay: 420, out: { upper: 2050, lower: 1820, position: '中轨下方' } },
+          { fn: 'calculate_indicator', args: { indicator: 'ATR', period: 14, symbol: 'ETH' }, delay: 350, out: { atr: 45.3, volatility: '中等' } },
+        ],
+        [{ pass: 'pass', text: '信号与趋势一致' }],
+        '布林中轨下方，ATR=45.3（中等波动）。<strong>做空信号强度 65%</strong>'
+      ),
+      (async () => {
+        await sleep(60);
+        await runStandardAgent('risk', 'Risk', 'risk_assessment',
+          ['空仓风险评估', '如做空的仓位建议'],
+          [
+            { fn: 'check_balance', args: {}, delay: 380, out: { total: 10000, available: 10000 } },
+            { fn: 'get_price', args: { symbol: 'ETH/USDT' }, delay: 300, out: { price: 1923 } },
+          ],
+          [{ pass: 'pass', text: '余额充足' }, { pass: 'pass', text: '风险可控' }],
+          '可用 $10,000。ETH 做空建议仓位 ≤12%，止损 $1,990'
+        );
+      })()
+    ]);
+
+    await emitAndRender({
+      event: 'coordinator_synthesis',
+      lines: [
+        '<span class="pa">整合</span> Analyst（偏空 58%）+ Quant（做空 65%）+ Risk（仓位 ≤12%）',
+        '<span class="pa">综合</span> 三方一致偏空，置信度 <strong>60%</strong>',
+      ]
+    });
+    await sleep(300);
+
+    ctx.msgEl = null;
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p><strong>ETH 综合分析：偏空 · 置信度 60% · 建议仓位 ≤12%</strong></p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p>Analyst：下行通道中段，RSI=35.2，MACD 空头收敛。Quant：布林中轨下方，做空信号 65%。Risk：可用 $10,000，建议仓位 ≤ $1,200，止损 $1,990。</p>' });
+    await emitAndRender({ event: 'text_delta', source: 'coordinator', delta: '<p class="disc">* 仅供参考，不构成投资建议</p>' });
+
+    await emitAndRender({ event: 'done', path: 'agent_task', agent_count: 3 });
+  },
+};
+
+// ══════════════════════════════════════════════════════════════
+// §8. 运行入口
+// ══════════════════════════════════════════════════════════════
+
+async function run(scenarioId) {
+  if (running) return;
+  running = true;
+  document.querySelectorAll('.preset').forEach(b => b.disabled = true);
+  document.getElementById('send-btn').disabled = true;
+
+  // Reset state
+  document.getElementById('chat-area').innerHTML = '';
+  resetAll();
+  clearEventLog();
+  nTools = 0; nRetries = 0;
+  ctx = { startTime: Date.now(), agentSections: {}, toolCalls: {} };
+  eventStartTime = Date.now();
+
+  try {
+    await SCENARIOS[scenarioId]();
+  } catch (e) {
+    console.error(e);
+    logEvent({ event: 'error', message: e.message });
+  } finally {
+    running = false;
+    document.querySelectorAll('.preset').forEach(b => b.disabled = false);
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// §9. 手动输入（Demo 模式提示）
+// ══════════════════════════════════════════════════════════════
+function handleSend() {
+  const inp = document.getElementById('chat-input');
+  const txt = inp.value.trim(); if (!txt || running) return;
+  inp.value = ''; inp.style.height = '';
+  addMsg('user', txt);
+  setTimeout(() => {
+    addMsg('assistant', '<p style="color:var(--dim);font-size:12px">Demo 模式：请使用左侧预设场景。自由输入将在接入真实 LLM 后启用。</p>');
+    scrollEnd();
+  }, 400);
+}
+
+const inp = document.getElementById('chat-input');
+inp.addEventListener('input', function () { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 96) + 'px'; });
+inp.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
+</script>
+</body>
+</html>

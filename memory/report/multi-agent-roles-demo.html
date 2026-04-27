@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多角色 Agent 协作架构</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;--pink:#f472b6;--orange:#fb923c;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1040px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:14px;}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:12px 0;
+    font-size:12px;color:var(--t2);line-height:1.7;
+  }
+  .kp-gold{background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);}
+  .kp-green{background:rgba(60,200,122,.04);border:1px solid rgba(60,200,122,.15);}
+  .key-point b{color:var(--gold);}
+  .kp-green b{color:var(--green);}
+
+  /* ── Fund analogy ── */
+  .fund-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+  .fund-card{padding:14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);}
+  .fund-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+  .fund-item{font-size:11.5px;color:var(--t2);line-height:1.5;padding:3px 0;}
+  .fund-item b{color:var(--t1);}
+
+  /* ── Role cards ── */
+  .roles-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+  .role-card{
+    padding:14px;border-radius:10px;border:1.5px solid var(--border);
+    cursor:pointer;transition:all .2s;position:relative;
+  }
+  .role-card:hover{border-color:var(--border2);}
+  .role-card.active{border-width:2px;}
+  .role-icon{font-size:24px;margin-bottom:6px;}
+  .role-name{font-size:13px;font-weight:700;margin-bottom:2px;}
+  .role-title{font-size:10px;color:var(--t3);margin-bottom:6px;}
+  .role-desc{font-size:11px;color:var(--t2);line-height:1.5;}
+  .role-skills{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;}
+  .role-skill{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--t3);}
+
+  /* ── Role detail panel ── */
+  .role-detail{
+    background:var(--bg3);border:1px solid var(--border2);border-radius:8px;
+    padding:16px;margin-bottom:16px;
+  }
+  .rd-title{font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+  .rd-section{margin-bottom:10px;}
+  .rd-label{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+  .rd-text{font-size:11.5px;color:var(--t2);line-height:1.6;}
+  .rd-text b{color:var(--t1);}
+  .rd-items{display:flex;flex-wrap:wrap;gap:5px;}
+  .rd-item{font-size:11px;padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--t2);}
+
+  /* ── Scenario flow ── */
+  .scenario-tabs{display:flex;gap:6px;margin-bottom:14px;}
+  .sc-tab{
+    padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);
+    color:var(--t3);background:var(--bg2);border:1px solid var(--border);transition:all .15s;
+  }
+  .sc-tab:hover{color:var(--t2);}
+  .sc-tab.active{color:var(--green);border-color:rgba(60,200,122,.3);background:rgba(60,200,122,.03);}
+
+  .sc-flow{display:flex;flex-direction:column;gap:0;}
+  .sc-node{display:flex;gap:10px;padding:8px 0;position:relative;}
+  .sc-node::before{
+    content:"";position:absolute;left:15px;top:30px;bottom:-8px;
+    width:1.5px;background:var(--border);
+  }
+  .sc-node:last-child::before{display:none;}
+  .sc-avatar{
+    width:32px;height:32px;border-radius:8px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:14px;
+    border:1.5px solid;
+  }
+  .sc-body{flex:1;}
+  .sc-who{font-size:10px;font-weight:700;letter-spacing:.3px;margin-bottom:2px;}
+  .sc-text{font-size:11.5px;color:var(--t2);line-height:1.6;}
+  .sc-text b{color:var(--t1);}
+  .sc-verdict{
+    margin-top:6px;padding:6px 10px;border-radius:6px;
+    font-size:11px;line-height:1.5;
+  }
+  .sc-output{
+    font-size:11px;padding:8px 10px;border-radius:6px;
+    background:rgba(0,0,0,.25);border:1px solid var(--border);
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.5;white-space:pre-wrap;margin-top:6px;
+  }
+
+  /* ── Disagreement ── */
+  .disagree-box{
+    padding:14px;border-radius:8px;border:1.5px solid rgba(232,168,74,.25);
+    background:rgba(232,168,74,.03);margin:10px 0;
+  }
+  .disagree-title{font-size:12px;font-weight:700;color:var(--gold);margin-bottom:8px;}
+  .disagree-row{display:flex;gap:10px;margin-bottom:6px;align-items:flex-start;}
+  .disagree-who{
+    font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;
+    white-space:nowrap;flex-shrink:0;
+  }
+  .disagree-say{font-size:11.5px;color:var(--t2);line-height:1.5;}
+  .disagree-resolve{
+    margin-top:8px;padding:8px 10px;border-radius:6px;
+    background:rgba(60,200,122,.06);border:1px solid rgba(60,200,122,.15);
+    font-size:11.5px;color:var(--t2);line-height:1.6;
+  }
+  .disagree-resolve b{color:var(--green);}
+
+  /* ── Architecture position ── */
+  .arch-code{
+    font-size:11px;padding:12px 14px;border-radius:8px;
+    background:var(--bg3);border:1px solid var(--border);
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.8;white-space:pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<h1>多角色 Agent 协作架构</h1>
+<div class="sub">像对冲基金的交易团队一样，不同角色各司其职，协作完成复杂任务。</div>
+
+<!-- ═══════════ Part 1: 对冲基金类比 ═══════════ -->
+<h2>类比：对冲基金的团队分工</h2>
+
+<div class="fund-grid">
+  <div class="fund-card">
+    <div class="fund-label" style="color:var(--gold);">真实对冲基金的角色</div>
+    <div class="fund-item"><b>Portfolio Manager</b> — 最终决策者，综合所有意见</div>
+    <div class="fund-item"><b>Quant Researcher</b> — 开发因子、策略、模型</div>
+    <div class="fund-item"><b>Market Analyst</b> — 技术面和基本面分析</div>
+    <div class="fund-item"><b>Risk Manager</b> — 监控风险敞口，设定限制</div>
+    <div class="fund-item"><b>Execution Trader</b> — 负责实际下单执行</div>
+    <div class="fund-item"><b>Compliance</b> — 合规审查</div>
+  </div>
+  <div class="fund-card">
+    <div class="fund-label" style="color:var(--blue);">Claw Agent 的角色映射</div>
+    <div class="fund-item"><b>Coordinator</b> — 综合协调者（最终给用户的建议由它产出）</div>
+    <div class="fund-item"><b>Quant</b> — 因子研究、策略回测</div>
+    <div class="fund-item"><b>Analyst</b> — 技术分析、消息面分析</div>
+    <div class="fund-item"><b>Risk</b> — 风险评估、仓位建议</div>
+    <div class="fund-item"><b>Sentinel</b> — 市场监控、预警、信号跟踪</div>
+    <div class="fund-item"><b>用户</b> — Portfolio Manager（最终拍板）</div>
+  </div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>注意最后一行：用户 = Portfolio Manager。</b><br>
+  在真实基金里，PM 听取所有人的意见但自己做最终决策。在 Claw 里，用户就是 PM。<br>
+  Coordinator 的角色不是"替用户决策"，而是"把团队的分析结果整合成一份清晰的报告给 PM 看"。
+</div>
+
+<!-- ═══════════ Part 2: 角色详情 ═══════════ -->
+<h2>五个 Agent 角色 <span class="badge bg-green">点击查看详情</span></h2>
+
+<div class="roles-grid">
+  <div class="role-card active" id="rc0" onclick="showRole(0)" style="border-color:rgba(60,200,122,.3);">
+    <div class="role-icon">🎯</div>
+    <div class="role-name" style="color:var(--green);">Coordinator</div>
+    <div class="role-title">综合协调者</div>
+    <div class="role-desc">整合所有角色的分析结果，消除矛盾，生成最终报告给用户。</div>
+  </div>
+  <div class="role-card" id="rc1" onclick="showRole(1)" style="border-color:rgba(96,165,250,.15);">
+    <div class="role-icon">📈</div>
+    <div class="role-name" style="color:var(--blue);">Analyst</div>
+    <div class="role-title">市场分析师</div>
+    <div class="role-desc">技术面分析、消息面解读、情绪判断。</div>
+  </div>
+  <div class="role-card" id="rc2" onclick="showRole(2)" style="border-color:rgba(167,139,250,.15);">
+    <div class="role-icon">🔬</div>
+    <div class="role-name" style="color:var(--purple);">Quant</div>
+    <div class="role-title">量化研究员</div>
+    <div class="role-desc">因子开发、策略回测、统计建模。</div>
+  </div>
+  <div class="role-card" id="rc3" onclick="showRole(3)" style="border-color:rgba(239,83,80,.15);">
+    <div class="role-icon">🛡️</div>
+    <div class="role-name" style="color:var(--red);">Risk</div>
+    <div class="role-title">风控官</div>
+    <div class="role-desc">风险评估、仓位建议、极端场景模拟。</div>
+  </div>
+  <div class="role-card" id="rc4" onclick="showRole(4)" style="border-color:rgba(34,211,238,.15);">
+    <div class="role-icon">📡</div>
+    <div class="role-name" style="color:var(--cyan);">Sentinel</div>
+    <div class="role-title">市场哨兵</div>
+    <div class="role-desc">7×24 监控、价格预警、因子异动检测。</div>
+  </div>
+  <div class="role-card" style="border-color:rgba(232,168,74,.15);cursor:default;background:rgba(232,168,74,.02);">
+    <div class="role-icon">👤</div>
+    <div class="role-name" style="color:var(--gold);">用户 (PM)</div>
+    <div class="role-title">最终决策者</div>
+    <div class="role-desc">审阅报告、批准交易、设定风控参数。Agent 团队向 PM 汇报。</div>
+  </div>
+</div>
+
+<div class="role-detail" id="roleDetail"></div>
+
+<!-- ═══════════ Part 3: 协作场景 ═══════════ -->
+<h2>协作场景走查</h2>
+
+<div class="scenario-tabs">
+  <div class="sc-tab active" onclick="showScenario(0)">日常分析</div>
+  <div class="sc-tab" onclick="showScenario(1)">意见分歧</div>
+  <div class="sc-tab" onclick="showScenario(2)">紧急预警</div>
+</div>
+
+<div id="scenarioContent"></div>
+
+<!-- ═══════════ Part 4: 架构位置 ═══════════ -->
+<h2>多角色在 Harness 架构里的位置</h2>
+
+<div class="card">
+  <div class="card-title">Planner 在哪？和角色们是什么关系？</div>
+  <div class="card-desc">Planner 不是团队里的一个角色，它是 P-G-E 循环的第一步——<b>在角色们开始工作之前</b>，决定需要谁、做什么、怎么配合。</div>
+  <div class="arch-code">
+用户: "分析 BTC 并给我操作建议"
+  │
+  ├─ <span style="color:var(--gold);">🧠 Planner</span>  ← <b>P-G-E 的 P — 调度者，不是团队成员</b>
+  │    ├─ 意图分析: "综合市场分析 + 操作建议"
+  │    ├─ 角色选择: Analyst + Risk（不需要 Quant）
+  │    ├─ 任务分配: Analyst→技术面+消息面, Risk→仓位+风控
+  │    └─ 输出: ExecutionPlan { agents, focus, parallel, ... }
+  │
+  ├─ <span style="color:var(--green);">Generator</span>  ← <b>P-G-E 的 G — 多角色协作在这里发生</b>
+  │    ├─ <span style="color:var(--blue);">fork → Analyst</span>（按 Planner 分配的 focus 执行）
+  │    │    └─ 技术分析 + 消息面 → 研究报告
+  │    │
+  │    ├─ <span style="color:var(--red);">fork → Risk</span>（按 Planner 分配的 focus 执行）
+  │    │    └─ 风险评估 + 仓位建议 → 风险报告
+  │    │
+  │    └─ <span style="color:var(--green);">🎯 Coordinator</span>（读取所有报告，综合输出）
+  │         └─ 消除矛盾 → 整合为统一建议
+  │
+  ├─ <span style="color:var(--gold);">Evaluator</span>  ← <b>P-G-E 的 E — 独立校验</b>
+  │
+  └─ → 用户 👤（PM 最终拍板）
+
+<span style="color:var(--t3);">五个角色的定位:
+  Planner      = 项目经理（不干活，只分任务、选人）
+  Analyst      = 分析师（干活）
+  Quant        = 研究员（干活）
+  Risk         = 风控官（干活）
+  Sentinel     = 哨兵（独立后台运行，异常时唤起 Planner）
+  Coordinator  = 报告撰写人（综合大家的成果）
+  Evaluator    = 质检员（独立检查最终报告）
+  用户         = 老板（最终拍板）</span></div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>Planner 的三种触发方式：</b><br><br>
+  1. <b>用户发起</b> — 用户在对话框输入问题 → Planner 分析意图、选择角色、分配任务<br>
+  2. <b>Sentinel 唤起</b> — Sentinel 检测到异常 → 唤起 Planner 进入紧急模式 → Planner 快速调度角色<br>
+  3. <b>学习循环触发</b> — 周期性复盘/因子衰减检测 → Planner 决定是否需要研究团队介入<br><br>
+  <b>Planner 做的事情：</b>分析意图 → 选角色 → 分任务 → 定并发/串行 → 设超时 → 定是否需要 Evaluator<br>
+  <b>Planner 不做的事情：</b>不调工具、不搜索、不分析数据 —— 它只管"派谁去做什么"
+</div>
+
+<div class="card">
+  <div class="card-title">什么时候用单角色，什么时候用多角色</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <tr>
+      <th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);font-size:10px;">用户请求</th>
+      <th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);font-size:10px;">模式</th>
+      <th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);font-size:10px;">参与角色</th>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t2);">"BTC 现在多少钱？"</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--green);">单角色</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);">Analyst</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t2);">"什么是 RSI？"</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--green);">单角色</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);">直接回复（无需角色）</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t2);">"分析 BTC 走势给我建议"</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--gold);">多角色</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);">Analyst + Risk + Coordinator</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t2);">"设计一个新因子并回测"</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--gold);">多角色</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--border);color:var(--t3);">Quant + Risk + Coordinator</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px;color:var(--t2);">"帮我构建一个完整的 BTC 交易策略"</td>
+      <td style="padding:7px 10px;color:var(--gold);">全员协作</td>
+      <td style="padding:7px 10px;color:var(--t3);">Analyst + Quant + Risk + Sentinel + Coordinator</td>
+    </tr>
+  </table>
+</div>
+
+<script>
+// ── Roles data ──
+const ROLES = [
+  {
+    title: "Coordinator — 综合协调者",
+    color: "var(--green)",
+    sections: [
+      { label: "核心职责", text: "读取所有子 Agent 的研究报告，消化理解后产出统一建议。<b>必须综合，不能拼接。</b>遇到分歧时，向用户呈现两方观点而非强行统一。" },
+      { label: "独有能力", items: ["跨角色信息综合", "分歧识别与呈现", "置信度加权", "最终报告生成"] },
+      { label: "不做什么", text: "不直接调研（不调 web_search / get_klines）。它只读取其他角色的输出。类似基金里的 PM 助理。" },
+    ]
+  },
+  {
+    title: "Analyst — 市场分析师",
+    color: "var(--blue)",
+    sections: [
+      { label: "核心职责", text: "技术面分析（指标、形态、趋势）+ 消息面解读（新闻、政策、事件）+ 市场情绪判断。" },
+      { label: "使用的工具", items: ["web_search", "get_klines", "calculate_indicator"] },
+      { label: "使用的 Skill", items: ["market_analysis", "earnings_analysis"] },
+      { label: "输出格式", text: "<b>研究报告</b>：趋势判断（看多/看空/中性）+ 关键价位 + 消息面总结 + 置信度评分" },
+    ]
+  },
+  {
+    title: "Quant — 量化研究员",
+    color: "var(--purple)",
+    sections: [
+      { label: "核心职责", text: "因子研究与开发、策略构建与回测、量化信号生成、统计建模。" },
+      { label: "使用的工具", items: ["get_klines", "code_exec", "backtest", "calculate_indicator"] },
+      { label: "使用的 Skill", items: ["factor_design", "strategy_backtest"] },
+      { label: "输出格式", text: "<b>研究报告</b>：因子/策略定义 + 回测结果 + 统计指标 + 代码" },
+    ]
+  },
+  {
+    title: "Risk — 风控官",
+    color: "var(--red)",
+    sections: [
+      { label: "核心职责", text: "评估当前持仓风险、计算最优仓位、压力测试、提出风控建议。<b>天然 skeptical</b>，倾向保守。" },
+      { label: "使用的工具", items: ["check_balance", "get_klines", "code_exec"] },
+      { label: "使用的 Skill", items: ["risk_assessment"] },
+      { label: "独有权限", text: "Risk Agent 有权对任何交易建议<b>附加风险警告</b>。它的警告会在最终报告中高亮显示，用户必须看到。" },
+      { label: "输出格式", text: "<b>风险报告</b>：当前敞口 + 集中度 + 最大回撤估计 + 建议仓位 + 风险等级" },
+    ]
+  },
+  {
+    title: "Sentinel — 市场哨兵",
+    color: "var(--cyan)",
+    sections: [
+      { label: "核心职责", text: "7×24 后台运行。监控价格异动、因子衰减、策略信号、新闻事件。<b>不参与对话，只在异常时主动通知。</b>" },
+      { label: "使用的工具", items: ["get_price", "calculate_indicator", "web_search", "notify"] },
+      { label: "使用的 Skill", items: ["signal_monitor"] },
+      { label: "与其他角色的关系", text: "Sentinel 不参与常规协作流程。它是独立运行的<b>守护进程</b>。当它检测到异常时，可以<b>唤起</b>其他角色进行紧急分析。" },
+      { label: "触发场景", items: ["价格闪崩 >5%", "因子 IC 跌破阈值", "重大新闻事件", "持仓品种异常波动"] },
+    ]
+  }
+];
+
+function showRole(idx) {
+  document.querySelectorAll('.role-card').forEach((c,i) => { if(i<5) c.classList.toggle('active', i===idx); });
+  const r = ROLES[idx];
+  let html = `<div class="rd-title" style="color:${r.color}">${r.title}</div>`;
+  for (const s of r.sections) {
+    html += `<div class="rd-section"><div class="rd-label">${s.label}</div>`;
+    if (s.text) html += `<div class="rd-text">${s.text}</div>`;
+    if (s.items) html += `<div class="rd-items">${s.items.map(i=>`<div class="rd-item">${i}</div>`).join('')}</div>`;
+    html += `</div>`;
+  }
+  document.getElementById('roleDetail').innerHTML = html;
+}
+showRole(0);
+
+// ── Scenarios ──
+const SCENARIOS = [
+  // 日常分析
+  `<div class="card">
+    <div class="card-title">用户: "分析 BTC 走势，给我操作建议"</div>
+    <div class="sc-flow">
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--gold);background:rgba(232,168,74,.08);">🧠</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--gold);">PLANNER（任务分解 + 角色调度）</div>
+          <div class="sc-text">
+            分析用户意图 → <b>"综合市场分析 + 操作建议"</b><br>
+            需要哪些角色？→ <b>Analyst</b>（技术面+消息面）+ <b>Risk</b>（仓位+风控）<br>
+            不需要 Quant（没有因子/策略开发需求）<br>
+            Coordinator 综合两份报告后输出。
+          </div>
+          <div class="sc-output">plan: {
+  intent: "market_analysis + trade_advice",
+  agents: ["analyst", "risk"],
+  parallel: true,
+  analyst_focus: "技术面 + 消息面 + 情绪",
+  risk_focus: "仓位建议 + 止损 + 最坏情况",
+  coordinator: "综合后给出操作建议",
+  evaluator: true  // 涉及交易建议，需要独立校验
+}</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--blue);background:rgba(96,165,250,.08);">📈</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--blue);">ANALYST（并行 fork，独立上下文）</div>
+          <div class="sc-text">
+            执行 web_search + get_klines + calculate_indicator<br>
+            <b>产出研究报告：</b>
+          </div>
+          <div class="sc-output">趋势: 短期看多 (置信度 72%)
+关键价位: 支撑 $92,100 / 阻力 $96,800
+技术面: MA20 多头排列, RSI=62 中性偏强, MACD 金叉形成
+消息面: 美联储维持利率，降息预期升温
+情绪: 恐惧贪婪指数 68（贪婪）</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--red);background:rgba(239,83,80,.08);">🛡️</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--red);">RISK（并行 fork，独立上下文）</div>
+          <div class="sc-text">
+            评估当前持仓 + 拟建仓位的风险<br>
+            <b>产出风险报告：</b>
+          </div>
+          <div class="sc-output">当前持仓: 无 BTC 仓位
+可用资金: $52,000
+建议仓位: 5-10%（$2,600-$5,200）
+理由: 贪婪指数已达 68，追高风险较大
+止损建议: $91,500（-3%）
+最坏情况: 若跌至支撑位下方，预计损失 $780-$1,560
+风险等级: 中</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--green);background:rgba(60,200,122,.08);">🎯</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--green);">COORDINATOR（读取两份报告，综合输出）</div>
+          <div class="sc-text">
+            综合 Analyst 和 Risk 的观点，生成给用户的统一报告：
+          </div>
+          <div class="sc-verdict" style="background:rgba(60,200,122,.05);border:1px solid rgba(60,200,122,.15);">
+            <b style="color:var(--green);">综合建议</b><br><br>
+            <b>方向：</b>短期偏多，但不宜追高<br>
+            <b>建议操作：</b>可在 $93,000 附近轻仓试多（5-10% 仓位 ≈ $2,600-$5,200）<br>
+            <b>止损：</b>$91,500<br>
+            <b>目标：</b>$96,800<br><br>
+            <span style="color:var(--red);">⚠ 风控提示：贪婪指数 68 偏高，建议控制仓位在 10% 以内，避免追高。</span><br><br>
+            <span style="color:var(--t3);">置信度：Analyst 72% 看多 · Risk 建议保守 → 综合 65%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`,
+
+  // 意见分歧
+  `<div class="card">
+    <div class="card-title">用户: "ETH 可以抄底吗？刚跌了 12%"</div>
+    <div class="card-desc">Analyst 和 Risk 意见严重分歧 — Coordinator 如何处理？</div>
+    <div class="sc-flow">
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--gold);background:rgba(232,168,74,.08);">🧠</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--gold);">PLANNER（任务分解 + 角色调度）</div>
+          <div class="sc-text">
+            分析用户意图 → <b>"急跌后的抄底时机判断"</b><br>
+            关键词"抄底" + "跌了12%" → 高风险决策场景<br>
+            需要 <b>Analyst</b>（判断是否超卖反弹）+ <b>Risk</b>（评估抄底风险）<br>
+            <b>标记：此场景极可能产生意见分歧 → Coordinator 需特别处理</b>
+          </div>
+          <div class="sc-output">plan: {
+  intent: "bottom_fishing_decision",
+  risk_level: "high",
+  agents: ["analyst", "risk"],
+  parallel: true,
+  analyst_focus: "超卖信号 + 下跌原因 + 历史统计",
+  risk_focus: "波动率 + 系统性风险 + 假信号概率",
+  coordinator: "若分歧，呈现两方观点，不强行统一",
+  evaluator: true
+}</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--blue);background:rgba(96,165,250,.08);">📈</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--blue);">ANALYST</div>
+          <div class="sc-output">趋势: 超卖反弹机会 (置信度 68%)
+RSI=22 → 极度超卖
+历史统计: ETH 跌超 10% 后 7 日反弹概率 71%
+消息面: 下跌由清算引发，无基本面恶化
+判断: 看多，建议抄底</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--red);background:rgba(239,83,80,.08);">🛡️</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--red);">RISK</div>
+          <div class="sc-output">⚠ 警告: 下跌趋势可能延续
+波动率飙升 → VaR 大幅上升
+同类标的（BTC、SOL）也在下跌 → 系统性风险
+历史上 20% 的"超卖反弹"是假信号
+判断: 不建议此时建仓，等企稳再说</div>
+        </div>
+      </div>
+    </div>
+    <div class="disagree-box">
+      <div class="disagree-title">Coordinator 检测到分歧</div>
+      <div class="disagree-row">
+        <div class="disagree-who" style="background:rgba(96,165,250,.15);color:var(--blue);">Analyst</div>
+        <div class="disagree-say">超卖 + 无基本面恶化 → <b>看多，建议抄底</b></div>
+      </div>
+      <div class="disagree-row">
+        <div class="disagree-who" style="background:rgba(239,83,80,.15);color:var(--red);">Risk</div>
+        <div class="disagree-say">高波动 + 系统性下跌 + 假信号风险 → <b>不建议建仓</b></div>
+      </div>
+      <div class="disagree-resolve">
+        <b>Coordinator 处理方式：不强行统一，向用户呈现分歧</b><br><br>
+        "Analyst 和 Risk 对当前 ETH 走势存在分歧：<br><br>
+        <b>看多理由：</b>RSI 超卖 + 历史反弹概率 71% + 下跌由清算引发<br>
+        <b>谨慎理由：</b>系统性下跌 + 波动率飙升 + 20% 假信号概率<br><br>
+        <b>如果您决定入场：</b>建议仅用 3% 仓位试探（≈$1,560），止损 -5%（$155 附近），等待放量企稳后再加仓。<br>
+        <b>如果选择观望：</b>建议设置 $3,100 价格预警，企稳后 Sentinel 会通知您。"
+      </div>
+    </div>
+  </div>`,
+
+  // 紧急预警
+  `<div class="card">
+    <div class="card-title">Sentinel 检测到异常 → 唤起团队紧急分析</div>
+    <div class="card-desc">这个场景不是用户主动发起的，是 Sentinel 7×24 监控中发现的。</div>
+    <div class="sc-flow">
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--cyan);background:rgba(34,211,238,.08);">📡</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--cyan);">SENTINEL（自动触发）</div>
+          <div class="sc-text">
+            检测到 <b>BTC 15 分钟内下跌 4.2%</b>，同时成交量放大 8 倍。<br>
+            触发条件：价格异动 >3% + 量能异常。<br>
+            <b>自动唤起 Planner 进行紧急调度。</b>
+          </div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--gold);background:rgba(232,168,74,.08);">🧠</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--gold);">PLANNER（Sentinel 唤起，紧急模式）</div>
+          <div class="sc-text">
+            收到 Sentinel 异常信号 → <b>进入紧急分析流程</b><br>
+            用户有 BTC 持仓 → 需要 <b>Analyst</b>（查原因）+ <b>Risk</b>（评估持仓影响）<br>
+            <b>标记 urgent: true → 所有角色跳过非必要步骤，只做核心分析</b>
+          </div>
+          <div class="sc-output">plan: {
+  trigger: "sentinel_alert",
+  intent: "emergency_position_review",
+  urgent: true,
+  agents: ["analyst", "risk"],
+  parallel: true,
+  analyst_focus: "仅查下跌原因 + 历史参考",
+  risk_focus: "仅评估持仓损失 + 操作建议",
+  coordinator: "生成紧急预警推送",
+  timeout: "60s"  // 紧急模式，60 秒内必须产出
+}</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--blue);background:rgba(96,165,250,.08);">📈</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--blue);">ANALYST（紧急调用）</div>
+          <div class="sc-output">紧急搜索: "BTC 闪崩原因"
+发现: Mt.Gox 钱包转出 47,000 BTC 至交易所
+影响: 短期抛压预计 $4.4B
+历史参考: 2024.07 Mt.Gox 赔付引发类似下跌，BTC 3天跌 15%</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--red);background:rgba(239,83,80,.08);">🛡️</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--red);">RISK（紧急调用）</div>
+          <div class="sc-output">用户持仓检查:
+  BTC 多头 0.11 BTC @ $94,318
+  当前价格: $90,350 → 浮亏 -$436 (-4.2%)
+  
+风险评估:
+  如果跌至历史参考 -15%: 预计亏损 ~$1,500
+  建议: 立即设置止损 $89,000 或考虑减仓</div>
+        </div>
+      </div>
+      <div class="sc-node">
+        <div class="sc-avatar" style="border-color:var(--green);background:rgba(60,200,122,.08);">🎯</div>
+        <div class="sc-body">
+          <div class="sc-who" style="color:var(--green);">COORDINATOR → 推送给用户</div>
+          <div class="sc-verdict" style="background:rgba(239,83,80,.05);border:1px solid rgba(239,83,80,.2);">
+            <b style="color:var(--red);">⚠ 紧急预警：BTC 闪崩</b><br><br>
+            <b>原因：</b>Mt.Gox 转出 47,000 BTC 至交易所，短期抛压约 $4.4B<br>
+            <b>您的持仓：</b>0.11 BTC，当前浮亏 $436 (-4.2%)<br>
+            <b>最坏情况：</b>参考历史，若跌 15% 预计亏损 ~$1,500<br><br>
+            <b>建议操作：</b><br>
+            A) 设止损 $89,000（锁定最大损失 ~$585）<br>
+            B) 立即市价平仓（锁定损失 $436）<br>
+            C) 持有不动（承担进一步下跌风险）<br><br>
+            <span style="color:var(--t3);">等待您的指令。如果 30 分钟内未响应，Sentinel 将以您预设的规则执行（默认：设止损 -8%）。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`
+];
+
+function showScenario(idx) {
+  document.querySelectorAll('.sc-tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.getElementById('scenarioContent').innerHTML = SCENARIOS[idx];
+}
+showScenario(0);
+</script>
+</body>
+</html>

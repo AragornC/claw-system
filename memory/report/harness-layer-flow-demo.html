@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harness 分层数据流演示</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;--bg4:#0a1420;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:960px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;}
+
+  /* case selector */
+  .cases{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;}
+  .case-btn{
+    padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:var(--font);
+    color:var(--t2);background:var(--bg2);border:1.5px solid var(--border);transition:all .15s;
+    display:flex;flex-direction:column;gap:3px;text-align:left;min-width:180px;
+  }
+  .case-btn:hover{border-color:var(--border2);color:var(--t1);}
+  .case-btn.active{border-color:var(--green);color:var(--green);background:rgba(60,200,122,.04);}
+  .case-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+  .case-text{font-size:12px;color:var(--t1);font-weight:500;}
+  .case-btn.active .case-text{color:var(--t1);}
+  .case-tag{font-size:9px;padding:1px 6px;border-radius:3px;display:inline-block;margin-top:2px;}
+  .tag-easy{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .tag-mid{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.2);}
+  .tag-hard{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .tag-danger{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+
+  /* layer flow */
+  .flow{display:flex;flex-direction:column;gap:0;}
+  .layer-row{
+    display:grid;grid-template-columns:100px 1fr;gap:0;
+    border:1px solid var(--border);border-bottom:none;
+    transition:all .3s;position:relative;overflow:hidden;
+  }
+  .layer-row:first-child{border-radius:10px 10px 0 0;}
+  .layer-row:last-child{border-radius:0 0 10px 10px;border-bottom:1px solid var(--border);}
+  .layer-row.active{border-color:rgba(255,255,255,.15);z-index:1;}
+  .layer-row.skipped{opacity:.35;}
+  .layer-row.highlight{border-color:rgba(239,83,80,.4);background:rgba(239,83,80,.03);}
+
+  .layer-side{
+    padding:14px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:4px;border-right:1px solid var(--border);position:relative;
+  }
+  .layer-tag{
+    font-size:10px;font-weight:800;width:28px;height:28px;border-radius:7px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .layer-name-v{font-size:9px;font-weight:600;color:var(--t3);text-align:center;line-height:1.3;}
+
+  /* arrow between layers */
+  .layer-arrow-down{
+    position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);
+    width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+    border-top:6px solid var(--t3);z-index:2;
+    transition:border-top-color .3s;
+  }
+  .layer-row.active .layer-arrow-down{border-top-color:var(--green);}
+  .layer-row.highlight .layer-arrow-down{border-top-color:var(--red);}
+
+  .layer-body{padding:14px 16px;}
+  .layer-action{font-size:12px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+  .layer-desc{font-size:11.5px;color:var(--t2);line-height:1.6;}
+  .layer-desc b{color:var(--t1);}
+
+  .data-box{
+    margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;
+    font-family:"JetBrains Mono","Fira Code",monospace;line-height:1.5;
+    white-space:pre-wrap;word-break:break-all;
+  }
+  .data-in{background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);color:var(--blue);}
+  .data-out{background:rgba(60,200,122,.06);border:1px solid rgba(60,200,122,.15);color:var(--green);}
+  .data-reject{background:rgba(239,83,80,.06);border:1px solid rgba(239,83,80,.15);color:var(--red);}
+  .data-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;display:block;}
+
+  .skip-note{
+    font-size:11px;color:var(--t3);font-style:italic;
+    display:flex;align-items:center;gap:6px;
+  }
+  .skip-note::before{content:"—";color:var(--t3);}
+
+  /* play controls */
+  .controls{display:flex;gap:8px;margin-bottom:16px;align-items:center;}
+  .play-btn{
+    padding:7px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-family:var(--font);
+    font-weight:600;border:1px solid rgba(60,200,122,.3);background:rgba(60,200,122,.1);color:var(--green);
+    transition:all .15s;
+  }
+  .play-btn:hover{background:rgba(60,200,122,.18);}
+  .play-btn:disabled{opacity:.3;cursor:not-allowed;}
+  .step-info{font-size:11px;color:var(--t3);}
+  .speed-btn{
+    padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--font);
+    border:1px solid var(--border);background:var(--bg2);color:var(--t3);transition:all .15s;
+  }
+  .speed-btn.active{border-color:var(--border2);color:var(--t1);}
+
+  /* legend */
+  .legend-bar{
+    display:flex;gap:16px;margin-bottom:16px;font-size:11px;color:var(--t3);
+    flex-wrap:wrap;
+  }
+  .legend-bar span{display:flex;align-items:center;gap:5px;}
+  .leg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+</style>
+</head>
+<body>
+
+<h1>Harness 六层架构 — 数据流走查</h1>
+<div class="sub">选择一个 Case，点击「逐步执行」，观察用户请求如何从 L1 流到 L6，每一层做了什么、数据发生了什么变化。</div>
+
+<div class="cases" id="caseBar"></div>
+
+<div class="controls">
+  <button class="play-btn" id="playBtn" onclick="playNext()">逐步执行 ▶</button>
+  <button class="play-btn" style="background:rgba(232,168,74,.1);border-color:rgba(232,168,74,.3);color:var(--gold);" onclick="playAll()">一键播放 ▶▶</button>
+  <button class="play-btn" style="background:rgba(255,255,255,.04);border-color:var(--border);color:var(--t3);" onclick="resetFlow()">重置</button>
+  <span class="step-info" id="stepInfo">点击「逐步执行」开始</span>
+</div>
+
+<div class="legend-bar">
+  <span><div class="leg-dot" style="background:rgba(96,165,250,.4);"></div>输入数据</span>
+  <span><div class="leg-dot" style="background:rgba(60,200,122,.4);"></div>输出 / 传递给下层</span>
+  <span><div class="leg-dot" style="background:rgba(239,83,80,.4);"></div>拒绝 / 打回</span>
+  <span><div class="leg-dot" style="background:rgba(255,255,255,.1);"></div>跳过（本层无额外动作）</span>
+</div>
+
+<div class="flow" id="flowContainer"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CASES DATA
+// ═══════════════════════════════════════════════════════════════
+const CASES = [
+  {
+    id: 0, label: "Case 1", text: "什么是 RSI 指标？", tag: "简单问答", tagClass: "tag-easy",
+    layers: [
+      {
+        action: "注入系统规则",
+        desc: "拼装 System Prompt：<b>身份</b>（你是 Claw 交易助手）+ <b>全局约束</b>（风控红线、输出格式）+ <b>Skill 规则</b>（当前无 Skill 激活）。",
+        dataIn: { label: "输入", text: "user: \"什么是 RSI 指标？\"" },
+        dataOut: { label: "传出 → L2", text: "messages: [\n  { role: \"system\", content: \"你是 Claw...(身份+约束)\" },\n  { role: \"user\", content: \"什么是 RSI 指标？\" }\n]" }
+      },
+      {
+        action: "上下文治理 + 调用 LLM",
+        desc: "检查 messages 长度 → <b>未超预算</b>，无需 compact。直接调用 LLM，<b>不携带工具定义</b>（Planner 判断无需工具）。",
+        dataIn: { label: "输入", text: "messages.length = 2\ncontext_tokens ≈ 380\nbudget = 128,000 → 充裕" },
+        dataOut: { label: "LLM 返回", text: "assistant: \"RSI（相对强弱指标）是...\"\nfinish_reason: \"stop\"\ntool_calls: null ← 无工具调用" }
+      },
+      {
+        action: "Planner → 直接回复",
+        desc: "意图分类：<b>知识问答</b>。不需要实时数据，不需要工具。<b>跳过 Generator 的 Agentic Loop</b>，直接进入 Evaluator。",
+        dataIn: { label: "意图分析", text: "intent: \"knowledge_qa\"\nneeds_tools: false\nneeds_realtime: false" },
+        dataOut: { label: "决策", text: "plan: { type: \"direct_reply\", skip_generator: true }" },
+        skip: false
+      },
+      {
+        action: "跳过（无工具调用）",
+        desc: "本次请求不涉及任何工具，<b>工具编排层无事可做</b>。直接透传。",
+        skip: true
+      },
+      {
+        action: "更新会话状态",
+        desc: "将 user 消息和 assistant 回复写入 <b>chatStore</b>。会话轮次 +1。消息总 token 未超限，<b>无需 compact</b>。",
+        dataIn: { label: "状态变化", text: "session.messages.push(userMsg, assistantMsg)\nsession.turnCount = 1\ntotalTokens ≈ 620 → 无需 compact" },
+      },
+      {
+        action: "无风险操作，直接通过",
+        desc: "纯知识问答，<b>无需额外容灾</b>。无交易操作、无代码执行。直接输出给用户。",
+        skip: true
+      }
+    ]
+  },
+  {
+    id: 1, label: "Case 2", text: "BTC 现在多少钱？", tag: "单次搜索", tagClass: "tag-mid",
+    layers: [
+      {
+        action: "注入系统规则 + 工具声明",
+        desc: "拼装 System Prompt（同上）。<b>关键差异</b>：因为 webSearchEnabled=true，在 prompt 中声明可用工具 <b>web_search</b>。",
+        dataIn: { label: "输入", text: "user: \"BTC 现在多少钱？\"\ntools_enabled: [\"web_search\"]" },
+        dataOut: { label: "传出 → L2", text: "messages: [\n  { role: \"system\", content: \"你是 Claw...(+工具使用规范)\" },\n  { role: \"user\", content: \"BTC 现在多少钱？\" }\n]\ntools: [{ name: \"web_search\", ... }]" }
+      },
+      {
+        action: "第 1 轮 LLM 调用（含工具定义）",
+        desc: "上下文 OK，直接调用 LLM。LLM 返回 <b>tool_call</b> 而非文字 → 触发 Agentic Loop。",
+        dataIn: { label: "发送给 LLM", text: "messages: [system, user]\ntools: [web_search]\nmodel: \"gpt-5.4\"" },
+        dataOut: { label: "LLM 返回", text: "finish_reason: \"tool_calls\"\ntool_calls: [{\n  id: \"call_abc\",\n  name: \"web_search\",\n  arguments: '{\"query\":\"BTC 比特币价格 今日\"}'\n}]" }
+      },
+      {
+        action: "Generator 处理工具调用",
+        desc: "Planner 已判定需要实时数据。Generator 收到 tool_call，<b>进入 Agentic Loop 第 1 轮</b>。将工具调用请求传给 L4 执行。",
+        dataIn: { label: "Agentic Loop", text: "round: 1 / max: 5\npending_tool_call: web_search(\"BTC 比特币价格 今日\")" },
+        dataOut: { label: "传出 → L4", text: "execute: { name: \"web_search\", args: {query: \"BTC...\"} }" }
+      },
+      {
+        action: "执行 web_search 工具",
+        desc: "权限检查：web_search = <b>auto</b> → 无需用户确认。调用 Tavily API，返回搜索结果。结果注入 messages 作为 <b>role: \"tool\"</b>。",
+        dataIn: { label: "权限检查", text: "tool: \"web_search\"\npermission: auto → ✓ 直接执行\nPOST api.tavily.com/search\n  query: \"BTC 比特币价格 今日\"" },
+        dataOut: { label: "工具结果 → 注入 messages", text: "messages.push({\n  role: \"assistant\",\n  tool_calls: [{id:\"call_abc\", ...}]\n})\nmessages.push({\n  role: \"tool\",\n  tool_call_id: \"call_abc\",\n  content: \"BTC $94,320 24h+2.3%...\"\n})" }
+      },
+      {
+        action: "第 2 轮 LLM 调用 + 写入状态",
+        desc: "工具结果已注入 messages。<b>回到 L2 再次调用 LLM</b>，这次 LLM 有了搜索数据，生成最终文字回复。写入 chatStore。",
+        dataIn: { label: "第 2 轮 LLM", text: "messages: [system, user, assistant(tool_call), tool(result)]\ntool_calls 本轮: null → 循环结束\nassistant: \"比特币当前报价 $94,320...\"" },
+        dataOut: { label: "状态写入", text: "session.messages += [user, assistant, tool, assistant_final]\nturnCount = 1\ntotalTokens ≈ 1,800" }
+      },
+      {
+        action: "无高风险操作，通过",
+        desc: "纯信息查询，无交易行为。<b>跳过 Evaluator 深度校验</b>。如果 Tavily API 超时，会走 synthetic error → 告知用户搜索失败。",
+        skip: true
+      }
+    ]
+  },
+  {
+    id: 2, label: "Case 3", text: "分析 BTC 走势，给我操作建议", tag: "多工具+评估", tagClass: "tag-hard",
+    layers: [
+      {
+        action: "注入系统规则 + 全量工具声明",
+        desc: "System Prompt 注入<b>交易约束</b>：最大仓位 20%、回测要求、风险提示义务。声明多个工具。",
+        dataIn: { label: "输入", text: "user: \"分析 BTC 走势，给我操作建议\"\ntools_enabled: [\"web_search\", \"get_klines\",\n  \"calculate_indicator\"]" },
+        dataOut: { label: "传出 → L2", text: "messages: [system(含交易约束), user]\ntools: [web_search, get_klines, calculate_indicator]\n\n※ system prompt 含硬规则：\n  \"给出交易建议时必须附带风险提示\"" }
+      },
+      {
+        action: "上下文治理 + 第 1 轮 LLM",
+        desc: "上下文 OK。LLM 收到 3 个工具定义 + 用户请求。<b>LLM 一次返回 2 个并行 tool_call</b>（搜索+K线）。",
+        dataIn: { label: "发送", text: "tools: 3 个\nmodel: gpt-5.4" },
+        dataOut: { label: "LLM 返回", text: "tool_calls: [\n  { id:\"c1\", name:\"web_search\", args:{query:\"BTC行情新闻\"} },\n  { id:\"c2\", name:\"get_klines\", args:{symbol:\"BTC/USDT\",\n    interval:\"4h\", limit:100} }\n]\n← 并行调用！" }
+      },
+      {
+        action: "Generator · Agentic Loop 执行",
+        desc: "Round 1：处理 2 个并行 tool_call → 传给 L4。<b>Round 2</b>：LLM 基于搜索+K线结果，再调 calculate_indicator。<b>Round 3</b>：LLM 综合所有数据生成分析报告。共 3 轮，未触发 5 轮上限。",
+        dataIn: { label: "Agentic Loop 全过程", text: "Round 1: web_search + get_klines (并行)\nRound 2: calculate_indicator(MA,RSI,MACD)\nRound 3: LLM 生成分析 → finish_reason=\"stop\"" },
+        dataOut: { label: "Generator 输出", text: "draft_reply: \"基于技术面分析...\n  MA20 支撑位 $92,100...\n  建议在 $93,000 附近轻仓做多...\"\n\n→ 涉及交易建议 → 送 Evaluator 校验" }
+      },
+      {
+        action: "3 次工具执行（2并行 + 1串行）",
+        desc: "<b>并发安全判定</b>：web_search 和 get_klines 互不影响 → 并行。calculate_indicator 依赖 K线结果 → 串行。全部 auto 权限，无需确认。",
+        dataIn: { label: "执行记录", text: "web_search → 340ms (auto ✓)\nget_klines → 280ms (auto ✓)  ← 并行\ncalculate_indicator → 120ms (auto ✓) ← 串行" },
+        dataOut: { label: "结果注入", text: "messages 新增 6 条：\n  3x assistant(tool_call)\n  3x tool(result)" }
+      },
+      {
+        action: "写入状态 + 长期记忆",
+        desc: "写入 chatStore。因为是分析报告，同时写入 <b>Session Memory</b>：最新技术指标快照（MA/RSI/MACD 值），供后续对话引用。",
+        dataIn: { label: "状态", text: "totalTokens ≈ 4,200\nturnCount = 1\nsession_memory.latest_indicators = {\n  MA20: 92100, RSI: 62, MACD: \"金叉\"\n}" },
+      },
+      {
+        action: "Evaluator 独立校验",
+        desc: "因为回复包含<b>交易建议</b>，触发 Evaluator。<b>独立 LLM 调用</b>，检查：建议仓位是否合规、风险提示是否充分、指标引用是否准确。",
+        dataIn: { label: "Evaluator 输入", text: "original_request: \"分析 BTC 走势...\"\ngenerator_output: \"建议在 $93,000 轻仓做多...\"\nrisk_rules: { max_position: 20% }" },
+        dataOut: { label: "评估结果", text: "verdict: PASS ✓\nchecks: [\n  仓位建议=\"轻仓\" → 未超 20% ✓\n  风险提示=\"已包含\" ✓\n  指标引用=\"与数据一致\" ✓\n]\n→ 输出给用户" }
+      }
+    ]
+  },
+  {
+    id: 3, label: "Case 4", text: "全仓买入 BTC", tag: "高危交易", tagClass: "tag-danger",
+    layers: [
+      {
+        action: "注入风控硬约束",
+        desc: "System Prompt 最高优先级注入：<b>「单笔最大仓位不超过总资金 20%」</b>。这条规则<b>不可被用户指令覆盖</b>。",
+        dataIn: { label: "输入", text: "user: \"全仓买入 BTC\"\n\n⚠ 用户请求违反风控红线" },
+        dataOut: { label: "传出 → L2（含硬约束）", text: "system_prompt 含：\n  [OVERRIDE] 单笔仓位不超过总资金 20%\n  [OVERRIDE] 实盘下单必须经用户二次确认\n\n→ 即使 LLM 想执行全仓，L4 的\n  权限层也会拦截" }
+      },
+      {
+        action: "第 1 轮 LLM 调用",
+        desc: "LLM 收到用户请求 + 风控约束。<b>理想情况</b>：LLM 自行遵守约束、只请求 20% 仓位。<b>但我们不信任模型</b> — 即使 LLM 绕过 prompt 约束，后续层也会拦截。",
+        dataIn: { label: "发送", text: "tools: [check_balance, get_price, place_order]\nmodel: gpt-5.4" },
+        dataOut: { label: "LLM 返回", text: "tool_calls: [\n  { name:\"check_balance\" },\n  { name:\"get_price\", args:{symbol:\"BTC/USDT\"} }\n]" }
+      },
+      {
+        action: "Generator → Evaluator 风控拦截",
+        desc: "Generator 执行完 check_balance + get_price 后，LLM 基于余额 $52,000 和价格 $94,320 请求 place_order <b>全仓买入</b>。<b>Evaluator 立即拦截</b>。",
+        dataIn: { label: "Generator 请求", text: "place_order({\n  symbol: \"BTC/USDT\",\n  side: \"buy\",\n  amount: 0.55,  ← 0.55 × $94,320 = $51,876\n  type: \"market\"\n})" },
+        dataOut: { label: "Evaluator 判定", text: "verdict: REJECT ✗\nreason: 订单金额 $51,876 / 余额 $52,000\n  = 99.8% → 远超 20% 上限\n\n→ 打回 Planner 重新规划", type: "reject" }
+      },
+      {
+        action: "place_order 未执行",
+        desc: "<b>工具层的第二道防线</b>：即使 Evaluator 失效，place_order 的权限是 <b>ask</b>（必须确认），会弹出确认框。且有 PreTrade Hook 做仓位硬校验。这里因为 Evaluator 已拦截，<b>place_order 根本没被调用</b>。",
+        dataIn: null,
+        dataOut: { label: "防御深度", text: "本 Case 中的 3 道防线：\n  L1: System Prompt 硬约束 → LLM 可能遵守\n  L3: Evaluator 独立拦截 → ✓ 已触发\n  L4: place_order=ask → 备用（未触发）\n  L4: PreTrade Hook → 备用（未触发）" },
+      },
+      {
+        action: "Planner 重规划 + 通知用户",
+        desc: "Evaluator 打回后，Planner 重新计算合规仓位（$52,000 × 20% = $10,400 → 0.11 BTC），生成修正方案。<b>向用户解释为什么拒绝了全仓，并给出合规替代方案</b>。",
+        dataIn: { label: "重规划", text: "max_position = balance × 20%\n  = $52,000 × 0.2 = $10,400\ncompliant_amount = $10,400 / $94,320\n  = 0.11 BTC" },
+        dataOut: { label: "输出给用户", text: "\"您的全仓买入请求已被风控拦截。\n单笔最大仓位限制为总资金的 20%。\n\n合规替代方案：\n  买入 0.11 BTC (≈$10,375)\n  占总资金 19.95%\n\n是否执行修正后的订单？\"" }
+      },
+      {
+        action: "完整审计记录",
+        desc: "记录完整执行叙事：用户原始请求 → Evaluator 拒绝原因 → 重规划过程 → 最终方案。<b>系统能解释自身经历了什么</b>。",
+        dataIn: { label: "审计日志", text: "transition: {\n  original: \"全仓买入 BTC\",\n  rejected_by: \"evaluator\",\n  reason: \"position_limit_exceeded\",\n  replan: \"0.11 BTC (20% cap)\",\n  awaiting: \"user_confirmation\"\n}" },
+      }
+    ]
+  }
+];
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER META
+// ═══════════════════════════════════════════════════════════════
+const LAYER_META = [
+  { id: "L1", name: "Control Plane\n控制平面", color: "var(--blue)" },
+  { id: "L2", name: "Query Loop\n执行心跳", color: "var(--green)" },
+  { id: "L3", name: "P-G-E Loop\n计划·生成·评估", color: "var(--gold)" },
+  { id: "L4", name: "Tool Orch.\n工具编排", color: "var(--purple)" },
+  { id: "L5", name: "State\n状态记忆", color: "var(--red)" },
+  { id: "L6", name: "Reliability\n容灾恢复", color: "var(--cyan)" },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let currentCase = 0;
+let currentStep = -1;
+let isPlaying = false;
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════
+function renderCases() {
+  const bar = document.getElementById('caseBar');
+  bar.innerHTML = '';
+  CASES.forEach((c, i) => {
+    bar.innerHTML += `<div class="case-btn ${i===currentCase?'active':''}" onclick="selectCase(${i})">
+      <div class="case-label">${c.label}</div>
+      <div class="case-text">"${c.text}"</div>
+      <span class="case-tag ${c.tagClass}">${c.tag}</span>
+    </div>`;
+  });
+}
+
+function renderFlow() {
+  const container = document.getElementById('flowContainer');
+  const c = CASES[currentCase];
+  let html = '';
+  c.layers.forEach((layer, i) => {
+    const meta = LAYER_META[i];
+    const state = i <= currentStep ? (layer.skip ? 'skipped' : (layer.type === 'reject' || (layer.dataOut && layer.dataOut.type === 'reject') ? 'highlight' : 'active')) : '';
+    html += `<div class="layer-row ${state}" id="lr${i}">
+      <div class="layer-side" style="background:${i<=currentStep ? meta.color+'0a' : 'transparent'}">
+        <div class="layer-tag" style="background:${meta.color}18;color:${meta.color}">${meta.id}</div>
+        <div class="layer-name-v">${meta.name}</div>
+        ${i < 5 ? '<div class="layer-arrow-down"></div>' : ''}
+      </div>
+      <div class="layer-body">
+        ${i <= currentStep ? renderLayerContent(layer, meta) : `<div style="color:var(--t3);font-size:11px;">等待执行…</div>`}
+      </div>
+    </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function renderLayerContent(layer, meta) {
+  if (layer.skip && !layer.dataOut) {
+    return `<div class="layer-action" style="color:${meta.color}">${layer.action}</div>
+      <div class="skip-note">${layer.desc}</div>`;
+  }
+
+  let html = `<div class="layer-action" style="color:${meta.color}">${layer.action}</div>
+    <div class="layer-desc">${layer.desc}</div>`;
+
+  if (layer.dataIn) {
+    html += `<div class="data-box data-in"><span class="data-label" style="color:var(--blue);">${layer.dataIn.label}</span>${escHtml(layer.dataIn.text)}</div>`;
+  }
+  if (layer.dataOut) {
+    const cls = layer.dataOut.type === 'reject' ? 'data-reject' : 'data-out';
+    const clr = layer.dataOut.type === 'reject' ? 'var(--red)' : 'var(--green)';
+    html += `<div class="data-box ${cls}"><span class="data-label" style="color:${clr};">${layer.dataOut.label}</span>${escHtml(layer.dataOut.text)}</div>`;
+  }
+  return html;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function updateStepInfo() {
+  const total = CASES[currentCase].layers.length;
+  if (currentStep < 0) {
+    document.getElementById('stepInfo').textContent = '点击「逐步执行」开始';
+  } else if (currentStep >= total - 1) {
+    document.getElementById('stepInfo').textContent = `✓ 全部 ${total} 层执行完毕`;
+  } else {
+    document.getElementById('stepInfo').textContent = `已执行到 L${currentStep+1} / 共 ${total} 层`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function selectCase(idx) {
+  currentCase = idx;
+  currentStep = -1;
+  renderCases();
+  renderFlow();
+  updateStepInfo();
+}
+
+function playNext() {
+  const total = CASES[currentCase].layers.length;
+  if (currentStep >= total - 1) return;
+  currentStep++;
+  renderFlow();
+  updateStepInfo();
+  // scroll to current layer
+  const el = document.getElementById('lr' + currentStep);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function playAll() {
+  if (isPlaying) return;
+  isPlaying = true;
+  currentStep = -1;
+  renderFlow();
+  const total = CASES[currentCase].layers.length;
+  for (let i = 0; i < total; i++) {
+    await new Promise(r => setTimeout(r, 800));
+    currentStep = i;
+    renderFlow();
+    updateStepInfo();
+    const el = document.getElementById('lr' + i);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  isPlaying = false;
+}
+
+function resetFlow() {
+  currentStep = -1;
+  renderFlow();
+  updateStepInfo();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+renderCases();
+renderFlow();
+updateStepInfo();
+</script>
+</body>
+</html>

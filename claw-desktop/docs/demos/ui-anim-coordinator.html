@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Coordinator 执行流程 · 动画演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-base:      #0d1117;
+    --bg-panel:     #111722;
+    --border-soft:  #192438;
+    --text-primary: #cdd9e5;
+    --text-muted:   #4a6580;
+    --text-dim:     #2a3f55;
+    --accent-gold:  #e8a84a;
+    --think-gray:   #484f58;
+    --tool-gray:    #8b949e;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+    background: var(--bg-base); color: var(--text-primary);
+    font-size: 13px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 28px 80px; }
+
+  /* ─── Control bar ─── */
+  .control-bar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    margin: -32px -28px 20px;
+    background: rgba(13, 17, 23, .85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px;
+  }
+  .control-bar button {
+    padding: 4px 10px; font-size: 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    border-radius: 4px; cursor: pointer;
+    font-family: inherit;
+  }
+  .control-bar button:hover { background: #1a2332; border-color: #253249; }
+  .control-bar .clock { color: var(--text-muted); font-family: "SF Mono", monospace; }
+  .control-bar .status { color: var(--text-dim); margin-left: auto; font-size: 11px; }
+
+  /* ─── User message ─── */
+  .user-msg {
+    display: inline-block;
+    padding: 8px 14px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  /* ─── Thinking block ─── */
+  .thinking-block { margin: 12px 0 10px; width: 100%; }
+  .thinking-block:has(.thinking-title .agent) > .thinking-body {
+    margin-top: 6px;
+    background: rgba(255,255,255,.022);
+    border: 1px solid rgba(255,255,255,.04);
+    border-radius: 8px;
+    padding: 10px 14px 12px;
+  }
+  .thinking-header {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; user-select: none;
+    padding: 0; border-radius: 4px;
+  }
+  .thinking-arrow {
+    color: var(--think-gray); font-size: 9px;
+    display: inline-block; transition: transform .12s;
+  }
+  .thinking-arrow.open { transform: rotate(90deg); }
+  .thinking-title { font-size: 13px; color: var(--think-gray); }
+  .thinking-title .agent { color: var(--text-muted); margin-right: 6px; }
+  .thinking-title .sep { color: var(--text-dim); margin-right: 6px; }
+  .thinking-body {
+    margin: 6px 0 0 6px;
+    padding: 2px 0 2px 14px;
+    border-left: 1px solid rgba(255,255,255,.08);
+  }
+  /* agent-card variant overrides the rail (it has its own card border) */
+  .thinking-block:has(.thinking-title .agent) > .thinking-body {
+    margin-left: 0;
+    padding-left: 14px;
+    border-left: none;
+  }
+
+  /* ─── Tool lines ─── */
+  .tool-line {
+    padding: 3px 0;
+    font-size: 12.5px;
+    color: var(--tool-gray);
+    line-height: 1.6;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  .tool-line .tn { color: var(--text-muted); font-weight: 500; margin-right: 10px; }
+  .tool-line .tv { color: var(--text-dim); }
+  .tool-line .tr { color: var(--text-muted); margin-left: 6px; }
+  .tool-line .tr::before { content: "→ "; color: var(--text-dim); }
+
+  .tool-line.expandable { cursor: pointer; border-radius: 3px; }
+  .tool-line.expandable::after {
+    content: "›";
+    display: inline-block;
+    margin-left: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    transition: transform .15s ease;
+    transform-origin: center;
+    opacity: 0;                        /* hidden while running */
+  }
+  .tool-line.expandable.done::after { opacity: 1; }
+  .tool-line.expandable.open::after { transform: rotate(90deg); }
+  .tool-line.expandable:hover { background: rgba(255,255,255,.02); }
+
+  /* running state — shimmer on verb */
+  .tool-line.running .tn {
+    background: linear-gradient(90deg,
+      var(--text-dim) 0%,
+      var(--text-muted) 50%,
+      var(--text-dim) 100%);
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: shimmer 1.4s infinite linear;
+  }
+  .tool-line.running .tn::after {
+    content: "...";
+    color: var(--text-dim);
+    -webkit-text-fill-color: var(--text-dim);
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
+  }
+
+  /* new row fade-in */
+  @keyframes rowIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .tool-line.appear { animation: rowIn .32s ease-out both; }
+
+  /* ─── Tool preview ─── */
+  .tool-preview {
+    display: none;
+    margin: 6px 0 8px 0;
+    background: rgba(255,255,255,.018);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 6px;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.75;
+    color: var(--text-muted);
+    overflow: hidden;
+  }
+  .tool-preview.open { display: block; }
+  .tool-preview .h1 { color: var(--text-primary); font-weight: 600; }
+  .tool-preview .h2 { color: var(--text-muted); font-weight: 500; }
+  .tool-preview .k  { color: var(--text-primary); }
+  .tool-preview .dim { color: var(--text-dim); }
+  .tool-preview .path {
+    display: block;
+    padding: 7px 14px;
+    background: rgba(255,255,255,.035);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: .2px;
+  }
+  .tool-preview .code { counter-reset: ln; padding: 8px 0; }
+  .tool-preview .ln {
+    counter-increment: ln;
+    display: block;
+    position: relative;
+    padding: 0 14px 0 44px;
+    min-height: 1.75em;
+  }
+  .tool-preview .ln::before {
+    content: counter(ln);
+    position: absolute;
+    left: 0; width: 32px;
+    text-align: right;
+    color: var(--text-dim);
+    opacity: .45;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .tool-preview.json-raw .code {
+    padding: 10px 14px; white-space: pre;
+    overflow-x: auto; counter-reset: none;
+  }
+  .tool-preview.json-raw .ln { padding: 0; counter-increment: none; }
+  .tool-preview.json-raw .ln::before { content: none; }
+  /* Prose variant — for Objective; no line numbers, normal wrapping */
+  .tool-preview.prose .code {
+    padding: 10px 16px;
+    counter-reset: none;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: var(--think-gray);
+  }
+  .tool-preview.prose .ln {
+    padding: 3px 0; counter-increment: none; min-height: 0;
+  }
+  .tool-preview.prose .ln::before { content: none; }
+  /* line-level helpers used by plan sections */
+  .tool-preview .code .agent-cell {
+    color: var(--text-primary);
+    font-weight: 500;
+    display: inline-block;
+    min-width: 88px;
+    margin-right: 6px;
+  }
+  .tool-preview .code .step-marker {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .tool-preview .code .ln.appear { animation: rowIn .28s ease-out both; }
+
+  /* ─── Plan block ─── */
+  .plan-block { margin: 14px 0 12px; animation: rowIn .4s ease-out both; }
+  .plan-block > .dot-line { margin-top: 0; }
+  .dot-line {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 0 4px;
+    margin-top: 16px;
+    font-size: 13px;
+  }
+  .dot-line .dot {
+    width: 6px; height: 6px; flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transform: translateY(1px);
+    transition: background .25s;
+  }
+  /* active (running) state — gold pulsing dot */
+  .dot-line.active .dot {
+    background: var(--accent-gold);
+    animation: dotPulse 1.1s infinite;
+  }
+  @keyframes dotPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .dot-line .txt { color: var(--text-primary); }
+  .dot-line .brief { color: var(--text-muted); margin-left: 4px; }
+  .dot-line .agent-lbl { color: var(--text-muted); margin-right: 6px; font-weight: 500; }
+  .dot-line .sep { color: var(--text-dim); margin-right: 6px; }
+  .dot-line .brief-sep { color: var(--text-dim); margin: 0 8px; }
+  .dot-line .plan-brief { color: var(--text-muted); font-size: 12px; }
+  .thinking-title .brief-sep { color: var(--text-dim); margin: 0 8px; }
+  .thinking-title .plan-brief { color: var(--text-muted); font-size: 12px; }
+  /* collapse arrow on plan header */
+  .plan-arrow {
+    display: inline-block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-left: 8px;
+    transition: transform .15s;
+    opacity: 0;
+  }
+  .dot-line.clickable { cursor: pointer; user-select: none; }
+  .dot-line.clickable .plan-arrow { opacity: 1; }
+  .plan-block.open .plan-arrow { transform: rotate(90deg); }
+
+  /* plan body — card, mirrors thinking-body treatment */
+  .plan-body {
+    margin: 8px 0 0 16px;
+    background: rgba(255,255,255,.022);
+    border: 1px solid rgba(255,255,255,.04);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: none;
+  }
+  .plan-block.open .plan-body { display: block; }
+
+  /* each section = collapsible mini-block */
+  .plan-section { margin-bottom: 10px; }
+  .plan-section:last-child { margin-bottom: 0; }
+  .plan-section.appear { animation: rowIn .32s ease-out both; }
+  .plan-section-head {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    cursor: pointer; user-select: none;
+    padding: 3px 0;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  .plan-section-head .sec-arrow {
+    color: var(--text-dim);
+    font-size: 12px;
+    display: inline-block;
+    margin-left: 6px;
+    transition: transform .15s;
+    transform-origin: center;
+  }
+  .plan-section.open > .plan-section-head .sec-arrow { transform: rotate(90deg); }
+  .plan-section-head .sec-title {
+    color: var(--text-muted);
+    font-size: 11.5px;
+    letter-spacing: .5px;
+    font-weight: 600;
+  }
+  .plan-section-head .sec-sep {
+    color: var(--text-dim);
+    margin: 0 2px;
+    font-weight: 400;
+  }
+  .plan-section-head .sec-brief {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: .2px;
+  }
+  .plan-section-body {
+    padding: 4px 0 2px 0;
+    display: none;
+  }
+  .plan-section.open > .plan-section-body { display: block; }
+  .plan-section-body .tool-preview { margin: 4px 0 8px 0; }
+
+  /* Objective — a single paragraph */
+  .plan-objective {
+    color: var(--think-gray);
+    font-size: 13px;
+    line-height: 1.75;
+    padding-left: 2px;
+  }
+  .plan-objective.appear { animation: rowIn .28s ease-out both; }
+
+  /* Approach — steps (reuse step-head/body/item styling) */
+  .plan-approach .plan-step { margin: 4px 0 10px; }
+  .plan-approach .plan-step:last-child { margin-bottom: 0; }
+  .plan-approach .plan-step.appear { animation: rowIn .32s ease-out both; }
+  .step-head {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 1px 0 2px;
+    font-size: 11.5px;
+  }
+  .step-num {
+    min-width: 48px;
+    color: var(--text-dim);
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: .3px;
+  }
+  .step-mode { color: var(--text-muted); font-weight: 500; }
+  .step-cond { color: var(--text-dim); font-size: 11px; }
+  .step-body { margin-left: 56px; padding: 1px 0; }
+  .step-item {
+    padding: 2px 0;
+    color: var(--think-gray);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .step-item.appear { animation: rowIn .28s ease-out both; }
+  .step-item .agent {
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-right: 8px;
+  }
+
+  /* Verification — bullet list */
+  .plan-verification { padding-left: 2px; }
+  .plan-verification .v-item {
+    position: relative;
+    padding: 3px 0 3px 16px;
+    color: var(--think-gray);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .plan-verification .v-item::before {
+    content: "·";
+    position: absolute;
+    left: 4px; top: 2px;
+    color: var(--text-muted);
+    font-weight: bold;
+  }
+  .plan-verification .v-item.appear { animation: rowIn .28s ease-out both; }
+
+  /* narration — plain prose between action blocks */
+  .narration {
+    margin: 18px 0 14px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.78;
+  }
+  .narration.appear { animation: rowIn .4s ease-out both; }
+  .narration .m {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    padding: 1px 5px;
+    background: rgba(255,255,255,.04);
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+
+  /* blinking cursor for thinking state */
+  .cursor-dots::after {
+    content: "";
+    display: inline-block;
+    width: 4px; height: 4px; margin-left: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: blink 1s infinite;
+    vertical-align: middle;
+  }
+  @keyframes blink { 0%,100% {opacity:1} 50% {opacity:.2} }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+
+  <div class="control-bar">
+    <button id="replay">▶ Replay</button>
+    <span class="clock" id="clock">0.0s</span>
+    <span class="status" id="status">idle</span>
+  </div>
+
+  <div class="user-msg">帮我分析下 BTC 趋势，看要不要加仓、加多少</div>
+
+  <!-- ① 系统路由 -->
+  <div class="thinking-block hidden" id="route-block">
+    <div class="thinking-header" onclick="toggleNested(this)">
+      <span class="thinking-arrow open">›</span>
+      <span class="thinking-title" id="route-title">Thinking<span class="cursor-dots"></span></span>
+    </div>
+    <div class="thinking-body" style="display:block">
+      <div style="color:var(--think-gray);padding:4px 0">用户问的是 BTC 趋势加仓位决策，不是单点行情查询——趋势判断要先看技术面和消息面，仓位大小又依赖当前账户状态，两件事耦合但可以分工。走多 agent 路径，交给 Coordinator 编排。</div>
+    </div>
+  </div>
+
+  <!-- narration-0: opening prose after route → before Coordinator starts -->
+  <div class="narration hidden" id="narration-0">
+    这是 <span class="m">趋势</span> 加 <span class="m">仓位</span> 的组合判断。我先把 memory 里过去几天的分析和当前持仓拉出来，凑齐上下文，再决定怎么拆给下游。
+  </div>
+
+  <!-- ② Coordinator -->
+  <div class="thinking-block hidden" id="coord-block">
+    <div class="thinking-header" onclick="toggleNested(this)">
+      <span class="thinking-arrow open">›</span>
+      <span class="thinking-title">
+        <span class="agent">Coordinator</span><span class="sep">·</span><span id="coord-status">Thinking<span class="cursor-dots"></span></span>
+      </span>
+    </div>
+    <div class="thinking-body" id="coord-body"></div>
+  </div>
+
+  <!-- narration-1: bridge from thinking → plan -->
+  <div class="narration hidden" id="narration-1">
+    上下文齐了——3 天前给过 <span class="m">偏多 60%</span> 的基线，当前 <span class="m">0.3 BTC</span> 仓位已有 <span class="m">+7.6%</span> 浮盈。接下来把这件事拆成一份 plan，让下游 agent 清楚要产出什么、怎么验收。
+  </div>
+
+  <!-- ③ Plan — same shape as a thinking block -->
+  <div class="thinking-block hidden" id="plan-block">
+    <div class="thinking-header" onclick="togglePlan()">
+      <span class="thinking-arrow open">›</span>
+      <span class="thinking-title">
+        <span class="agent">Coordinator</span><span class="sep">·</span><span id="plan-label">Planning<span class="cursor-dots"></span></span>
+      </span>
+    </div>
+    <div class="thinking-body" id="plan-body" style="display:block"></div>
+  </div>
+
+  <!-- narration-2: handoff after plan -->
+  <div class="narration hidden" id="narration-2">
+    Plan 就绪。派 <span class="m">Analyst</span> 和 <span class="m">NewsAgent</span> 并行推进，<span class="m">Risk</span> 等两人汇总后接手给最终建议。
+  </div>
+
+<script>
+  // ─── preview contents (unchanged from static demo) ───
+  const PREVIEWS = {
+    search: `<span class="path">search_memory({ query: "BTC", scope: ["analyst/", "coordinator/", "shared/"] })</span>
+<div class="code">
+  <div class="ln"><span class="h2">match 1</span>  <span class="k">analyst/btc-trend-2026-04-15.md</span>  <span class="dim">score 0.92</span></div>
+  <div class="ln"><span class="dim">        "偏多 60% · RSI 68 · MACD 金叉成立 · 4h EMA20&gt;EMA50"</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">match 2</span>  <span class="k">analyst/btc-trend-2026-04-08.md</span>  <span class="dim">score 0.74</span></div>
+  <div class="ln"><span class="dim">        "中性 50% · RSI 52 · 震荡格局，方向未明"</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">match 3</span>  <span class="k">analyst/btc-trend-2026-03-28.md</span>  <span class="dim">score 0.61</span></div>
+  <div class="ln"><span class="dim">        "偏空 40% · 回踩 58k 支撑 · 等待确认"</span></div>
+</div>`,
+    read1: `<span class="path">read_memory("analyst/btc-trend-2026-04-15.md")</span>
+<div class="code">
+  <div class="ln"><span class="h1"># BTC Trend · 2026-04-15</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">**Conclusion:**</span> <span class="k">偏多 60%</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Indicators</span></div>
+  <div class="ln">- RSI(14): <span class="k">68</span>  <span class="dim">← 逼近超买</span></div>
+  <div class="ln">- MACD: 金叉成立，histogram +38</div>
+  <div class="ln">- EMA20 &gt; EMA50（4h）</div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Narrative</span></div>
+  <div class="ln">量能温和放大，无明显分歧。若 RSI 进入超买 (&gt;70)，</div>
+  <div class="ln">需警惕短线背离。</div>
+</div>`,
+    read2: `<span class="path">read_memory("analyst/btc-trend-2026-04-08.md")</span>
+<div class="code">
+  <div class="ln"><span class="h1"># BTC Trend · 2026-04-08</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">**Conclusion:**</span> <span class="k">中性 50%</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Indicators</span></div>
+  <div class="ln">- RSI(14): 52</div>
+  <div class="ln">- MACD: 零轴下方缠绕</div>
+  <div class="ln">- EMA20 ≈ EMA50</div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Narrative</span></div>
+  <div class="ln">震荡格局，方向未明。等待突破信号。</div>
+</div>`,
+    pos: `<span class="path">get_positions({ symbol: "BTC" })</span>
+<div class="code">{
+  <span class="h2">"symbol"</span>: <span class="k">"BTCUSDT"</span>,
+  <span class="h2">"side"</span>: <span class="k">"long"</span>,
+  <span class="h2">"qty"</span>: <span class="k">0.3</span>,
+  <span class="h2">"avg_price"</span>: <span class="k">60800</span>,
+  <span class="h2">"mark_price"</span>: <span class="k">65432</span>,
+  <span class="h2">"unrealized_pnl"</span>: <span class="k">+1389.60 USDT</span>  <span class="dim">(+7.62%)</span>,
+  <span class="h2">"opened_at"</span>: <span class="dim">"2026-04-10T09:23:14Z"</span>,
+  <span class="h2">"margin_mode"</span>: <span class="dim">"cross"</span>
+}</div>`,
+    read3: `<span class="path">read_memory("coordinator/btc-position-2026-04-10.md")</span>
+<div class="code">
+  <div class="ln"><span class="h1"># BTC Position · 2026-04-10</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">**Entry:**</span> <span class="k">58,200 @ 0.3 BTC</span></div>
+  <div class="ln"><span class="h2">**Reasoning:**</span> 突破 58k 阻力后缩量回踩不破，</div>
+  <div class="ln">符合趋势跟随条件。4h 级 EMA20 &gt; EMA50 金叉保持。</div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Plan</span></div>
+  <div class="ln">- 止损：<span class="k">57,000</span> <span class="dim">(-2.1%)</span></div>
+  <div class="ln">- 目标 T1：<span class="k">66,000</span> <span class="dim">（分批减 1/3）</span></div>
+  <div class="ln">- 目标 T2：<span class="k">72,000</span> <span class="dim">（清仓）</span></div>
+  <div class="ln"></div>
+  <div class="ln"><span class="h2">## Notes</span></div>
+  <div class="ln">情绪面：彼时无明显催化，纯技术驱动。</div>
+  <div class="ln">若 RSI 进入超买区 (&gt;70)，需重新评估。</div>
+</div>`
+  };
+
+  // ─── execution flow: (startTime, runningLabel, runningArg, doneLabel, doneArg, result, previewKey, previewClass) ───
+  const FLOW = [
+    // id, runVerb, runArg, doneVerb, doneArg, result, previewKey, previewClass
+    { id: "search", runVerb: "Searching", runArg: '"BTC"',
+      doneVerb: "Searched", doneArg: '"BTC"', result: "3 hits",
+      previewKey: "search", previewClass: "" },
+    { id: "read1",  runVerb: "Reading",  runArg: "btc-trend-2026-04-15",
+      doneVerb: "Read",    doneArg: "btc-trend-2026-04-15", result: "12 lines",
+      previewKey: "read1",  previewClass: "" },
+    { id: "read2",  runVerb: "Reading",  runArg: "btc-trend-2026-04-08",
+      doneVerb: "Read",    doneArg: "btc-trend-2026-04-08", result: "11 lines",
+      previewKey: "read2",  previewClass: "" },
+    { id: "pos",    runVerb: "Fetching positions", runArg: "BTC",
+      doneVerb: "Fetched positions", doneArg: "BTC", result: "0.3 BTC @ 60800 均价",
+      previewKey: "pos",    previewClass: "json-raw" },
+    { id: "read3",  runVerb: "Reading",  runArg: "btc-position-2026-04-10",
+      doneVerb: "Read",    doneArg: "btc-position-2026-04-10", result: "14 lines",
+      previewKey: "read3",  previewClass: "" },
+  ];
+
+  // Counter for header aggregation — read / search / fetch as separate families
+  function renderCounter(counts) {
+    const parts = [];
+    if (counts.read)   parts.push(`${counts.read} read${counts.read > 1 ? "s" : ""}`);
+    if (counts.search) parts.push(`${counts.search} search${counts.search > 1 ? "es" : ""}`);
+    if (counts.fetch)  parts.push(`${counts.fetch} fetch${counts.fetch > 1 ? "es" : ""}`);
+    return parts.length ? parts.join(" · ") : "";
+  }
+
+  // ─── Plan data: Objective / Approach / Verification (contract for subAgents) ───
+  const PLAN = {
+    objective: {
+      kind: "trading decision",
+      lines: [
+        `判断当前是否应该对 BTC 加仓。如结论为加仓，须量化建议的数量与止损位；如结论为不加仓，须说明关键反对证据。`,
+        `结论须可直接交给执行层，不依赖后续再做裁决；语气面向用户，≤ 2 句能说明主要理由。`,
+      ],
+    },
+    approach: [
+      {
+        mode: "并行", cond: "",
+        items: [
+          { agent: "Analyst",   task: "判断当前是延续还是反转——对照 3 天前偏多 60% 基线，重点看 RSI 是否进入超买、4h 量能是否背离。" },
+          { agent: "NewsAgent", task: "复盘 48h 情绪与催化，关注 ETF 流入是否持续、有无反向利空。" },
+        ],
+      },
+      {
+        mode: "串行", cond: "等 Step 1 汇总",
+        items: [
+          { agent: "Risk", task: "结合趋势判断 + 情绪面 + 你的风险偏好，给出是否加仓、加多少的建议。" },
+        ],
+      },
+    ],
+    verification: [
+      "Analyst 结论须标注置信度；若与 3 天前基线冲突超 20%，必须给出原因。",
+      "Risk 建议必须包含止损位；加仓比例不超过当前仓位的 50%。",
+      "NewsAgent 若超时或无数据，降级为纯技术面判断并在最终输出里标注。",
+    ],
+  };
+
+  // Section briefs — shown inside each collapsible section head (full detail).
+  function objectiveBrief() {
+    return PLAN.objective.kind;
+  }
+  function approachBrief() {
+    const agents = new Set();
+    PLAN.approach.forEach(s => s.items.forEach(i => agents.add(i.agent)));
+    return `${agents.size} subAgents · ${PLAN.approach.length} steps`;
+  }
+  function verificationBrief() {
+    return `${PLAN.verification.length} checks`;
+  }
+  // Header progress tag — high-signal only. We collapse Approach's
+  // (agents + steps) into just agents, and drop Objective's count entirely
+  // (it's always 1 and tells the user nothing they don't already know).
+  function headerTagForObjective() { return null; } // suppressed
+  function headerTagForApproach() {
+    const agents = new Set();
+    PLAN.approach.forEach(s => s.items.forEach(i => agents.add(i.agent)));
+    return `${agents.size} agents`;
+  }
+  function headerTagForVerification() {
+    return `${PLAN.verification.length} checks`;
+  }
+
+  // Call signatures — rendered inside each section's .path strip
+  // Path headers — field access on the single plan object the LLM emits.
+  // Shape info (counts, kind, strictness) stays in each section head's brief.
+  function objectiveSig()    { return `plan.objective`; }
+  function approachSig()     { return `plan.approach`; }
+  function verificationSig() { return `plan.verification`; }
+
+  // classify by verb family
+  function kindOf(step) {
+    if (step.doneVerb.startsWith("Read"))     return "read";
+    if (step.doneVerb.startsWith("Searched")) return "search";
+    return "fetch"; // Fetched / Computed
+  }
+
+  // DOM helpers
+  const $ = (sel) => document.querySelector(sel);
+  const routeBlock = $("#route-block");
+  const routeTitle = $("#route-title");
+  const coordBlock = $("#coord-block");
+  const coordStatus = $("#coord-status");
+  const coordBody = $("#coord-body");
+  const planBlock = $("#plan-block");
+  const statusLabel = $("#status");
+  const clockLabel = $("#clock");
+
+  function clearAll() {
+    routeBlock.classList.add("hidden");
+    routeTitle.innerHTML = 'Thinking<span class="cursor-dots"></span>';
+    coordBlock.classList.add("hidden");
+    coordStatus.innerHTML = 'Thinking<span class="cursor-dots"></span>';
+    coordBody.innerHTML = "";
+    planBlock.classList.add("hidden");
+    document.getElementById("narration-0").classList.add("hidden");
+    document.getElementById("narration-0").classList.remove("appear");
+    document.getElementById("narration-1").classList.add("hidden");
+    document.getElementById("narration-1").classList.remove("appear");
+    document.getElementById("narration-2").classList.add("hidden");
+    document.getElementById("narration-2").classList.remove("appear");
+    // reset plan to its initial "planning" state for next run
+    planAccumulated = [];
+    const pArrow = planBlock.querySelector(".thinking-arrow");
+    pArrow.classList.add("open");
+    document.getElementById("plan-label").innerHTML = 'Planning<span class="cursor-dots"></span>';
+    const pBody = document.getElementById("plan-body");
+    pBody.innerHTML = "";
+    pBody.style.display = "block";
+    statusLabel.textContent = "idle";
+  }
+
+  function togglePlan() {
+    const arrow = document.querySelector("#plan-block .thinking-arrow");
+    const body = document.getElementById("plan-body");
+    const isOpen = arrow.classList.toggle("open");
+    body.style.display = isOpen ? "block" : "none";
+  }
+
+  // during planning: main label stays "Planning•"; trailing slot accumulates
+  // finished section briefs + an optional "drafting X" tail for the in-flight one.
+  let planAccumulated = [];
+  function renderPlanProgress(draftingPhase) {
+    const label = document.getElementById("plan-label");
+    const base = `Planning<span class="cursor-dots"></span>`;
+    const parts = [...planAccumulated];
+    if (draftingPhase) parts.push(draftingPhase);
+    const trailing = parts.length
+      ? `<span class="brief-sep">·</span><span class="plan-brief">${parts.join(" · ")}</span>`
+      : "";
+    label.innerHTML = base + trailing;
+  }
+  function setPlanPhase(phase) { renderPlanProgress(phase); }
+  function completePlanPhase(brief) {
+    if (brief) planAccumulated.push(brief); // null = section done but not shown in header
+    renderPlanProgress(null);
+  }
+
+  // ── Plan section renderers ──
+  // each section = collapsible mini-block with title + brief on header
+  function ensurePlanSection(id, title, brief) {
+    const body = document.getElementById("plan-body");
+    let sec = document.getElementById(id);
+    if (sec) {
+      // update brief if changed
+      const briefEl = sec.querySelector(".sec-brief");
+      if (briefEl) briefEl.textContent = brief;
+      return sec;
+    }
+    sec = document.createElement("section");
+    sec.className = "plan-section appear open"; // start open during streaming
+    sec.id = id;
+    sec.innerHTML =
+      `<div class="plan-section-head" onclick="togglePlanSection('${id}')">` +
+        `<span class="sec-title">${title}</span>` +
+        `<span class="sec-sep">·</span>` +
+        `<span class="sec-brief">${brief}</span>` +
+        `<span class="sec-arrow">›</span>` +
+      `</div>` +
+      `<div class="plan-section-body" id="${id}-body"></div>`;
+    body.appendChild(sec);
+    return sec;
+  }
+
+  function togglePlanSection(id) {
+    const sec = document.getElementById(id);
+    if (sec) sec.classList.toggle("open");
+  }
+
+  // Ensure a tool-preview-shaped card exists inside a section body,
+  // with a .path header showing the call signature. Returns the .code
+  // element into which numbered lines should be appended.
+  function ensureSectionPreview(sectionId, signature, variant = "") {
+    const sectionBody = document.getElementById(`${sectionId}-body`);
+    let preview = sectionBody.querySelector(".tool-preview");
+    if (preview) return preview.querySelector(".code");
+    preview = document.createElement("div");
+    preview.className = `tool-preview open ${variant}`.trim(); // always open
+    preview.innerHTML =
+      `<span class="path">${signature}</span>` +
+      `<div class="code"></div>`;
+    sectionBody.appendChild(preview);
+    return preview.querySelector(".code");
+  }
+
+  function addPreviewLine(sectionId, html) {
+    const code = document.querySelector(`#${sectionId}-body .tool-preview .code`);
+    if (!code) return;
+    const ln = document.createElement("div");
+    ln.className = "ln appear";
+    ln.innerHTML = html;
+    code.appendChild(ln);
+  }
+
+  // ── Objective ──
+  function initObjective() {
+    ensurePlanSection("sec-objective", "Objective", objectiveBrief());
+    ensureSectionPreview("sec-objective", objectiveSig(), "prose");
+  }
+  function addObjectiveLine(html) { addPreviewLine("sec-objective", html); }
+
+  // ── Approach ──
+  function initApproach() {
+    ensurePlanSection("sec-approach", "Approach", approachBrief());
+    ensureSectionPreview("sec-approach", approachSig());
+  }
+  function addApproachStepLine(index, step) {
+    const cond = step.cond ? `<span class="dim"> · ${step.cond}</span>` : "";
+    addPreviewLine("sec-approach",
+      `<span class="step-marker">[Step ${index + 1} · ${step.mode}]</span>${cond}`
+    );
+  }
+  function addApproachAgentLine(item) {
+    addPreviewLine("sec-approach",
+      `<span class="agent-cell">${item.agent}</span><span class="dim">${item.task}</span>`
+    );
+  }
+
+  // ── Verification ──
+  function initVerification() {
+    ensurePlanSection("sec-verification", "Verification", verificationBrief());
+    ensureSectionPreview("sec-verification", verificationSig());
+  }
+  function addVerificationLine(text) {
+    addPreviewLine("sec-verification", `<span class="dim">${text}</span>`);
+  }
+
+  function addRunningRow(step) {
+    const row = document.createElement("div");
+    row.className = "tool-line expandable running appear";
+    row.id = `row-${step.id}`;
+    row.innerHTML =
+      `<span class="tn">${step.runVerb}</span>` +
+      `<span class="tv">${step.runArg}</span>`;
+    coordBody.appendChild(row);
+
+    // pre-insert hidden preview so it's ready when click-to-expand
+    const preview = document.createElement("div");
+    preview.className = `tool-preview ${step.previewClass}`;
+    preview.id = `preview-${step.id}`;
+    preview.innerHTML = PREVIEWS[step.previewKey];
+    coordBody.appendChild(preview);
+
+    // wire click-to-expand
+    row.addEventListener("click", () => {
+      if (!row.classList.contains("done")) return;
+      row.classList.toggle("open");
+      preview.classList.toggle("open");
+    });
+  }
+
+  function completeRow(step) {
+    const row = document.getElementById(`row-${step.id}`);
+    if (!row) return;
+    row.classList.remove("running");
+    row.classList.add("done");
+    row.innerHTML =
+      `<span class="tn">${step.doneVerb}</span>` +
+      `<span class="tv">${step.doneArg}</span>` +
+      `<span class="tr">${step.result}</span>`;
+  }
+
+  // ── main sequencer ──
+  let timers = [];
+  let startMs = 0;
+  let clockTimer = null;
+
+  function schedule(ms, fn) {
+    timers.push(setTimeout(fn, ms));
+  }
+
+  function play() {
+    // reset
+    timers.forEach(clearTimeout);
+    timers = [];
+    if (clockTimer) clearInterval(clockTimer);
+    clearAll();
+    startMs = performance.now();
+    clockTimer = setInterval(() => {
+      const elapsed = (performance.now() - startMs) / 1000;
+      clockLabel.textContent = elapsed.toFixed(1) + "s";
+    }, 50);
+
+    // t=0: user message already visible
+
+    // t=0.3s: show route thinking
+    schedule(300, () => {
+      routeBlock.classList.remove("hidden");
+      statusLabel.textContent = "routing";
+    });
+    schedule(900, () => {
+      routeTitle.textContent = "Thought for 0.3 seconds";
+    });
+
+    // t=1.05s: opening narration — introduces intent before Coordinator starts pulling context
+    schedule(1050, () => {
+      const n0 = document.getElementById("narration-0");
+      n0.classList.remove("hidden");
+      n0.classList.add("appear");
+    });
+
+    // t=2.3s: show Coordinator, "Thinking..." (delayed so user can read narration-0)
+    schedule(2300, () => {
+      coordBlock.classList.remove("hidden");
+      statusLabel.textContent = "coordinator thinking";
+    });
+
+    // Each tool step: running → done, spaced ~1.3s apart, each running for ~800ms
+    let cursor = 2800;
+    const counts = { read: 0, search: 0, fetch: 0 };
+    FLOW.forEach((step) => {
+      const runAt = cursor;
+      const doneAt = cursor + 900;
+      schedule(runAt, () => {
+        addRunningRow(step);
+        statusLabel.textContent = `${step.runVerb.toLowerCase()}...`;
+      });
+      schedule(doneAt, () => {
+        completeRow(step);
+        counts[kindOf(step)]++;
+        coordStatus.innerHTML = `Thinking<span class="cursor-dots"></span> · ${renderCounter(counts)}`;
+      });
+      cursor += 1300;
+    });
+
+    // after last tool: finalize coordinator header
+    const totalToolsMs = cursor;
+    schedule(totalToolsMs + 200, () => {
+      coordStatus.innerHTML = `Thought for 14 seconds · ${renderCounter(counts)}`;
+      statusLabel.textContent = "coordinator done";
+    });
+
+    // narration-1: bridge from "finished reading context" → "now drafting a plan"
+    schedule(totalToolsMs + 500, () => {
+      const n1 = document.getElementById("narration-1");
+      n1.classList.remove("hidden");
+      n1.classList.add("appear");
+    });
+
+    // auto-collapse Coordinator thinking once its work is summarized
+    schedule(totalToolsMs + 1400, () => collapseBlock(coordBlock));
+
+    // show plan block — header streams through section names as it drafts
+    let planCursor = totalToolsMs + 2200;
+    let planStartMs = 0;
+    schedule(planCursor, () => {
+      planBlock.classList.remove("hidden");
+      planStartMs = performance.now();
+      setPlanPhase(null);
+      statusLabel.textContent = "planning";
+    });
+
+    // ── ① Objective ──
+    planCursor += 300;
+    schedule(planCursor, () => {
+      setPlanPhase("drafting objective");
+      statusLabel.textContent = "drafting objective";
+      initObjective(); // section head + preview.path appear together
+    });
+    planCursor += 260;
+    PLAN.objective.lines.forEach((html) => {
+      schedule(planCursor, () => addObjectiveLine(html));
+      planCursor += 220;
+    });
+
+    // ── ② Approach ──
+    planCursor += 300;
+    schedule(planCursor, () => completePlanPhase(headerTagForObjective())); // objective done (no tag)
+    planCursor += 250;
+    schedule(planCursor, () => {
+      setPlanPhase("drafting approach");
+      statusLabel.textContent = "drafting approach";
+      initApproach();
+    });
+    planCursor += 260;
+    PLAN.approach.forEach((step, sIdx) => {
+      schedule(planCursor, () => addApproachStepLine(sIdx, step));
+      planCursor += 260;
+      step.items.forEach((item) => {
+        schedule(planCursor, () => addApproachAgentLine(item));
+        planCursor += 230;
+      });
+      planCursor += 120;
+    });
+
+    // ── ③ Verification ──
+    planCursor += 250;
+    schedule(planCursor, () => completePlanPhase(headerTagForApproach())); // approach done → "3 agents"
+    planCursor += 250;
+    schedule(planCursor, () => {
+      setPlanPhase("drafting verification");
+      statusLabel.textContent = "drafting verification";
+      initVerification();
+    });
+    planCursor += 260;
+    PLAN.verification.forEach((text) => {
+      schedule(planCursor, () => addVerificationLine(text));
+      planCursor += 250;
+    });
+
+    // ── Transition to Planned ──
+    planCursor += 250;
+    schedule(planCursor, () => completePlanPhase(headerTagForVerification())); // verification done → "3 checks"
+    planCursor += 300;
+    schedule(planCursor, () => {
+      const planLabel = document.getElementById("plan-label");
+      const elapsed = ((performance.now() - planStartMs) / 1000).toFixed(1);
+      planLabel.innerHTML =
+        `Planned for ${elapsed} seconds` +
+        `<span class="brief-sep">·</span>` +
+        `<span class="plan-brief">${planAccumulated.join(" · ")}</span>`;
+      statusLabel.textContent = "plan ready";
+    });
+
+    // narration-2: handoff after plan is written
+    schedule(planCursor + 600, () => {
+      const n2 = document.getElementById("narration-2");
+      n2.classList.remove("hidden");
+      n2.classList.add("appear");
+    });
+
+    // auto-collapse Plan once narration-2 has handed off
+    schedule(planCursor + 1500, () => collapseBlock(planBlock));
+
+    // stop clock slightly after
+    schedule(planCursor + 2100, () => {
+      clearInterval(clockTimer);
+      statusLabel.textContent = "done";
+    });
+  }
+
+  function toggleNested(header) {
+    const arrow = header.querySelector(".thinking-arrow");
+    const body = header.nextElementSibling;
+    const isOpen = arrow.classList.toggle("open");
+    body.style.display = isOpen ? "block" : "none";
+  }
+
+  // Collapse a thinking-block (used for auto-summarization once a phase is done).
+  function collapseBlock(block) {
+    if (!block) return;
+    const arrow = block.querySelector(".thinking-arrow");
+    const body  = block.querySelector(".thinking-body");
+    if (arrow) arrow.classList.remove("open");
+    if (body)  body.style.display = "none";
+  }
+
+  document.getElementById("replay").addEventListener("click", play);
+
+  // auto-play on load
+  window.addEventListener("load", () => setTimeout(play, 200));
+</script>
+</main>
+</body>
+</html>

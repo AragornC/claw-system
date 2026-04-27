@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ThunderClaw · Memory + Agent Demo</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22;
+  --border: rgba(255,255,255,.08);
+  --text: #e6edf3; --muted: #8b949e; --dim: #484f58;
+  --accent: #3cc87a; --gold: #d4a04a; --blue: #5b8def; --red: #e05050;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  --tree: rgba(255,255,255,.07);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; height: 100vh; display: flex; flex-direction: column; }
+
+.top { height: 40px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 10px; flex-shrink: 0; }
+.top b { font-size: 14px; }
+.top-tag { font-size: 9px; padding: 2px 7px; border-radius: 10px; background: rgba(60,200,122,.06); color: var(--accent); border: 1px solid rgba(60,200,122,.12); }
+.top-r { margin-left: auto; font-size: 11px; color: var(--dim); display: flex; gap: 12px; }
+.top-r span { cursor: pointer; } .top-r span:hover { color: var(--muted); }
+
+.wrap { flex: 1; display: flex; min-height: 0; }
+
+.side { width: 280px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); overflow-y: auto; padding: 14px; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.side::-webkit-scrollbar { width: 3px; }
+.side::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 2px; }
+.side-h { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; margin-top: 8px; }
+.preset { display: block; width: 100%; padding: 7px 10px; background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 12px; font-family: var(--font); text-align: left; cursor: pointer; transition: all .1s; line-height: 1.4; }
+.preset:hover:not(:disabled) { border-color: rgba(91,141,239,.25); color: var(--text); }
+.preset:disabled { opacity: .25; cursor: not-allowed; }
+
+/* Memory panel */
+.mem-label { font-size: 10px; color: var(--dim); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+.mem-label .tag { font-size: 8px; padding: 1px 4px; border-radius: 3px; background: rgba(60,200,122,.08); color: var(--accent); }
+.mem-box { background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: 5px; padding: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.6; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; flex-shrink: 0; }
+.mem-box::-webkit-scrollbar { width: 2px; }
+.mem-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,.05); }
+.mem-box:empty::after { content: '(Coordinator 尚未创建记忆结构)'; color: var(--dim); font-style: italic; font-family: var(--font); }
+
+/* Memory file tree */
+.mt-item { display: flex; align-items: center; gap: 5px; padding: 3px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.mt-item:hover { background: rgba(255,255,255,.04); color: var(--text); }
+.mt-item.active { background: rgba(60,200,122,.06); color: var(--accent); }
+.mt-icon { flex-shrink: 0; font-size: 11px; opacity: .5; }
+.mt-name { flex: 1; font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-size { font-size: 9px; color: var(--dim); flex-shrink: 0; }
+.mt-dir { font-size: 11px; color: var(--dim); padding: 5px 6px 2px; font-weight: 600; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+.mt-dir .ns-tag { font-size: 8px; padding: 1px 5px; border-radius: 3px; font-weight: 500; }
+.mt-dir[data-ns="shared"] .ns-tag { background: rgba(91,141,239,.1); color: var(--blue); }
+.mt-dir[data-ns="analyst"] .ns-tag { background: rgba(212,160,74,.1); color: var(--gold); }
+.mt-dir[data-ns="risk"] .ns-tag { background: rgba(224,80,80,.1); color: var(--red); }
+.mt-dir[data-ns="coordinator"] .ns-tag { background: rgba(60,200,122,.1); color: var(--accent); }
+.mt-empty { font-size: 11px; color: var(--dim); font-style: italic; padding: 6px; }
+
+/* Memory file viewer — modal overlay */
+.mem-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
+.mem-overlay.open { display: flex; }
+.mem-viewer { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; width: min(640px, 85vw); max-height: 75vh; display: flex; flex-direction: column; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+.mv-hd { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.mv-path { font-family: var(--mono); font-size: 12px; color: var(--accent); flex: 1; }
+.mv-close { font-size: 14px; color: var(--dim); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.mv-close:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.mv-body { padding: 14px; font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-y: auto; flex: 1; min-height: 0; }
+.mv-body::-webkit-scrollbar { width: 3px; }
+.mv-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 2px; }
+.mem-box-session { max-height: 100px; }
+
+/* Chat area */
+.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.msgs { flex: 1; overflow-y: auto; padding: 20px 28px; }
+.msgs::-webkit-scrollbar { width: 3px; }
+.msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 2px; }
+
+.u-msg { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.u-bubble { background: rgba(91,141,239,.08); border: 1px solid rgba(91,141,239,.12); border-radius: 14px 14px 4px 14px; padding: 8px 14px; max-width: 65%; font-size: 14px; line-height: 1.6; }
+
+.think { margin: 2px 0; width: 100%; }
+.think-hd { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; padding: 3px 6px; border-radius: 4px; }
+.think-hd:hover { background: rgba(255,255,255,.04); }
+.think-arrow { color: var(--dim); font-size: 9px; display: inline-block; transition: transform .12s; }
+.think-arrow.open { transform: rotate(90deg); }
+.think-title { font-size: 13px; color: var(--dim); }
+.think-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); animation: pulse 1s infinite; margin-left: 4px; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+.think-time { font-size: 11px; color: var(--dim); font-family: var(--mono); margin-left: 4px; opacity: .7; }
+.think-body { margin-left: 7px; padding: 4px 0 4px 14px; border-left: 1.5px solid var(--tree); display: none; }
+.think-body.open { display: block; }
+.think-content { font-size: 13px; color: var(--dim); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+
+.cb { margin: 2px 0; width: 100%; }
+.cb-hd { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; padding: 3px 6px; border-radius: 4px; }
+.cb-hd:hover { background: rgba(255,255,255,.04); }
+.cb-arrow { color: var(--dim); font-size: 9px; display: inline-block; transition: transform .12s; }
+.cb-arrow.open { transform: rotate(90deg); }
+.cb-title { font-size: 13px; color: var(--muted); }
+.cb-body { margin-left: 7px; padding: 2px 0 2px 14px; border-left: 1.5px solid var(--tree); display: none; }
+.cb-body.open { display: block; }
+.cb-line { font-size: 13px; color: var(--muted); padding: 1px 0; line-height: 1.5; }
+.cb-line b { font-family: var(--mono); font-weight: 600; font-size: 12px; margin-right: 4px; }
+
+.md { font-size: 14px; line-height: 1.8; color: var(--text); margin: 4px 0; width: 100%; }
+.md p { margin-bottom: 6px; } .md p:last-child { margin-bottom: 0; }
+.md strong { font-weight: 600; }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.cursor::after { content:''; display:inline-block; width:2px; height:14px; background:var(--text); margin-left:1px; animation:blink .7s infinite; vertical-align:text-bottom; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+.input-bar { padding: 10px 28px 14px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; }
+#input { flex:1; min-height:40px; max-height:120px; padding:9px 13px; border-radius:7px; border:1px solid var(--border); background:rgba(255,255,255,.03); color:var(--text); font-size:14px; font-family:var(--font); outline:none; resize:none; line-height:1.5; }
+#input:focus { border-color:rgba(91,141,239,.25); }
+#input::placeholder { color:var(--dim); }
+#send { height:40px; padding:0 16px; border-radius:7px; border:1px solid rgba(60,200,122,.15); background:rgba(60,200,122,.06); color:var(--accent); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); }
+#send:hover:not(:disabled) { background:rgba(60,200,122,.1); }
+#send:disabled { opacity:.25; cursor:not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <b>ThunderClaw</b>
+  <span class="top-tag">MEMORY + AGENT</span>
+  <span class="top-r">
+    <span onclick="memoryIndex='';Object.keys(memoryFiles).forEach(k=>delete memoryFiles[k]);sessionHistory=[];renderMemory();">清空记忆</span>
+    <span>DeepSeek API</span>
+  </span>
+</div>
+
+<div class="wrap">
+  <div class="side">
+    <div class="side-h">预设场景</div>
+    <button class="preset" onclick="go('你好，你是谁？')">direct_reply · 你好</button>
+    <button class="preset" onclick="go('BTC 现在多少钱？')">simple_tool · 价格</button>
+    <button class="preset" onclick="go('帮我分析 BTC 近期走势，给出操作建议')">agent_task · BTC 分析</button>
+    <button class="preset" onclick="go('我的持仓风险怎么样？')">agent_task · 风险评估</button>
+    <button class="preset" onclick="go('刚才的分析结论是什么？')">记忆测试 · 回溯</button>
+
+    <div class="side-h">Session 对话历史 <span style="font-size:8px;color:var(--blue)">(系统管理)</span></div>
+    <div class="mem-box mem-box-session" id="mem-session"></div>
+
+    <div class="side-h">记忆文件系统 <span style="font-size:8px;color:var(--accent)">(Coordinator 管理)</span></div>
+    <div id="mem-tree"></div>
+  </div>
+
+  <div class="chat">
+    <div class="msgs" id="msgs">
+      <div class="md" style="color:var(--dim)"><p>左侧 MEMORY.md 由 Coordinator 自主创建和维护。首次 agent_task 后会看到它自己设计的记忆结构。</p></div>
+    </div>
+    <div class="input-bar">
+      <textarea id="input" placeholder="输入消息..." rows="1"></textarea>
+      <button id="send" onclick="handleSend()">发送</button>
+    </div>
+  </div>
+</div>
+
+<!-- Memory file viewer overlay -->
+<div class="mem-overlay" id="mem-overlay" onclick="if(event.target===this)closeViewer()">
+  <div class="mem-viewer">
+    <div class="mv-hd">
+      <span class="mv-path" id="mv-path"></span>
+      <span class="mv-close" onclick="closeViewer()">✕</span>
+    </div>
+    <div class="mv-body" id="mv-body"></div>
+  </div>
+</div>
+
+<script>
+const API='https://api.deepseek.com/v1/chat/completions', KEY='sk-30af19c081714333a3a0cb564fa841e9', MDL='deepseek-chat';
+const $m=document.getElementById('msgs');
+const scroll=()=>requestAnimationFrame(()=>$m.scrollTop=$m.scrollHeight);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const esc=s=>{const d=document.createElement('span');d.textContent=s;return d.innerHTML;};
+let busy=false, idCounter=0;
+const uid=()=>'id'+(idCounter++);
+function fmtMd(t){return('<p>'+t+'</p>').replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/---/g,'<hr>');}
+
+// ═══════════════════════════════════════════════════════════
+// ██ MEMORY SYSTEM — Progressive Disclosure
+// ═══════════════════════════════════════════════════════════
+
+// Session history (system-managed)
+let sessionHistory = [];
+function pushSession(role, content) {
+  sessionHistory.push({ role, content: content.slice(0, 500) });
+  if (sessionHistory.length > 20) sessionHistory = sessionHistory.slice(-20);
+  renderMemory();
+}
+function getSessionContext() {
+  if (!sessionHistory.length) return '(首条消息)';
+  return sessionHistory.map(h => `[${h.role}] ${h.content.slice(0,120)}`).join('\n');
+}
+
+// ── MEMORY.md = 全局索引（带摘要，轻量，每次任务自动注入 Coordinator）
+let memoryIndex = '';
+
+// ── Memory files = 按 namespace 分区 ──────────────────────
+// 结构: { "shared/market-context.md": "...", "analyst/btc-patterns.md": "...", "risk/portfolio.md": "...", "coordinator/meta.md": "..." }
+const memoryFiles = {};
+
+// ── Memory tool definitions ────────────────────────────────
+// Coordinator: 全部4个工具，可读写所有 namespace
+// Agent: read_memory(自己空间+shared) + search_memory(自己空间+shared)
+const MEM_TOOLS_FULL = [
+  { type:'function', function:{ name:'read_memory', description:'读取一个记忆文件全文。先看 MEMORY.md 摘要决定要不要读。', parameters:{ type:'object', properties:{ path:{type:'string',description:'文件路径，如 shared/market-context.md'} }, required:['path'] } } },
+  { type:'function', function:{ name:'write_memory', description:'写入记忆文件（创建或覆盖）。路径需含 namespace 前缀：shared/ analyst/ risk/ coordinator/', parameters:{ type:'object', properties:{ path:{type:'string',description:'文件路径'}, content:{type:'string',description:'文件内容（简洁，专注一个主题）'} }, required:['path','content'] } } },
+  { type:'function', function:{ name:'update_index', description:'更新 MEMORY.md 目录索引。每行格式: - [文件名](路径) — 一句话摘要', parameters:{ type:'object', properties:{ content:{type:'string',description:'MEMORY.md 完整新内容'} }, required:['content'] } } },
+  { type:'function', function:{ name:'search_memory', description:'在记忆文件中搜索关键词，返回匹配行', parameters:{ type:'object', properties:{ query:{type:'string',description:'搜索关键词'} }, required:['query'] } } },
+];
+
+// Agent 只有读取和搜索（scope 限制在 execMemoryTool 里做）
+const MEM_TOOLS_AGENT = [
+  MEM_TOOLS_FULL[0],  // read_memory
+  MEM_TOOLS_FULL[3],  // search_memory
+];
+
+/**
+ * Execute memory tool with optional namespace scope.
+ * scope=null → full access (Coordinator)
+ * scope='analyst' → only reads analyst/ + shared/
+ */
+function execMemoryTool(name, args, scope) {
+  switch (name) {
+    case 'read_memory': {
+      const path = args.path;
+      // Scope check: agent can only read own namespace + shared
+      if (scope && !path.startsWith(scope + '/') && !path.startsWith('shared/')) {
+        return { path, error: `access denied: ${scope} agent cannot read ${path}` };
+      }
+      const content = memoryFiles[path];
+      return content ? { path, content } : { path, error: 'file not found' };
+    }
+    case 'write_memory': {
+      if (scope) return { error: `access denied: only Coordinator can write memory` };
+      memoryFiles[args.path] = args.content;
+      renderMemory();
+      return { path: args.path, status: 'written', size: args.content.length };
+    }
+    case 'update_index': {
+      if (scope) return { error: `access denied: only Coordinator can update index` };
+      memoryIndex = args.content;
+      renderMemory();
+      return { status: 'index updated' };
+    }
+    case 'search_memory': {
+      const q = args.query.toLowerCase();
+      const results = [];
+      for (const [path, content] of Object.entries(memoryFiles)) {
+        // Scope check
+        if (scope && !path.startsWith(scope + '/') && !path.startsWith('shared/')) continue;
+        if (content.toLowerCase().includes(q)) {
+          const lines = content.split('\n');
+          const matches = lines.filter(l => l.toLowerCase().includes(q)).slice(0, 3);
+          results.push({ path, matches });
+        }
+      }
+      // Also search MEMORY.md index
+      if (memoryIndex.toLowerCase().includes(q)) {
+        const lines = memoryIndex.split('\n').filter(l => l.toLowerCase().includes(q)).slice(0, 3);
+        results.unshift({ path: 'MEMORY.md', matches: lines });
+      }
+      return { query: args.query, results };
+    }
+    default: return { error: 'unknown memory tool' };
+  }
+}
+
+/**
+ * Extract relevant memory summaries from MEMORY.md for a given agent/task.
+ * Returns lines from the index that match the agent's namespace or shared/.
+ */
+function getMemorySummariesFor(agentId) {
+  if (!memoryIndex) return '';
+  const lines = memoryIndex.split('\n');
+  const relevant = lines.filter(l => {
+    const lower = l.toLowerCase();
+    return lower.includes('shared/') || lower.includes(agentId.toLowerCase() + '/') || l.startsWith('#');
+  });
+  return relevant.length ? relevant.join('\n') : '(无相关记忆)';
+}
+
+let activeMemFile = null;
+
+function renderMemory() {
+  document.getElementById('mem-session').textContent =
+    sessionHistory.map(h => `${h.role}: ${h.content.slice(0,80)}`).join('\n');
+
+  const treeEl = document.getElementById('mem-tree');
+  const paths = Object.keys(memoryFiles).sort();
+
+  if (!paths.length && !memoryIndex) {
+    treeEl.innerHTML = '<div class="mt-empty">Coordinator 尚未创建记忆</div>';
+    return;
+  }
+
+  // Build tree: group by directory
+  const dirs = {};
+  for (const p of paths) {
+    const parts = p.split('/');
+    const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    const file = parts[parts.length - 1];
+    if (!dirs[dir]) dirs[dir] = [];
+    dirs[dir].push({ path: p, file, size: memoryFiles[p].length });
+  }
+
+  // Always show MEMORY.md index at top
+  let html = '';
+  if (memoryIndex) {
+    html += `<div class="mt-item ${activeMemFile === '__index__' ? 'active' : ''}" onclick="viewMemFile('__index__')">
+      <span class="mt-icon">📋</span><span class="mt-name">MEMORY.md</span><span class="mt-size">index</span></div>`;
+  }
+
+  const nsLabels = { shared:'共享', analyst:'分析师', risk:'风控', coordinator:'协调器' };
+  for (const [dir, files] of Object.entries(dirs)) {
+    if (dir) {
+      const ns = dir.split('/')[0];
+      html += `<div class="mt-dir" data-ns="${ns}">${dir}/<span class="ns-tag">${nsLabels[ns]||ns}</span></div>`;
+    }
+    for (const f of files) {
+      html += `<div class="mt-item ${activeMemFile === f.path ? 'active' : ''}" onclick="viewMemFile('${f.path}')">
+        <span class="mt-icon">📄</span><span class="mt-name">${f.file}</span><span class="mt-size">${f.size}c</span></div>`;
+    }
+  }
+
+  treeEl.innerHTML = html;
+
+  // Update viewer if open
+  if (activeMemFile) {
+    const bodyEl = document.getElementById('mv-body');
+    bodyEl.textContent = activeMemFile === '__index__' ? memoryIndex : (memoryFiles[activeMemFile] || '(empty)');
+  }
+}
+
+function viewMemFile(path) {
+  activeMemFile = path;
+  const overlay = document.getElementById('mem-overlay');
+  const pathEl = document.getElementById('mv-path');
+  const bodyEl = document.getElementById('mv-body');
+
+  pathEl.textContent = path === '__index__' ? 'MEMORY.md' : path;
+  bodyEl.textContent = path === '__index__' ? memoryIndex : (memoryFiles[path] || '(empty)');
+  overlay.classList.add('open');
+  renderMemory();
+}
+
+function closeViewer() {
+  activeMemFile = null;
+  document.getElementById('mem-overlay').classList.remove('open');
+  renderMemory();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ██ LLM + TOOLS
+// ═══════════════════════════════════════════════════════════
+
+async function llmStream(messages, tools, callbacks) {
+  const body = { model:MDL, messages, temperature:0.4, stream:true };
+  if (tools) body.tools = tools;
+  const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${KEY}`}, body:JSON.stringify(body) });
+  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
+  const reader=r.body.getReader(), dec=new TextDecoder();
+  let buf='', fullContent='', fullThinking='';
+  const tcFrags={};
+  while (true) {
+    const{done,value}=await reader.read(); if(done) break;
+    buf+=dec.decode(value,{stream:true});
+    const lines=buf.split('\n'); buf=lines.pop();
+    for(const l of lines){
+      if(!l.startsWith('data: ')||l==='data: [DONE]') continue;
+      try{
+        const delta=JSON.parse(l.slice(6)).choices?.[0]?.delta;
+        if(!delta) continue;
+        if(delta.reasoning_content){fullThinking+=delta.reasoning_content;callbacks?.onThinking?.(delta.reasoning_content);}
+        if(delta.content){fullContent+=delta.content;callbacks?.onContent?.(delta.content);}
+        if(delta.tool_calls){for(const tc of delta.tool_calls){const idx=tc.index||0;if(!tcFrags[idx])tcFrags[idx]={id:'',name:'',args:''};if(tc.id)tcFrags[idx].id=tc.id;if(tc.function?.name)tcFrags[idx].name=tc.function.name;if(tc.function?.arguments)tcFrags[idx].args+=tc.function.arguments;}}
+      }catch{}
+    }
+  }
+  return{thinking:fullThinking,content:fullContent,toolCalls:Object.values(tcFrags).map(tc=>({id:tc.id,name:tc.name,arguments:tc.args}))};
+}
+
+// Binance tools
+const BN='https://api.binance.com/api/v3';
+function sym(s){return(s||'BTC/USDT').replace('/','').toUpperCase();}
+const TOOL_IMPL={
+  async get_price(a){const s=sym(a.symbol);const r=await fetch(`${BN}/ticker/24hr?symbol=${s}`);const d=await r.json();return{symbol:a.symbol||'BTC/USDT',price:parseFloat(d.lastPrice),change_24h:`${parseFloat(d.priceChangePercent).toFixed(2)}%`,high_24h:parseFloat(d.highPrice),low_24h:parseFloat(d.lowPrice),volume_24h:`$${(parseFloat(d.quoteVolume)/1e9).toFixed(2)}B`};},
+  async get_klines(a){const s=sym(a.symbol);const r=await fetch(`${BN}/klines?symbol=${s}&interval=${a.interval||'1h'}&limit=${a.limit||100}`);const data=await r.json();const closes=data.map(c=>parseFloat(c[4]));const last=data[data.length-1];return{symbol:a.symbol||'BTC/USDT',interval:a.interval||'1h',count:data.length,latest:{close:parseFloat(last[4])},closes};},
+  async calculate_indicator(a){const s=sym(a.symbol||'BTC/USDT');const p=a.period||14;const r=await fetch(`${BN}/klines?symbol=${s}&interval=1d&limit=${Math.max(p*3,50)}`);const data=await r.json();const closes=data.map(c=>parseFloat(c[4]));const ind=a.indicator?.toUpperCase();if(ind==='RSI'){const v=calcRSI(closes,p);return{indicator:'RSI',period:p,value:v,signal:v<30?'超卖':v>70?'超买':'中性'};}if(ind==='MACD'){const{macd,signal,histogram}=calcMACD(closes);return{indicator:'MACD',macd:+macd.toFixed(2),signal:+signal.toFixed(2),histogram:+histogram.toFixed(2),trend:macd<0?(histogram>0?'空头收敛':'空头延续'):(histogram<0?'多头收敛':'多头延续')};}return{error:'unknown'};},
+  async check_balance(){return{total_usd:10000,available_usd:10000};},
+  async get_positions(){return{positions:[],total_pnl:0};},
+};
+function calcRSI(c,p){let g=0,l=0;for(let i=1;i<=p;i++){const d=c[c.length-p-1+i]-c[c.length-p-1+i-1];if(d>0)g+=d;else l-=d;}let ag=g/p,al=l/p;for(let i=p+1;i<c.length;i++){const d=c[i]-c[i-1];ag=(ag*(p-1)+(d>0?d:0))/p;al=(al*(p-1)+(d<0?-d:0))/p;}if(al===0)return 100;return+(100-100/(1+ag/al)).toFixed(1);}
+function calcMACD(c){let ef=c[0],es=c[0];const kf=2/13,ks=2/27,ml=[];for(let i=0;i<c.length;i++){ef=c[i]*kf+ef*(1-kf);es=c[i]*ks+es*(1-ks);ml.push(ef-es);}let sl=ml[0];const ks2=2/10;for(let i=1;i<ml.length;i++)sl=ml[i]*ks2+sl*(1-ks2);const m=ml[ml.length-1];return{macd:m,signal:sl,histogram:m-sl};}
+async function execTool(fn,args){const impl=TOOL_IMPL[fn];if(!impl)return{error:'unknown tool'};return await impl(args);}
+function toolBrief(fn,o){if(o.error)return'error: '+o.error;switch(fn){case'get_price':return`${o.symbol} $${o.price?.toLocaleString()} (${o.change_24h})`;case'get_klines':return`${o.symbol} ${o.interval} ${o.count} bars`;case'calculate_indicator':if(o.indicator==='RSI')return`RSI(${o.period}) = ${o.value} (${o.signal})`;if(o.indicator==='MACD')return`MACD = ${o.macd}, ${o.trend}`;return JSON.stringify(o);case'check_balance':return`$${o.total_usd?.toLocaleString()} available`;case'get_positions':return o.positions?.length?o.positions.length+' pos':'无持仓';default:return'';}};
+
+const TOOL_DEFS=[
+  {type:'function',function:{name:'get_price',description:'获取实时价格',parameters:{type:'object',properties:{symbol:{type:'string'}},required:['symbol']}}},
+  {type:'function',function:{name:'get_klines',description:'获取K线数据',parameters:{type:'object',properties:{symbol:{type:'string'},interval:{type:'string'},limit:{type:'number'}},required:['symbol']}}},
+  {type:'function',function:{name:'calculate_indicator',description:'计算技术指标(RSI/MACD/BOLL)',parameters:{type:'object',properties:{indicator:{type:'string',enum:['RSI','MACD','BOLL']},period:{type:'number'}},required:['indicator']}}},
+  {type:'function',function:{name:'check_balance',description:'查询余额',parameters:{type:'object',properties:{}}}},
+  {type:'function',function:{name:'get_positions',description:'查询持仓',parameters:{type:'object',properties:{}}}},
+];
+
+// ═══════════════════════════════════════════════════════════
+// ██ UI BUILDERS
+// ═══════════════════════════════════════════════════════════
+
+function addUser(text){const d=document.createElement('div');d.className='u-msg';d.innerHTML=`<div class="u-bubble">${esc(text)}</div>`;$m.appendChild(d);scroll();}
+
+function mkThink(){
+  const id=uid(),d=document.createElement('div');d.className='think';const t0=Date.now();
+  d.innerHTML=`<div class="think-hd" onclick="tog('${id}')"><span class="think-arrow open" id="a${id}">›</span><span class="think-title" id="t${id}">Thinking</span><span class="think-dot" id="d${id}"></span><span class="think-time" id="tm${id}"></span></div><div class="think-body open" id="b${id}"><div class="think-content" id="c${id}"></div></div>`;
+  const timer=setInterval(()=>{const e=document.getElementById('tm'+id);if(e)e.textContent=((Date.now()-t0)/1000|0)+'s';},200);
+  return{el:d,append(s){document.getElementById('c'+id).textContent+=s;scroll();},finish(){clearInterval(timer);document.getElementById('d'+id)?.remove();const s=(Date.now()-t0)/1000;document.getElementById('t'+id).textContent=s<3?'Thought briefly':`Thought for ${Math.round(s)} seconds`;document.getElementById('tm'+id).textContent='';},collapse(){document.getElementById('b'+id)?.classList.remove('open');document.getElementById('a'+id)?.classList.remove('open');}};
+}
+function tog(id){document.getElementById('b'+id)?.classList.toggle('open');document.getElementById('a'+id)?.classList.toggle('open');}
+
+function mkCb(title){
+  const id=uid(),d=document.createElement('div');d.className='cb';
+  d.innerHTML=`<div class="cb-hd" onclick="togCb('${id}')"><span class="cb-arrow open" id="ca${id}">›</span><span class="cb-title" id="ct${id}">${title}</span></div><div class="cb-body open" id="cb${id}"></div>`;
+  return{el:d,line(html){const l=document.createElement('div');l.className='cb-line';l.innerHTML=html;document.getElementById('cb'+id).appendChild(l);scroll();return l;},setTitle(t){document.getElementById('ct'+id).textContent=t;},collapse(){document.getElementById('cb'+id)?.classList.remove('open');document.getElementById('ca'+id)?.classList.remove('open');}};
+}
+function togCb(id){document.getElementById('cb'+id)?.classList.toggle('open');document.getElementById('ca'+id)?.classList.toggle('open');}
+
+function mkMd(){const d=document.createElement('div');d.className='md cursor';return{el:d,write(s){d.innerHTML=fmtMd(s);scroll();},finish(){d.classList.remove('cursor');}};}
+
+// ═══════════════════════════════════════════════════════════
+// ██ PROMPTS + MEMORY TOOLS
+// ═══════════════════════════════════════════════════════════
+
+const THINKING_SYS = `你是 ThunderClaw 思考引擎。分析用户请求，决定路由。
+
+规则：
+1. 先输出 2-4 句思考，然后调用 route 函数
+2. 思考是内部推理，不是回答
+3. 如果 MEMORY.md 有相关信息，利用它
+
+路由：
+- direct_reply：问候、闲聊
+- simple_tool：查一个数据（价格、余额）
+- agent_task：分析、评估、建议、风险、走势`;
+
+const ROUTE_TOOL=[{type:'function',function:{name:'route',description:'决定处理路径',parameters:{type:'object',properties:{path:{type:'string',enum:['direct_reply','simple_tool','agent_task']},tools:{type:'array',items:{type:'string'}},agents:{type:'array',items:{type:'string'}}},required:['path']}}}];
+
+const COORD_PLAN_SYS=`你是 ThunderClaw Coordinator。规划执行方案（2-3句）。
+
+你管理一个分区记忆系统：
+- shared/ — 跨 agent 共享知识（市场共识、用户偏好）
+- analyst/ — 分析师的经验和发现
+- risk/ — 风控官的评估记录
+- coordinator/ — 你自己的元数据
+
+MEMORY.md 是目录索引，每行有一句话摘要。你会根据摘要判断哪些记忆与当前任务相关，把摘要提示附在分发给 agent 的任务中。`;
+
+const COORD_SYNTH_SYS=`你是 ThunderClaw Coordinator。你有两个职责：
+
+## 1. 整合各 Agent 结论，给用户最终建议
+简洁、有数据支撑。
+
+## 2. 管理分区记忆系统
+记忆按 namespace 分区：
+- shared/ — 跨 agent 共享（市场快照、用户偏好等）
+- analyst/ — 分析师发现（写入 analyst 空间的记忆）
+- risk/ — 风控评估
+- coordinator/ — 你自己的元知识
+
+MEMORY.md 是索引，每行格式: - [文件名](路径) — 一句话摘要
+摘要很重要！下次加载时模型只看摘要就能判断要不要读全文。
+
+回答用户后执行记忆管理：
+1. search_memory 检查有无需要更新的旧记忆
+2. write_memory 写入各 namespace（按内容归属分区）
+3. update_index 更新 MEMORY.md（确保摘要准确）
+
+原则：
+- 每个文件专注一个主题，不要一个文件塞太多
+- 摘要要具体到能判断是否需要加载（不要写"BTC分析"，要写"BTC $67,200 RSI=58 看涨 2024-01-15"）
+- 时效性数据标注时间`;
+
+const AGENT_SYS={
+  analyst:`你是市场分析师 Agent。
+
+工具：市场数据工具 + 记忆工具（read_memory / search_memory，只能访问 analyst/ 和 shared/）。
+
+工作方式：
+1. 先看看有没有相关记忆可以参考（如果 Coordinator 给了记忆提示的话）
+2. 调用市场数据工具做分析
+3. 给出简短结论（2-3句，含关键数据）
+4. 获取完数据后直接给结论，不要再调工具`,
+  risk:`你是风控官 Agent。
+
+工具：账户/持仓工具 + 记忆工具（read_memory / search_memory，只能访问 risk/ 和 shared/）。
+
+工作方式：
+1. 先看看有没有相关记忆可以参考
+2. 查询账户和持仓数据
+3. 给出风险评估和仓位建议（2-3句）
+4. 获取完数据后直接给结论，不要再调工具`,
+};
+
+// ═══════════════════════════════════════════════════════════
+// ██ CONTEXT BUILDER
+// ═══════════════════════════════════════════════════════════
+
+function buildContext() {
+  return `## 系统状态
+时间: ${new Date().toLocaleString('zh-CN')} | Binance | $10,000 | 无持仓
+
+## 对话历史
+${getSessionContext()}
+
+## MEMORY.md (目录索引)
+${memoryIndex || '(空 — Coordinator 尚未创建)'}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ██ WORKFLOW
+// ═══════════════════════════════════════════════════════════
+
+async function run(userText) {
+  if(busy)return; busy=true; setBtns(false);
+  addUser(userText);
+  pushSession('user', userText);
+
+  try {
+    // Thinking
+    const think=mkThink(); $m.appendChild(think.el); scroll();
+    const ctx=buildContext();
+    const appendThink=d=>think.append(d);
+    const thinkResult=await llmStream(
+      [{role:'system',content:THINKING_SYS},{role:'system',content:ctx},{role:'user',content:userText}],
+      ROUTE_TOOL, {onThinking:appendThink, onContent:appendThink}
+    );
+    think.finish(); await sleep(400); think.collapse();
+
+    let route={path:'direct_reply'};
+    if(thinkResult.toolCalls.length){try{route=JSON.parse(thinkResult.toolCalls[0].arguments);}catch{}}
+
+    if(route.path==='direct_reply') await doDirectReply(userText,ctx);
+    else if(route.path==='simple_tool') await doSimpleTool(userText,ctx);
+    else if(route.path==='agent_task') await doAgentTask(userText,route.agents||['analyst']);
+  } catch(e) {
+    const d=document.createElement('div');d.className='md';
+    d.innerHTML=`<p style="color:var(--red)">${esc(e.message)}</p>`;$m.appendChild(d);
+  } finally { busy=false; setBtns(true); }
+}
+
+async function doDirectReply(userText,ctx) {
+  const sysParts = [`你是 ThunderClaw，加密货币量化交易 AI 助手。简洁友好地回答。`, ctx];
+  // Inject memory context so LLM knows about memory system
+  if (memoryIndex || Object.keys(memoryFiles).length) {
+    sysParts.push(`\n## 记忆系统\n你有记忆工具可用。如果用户告诉了你个人信息、偏好、或任何值得记住的事，先回答用户，然后用工具写入记忆。\n当前 MEMORY.md:\n${memoryIndex||'(空)'}`);
+  } else {
+    sysParts.push(`\n## 记忆系统\n你有记忆工具可用。如果用户告诉了你值得记住的事（名字、偏好等），先回答，然后用工具创建记忆文件和索引。\n记忆按 namespace 分区：shared/（用户信息、偏好）、analyst/、risk/、coordinator/。`);
+  }
+
+  const msgs=[{role:'system',content:sysParts.join('\n')},{role:'user',content:userText}];
+  let memCb = null;
+
+  while(true) {
+    let buf='', el=null;
+    const result=await llmStream(msgs, MEM_TOOLS_FULL, {
+      onContent:d=>{buf+=d;if(!el){el=document.createElement('div');el.className='md cursor';$m.appendChild(el);}el.innerHTML=fmtMd(buf);scroll();}
+    });
+    if(el) el.classList.remove('cursor');
+    if(!result.toolCalls.length){if(buf) pushSession('assistant',buf.slice(0,300)); break;}
+
+    // Memory tool calls
+    if(!memCb){memCb=mkCb('Updating memory');$m.appendChild(memCb.el);}
+    const aMsg={role:'assistant',content:buf||null,tool_calls:result.toolCalls.map(tc=>({id:tc.id,type:'function',function:{name:tc.name,arguments:tc.arguments}}))};
+    msgs.push(aMsg);
+    for(const tc of result.toolCalls){
+      let args={};try{args=JSON.parse(tc.arguments||'{}');}catch{}
+      const out=execMemoryTool(tc.name,args,null);
+      const brief=tc.name==='write_memory'?`${args.path} (${(args.content||'').length}c)`:tc.name==='update_index'?'MEMORY.md':tc.name==='read_memory'?args.path:`"${args.query}"`;
+      memCb.line(`<b>${tc.name}</b>  ${brief}`);
+      msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify(out)});
+    }
+  }
+  if(memCb){memCb.setTitle('Memory updated');await sleep(300);memCb.collapse();}
+}
+
+async function doSimpleTool(userText,ctx) {
+  // Combine market tools + memory tools so LLM can also save results to memory
+  const allTools = [...TOOL_DEFS, ...MEM_TOOLS_FULL];
+  const sysContent = memoryIndex
+    ? `你是 ThunderClaw。一句话说明要做什么，然后调工具。拿到数据后给简洁回答。\n如果结果值得记住，可以用记忆工具保存。\n当前 MEMORY.md:\n${memoryIndex}\n\n${ctx}`
+    : `你是 ThunderClaw。一句话说明要做什么，然后调工具。拿到数据后给简洁回答。\n${ctx}`;
+
+  const msgs=[{role:'system',content:sysContent},{role:'user',content:userText}];
+  let dataCb=null, memCb=null;
+
+  while(true) {
+    let buf='',el=null;
+    const result=await llmStream(msgs,allTools,{onContent:d=>{buf+=d;if(!el){el=document.createElement('div');el.className='md cursor';$m.appendChild(el);}el.innerHTML=fmtMd(buf);scroll();}});
+    if(el)el.classList.remove('cursor');
+    if(!result.toolCalls.length){pushSession('assistant',buf.slice(0,300));break;}
+
+    const aMsg={role:'assistant',content:buf||null,tool_calls:result.toolCalls.map(tc=>({id:tc.id,type:'function',function:{name:tc.name,arguments:tc.arguments}}))};
+    msgs.push(aMsg);
+
+    for(const tc of result.toolCalls){
+      let args={};try{args=JSON.parse(tc.arguments||'{}');}catch{}
+      const isMem=['read_memory','write_memory','update_index','search_memory'].includes(tc.name);
+
+      if(isMem){
+        if(!memCb){memCb=mkCb('Updating memory');$m.appendChild(memCb.el);}
+        const out=execMemoryTool(tc.name,args,null);
+        const brief=tc.name==='write_memory'?`${args.path} (${(args.content||'').length}c)`:tc.name==='update_index'?'MEMORY.md':tc.name==='read_memory'?args.path:`"${args.query}"`;
+        memCb.line(`<b>${tc.name}</b>  ${brief}`);
+        msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify(out)});
+      } else {
+        if(!dataCb){dataCb=mkCb('Fetching data');$m.appendChild(dataCb.el);}
+        const line=dataCb.line(`<b>${tc.name}</b>  ...`);
+        try{const out=await execTool(tc.name,args);line.innerHTML=`<b>${tc.name}</b>  ${toolBrief(tc.name,out)}`;msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify(out)});}
+        catch(e){line.innerHTML=`<b>${tc.name}</b>  error`;msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify({error:e.message})});}
+      }
+    }
+  }
+  if(dataCb){dataCb.setTitle('Fetched data');await sleep(300);dataCb.collapse();}
+  if(memCb){memCb.setTitle('Memory updated');await sleep(300);memCb.collapse();}
+}
+
+async function doAgentTask(userText, agentIds) {
+  const ctx=buildContext();
+
+  // ── Phase 1: Coordinator Planning ────────────────────────
+  // Coordinator reads MEMORY.md index, plans, and prepares memory hints for agents
+  const planThink=mkThink(); $m.appendChild(planThink.el); scroll();
+  const planResult = await llmStream(
+    [{role:'system',content:COORD_PLAN_SYS},{role:'system',content:ctx},{role:'user',content:userText}],
+    null, {onContent:d=>planThink.append(d), onThinking:d=>planThink.append(d)}
+  );
+  const planText = planResult.content || planResult.thinking || '';
+  planThink.finish(); await sleep(300); planThink.collapse();
+
+  // ── Phase 2: Workers (with scoped memory access) ─────────
+  const workerResults={};
+  for(const agId of agentIds) {
+    const agKey = agId.toLowerCase();
+    const agSys=AGENT_SYS[agKey]||'完成分析任务，给出简短结论。';
+
+    // Market/data tools per agent
+    const dataTools = agKey==='analyst'
+      ? TOOL_DEFS.filter(t=>['get_price','get_klines','calculate_indicator'].includes(t.function.name))
+      : TOOL_DEFS.filter(t=>['check_balance','get_positions','get_klines','get_price'].includes(t.function.name));
+
+    // Agent gets data tools + scoped memory tools
+    const agTools = [...dataTools, ...MEM_TOOLS_AGENT];
+
+    // Coordinator injects relevant memory summaries
+    const memHints = getMemorySummariesFor(agKey);
+    const memContext = memHints !== '(无相关记忆)'
+      ? `\n\n## 相关记忆摘要（来自 Coordinator）\n${memHints}\n如需详细信息可用 read_memory 加载全文。`
+      : '';
+
+    const label=agId.charAt(0).toUpperCase()+agId.slice(1).toLowerCase();
+    const msgs=[
+      {role:'system',content:`${agSys}${memContext}\n\n${ctx}`},
+      {role:'user',content:userText}
+    ];
+    let cb=null;
+
+    while(true) {
+      const result=await llmStream(msgs,agTools,{});
+      const conclusion=result.content||result.thinking;
+      if(!result.toolCalls.length){workerResults[agId]=conclusion||'';break;}
+
+      if(!cb){cb=mkCb(`${label} analyzing`);$m.appendChild(cb.el);}
+      const aMsg={role:'assistant',content:result.content||null,tool_calls:result.toolCalls.map(tc=>({id:tc.id,type:'function',function:{name:tc.name,arguments:tc.arguments}}))};
+      msgs.push(aMsg);
+      for(const tc of result.toolCalls){
+        let args={};try{args=JSON.parse(tc.arguments||'{}');}catch{}
+        const line=cb.line(`<b>${tc.name}</b>  ...`);
+        try{
+          // Memory tools: scoped to agent namespace
+          const isMem = ['read_memory','search_memory'].includes(tc.name);
+          const out = isMem ? execMemoryTool(tc.name, args, agKey) : await execTool(tc.name, args);
+          const brief = isMem
+            ? (tc.name === 'read_memory' ? args.path : `"${args.query}" → ${out.results?.length||0} hits`)
+            : toolBrief(tc.name, out);
+          line.innerHTML=`<b>${tc.name}</b>  ${brief}`;
+          msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify(out)});
+        }
+        catch(e){line.innerHTML=`<b>${tc.name}</b>  error`;msgs.push({role:'tool',tool_call_id:tc.id,content:JSON.stringify({error:e.message})});}
+      }
+    }
+    if(cb){cb.setTitle(`${label} analyzed`);cb.collapse();}
+
+    if(workerResults[agId]){
+      const md=document.createElement('div');md.className='md';
+      md.innerHTML=fmtMd(`**${label} 结论：** ${workerResults[agId]}`);
+      $m.appendChild(md);scroll();
+    }
+  }
+
+  // ── Phase 3: Coordinator Synthesis + Memory Management ───
+  const synthMsgs = [
+    {role:'system',content:COORD_SYNTH_SYS},
+    {role:'system',content:`当前 MEMORY.md 目录:\n${memoryIndex||'(空 — 首次运行，请创建初始目录结构)'}\n\n已有文件: ${Object.keys(memoryFiles).join(', ')||'(无)'}`},
+    {role:'user',content:userText},
+    {role:'assistant',content:`各 Agent 结论:\n${Object.entries(workerResults).map(([k,v])=>`[${k}] ${v}`).join('\n\n')}`},
+    {role:'user',content:'先整合分析给最终建议，然后管理记忆：按 namespace 分区写入（shared/ analyst/ risk/），确保摘要具体有时效。'},
+  ];
+
+  let memCb = null;
+
+  while (true) {
+    let contentBuf = '', contentEl = null;
+    const result = await llmStream(synthMsgs, MEM_TOOLS_FULL, {
+      onContent: d => {
+        contentBuf += d;
+        if (!contentEl) { contentEl = document.createElement('div'); contentEl.className = 'md cursor'; $m.appendChild(contentEl); }
+        contentEl.innerHTML = fmtMd(contentBuf); scroll();
+      },
+      onThinking: d => {}
+    });
+    if (contentEl) contentEl.classList.remove('cursor');
+
+    if (!result.toolCalls.length) {
+      if (contentBuf) pushSession('assistant', contentBuf.slice(0, 300));
+      break;
+    }
+
+    if (!memCb) { memCb = mkCb('Updating memory'); $m.appendChild(memCb.el); }
+    const aMsg = {role:'assistant', content:contentBuf||null, tool_calls:result.toolCalls.map(tc=>({id:tc.id,type:'function',function:{name:tc.name,arguments:tc.arguments}}))};
+    synthMsgs.push(aMsg);
+
+    for (const tc of result.toolCalls) {
+      let args = {}; try { args = JSON.parse(tc.arguments || '{}'); } catch {}
+      const out = execMemoryTool(tc.name, args, null);  // Coordinator: full access
+
+      const brief = tc.name === 'write_memory' ? `${args.path} (${(args.content||'').length}c)`
+        : tc.name === 'update_index' ? 'MEMORY.md'
+        : tc.name === 'read_memory' ? args.path
+        : tc.name === 'search_memory' ? `"${args.query}" → ${out.results?.length||0} hits`
+        : '';
+      memCb.line(`<b>${tc.name}</b>  ${brief}`);
+
+      synthMsgs.push({role:'tool', tool_call_id:tc.id, content:JSON.stringify(out)});
+    }
+  }
+
+  if (memCb) { memCb.setTitle('Memory updated'); await sleep(300); memCb.collapse(); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ██ INPUT
+// ═══════════════════════════════════════════════════════════
+
+function setBtns(on){document.querySelectorAll('.preset').forEach(b=>b.disabled=!on);document.getElementById('send').disabled=!on;}
+function go(text){run(text);}
+function handleSend(){const t=document.getElementById('input').value.trim();if(!t||busy)return;document.getElementById('input').value='';run(t);}
+const inp=document.getElementById('input');
+inp.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
+inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend();}});
+</script>
+</body>
+</html>

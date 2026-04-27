@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claw Agent Harness Architecture</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #111827; --bg3: #1a2332; --bg4: #0a1420;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
+    --accent: #3cc87a; --gold: #e8a84a; --blue: #60a5fa; --purple: #a78bfa; --red: #ef5350; --cyan: #22d3ee;
+    --t1: #e2e8f0; --t2: #94a3b8; --t3: #4a5568;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--t1); font-family: var(--font); font-size: 13px; padding: 28px 24px; }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
+  .subtitle { color: var(--t3); font-size: 12px; margin-bottom: 24px; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 2px; margin-bottom: 20px; }
+  .tab {
+    padding: 7px 16px; border-radius: 6px 6px 0 0; cursor: pointer;
+    font-size: 12px; font-weight: 500; color: var(--t3);
+    background: var(--bg2); border: 1px solid var(--border); border-bottom: none;
+    transition: all .15s;
+  }
+  .tab:hover { color: var(--t2); }
+  .tab.active { color: var(--accent); background: var(--bg3); border-color: var(--border2); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 700; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-desc { font-size: 11.5px; color: var(--t3); line-height: 1.6; margin-bottom: 14px; }
+  .badge {
+    font-size: 9px; padding: 2px 7px; border-radius: 4px; font-weight: 600;
+    white-space: nowrap; letter-spacing: .3px;
+  }
+  .bg-green { background: rgba(60,200,122,.12); color: var(--accent); border: 1px solid rgba(60,200,122,.2); }
+  .bg-gold { background: rgba(232,168,74,.12); color: var(--gold); border: 1px solid rgba(232,168,74,.2); }
+  .bg-blue { background: rgba(96,165,250,.12); color: var(--blue); border: 1px solid rgba(96,165,250,.2); }
+  .bg-purple { background: rgba(167,139,250,.12); color: var(--purple); border: 1px solid rgba(167,139,250,.2); }
+  .bg-red { background: rgba(239,83,80,.12); color: var(--red); border: 1px solid rgba(239,83,80,.2); }
+  .bg-cyan { background: rgba(34,211,238,.12); color: var(--cyan); border: 1px solid rgba(34,211,238,.2); }
+
+  /* ── Layer diagram ── */
+  .layer-stack { display: flex; flex-direction: column; gap: 0; }
+  .layer {
+    padding: 12px 16px; border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    transition: all .2s; cursor: pointer; position: relative;
+  }
+  .layer:first-child { border-radius: 8px 8px 0 0; }
+  .layer:last-child { border-radius: 0 0 8px 8px; }
+  .layer + .layer { border-top: none; }
+  .layer:hover { background: rgba(255,255,255,.02); }
+  .layer.active { background: rgba(60,200,122,.04); border-color: rgba(60,200,122,.2); z-index: 1; }
+  .layer-num {
+    width: 24px; height: 24px; border-radius: 6px; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .layer-info { flex: 1; }
+  .layer-name { font-size: 12px; font-weight: 600; }
+  .layer-sub { font-size: 11px; color: var(--t3); }
+  .layer-arrow { color: var(--t3); font-size: 12px; }
+
+  /* ── Layer detail panel ── */
+  .detail-panel {
+    background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 16px; margin-top: 12px;
+  }
+  .detail-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .detail-section { margin-bottom: 12px; }
+  .detail-label { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; font-weight: 600; }
+  .detail-items { display: flex; flex-wrap: wrap; gap: 5px; }
+  .detail-item {
+    font-size: 11px; padding: 4px 9px; border-radius: 5px;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    color: var(--t2); display: flex; align-items: center; gap: 4px;
+  }
+  .detail-text { font-size: 11.5px; color: var(--t2); line-height: 1.6; }
+  .principle-box {
+    padding: 10px 12px; border-radius: 6px; margin-top: 8px;
+    background: rgba(232,168,74,.05); border: 1px solid rgba(232,168,74,.15);
+    font-size: 11px; color: var(--gold); line-height: 1.5;
+  }
+  .principle-box b { color: var(--t1); }
+
+  /* ── PGE Loop ── */
+  .pge-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .pge-card {
+    padding: 14px; border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
+    transition: all .2s; position: relative;
+  }
+  .pge-card:hover { border-color: var(--border2); }
+  .pge-card.active { border-width: 2px; }
+  .pge-card.p-card.active { border-color: var(--blue); background: rgba(96,165,250,.04); }
+  .pge-card.g-card.active { border-color: var(--accent); background: rgba(60,200,122,.04); }
+  .pge-card.e-card.active { border-color: var(--gold); background: rgba(232,168,74,.04); }
+  .pge-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+  .pge-name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .pge-desc { font-size: 11px; color: var(--t3); line-height: 1.5; }
+  .pge-arrow { position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--t3); font-size: 14px; }
+
+  /* ── Scenario flow ── */
+  .scenario-select { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .scenario-btn {
+    padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 11px; font-family: var(--font); color: var(--t2);
+    background: var(--bg3); border: 1px solid var(--border);
+    transition: all .15s;
+  }
+  .scenario-btn:hover { border-color: var(--border2); color: var(--t1); }
+  .scenario-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(60,200,122,.06); }
+
+  .flow-timeline { display: flex; flex-direction: column; gap: 0; }
+  .flow-node {
+    display: flex; gap: 10px; padding: 8px 10px; position: relative;
+  }
+  .flow-node::before {
+    content: ""; position: absolute; left: 20px; top: 30px; bottom: -8px;
+    width: 1.5px; background: var(--border);
+  }
+  .flow-node:last-child::before { display: none; }
+  .flow-dot {
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; font-weight: 700; color: #000;
+  }
+  .flow-body { flex: 1; }
+  .flow-phase { font-size: 10px; font-weight: 600; letter-spacing: .3px; margin-bottom: 2px; }
+  .flow-text { font-size: 11px; color: var(--t2); line-height: 1.5; }
+  .flow-tools { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .flow-tool {
+    font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border); color: var(--t3);
+  }
+
+  /* ── Tools grid ── */
+  .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tool-card {
+    padding: 10px 12px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .tool-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .tool-name { font-size: 11px; font-weight: 600; }
+  .tool-desc { font-size: 10px; color: var(--t3); line-height: 1.4; }
+  .tool-risk { font-size: 9px; margin-top: 4px; }
+
+  /* ── Safety layers ── */
+  .safety-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
+  .safety-card {
+    flex: 1; padding: 10px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg3);
+  }
+  .safety-name { font-size: 11px; font-weight: 600; margin-bottom: 3px; }
+  .safety-desc { font-size: 10px; color: var(--t3); line-height: 1.4; }
+
+  /* ── Mapping table ── */
+  .map-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .map-table th {
+    text-align: left; padding: 6px 10px; font-size: 10px; color: var(--t3);
+    text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .map-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--t2); vertical-align: top; }
+  .map-table tr:last-child td { border-bottom: none; }
+  .map-chapter { color: var(--gold); font-weight: 600; white-space: nowrap; }
+
+  /* ── Two column layout ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Claw Agent Harness Architecture</h1>
+<div class="subtitle">基于 Claude Code Harness Engineering 理念，针对交易 Agent 场景设计的系统架构</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab(0)">分层架构</div>
+  <div class="tab" onclick="showTab(1)">P-G-E 循环</div>
+  <div class="tab" onclick="showTab(2)">场景走查</div>
+  <div class="tab" onclick="showTab(3)">工具与权限</div>
+  <div class="tab" onclick="showTab(4)">可靠性</div>
+  <div class="tab" onclick="showTab(5)">原则映射</div>
+</div>
+
+<!-- ═══════════ Tab 0: 分层架构 ═══════════ -->
+<div class="tab-content active" id="tc0">
+  <div class="card">
+    <div class="card-title">Claw Harness 六层架构 <span class="badge bg-green">点击每层查看详情</span></div>
+    <div class="card-desc">从外到内，每一层都是对模型不确定性的一次收窄。越往内层，约束越精确、后果越直接。</div>
+
+    <div class="layer-stack">
+      <div class="layer active" onclick="showLayer(0)">
+        <div class="layer-num" style="background:rgba(96,165,250,.15);color:var(--blue);">L1</div>
+        <div class="layer-info">
+          <div class="layer-name">Control Plane — 控制平面</div>
+          <div class="layer-sub">System Prompt · 分层规则 · 身份与约束</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+      <div class="layer" onclick="showLayer(1)">
+        <div class="layer-num" style="background:rgba(60,200,122,.15);color:var(--accent);">L2</div>
+        <div class="layer-info">
+          <div class="layer-name">Query Loop — 执行心跳</div>
+          <div class="layer-sub">有状态循环 · 上下文治理 · 流式处理 · 停止条件</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+      <div class="layer" onclick="showLayer(2)">
+        <div class="layer-num" style="background:rgba(232,168,74,.15);color:var(--gold);">L3</div>
+        <div class="layer-info">
+          <div class="layer-name">P-G-E Loop — 计划·生成·评估</div>
+          <div class="layer-sub">Planner · Generator · Evaluator 三段式执行</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+      <div class="layer" onclick="showLayer(3)">
+        <div class="layer-num" style="background:rgba(167,139,250,.15);color:var(--purple);">L4</div>
+        <div class="layer-info">
+          <div class="layer-name">Tool Orchestration — 工具编排</div>
+          <div class="layer-sub">Function Call · Skill · MCP · 权限 · 并发控制</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+      <div class="layer" onclick="showLayer(4)">
+        <div class="layer-num" style="background:rgba(239,83,80,.15);color:var(--red);">L5</div>
+        <div class="layer-info">
+          <div class="layer-name">State & Memory — 状态与记忆</div>
+          <div class="layer-sub">会话状态 · 上下文预算 · 长期记忆 · Compact</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+      <div class="layer" onclick="showLayer(5)">
+        <div class="layer-num" style="background:rgba(34,211,238,.15);color:var(--cyan);">L6</div>
+        <div class="layer-info">
+          <div class="layer-name">Reliability — 容灾与恢复</div>
+          <div class="layer-sub">错误即主路径 · 熔断 · 审批 · Kill Switch</div>
+        </div>
+        <div class="layer-arrow">›</div>
+      </div>
+    </div>
+
+    <div class="detail-panel" id="layerDetail">
+      <!-- filled by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab 1: P-G-E Loop ═══════════ -->
+<div class="tab-content" id="tc1">
+  <div class="card">
+    <div class="card-title">Planner → Generator → Evaluator 循环</div>
+    <div class="card-desc">Agent 的核心执行单元。外层是 P-G-E 大循环，内层 Generator 中有工具调用的小循环（Agentic Loop）。Evaluator 有权打回重做。</div>
+
+    <div class="pge-grid">
+      <div class="pge-card p-card active" onclick="showPGE('p')">
+        <div class="pge-label" style="color:var(--blue);">Phase 1</div>
+        <div class="pge-name">Planner</div>
+        <div class="pge-desc">理解意图 → 分解任务 → 识别所需 Skill 和工具 → 生成执行计划</div>
+        <div class="pge-arrow">→</div>
+      </div>
+      <div class="pge-card g-card" onclick="showPGE('g')">
+        <div class="pge-label" style="color:var(--accent);">Phase 2</div>
+        <div class="pge-name">Generator</div>
+        <div class="pge-desc">按计划逐步执行 → 调用工具 → 流式输出 → 内有 Agentic Loop</div>
+        <div class="pge-arrow">→</div>
+      </div>
+      <div class="pge-card e-card" onclick="showPGE('e')">
+        <div class="pge-label" style="color:var(--gold);">Phase 3</div>
+        <div class="pge-name">Evaluator</div>
+        <div class="pge-desc">独立验证结果 → 风险检查 → 质量评估 → 通过 or 打回</div>
+      </div>
+    </div>
+
+    <div id="pgeDetail" class="detail-panel"></div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab 2: 场景走查 ═══════════ -->
+<div class="tab-content" id="tc2">
+  <div class="card">
+    <div class="card-title">真实场景走查 <span class="badge bg-green">选择场景查看完整链路</span></div>
+    <div class="card-desc">展示不同类型的用户请求在 Harness 中经过的完整路径。</div>
+
+    <div class="scenario-select">
+      <button class="scenario-btn active" onclick="showScenario(0)">市场分析</button>
+      <button class="scenario-btn" onclick="showScenario(1)">因子生成</button>
+      <button class="scenario-btn" onclick="showScenario(2)">策略回测</button>
+      <button class="scenario-btn" onclick="showScenario(3)">实盘下单</button>
+    </div>
+
+    <div class="flow-timeline" id="scenarioFlow"></div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab 3: 工具与权限 ═══════════ -->
+<div class="tab-content" id="tc3">
+  <div class="card">
+    <div class="card-title">工具注册表与权限模型</div>
+    <div class="card-desc">工具是受管执行接口。能力越强，约束越细。权限分三级：auto（自动执行）、ask（需确认）、deny（禁止）。</div>
+
+    <div class="tools-grid" id="toolsGrid"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">工具来源分层</div>
+    <div class="card-desc">工具可以从多种来源注册，统一接入 Tool Orchestration 层。</div>
+    <div class="two-col">
+      <div class="safety-card">
+        <div class="safety-name" style="color:var(--accent);">内置工具（Built-in）</div>
+        <div class="safety-desc">由系统代码定义，如 web_search、code_exec。在 Rust 后端或前端直接实现。</div>
+      </div>
+      <div class="safety-card">
+        <div class="safety-name" style="color:var(--blue);">Skill 工具</div>
+        <div class="safety-desc">由 Skill 文件定义的领域工具包。如 "因子分析 Skill" 内含 calculate_factor、get_klines 等工具组合。</div>
+      </div>
+      <div class="safety-card">
+        <div class="safety-name" style="color:var(--purple);">MCP 工具</div>
+        <div class="safety-desc">外部 MCP Server 暴露的工具。通过标准协议发现和调用，如接入财经数据供应商的 MCP。</div>
+      </div>
+      <div class="safety-card">
+        <div class="safety-name" style="color:var(--gold);">用户自定义工具</div>
+        <div class="safety-desc">用户通过配置注册的自定义 HTTP 回调或脚本。需要更严格的权限审查。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab 4: 可靠性 ═══════════ -->
+<div class="tab-content" id="tc4">
+  <div class="card">
+    <div class="card-title">可靠性设计 — 错误即主路径</div>
+    <div class="card-desc">交易场景中，错误不是异常——它是最常走的路径。系统必须在每个层级都有对应的恢复机制。</div>
+
+    <div class="detail-label">按层级的容灾机制</div>
+
+    <div class="safety-row">
+      <div class="safety-card" style="border-left:3px solid var(--blue);">
+        <div class="safety-name">L1 控制平面</div>
+        <div class="safety-desc">Prompt 校验 · 指令优先级冲突检测 · 规则违反时 fallback 到安全默认值</div>
+      </div>
+      <div class="safety-card" style="border-left:3px solid var(--accent);">
+        <div class="safety-name">L2 Query Loop</div>
+        <div class="safety-desc">上下文超限 → auto compact · 流中断 → synthetic 收尾 · API 错误 → 重试/切模型 · 死循环检测</div>
+      </div>
+    </div>
+    <div class="safety-row">
+      <div class="safety-card" style="border-left:3px solid var(--gold);">
+        <div class="safety-name">L3 P-G-E</div>
+        <div class="safety-desc">Evaluator 打回 → 重新 Plan · 连续失败熔断 · 计划步骤超时 · 子 Agent 隔离失败</div>
+      </div>
+      <div class="safety-card" style="border-left:3px solid var(--purple);">
+        <div class="safety-name">L4 Tool</div>
+        <div class="safety-desc">工具超时 → synthetic error · 权限拒绝 → 降级路径 · 并发冲突 → 顺序回退 · API key 失效 → 提示配置</div>
+      </div>
+    </div>
+    <div class="safety-row">
+      <div class="safety-card" style="border-left:3px solid var(--red);">
+        <div class="safety-name">L5 State</div>
+        <div class="safety-desc">Compact 失败 → truncate head · 记忆污染 → 验证后再信任 · Session 丢失 → persist 恢复</div>
+      </div>
+      <div class="safety-card" style="border-left:3px solid var(--cyan);">
+        <div class="safety-name">交易专属</div>
+        <div class="safety-desc">下单前二次确认 · 仓位上限锁定 · 回撤触发 Kill Switch · 网络断开冻结挂单 · 订单状态轮询兜底</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">恢复原则</div>
+    <div class="principle-box">
+      <b>恢复的目标是继续工作，不是回忆历史。</b><br>
+      Compact 后保留的是"接下来该做什么"，而非"之前聊了什么"。交易场景中，恢复后必须先校验当前持仓和挂单状态，再继续执行策略。
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab 5: 原则映射 ═══════════ -->
+<div class="tab-content" id="tc5">
+  <div class="card">
+    <div class="card-title">Harness 十原则 → Claw 落地映射</div>
+    <div class="card-desc">逐条对应 Claude Code Harness Engineering 的设计原则，映射到 Claw 交易 Agent 的具体设计决策。</div>
+
+    <table class="map-table">
+      <tr>
+        <th style="width:40px;">#</th>
+        <th style="width:200px;">原则</th>
+        <th>Claw 落地</th>
+      </tr>
+      <tr>
+        <td class="map-chapter">1</td>
+        <td>模型是不稳定部件</td>
+        <td>不信任模型的交易决策 → 所有下单必经 Evaluator 独立校验 + 用户确认。模型是"建议者"不是"执行者"。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">2</td>
+        <td>Prompt 是控制平面</td>
+        <td>System Prompt 分层：全局规则 → 交易约束（仓位限制、风控参数）→ Skill 规则 → 用户自定义。优先级链保证风控规则不被覆盖。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">3</td>
+        <td>Query Loop 是心跳</td>
+        <td>有状态执行循环：跨轮维护当前策略状态、持仓快照、待确认操作。每轮开始先治理上下文，再推理。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">4</td>
+        <td>工具是受管执行接口</td>
+        <td>web_search=auto，calculate_factor=auto，place_order=ask（必须确认），cancel_all=deny（需手动执行）。能力越强约束越细。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">5</td>
+        <td>上下文是工作内存</td>
+        <td>Compact 保留：当前策略参数 + 最近信号 + 持仓状态。丢弃：历史闲聊、已完成的分析过程。Session Memory 只为继续工作。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">6</td>
+        <td>错误路径是主路径</td>
+        <td>交易所 API 超时、K线数据缺失、模型幻觉因子名 — 全部有 synthetic error 和降级路径。autocompact 连续失败 3 次触发熔断。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">7</td>
+        <td>恢复目标是继续工作</td>
+        <td>崩溃恢复后：先查交易所真实仓位 → 对比本地状态 → 修正后继续。不从头回溯对话，直接从当前状态续行。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">8</td>
+        <td>多代理 = 不确定性分区</td>
+        <td>子 Agent 隔离：因子研究 Agent、策略回测 Agent、信号执行 Agent 各自独立上下文。协调者综合结果，不外包理解。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">9</td>
+        <td>验证必须独立</td>
+        <td>Evaluator 是独立的 LLM 调用（甚至可以是不同模型），不复用 Generator 的上下文。交易信号必须经独立验证才能进入执行队列。</td>
+      </tr>
+      <tr>
+        <td class="map-chapter">10</td>
+        <td>团队制度重于个人技巧</td>
+        <td>交易规则写入 claw.rules（类似 CLAUDE.md）：最大仓位比例、允许的交易对、回测要求等。Skill 文件标准化，Hook 锚点（PreTrade / PostTrade）。</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<script>
+// ── Tab switching ─────────────────────────────────────────────
+function showTab(idx) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.tab-content').forEach((c,i) => c.classList.toggle('active', i===idx));
+}
+
+// ── Layer details ─────────────────────────────────────────────
+const LAYERS = [
+  {
+    title: "L1 · Control Plane — 控制平面",
+    color: "var(--blue)",
+    chapter: "对应：Ch2 Prompt is Control Plane",
+    sections: [
+      { label: "核心组件", items: ["System Prompt 分段拼装", "优先级链（override > agent > skill > default）", "身份定义", "全局约束（风控红线）", "Prompt 缓存策略"] },
+      { label: "交易特化", items: ["风控规则硬编码（仓位限制、最大回撤）", "交易规则文件 claw.rules", "用户自定义约束", "Skill 规则注入"] }
+    ],
+    principle: "Prompt 不是人设，是控制面。交易红线必须在 Prompt 层硬约束，不能靠模型'理解'。"
+  },
+  {
+    title: "L2 · Query Loop — 执行心跳",
+    color: "var(--accent)",
+    chapter: "对应：Ch3 Query Loop Heartbeat",
+    sections: [
+      { label: "循环结构", items: ["有状态 State 对象", "跨轮维护（turnCount, transition, toolUseContext）", "流式事件驱动", "停止条件判定"] },
+      { label: "上下文治理顺序", items: ["1. Memory 预取", "2. Skill 发现", "3. Tool result 预算", "4. History snip", "5. Microcompact", "6. Context collapse", "7. Autocompact"] },
+      { label: "中断与恢复", items: ["用户中断 → synthetic tool_result 收尾", "API 错误 → 重试/切模型", "上下文超限 → compact drain", "防死循环检测"] }
+    ],
+    principle: "Query Loop 的每一轮开始，先治理输入，再推理。永远不要直接把膨胀的 context 扔给模型。"
+  },
+  {
+    title: "L3 · P-G-E Loop — 计划·生成·评估",
+    color: "var(--gold)",
+    chapter: "对应：Ch7 Multi-agent & Verification",
+    sections: [
+      { label: "三段式", items: ["Planner: 意图理解 + 任务分解 + Skill 选择", "Generator: 逐步执行 + 工具调用 + 流式输出", "Evaluator: 独立验证 + 风险检查 + 通过/打回"] },
+      { label: "内循环", items: ["Generator 内的 Agentic Loop（最多 N 轮工具调用）", "Evaluator 打回 → 重新 Plan（最多 M 次）", "连续失败 → 熔断 → 报告用户"] }
+    ],
+    principle: "Generator 不能自证正确。Evaluator 是独立的怀疑者，尤其对交易信号，必须独立校验。"
+  },
+  {
+    title: "L4 · Tool Orchestration — 工具编排",
+    color: "var(--purple)",
+    chapter: "对应：Ch4 Tools, Permissions, Interrupts",
+    sections: [
+      { label: "工具来源", items: ["内置 Built-in（web_search, code_exec）", "Skill 工具包（calculate_factor, backtest）", "MCP Server（外部财经数据）", "用户自定义 HTTP 回调"] },
+      { label: "执行管理", items: ["Permission Model: auto / ask / deny", "并发安全判定 isConcurrencySafe()", "按原始 block 顺序回放", "超时 → synthetic error", "工具结果预算控制"] }
+    ],
+    principle: "工具是受管执行接口。能力越强，约束越细。place_order 的审查密度应该是 web_search 的 10 倍。"
+  },
+  {
+    title: "L5 · State & Memory — 状态与记忆",
+    color: "var(--red)",
+    chapter: "对应：Ch5 Context, Memory, Compact",
+    sections: [
+      { label: "状态层次", items: ["会话状态（messages, toolUseContext）", "任务状态（当前计划、执行进度）", "交易状态（持仓、挂单、PnL）", "长期记忆（规则、历史因子表现）"] },
+      { label: "Compact 策略", items: ["保留：当前任务参数 + 最近信号 + 持仓快照", "丢弃：历史闲聊 + 已完成分析过程", "Session Memory 固定栏目 + 长度限制", "Compact 后恢复 skill/hook/plan 状态"] }
+    ],
+    principle: "上下文是工作内存，不是仓库。Compact 的目标是让 Agent 知道'接下来该做什么'，而非记住'之前聊了什么'。"
+  },
+  {
+    title: "L6 · Reliability — 容灾与恢复",
+    color: "var(--cyan)",
+    chapter: "对应：Ch6 Errors & Recovery, Ch8 Team Practices",
+    sections: [
+      { label: "通用容灾", items: ["错误即主路径设计", "autocompact 熔断器", "compact 自爆修复（truncateHead）", "abort synthetic 收尾", "执行叙事（transition.reason）"] },
+      { label: "交易专属", items: ["下单前二次确认（PreTrade Hook）", "仓位上限硬锁", "最大回撤 Kill Switch", "网络断开冻结挂单", "订单状态轮询兜底", "恢复后先校验真实仓位"] }
+    ],
+    principle: "出错后仍保持可解释、可限界、可继续的执行秩序。交易场景中，'可限界'意味着一定有资金损失上限。"
+  }
+];
+
+function showLayer(idx) {
+  document.querySelectorAll('.layer').forEach((l,i) => l.classList.toggle('active', i===idx));
+  const d = LAYERS[idx];
+  let html = `<div class="detail-title" style="color:${d.color}">${d.title} <span class="badge bg-gold">${d.chapter}</span></div>`;
+  for (const s of d.sections) {
+    html += `<div class="detail-section"><div class="detail-label">${s.label}</div><div class="detail-items">`;
+    for (const it of s.items) html += `<div class="detail-item">${it}</div>`;
+    html += `</div></div>`;
+  }
+  html += `<div class="principle-box">${d.principle}</div>`;
+  document.getElementById('layerDetail').innerHTML = html;
+}
+showLayer(0);
+
+// ── PGE details ───────────────────────────────────────────────
+const PGE = {
+  p: {
+    title: "Planner — 规划器",
+    color: "var(--blue)",
+    html: `
+      <div class="detail-section"><div class="detail-label">输入</div>
+      <div class="detail-items">
+        <div class="detail-item">用户请求</div>
+        <div class="detail-item">会话历史（compact 后）</div>
+        <div class="detail-item">可用 Skill 列表</div>
+        <div class="detail-item">当前交易状态</div>
+      </div></div>
+      <div class="detail-section"><div class="detail-label">处理</div>
+      <div class="detail-text">
+        1. 意图分类：分析/生成/交易/闲聊<br>
+        2. 所需 Skill 和工具识别<br>
+        3. 分解为有序子任务（可并行则标注）<br>
+        4. 为每个子任务分配工具白名单和超时预算<br>
+        5. 输出结构化执行计划（JSON）
+      </div></div>
+      <div class="detail-section"><div class="detail-label">输出</div>
+      <div class="detail-items">
+        <div class="detail-item">ExecutionPlan { steps[], tools[], constraints }</div>
+      </div></div>
+      <div class="principle-box">Planner 只做规划，不执行任何工具。它的输出是一个<b>可被 Generator 逐步执行</b>的结构化计划。</div>
+    `
+  },
+  g: {
+    title: "Generator — 生成器",
+    color: "var(--accent)",
+    html: `
+      <div class="detail-section"><div class="detail-label">内部循环（Agentic Loop）</div>
+      <div class="detail-text">
+        按 Plan 的 steps 逐步执行：<br><br>
+        <b>while (step = nextStep()) {</b><br>
+        &nbsp;&nbsp;1. 构建当前步骤的 messages + tools<br>
+        &nbsp;&nbsp;2. 调用 LLM（流式）<br>
+        &nbsp;&nbsp;3. 如果 LLM 返回 tool_call → 执行工具 → 注入结果 → 继续<br>
+        &nbsp;&nbsp;4. 如果 LLM 返回文字 → 该步骤完成 → 进入下一步<br>
+        &nbsp;&nbsp;5. 单步骤内工具调用最多 N 轮（防循环）<br>
+        <b>}</b>
+      </div></div>
+      <div class="detail-section"><div class="detail-label">并发控制</div>
+      <div class="detail-items">
+        <div class="detail-item">isConcurrencySafe() 判定</div>
+        <div class="detail-item">可并行工具同时执行</div>
+        <div class="detail-item">按原始顺序回放结果</div>
+        <div class="detail-item">context modifier 缓存</div>
+      </div></div>
+      <div class="principle-box">Generator 是执行者，不是决策者。它严格按计划执行，遇到计划外情况上报 Evaluator 而非自行决定。</div>
+    `
+  },
+  e: {
+    title: "Evaluator — 评估器",
+    color: "var(--gold)",
+    html: `
+      <div class="detail-section"><div class="detail-label">独立验证（Skeptical by Default）</div>
+      <div class="detail-text">
+        Evaluator 是一次<b>独立的 LLM 调用</b>，不复用 Generator 的上下文。<br>
+        它接收：原始请求 + Generator 的输出 + 当前状态快照<br><br>
+        验证维度：<br>
+        1. <b>正确性</b> — 结果是否准确回答了用户的问题？<br>
+        2. <b>完整性</b> — 是否遗漏了关键信息？<br>
+        3. <b>安全性</b> — 交易建议是否违反风控规则？<br>
+        4. <b>一致性</b> — 与之前的分析是否矛盾？
+      </div></div>
+      <div class="detail-section"><div class="detail-label">输出动作</div>
+      <div class="detail-items">
+        <div class="detail-item" style="border-color:rgba(60,200,122,.3);color:var(--accent);">PASS → 输出给用户</div>
+        <div class="detail-item" style="border-color:rgba(232,168,74,.3);color:var(--gold);">REVISE → 附带修改建议，回到 Generator</div>
+        <div class="detail-item" style="border-color:rgba(239,83,80,.3);color:var(--red);">REJECT → 附带理由，回到 Planner 重新规划</div>
+      </div></div>
+      <div class="principle-box"><b>验证独立：</b>不自证正确。Evaluator 不能复用 Generator 的推理过程来"确认"自己的结果。尤其对交易信号，必须 skeptical。</div>
+    `
+  }
+};
+
+function showPGE(key) {
+  document.querySelectorAll('.pge-card').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.${key}-card`).classList.add('active');
+  const d = PGE[key];
+  document.getElementById('pgeDetail').innerHTML = `<div class="detail-title" style="color:${d.color}">${d.title}</div>${d.html}`;
+}
+showPGE('p');
+
+// ── Scenarios ─────────────────────────────────────────────────
+const SCENARIOS = [
+  {
+    name: "市场分析",
+    nodes: [
+      { phase: "USER", color: "var(--accent)", text: "分析一下当前 BTC 的走势，给我一个操作建议" },
+      { phase: "PLANNER", color: "var(--blue)", text: "意图：市场分析 + 交易建议", tools: ["web_search", "get_klines", "calculate_indicator"] },
+      { phase: "GENERATOR · Step 1", color: "var(--accent)", text: "web_search(\"BTC 今日行情 新闻\")", tools: ["web_search"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "BTC $94,320 | 24h +2.3% | 美联储维持利率" },
+      { phase: "GENERATOR · Step 2", color: "var(--accent)", text: "get_klines(\"BTC/USDT\", \"4h\", 100) → calculate_indicator(\"MA\", \"RSI\", \"MACD\")", tools: ["get_klines", "calculate_indicator"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "MA20=$92,100 | RSI=62 | MACD 金叉形成" },
+      { phase: "GENERATOR · 综合", color: "var(--accent)", text: "基于搜索结果 + 技术指标，生成分析报告和操作建议" },
+      { phase: "EVALUATOR", color: "var(--gold)", text: "校验：建议仓位是否超限 ✓ | 指标计算是否合理 ✓ | 风险提示是否充分 ✓ → PASS" },
+      { phase: "OUTPUT", color: "var(--t1)", text: "输出完整分析报告 + 操作建议给用户" },
+    ]
+  },
+  {
+    name: "因子生成",
+    nodes: [
+      { phase: "USER", color: "var(--accent)", text: "帮我设计一个基于成交量异常检测的交易因子" },
+      { phase: "PLANNER", color: "var(--blue)", text: "意图：因子设计 → 选择 Skill: factor_design", tools: ["web_search", "code_exec", "backtest"] },
+      { phase: "GENERATOR · Step 1", color: "var(--accent)", text: "web_search(\"volume anomaly detection trading factor research\")", tools: ["web_search"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "学术论文 + 量化社区方案：Z-Score / OBV 偏离 / VWAP 异常" },
+      { phase: "GENERATOR · Step 2", color: "var(--accent)", text: "code_exec(生成因子计算代码 + 单元测试)", tools: ["code_exec"] },
+      { phase: "GENERATOR · Step 3", color: "var(--accent)", text: "backtest(因子在 BTC/ETH 近 6 个月数据上的表现)", tools: ["backtest"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "IC=0.08 | IR=1.2 | 胜率 58% | 最大回撤 12%" },
+      { phase: "EVALUATOR", color: "var(--gold)", text: "校验：代码可执行 ✓ | 回测无前视偏差 ✓ | 指标合理 ✓ → PASS" },
+      { phase: "OUTPUT", color: "var(--t1)", text: "输出因子定义 + 代码 + 回测报告" },
+    ]
+  },
+  {
+    name: "策略回测",
+    nodes: [
+      { phase: "USER", color: "var(--accent)", text: "用均线交叉策略回测 ETH 最近三个月的表现" },
+      { phase: "PLANNER", color: "var(--blue)", text: "意图：策略回测 → Skill: strategy_backtest", tools: ["get_klines", "code_exec", "backtest"] },
+      { phase: "GENERATOR · Step 1", color: "var(--accent)", text: "get_klines(\"ETH/USDT\", \"1h\", 2160)", tools: ["get_klines"] },
+      { phase: "GENERATOR · Step 2", color: "var(--accent)", text: "code_exec(构建均线交叉策略逻辑)", tools: ["code_exec"] },
+      { phase: "GENERATOR · Step 3", color: "var(--accent)", text: "backtest(策略代码, K线数据, 手续费=0.1%)", tools: ["backtest"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "总收益 +18.5% | Sharpe 1.8 | 最大回撤 8.2% | 交易 47 次" },
+      { phase: "EVALUATOR", color: "var(--gold)", text: "校验：未使用未来数据 ✓ | 手续费已扣 ✓ | 滑点合理 ⚠（建议加入滑点模型） → REVISE" },
+      { phase: "GENERATOR · 修订", color: "var(--accent)", text: "加入 0.05% 滑点重新回测 → 收益 +15.2%", tools: ["backtest"] },
+      { phase: "EVALUATOR", color: "var(--gold)", text: "二次校验 → PASS" },
+      { phase: "OUTPUT", color: "var(--t1)", text: "输出策略报告 + 回测曲线 + 优化建议" },
+    ]
+  },
+  {
+    name: "实盘下单",
+    nodes: [
+      { phase: "USER", color: "var(--accent)", text: "按照之前的策略信号，买入 0.5 BTC" },
+      { phase: "PLANNER", color: "var(--blue)", text: "意图：实盘交易 ⚠ 高风险 → 启用全部审查", tools: ["get_price", "check_balance", "place_order"] },
+      { phase: "GENERATOR · Step 1", color: "var(--accent)", text: "check_balance() → get_price(\"BTC/USDT\")", tools: ["check_balance", "get_price"] },
+      { phase: "TOOL RESULT", color: "var(--purple)", text: "可用余额 $52,000 | BTC 当前 $94,320 | 订单金额 $47,160" },
+      { phase: "EVALUATOR · 风控", color: "var(--red)", text: "仓位检查：$47,160 / $52,000 = 90.7% → 超过单笔最大仓位限制 (20%) → REJECT" },
+      { phase: "PLANNER · 重规划", color: "var(--blue)", text: "风控拒绝 → 计算合规仓位：$52,000 × 20% = $10,400 → 约 0.11 BTC" },
+      { phase: "GENERATOR · 修订", color: "var(--accent)", text: "生成修正后的订单：限价买入 0.11 BTC @ $94,320", tools: ["place_order"] },
+      { phase: "PRE-TRADE HOOK", color: "var(--red)", text: "⚠ 二次确认：买入 0.11 BTC，预计花费 $10,375。确认执行？[确认 / 取消]" },
+      { phase: "USER CONFIRM", color: "var(--accent)", text: "用户点击「确认」" },
+      { phase: "TOOL EXEC", color: "var(--purple)", text: "place_order → 订单提交成功 → 轮询订单状态 → 已成交" },
+      { phase: "OUTPUT", color: "var(--t1)", text: "订单已成交：买入 0.11 BTC @ $94,318 · 花费 $10,374.98" },
+    ]
+  }
+];
+
+function showScenario(idx) {
+  document.querySelectorAll('.scenario-btn').forEach((b,i) => b.classList.toggle('active', i===idx));
+  const s = SCENARIOS[idx];
+  let html = '';
+  for (const n of s.nodes) {
+    html += `<div class="flow-node">
+      <div class="flow-dot" style="background:${n.color};"></div>
+      <div class="flow-body">
+        <div class="flow-phase" style="color:${n.color};">${n.phase}</div>
+        <div class="flow-text">${n.text}</div>
+        ${n.tools ? `<div class="flow-tools">${n.tools.map(t=>`<span class="flow-tool">${t}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>`;
+  }
+  document.getElementById('scenarioFlow').innerHTML = html;
+}
+showScenario(0);
+
+// ── Tools grid ────────────────────────────────────────────────
+const TOOLS = [
+  { name: "web_search", desc: "联网搜索实时信息", risk: "auto", riskLabel: "自动执行", riskClass: "bg-green", cat: "内置" },
+  { name: "get_klines", desc: "获取 K 线历史数据", risk: "auto", riskLabel: "自动执行", riskClass: "bg-green", cat: "交易" },
+  { name: "get_price", desc: "获取实时价格", risk: "auto", riskLabel: "自动执行", riskClass: "bg-green", cat: "交易" },
+  { name: "calculate_indicator", desc: "计算技术指标", risk: "auto", riskLabel: "自动执行", riskClass: "bg-green", cat: "分析" },
+  { name: "calculate_factor", desc: "计算交易因子", risk: "auto", riskLabel: "自动执行", riskClass: "bg-green", cat: "分析" },
+  { name: "code_exec", desc: "执行 Python 代码", risk: "ask", riskLabel: "需确认", riskClass: "bg-gold", cat: "内置" },
+  { name: "backtest", desc: "策略回测引擎", risk: "ask", riskLabel: "需确认", riskClass: "bg-gold", cat: "分析" },
+  { name: "place_order", desc: "提交交易订单", risk: "ask", riskLabel: "必须确认", riskClass: "bg-red", cat: "交易" },
+  { name: "cancel_order", desc: "取消指定订单", risk: "ask", riskLabel: "必须确认", riskClass: "bg-red", cat: "交易" },
+  { name: "cancel_all", desc: "取消全部订单", risk: "deny", riskLabel: "仅手动", riskClass: "bg-red", cat: "交易" },
+  { name: "mcp_*", desc: "MCP Server 暴露的外部工具", risk: "ask", riskLabel: "需确认", riskClass: "bg-purple", cat: "MCP" },
+  { name: "skill_*", desc: "Skill 内嵌的领域工具包", risk: "auto", riskLabel: "Skill 内控", riskClass: "bg-blue", cat: "Skill" },
+];
+
+{
+  const grid = document.getElementById('toolsGrid');
+  for (const t of TOOLS) {
+    grid.innerHTML += `
+      <div class="tool-card">
+        <div class="tool-head">
+          <span class="tool-name">${t.name}</span>
+          <span class="badge ${t.riskClass}" style="margin-left:auto;">${t.riskLabel}</span>
+        </div>
+        <div class="tool-desc">${t.desc}</div>
+        <div class="tool-risk" style="color:var(--t3);">来源：${t.cat}</div>
+      </div>`;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent → 交易引擎 — 策略的生命周期</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1000px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .bg-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+  .bg-blue{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.2);}
+  .bg-cyan{background:rgba(34,211,238,.12);color:var(--cyan);border:1px solid rgba(34,211,238,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px;}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:14px 0;
+    font-size:12px;color:var(--t2);line-height:1.7;
+  }
+  .kp-gold{background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);}
+  .kp-green{background:rgba(60,200,122,.04);border:1px solid rgba(60,200,122,.15);}
+  .kp-red{background:rgba(239,83,80,.04);border:1px solid rgba(239,83,80,.15);}
+  .key-point b{color:var(--gold);}
+  .kp-green b{color:var(--green);}
+  .kp-red b{color:var(--red);}
+
+  /* ── Compare ── */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0;}
+  .cmp-card{padding:14px;border-radius:8px;border:1.5px solid var(--border);}
+  .cmp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+  .cmp-item{font-size:11.5px;color:var(--t2);line-height:1.5;padding:4px 0;border-bottom:1px solid var(--border);}
+  .cmp-item:last-child{border-bottom:none;}
+  .cmp-item b{color:var(--t1);}
+
+  /* ── Architecture ── */
+  .arch{
+    font-size:11px;padding:14px 16px;border-radius:8px;
+    background:var(--bg3);border:1px solid var(--border);
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.8;white-space:pre-wrap;
+  }
+
+  /* ── Lifecycle ── */
+  .lifecycle{display:flex;flex-direction:column;gap:0;margin:14px 0;}
+  .lc-node{display:flex;gap:12px;padding:10px 0;position:relative;}
+  .lc-node::before{
+    content:"";position:absolute;left:19px;top:40px;bottom:-10px;
+    width:2px;background:var(--border);
+  }
+  .lc-node:last-child::before{display:none;}
+  .lc-icon{
+    width:40px;height:40px;border-radius:10px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:16px;
+    border:2px solid;
+  }
+  .lc-body{flex:1;}
+  .lc-phase{font-size:10px;font-weight:700;letter-spacing:.3px;margin-bottom:2px;}
+  .lc-title{font-size:13px;font-weight:700;margin-bottom:4px;}
+  .lc-text{font-size:11.5px;color:var(--t2);line-height:1.6;}
+  .lc-text b{color:var(--t1);}
+  .lc-box{
+    margin-top:8px;padding:10px 12px;border-radius:7px;
+    font-size:11px;line-height:1.55;
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    background:rgba(0,0,0,.3);border:1px solid var(--border);color:var(--t2);
+    white-space:pre-wrap;
+  }
+
+  /* ── Engine modules ── */
+  .eng-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;}
+  .eng-card{padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);}
+  .eng-name{font-size:12px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px;}
+  .eng-desc{font-size:11px;color:var(--t2);line-height:1.5;}
+
+  /* ── Modes ── */
+  .modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:14px 0;}
+  .mode-card{
+    padding:14px;border-radius:8px;border:1.5px solid var(--border);text-align:center;
+  }
+  .mode-icon{font-size:24px;margin-bottom:6px;}
+  .mode-name{font-size:13px;font-weight:700;margin-bottom:4px;}
+  .mode-desc{font-size:11px;color:var(--t3);line-height:1.5;text-align:left;}
+  .mode-items{text-align:left;margin-top:8px;font-size:11px;color:var(--t2);line-height:1.6;}
+  .mode-items b{color:var(--t1);}
+</style>
+</head>
+<body>
+
+<h1>Agent → 交易引擎 — 策略的生命周期</h1>
+<div class="sub">Agent 团队是大脑，交易引擎是身体。大脑想出策略，交给身体持续运行。<br>但身体不能脱离大脑的监督——而最终的控制权在用户手里。</div>
+
+<!-- ═══════ 两种交易模式 ═══════ -->
+<h2>先区分两种模式</h2>
+
+<div class="compare">
+  <div class="cmp-card" style="border-color:rgba(60,200,122,.2);">
+    <div class="cmp-label" style="color:var(--green);">手动交易（上一个 demo 讲的）</div>
+    <div class="cmp-item"><b>触发</b>：用户在对话框说"买 BTC"</div>
+    <div class="cmp-item"><b>流程</b>：Agent 分析 → 确认卡片 → 用户确认 → Executor 执行一笔</div>
+    <div class="cmp-item"><b>结束</b>：这一笔成交后就完了</div>
+    <div class="cmp-item"><b>类比</b>：手动开车——你踩油门，车走一步</div>
+  </div>
+  <div class="cmp-card" style="border-color:rgba(232,168,74,.2);">
+    <div class="cmp-label" style="color:var(--gold);">策略交易（这个 demo 要讲的）</div>
+    <div class="cmp-item"><b>触发</b>：用户说"帮我部署一个均线交叉策略"</div>
+    <div class="cmp-item"><b>流程</b>：Agent 设计策略 → 回测 → 用户审批 → 部署到交易引擎 → <b>持续运行</b></div>
+    <div class="cmp-item"><b>结束</b>：策略一直跑着，条件触发就下单，直到用户暂停/停止</div>
+    <div class="cmp-item"><b>类比</b>：自动驾驶——你设定目的地，车自己开，但你随时可以接管</div>
+  </div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>策略交易才需要交易引擎。</b>手动交易用 Executor 就够了。<br>
+  交易引擎 = <b>一个持续运行的策略运行时</b>，它根据策略定义的条件自动监控市场、生成信号、触发下单。
+</div>
+
+<!-- ═══════ 策略生命周期 ═══════ -->
+<h2>一个策略从诞生到运行的完整生命周期</h2>
+
+<div class="card">
+  <div class="card-title">用户: "帮我做一个 BTC 均线交叉策略，回测通过就部署"</div>
+  <div class="lifecycle">
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--gold);background:rgba(232,168,74,.06);">🧠</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--gold);">PHASE 1 — Agent 世界</div>
+        <div class="lc-title">策略设计与验证</div>
+        <div class="lc-text">
+          <b>Planner</b> 调度 Quant + Risk：<br>
+          <b>Quant</b>（strategy_backtest Skill）→ 设计策略、编写代码、回测验证<br>
+          <b>Risk</b>（position_sizing Skill）→ 计算合理仓位、设定风控参数<br>
+          <b>Coordinator</b> → 综合策略报告 + 回测结果
+        </div>
+        <div class="lc-box">strategy_definition: {
+  name: "MA_Cross_BTC",
+  type: "trend_following",
+  symbol: "BTC/USDT",
+  timeframe: "4h",
+  
+  // 策略逻辑（确定性规则，不含 LLM）
+  entry: {
+    condition: "MA(20) crosses above MA(60)",
+    side: "buy",
+    size: "balance * 0.10"    // 10% 仓位
+  },
+  exit: {
+    take_profit: "+5%",
+    stop_loss: "-3%",
+    trailing_stop: "-2% from peak",
+    condition: "MA(20) crosses below MA(60)"
+  },
+  
+  // 风控参数（Risk Agent 设定）
+  risk: {
+    max_position_pct: 10,
+    max_daily_loss: 500,      // $500/天
+    max_concurrent_orders: 1,
+    cooldown_after_loss: "4h"  // 止损后冷静 4 小时
+  },
+  
+  // 回测结果
+  backtest: {
+    period: "2025-10 ~ 2026-03",
+    sharpe: 1.82,
+    max_drawdown: "8.2%",
+    win_rate: "58%",
+    total_return: "+23.5%"
+  }
+}</div>
+      </div>
+    </div>
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--gold);background:rgba(232,168,74,.08);">👤</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--gold);">PHASE 2 — 用户审批</div>
+        <div class="lc-title">审核策略 + 选择运行模式</div>
+        <div class="lc-text">
+          用户审阅策略定义、回测结果、风控参数。然后选择运行模式：
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════ 三种运行模式 ═══════ -->
+<div class="modes">
+  <div class="mode-card" style="border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.02);">
+    <div class="mode-icon">📝</div>
+    <div class="mode-name" style="color:var(--blue);">模拟盘</div>
+    <div class="mode-desc">不涉及真钱。策略在真实市场数据上运行，但订单只是"纸上交易"。</div>
+    <div class="mode-items">
+      <b>适用</b>：首次部署、验证策略有效性<br>
+      <b>风险</b>：零<br>
+      <b>下单审批</b>：不需要
+    </div>
+  </div>
+  <div class="mode-card" style="border-color:rgba(232,168,74,.3);background:rgba(232,168,74,.02);">
+    <div class="mode-icon">🔔</div>
+    <div class="mode-name" style="color:var(--gold);">信号通知</div>
+    <div class="mode-desc">策略运行并生成信号，但不自动下单。每次信号推送给用户，由用户决定是否执行。</div>
+    <div class="mode-items">
+      <b>适用</b>：有一定信心但不想全自动<br>
+      <b>风险</b>：零（不自动下单）<br>
+      <b>下单审批</b>：每次都要
+    </div>
+  </div>
+  <div class="mode-card" style="border-color:rgba(60,200,122,.3);background:rgba(60,200,122,.02);">
+    <div class="mode-icon">⚡</div>
+    <div class="mode-name" style="color:var(--green);">自动执行</div>
+    <div class="mode-desc">策略信号触发后自动通过 Executor 下单。在预设的风控范围内自动运行。</div>
+    <div class="mode-items">
+      <b>适用</b>：充分验证后的成熟策略<br>
+      <b>风险</b>：有（真金白银）<br>
+      <b>下单审批</b>：预授权（在风控范围内免确认）
+    </div>
+  </div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>三种模式是渐进式信任：</b>模拟盘 → 信号通知 → 自动执行。<br>
+  用户可以先在模拟盘跑 2 周，满意了切到信号通知跟几天，最后才开自动执行。<br>
+  <b>任何模式都可以随时暂停。</b>自动执行模式下，风控参数（最大仓位、止损、日亏上限）是硬锁的。
+</div>
+
+<!-- ═══════ 交易引擎结构 ═══════ -->
+<h2>交易引擎内部结构</h2>
+
+<div class="card">
+  <div class="card-title">Trading Engine <span class="badge bg-cyan">系统进程，无 LLM</span></div>
+  <div class="card-desc">交易引擎和 Executor 一样是纯代码进程，不含 LLM。它运行的是用户审批过的<b>确定性规则</b>，不做任何"推理"。</div>
+
+  <div class="eng-grid">
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--cyan);"><span class="badge bg-cyan">核心</span> Strategy Runtime</div>
+      <div class="eng-desc">加载策略定义，按 timeframe 轮询市场数据，计算指标，判断进出场条件。<b>纯规则引擎，无 LLM。</b></div>
+    </div>
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--cyan);"><span class="badge bg-cyan">核心</span> Signal Generator</div>
+      <div class="eng-desc">当策略条件满足时生成交易信号。信号包含：方向、品种、数量、价格、信号强度。</div>
+    </div>
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--green);"><span class="badge bg-green">调度</span> Order Router</div>
+      <div class="eng-desc">根据运行模式路由信号：模拟盘→记录不执行 | 信号通知→推送用户 | 自动执行→发给 Executor。</div>
+    </div>
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--green);"><span class="badge bg-green">调度</span> Position Manager</div>
+      <div class="eng-desc">跟踪策略的持仓状态。管理止盈止损单。计算浮动盈亏。一个策略一个独立的持仓簿。</div>
+    </div>
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--red);"><span class="badge bg-red">风控</span> Risk Guard</div>
+      <div class="eng-desc">实时检查策略是否越界：仓位超限？日亏过大？信号频率异常？触发则冻结该策略。</div>
+    </div>
+    <div class="eng-card">
+      <div class="eng-name" style="color:var(--gold);"><span class="badge bg-gold">监控</span> Performance Tracker</div>
+      <div class="eng-desc">记录策略的实盘表现：每笔交易、累计收益、Sharpe、回撤。供 Agent 团队复盘和用户查看。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ 运行时场景 ═══════ -->
+<h2>策略运行时的实际流转</h2>
+
+<div class="card">
+  <div class="card-title">MA_Cross_BTC 策略在自动执行模式下运行</div>
+  <div class="lifecycle">
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--cyan);background:rgba(34,211,238,.06);font-size:14px;">⏱️</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--cyan);">每 4 小时一次</div>
+        <div class="lc-title">Strategy Runtime 轮询</div>
+        <div class="lc-text">获取最新 4h K线 → 计算 MA(20) 和 MA(60) → 对比上一根K线的值</div>
+        <div class="lc-box">14:00:00  get_klines("BTC/USDT", "4h", 60)
+14:00:00  MA20 = 94,100 | MA60 = 93,200
+14:00:00  上一根: MA20 = 93,050 | MA60 = 93,180
+14:00:01  检测: MA20 从 93,050→94,100 穿越 MA60 93,200
+14:00:01  → 金叉确认！生成买入信号</div>
+      </div>
+    </div>
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--cyan);background:rgba(34,211,238,.06);font-size:14px;">📊</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--cyan);">Signal Generator</div>
+        <div class="lc-title">生成交易信号</div>
+        <div class="lc-box">signal: {
+  strategy: "MA_Cross_BTC",
+  time: "2026-04-05T14:00:01Z",
+  action: "BUY",
+  symbol: "BTC/USDT",
+  size: "balance * 10% = $5,200 → 0.055 BTC",
+  price: "market",
+  stop_loss: 91,277,   // 当前价 -3%
+  take_profit: 98,835   // 当前价 +5%
+}</div>
+      </div>
+    </div>
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--red);background:rgba(239,83,80,.06);font-size:14px;">🛡️</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--red);">Risk Guard 检查</div>
+        <div class="lc-title">信号过风控</div>
+        <div class="lc-text">即使是自动执行，每个信号仍需通过硬编码风控检查：</div>
+        <div class="lc-box">risk_check: {
+  position_within_limit: true,  // $5,200 = 10% < 20% ✓
+  daily_loss_ok: true,          // 今日尚未亏损 ✓
+  cooldown_ok: true,            // 距上次止损 >4h ✓
+  concurrent_orders: 0,         // < max(1) ✓
+  → all passed → route to Executor
+}</div>
+      </div>
+    </div>
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--green);background:rgba(60,200,122,.06);font-size:14px;">⚡</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--green);">自动执行模式 → Order Router → Executor</div>
+        <div class="lc-title">免确认直接下单</div>
+        <div class="lc-text">
+          因为是用户预授权的自动执行模式，且风控通过，<b>信号直接发给 Executor 执行</b>。<br>
+          同时推送通知给用户："MA_Cross_BTC 策略触发买入信号，已自动执行。"
+        </div>
+        <div class="lc-box">14:00:02  Executor: Pre-Flight ✓
+14:00:02  Executor: POST /order → orderId: ORD-9012
+14:00:03  Executor: status: FILLED | 0.055 BTC @ $94,320
+14:00:03  Position Manager: 更新策略持仓
+14:00:03  Executor: 设置止损单 @ $91,277
+14:00:04  Notify: "策略 MA_Cross_BTC 买入 0.055 BTC ✓"</div>
+      </div>
+    </div>
+
+    <div class="lc-node">
+      <div class="lc-icon" style="border-color:var(--gold);background:rgba(232,168,74,.06);font-size:14px;">📈</div>
+      <div class="lc-body">
+        <div class="lc-phase" style="color:var(--gold);">持续运行</div>
+        <div class="lc-title">Position Manager 持续管理</div>
+        <div class="lc-text">
+          建仓后继续监控：止损单是否触发、是否达到止盈、是否出现死叉退出信号。<br>
+          <b>Performance Tracker 实时记录策略表现。</b>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════ Agent 与引擎的关系 ═══════ -->
+<h2>Agent 团队和交易引擎的关系</h2>
+
+<div class="card">
+  <div class="card-title">三者各司其职</div>
+  <div class="arch">
+<span style="color:var(--t3);">━━━ Agent 团队（LLM 驱动）━━━━━━━━━━━━━━━━━━━</span>
+
+  职责：<span style="color:var(--blue);">策略设计</span> + <span style="color:var(--purple);">回测验证</span> + <span style="color:var(--red);">风控参数</span> + <span style="color:var(--gold);">持续优化建议</span>
+  产出：strategy_definition（JSON，确定性规则）
+  
+  什么时候介入：
+    → 初始设计策略
+    → Sentinel 发现策略表现衰减时，提出优化建议
+    → 用户要求修改策略时
+    → 定期复盘时
+
+<span style="color:var(--t3);">━━━ 用户（决策者）━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  职责：审批策略 + 选择运行模式 + 随时暂停/修改
+  
+  什么时候介入：
+    → 审批新策略上线
+    → 审批策略参数修改
+    → 信号通知模式下确认每笔订单
+    → 主动暂停/停止策略
+
+<span style="color:var(--t3);">━━━ 交易引擎 + Executor（系统进程，无 LLM）━━━━</span>
+
+  职责：<span style="color:var(--cyan);">运行策略</span> + <span style="color:var(--green);">执行订单</span> + <span style="color:var(--red);">风控护栏</span> + <span style="color:var(--gold);">记录表现</span>
+  
+  什么时候运行：
+    → 7×24 持续运行（策略激活期间）
+    → 按 timeframe 轮询（如每 4h / 1h / 15m）
+    → 信号触发时立即响应</div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>交易引擎运行的是"确定性规则"，不是 LLM 推理。</b><br><br>
+  Agent 团队产出的 strategy_definition 是一份<b>结构化的 JSON</b>——条件、阈值、参数全部是硬编码的数字和规则。<br>
+  交易引擎拿到这份 JSON 后，就像一个<b>规则引擎</b>一样运行它：if MA20 > MA60 then BUY。<br>
+  <b>运行时不需要 LLM，不需要"理解"，不需要"推理"。</b><br><br>
+  LLM 的价值在前面——帮你<b>设计</b>这套规则。而不是在运行时做每一个交易决策。
+</div>
+
+<!-- ═══════ 整体架构图 ═══════ -->
+<h2>完整系统架构</h2>
+
+<div class="card">
+  <div class="arch">
+                    ┌───────────────────────────────┐
+                    │          <span style="color:var(--gold);">用 户 (PM)</span>             │
+                    │  审批 · 确认 · 暂停 · 查看报告  │
+                    └───────────┬───────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌───────────────┐   ┌───────────────────┐   ┌───────────────────┐
+│  <span style="color:var(--blue);">Agent 团队</span>    │   │  <span style="color:var(--cyan);">Trading Engine</span>    │   │    <span style="color:var(--cyan);">Executor</span>       │
+│  (LLM 驱动)   │   │  (纯规则引擎)      │   │  (纯系统进程)      │
+│               │   │                   │   │                   │
+│ Analyst       │   │ Strategy Runtime  │   │ Pre-Flight Check  │
+│ Quant ────────┼──→│ Signal Generator ─┼──→│ Order Submitter   │
+│ Risk          │   │ Position Manager  │   │ Status Monitor    │
+│ Sentinel      │   │ Risk Guard        │   │ Circuit Breaker   │
+│ Coordinator   │   │ Performance Track │   │ Audit Logger      │
+│               │   │                   │   │                   │
+│ 产出:         │   │ 运行:             │   │ 执行:             │
+│ 策略定义 JSON │   │ 确定性规则        │   │ 交易所 API 调用    │
+└───────────────┘   └───────────────────┘   └───────────────────┘
+        │                       │                       │
+        │              ┌───────┘                        │
+        ▼              ▼                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     <span style="color:var(--red);">State Layer（共享状态）</span>                  │
+│  持仓 · 余额 · 策略定义 · 交易记录 · Track Record · 审计日志  │
+└──────────────────────────────────────────────────────────────┘</div>
+</div>
+
+<div class="key-point kp-green">
+  <b>三个系统各自的边界非常清晰：</b><br><br>
+  <b>Agent 团队</b> — 产出策略定义（JSON），提出优化建议，做复盘分析。<b>不碰执行。</b><br>
+  <b>交易引擎</b> — 运行策略规则，生成信号，管理持仓。<b>不做推理。</b><br>
+  <b>Executor</b> — 与交易所交互，提交订单，监控状态。<b>不做决策。</b><br><br>
+  <b>LLM 只存在于 Agent 团队里。</b>交易引擎和 Executor 是纯代码，确定性执行。<br>
+  这样即使 LLM 出问题（幻觉、宕机），正在运行的策略不受影响——因为策略已经被编译成确定性规则了。
+</div>
+
+</body>
+</html>

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 自主学习与沉淀架构</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1000px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+  .bg-blue{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .bg-purple{background:rgba(167,139,250,.12);color:var(--purple);border:1px solid rgba(167,139,250,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px;}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:12px 0;
+    font-size:12px;color:var(--t2);line-height:1.7;
+  }
+  .kp-gold{background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);}
+  .kp-red{background:rgba(239,83,80,.04);border:1px solid rgba(239,83,80,.15);}
+  .kp-green{background:rgba(60,200,122,.04);border:1px solid rgba(60,200,122,.15);}
+  .key-point b{color:var(--gold);}
+  .kp-red b{color:var(--red);}
+  .kp-green b{color:var(--green);}
+
+  /* ── Trader analogy ── */
+  .analogy{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+  .analogy-card{padding:14px;border-radius:8px;border:1px solid var(--border);}
+  .analogy-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+  .analogy-item{font-size:11.5px;color:var(--t2);line-height:1.6;padding:4px 0;border-bottom:1px solid var(--border);}
+  .analogy-item:last-child{border-bottom:none;}
+  .analogy-item b{color:var(--t1);}
+
+  /* ── Learning loop ── */
+  .loop-ring{
+    display:flex;justify-content:center;align-items:center;gap:0;
+    margin:20px auto;flex-wrap:wrap;max-width:700px;
+  }
+  .loop-node{
+    padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;
+    text-align:center;min-width:110px;cursor:pointer;transition:all .2s;
+    border:1.5px solid var(--border);
+  }
+  .loop-node:hover{transform:scale(1.03);}
+  .loop-node.active{transform:scale(1.05);}
+  .loop-node small{display:block;font-weight:400;font-size:10px;color:var(--t3);margin-top:2px;}
+  .loop-arrow{font-size:16px;color:var(--t3);margin:0 2px;}
+  .loop-detail{
+    background:var(--bg3);border:1px solid var(--border2);border-radius:8px;
+    padding:14px 16px;margin-top:12px;
+  }
+  .ld-title{font-size:12px;font-weight:700;margin-bottom:6px;}
+  .ld-text{font-size:11.5px;color:var(--t2);line-height:1.65;}
+  .ld-text b{color:var(--t1);}
+  .ld-example{
+    margin-top:8px;padding:8px 10px;border-radius:6px;
+    background:rgba(0,0,0,.25);border:1px solid var(--border);
+    font-size:11px;font-family:"JetBrains Mono","Fira Code",monospace;
+    color:var(--t2);line-height:1.5;white-space:pre-wrap;
+  }
+
+  /* ── Autonomy spectrum ── */
+  .spectrum{display:flex;flex-direction:column;gap:0;margin:16px 0;}
+  .spec-row{
+    display:grid;grid-template-columns:100px 1fr 80px;gap:0;
+    border:1px solid var(--border);border-bottom:none;
+    min-height:48px;
+  }
+  .spec-row:first-child{border-radius:8px 8px 0 0;}
+  .spec-row:last-child{border-radius:0 0 8px 8px;border-bottom:1px solid var(--border);}
+  .spec-level{
+    display:flex;align-items:center;justify-content:center;
+    border-right:1px solid var(--border);font-size:11px;font-weight:700;
+    padding:4px 8px;text-align:center;
+  }
+  .spec-body{padding:8px 12px;}
+  .spec-what{font-size:12px;font-weight:500;margin-bottom:2px;}
+  .spec-desc{font-size:10.5px;color:var(--t3);line-height:1.4;}
+  .spec-auto{
+    display:flex;align-items:center;justify-content:center;
+    border-left:1px solid var(--border);font-size:10px;font-weight:600;
+    padding:4px;text-align:center;
+  }
+
+  /* ── Danger zone ── */
+  .danger-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;}
+  .danger-card{
+    padding:12px 14px;border-radius:8px;font-size:11.5px;line-height:1.6;
+  }
+  .danger-bad{background:rgba(239,83,80,.04);border:1px solid rgba(239,83,80,.15);color:var(--t2);}
+  .danger-good{background:rgba(60,200,122,.04);border:1px solid rgba(60,200,122,.15);color:var(--t2);}
+  .danger-label{font-size:10px;font-weight:700;margin-bottom:4px;}
+
+  /* ── Timeline ── */
+  .timeline{display:flex;flex-direction:column;gap:0;margin:12px 0;}
+  .tl-node{display:flex;gap:10px;padding:6px 0;position:relative;}
+  .tl-node::before{
+    content:"";position:absolute;left:7px;top:22px;bottom:-6px;
+    width:1.5px;background:var(--border);
+  }
+  .tl-node:last-child::before{display:none;}
+  .tl-dot{
+    width:16px;height:16px;border-radius:50%;flex-shrink:0;margin-top:2px;
+    border:2px solid;
+  }
+  .tl-body{flex:1;}
+  .tl-time{font-size:10px;color:var(--t3);font-weight:600;}
+  .tl-text{font-size:11.5px;color:var(--t2);line-height:1.5;}
+  .tl-text b{color:var(--t1);}
+  .tl-tag{
+    display:inline-block;font-size:9px;padding:1px 6px;border-radius:3px;margin-left:4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Agent 自主学习与沉淀 — 能力边界在哪？</h1>
+<div class="sub">一个真正的交易员会从经验中学习、沉淀直觉、适应市场。Agent 能不能做到这些？哪些可以自主，哪些必须人类监督？</div>
+
+<!-- ═══════════ Part 1: 真实交易员怎么学习 ═══════════ -->
+<h2>先看真实交易员是怎么成长的</h2>
+
+<div class="analogy">
+  <div class="analogy-card" style="background:var(--bg3);">
+    <div class="analogy-label" style="color:var(--gold);">人类交易员的学习循环</div>
+    <div class="analogy-item"><b>观察</b> — 每天看盘、读新闻、跟踪持仓</div>
+    <div class="analogy-item"><b>记录</b> — 交易日志：什么时候买的、为什么、结果如何</div>
+    <div class="analogy-item"><b>复盘</b> — 定期回顾：哪些判断对了、哪些错了、为什么</div>
+    <div class="analogy-item"><b>总结</b> — 提炼规律："RSI 超卖 + 放量时抄底胜率高"</div>
+    <div class="analogy-item"><b>验证</b> — 用小仓位或模拟盘测试新想法</div>
+    <div class="analogy-item"><b>迭代</b> — 有效则纳入体系，无效则放弃</div>
+  </div>
+  <div class="analogy-card" style="background:var(--bg3);">
+    <div class="analogy-label" style="color:var(--blue);">Agent 可以模拟哪些？</div>
+    <div class="analogy-item"><b>观察</b> — ✓ 自动监控市场、新闻、持仓变动</div>
+    <div class="analogy-item"><b>记录</b> — ✓ 自动记录每次分析和建议的结果</div>
+    <div class="analogy-item"><b>复盘</b> — ✓ 自动对比预测 vs 实际，统计准确率</div>
+    <div class="analogy-item"><b>总结</b> — ⚠ 可以发现统计规律，但可能过拟合</div>
+    <div class="analogy-item"><b>验证</b> — ✓ 可以在历史数据 / 模拟盘上自动回测</div>
+    <div class="analogy-item"><b>迭代</b> — ⚠ 更新策略规则 → <b>需要用户审批</b></div>
+  </div>
+</div>
+
+<div class="key-point kp-gold">
+  <b>关键洞察：</b>交易员的学习循环有 6 步，前 5 步 Agent 都可以自主完成。<br>
+  唯一需要人类介入的是最后一步"迭代"——把新规律纳入正式体系。<br><br>
+  原因：Agent 可能<b>过拟合</b>（把噪声当规律）、<b>幸存者偏差</b>（只记住成功的）、<b>因果倒置</b>（相关不等于因果）。<br>
+  人类审批这一步，就是防止 Agent "学到错误的教训"。
+</div>
+
+<!-- ═══════════ Part 2: 学习循环 ═══════════ -->
+<h2>Agent 学习循环 <span class="badge bg-green">点击每个节点看细节</span></h2>
+
+<div class="loop-ring">
+  <div class="loop-node active" id="ln0" onclick="showLoop(0)" style="border-color:rgba(60,200,122,.3);background:rgba(60,200,122,.03);color:var(--green);">
+    观察<small>Observe</small>
+  </div>
+  <span class="loop-arrow">→</span>
+  <div class="loop-node" id="ln1" onclick="showLoop(1)" style="border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.03);color:var(--blue);">
+    记录<small>Record</small>
+  </div>
+  <span class="loop-arrow">→</span>
+  <div class="loop-node" id="ln2" onclick="showLoop(2)" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.03);color:var(--purple);">
+    复盘<small>Review</small>
+  </div>
+  <span class="loop-arrow">→</span>
+  <div class="loop-node" id="ln3" onclick="showLoop(3)" style="border-color:rgba(232,168,74,.3);background:rgba(232,168,74,.03);color:var(--gold);">
+    洞察<small>Insight</small>
+  </div>
+  <span class="loop-arrow">→</span>
+  <div class="loop-node" id="ln4" onclick="showLoop(4)" style="border-color:rgba(34,211,238,.3);background:rgba(34,211,238,.03);color:var(--cyan);">
+    验证<small>Validate</small>
+  </div>
+  <span class="loop-arrow">→</span>
+  <div class="loop-node" id="ln5" onclick="showLoop(5)" style="border-color:rgba(239,83,80,.3);background:rgba(239,83,80,.03);color:var(--red);">
+    更新<small>Update</small>
+  </div>
+</div>
+
+<div class="loop-detail" id="loopDetail"></div>
+
+<!-- ═══════════ Part 3: 自主 vs 审批 ═══════════ -->
+<h2>哪些可以自主，哪些需要审批</h2>
+
+<div class="card">
+  <div class="card-desc">按照后果严重程度分级：后果越不可逆，越需要人类介入。</div>
+  <div class="spectrum">
+    <div class="spec-row" style="background:rgba(60,200,122,.02);">
+      <div class="spec-level" style="color:var(--green);">完全<br>自主</div>
+      <div class="spec-body">
+        <div class="spec-what">市场数据监控 · 新闻聚合 · 价格预警</div>
+        <div class="spec-desc">纯信息收集，无任何决策后果。可以 7×24 自动运行。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--green);">AUTO</div>
+    </div>
+    <div class="spec-row" style="background:rgba(60,200,122,.02);">
+      <div class="spec-level" style="color:var(--green);">完全<br>自主</div>
+      <div class="spec-body">
+        <div class="spec-what">交易记录 · 推荐追踪 · 准确率统计</div>
+        <div class="spec-desc">记录 Agent 自己的历史表现，自动对比预测 vs 实际。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--green);">AUTO</div>
+    </div>
+    <div class="spec-row" style="background:rgba(60,200,122,.02);">
+      <div class="spec-level" style="color:var(--green);">完全<br>自主</div>
+      <div class="spec-body">
+        <div class="spec-what">因子衰减检测 · 策略失效预警</div>
+        <div class="spec-desc">持续监控已有因子/策略的实际表现，发现衰减时主动提醒用户。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--green);">AUTO</div>
+    </div>
+    <div class="spec-row" style="background:rgba(96,165,250,.02);">
+      <div class="spec-level" style="color:var(--blue);">自主<br>+通知</div>
+      <div class="spec-body">
+        <div class="spec-what">周期性复盘报告 · 规律发现</div>
+        <div class="spec-desc">每周自动生成复盘：哪些分析准了、哪些错了、发现了什么统计规律。推送给用户阅读。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--blue);">AUTO<br>+通知</div>
+    </div>
+    <div class="spec-row" style="background:rgba(96,165,250,.02);">
+      <div class="spec-level" style="color:var(--blue);">自主<br>+通知</div>
+      <div class="spec-body">
+        <div class="spec-what">模拟盘验证 · 纸上交易</div>
+        <div class="spec-desc">Agent 发现新规律后，自动在模拟盘上验证，不涉及真实资金。结果汇报给用户。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--blue);">AUTO<br>+通知</div>
+    </div>
+    <div class="spec-row" style="background:rgba(232,168,74,.02);">
+      <div class="spec-level" style="color:var(--gold);">需要<br>审批</div>
+      <div class="spec-body">
+        <div class="spec-what">更新 Skill 规则 · 调整因子参数 · 修改策略逻辑</div>
+        <div class="spec-desc">Agent 提议修改（附带数据支持），用户审批后才生效。类似 PR review。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--gold);">需审批</div>
+    </div>
+    <div class="spec-row" style="background:rgba(239,83,80,.02);">
+      <div class="spec-level" style="color:var(--red);">绝不<br>自主</div>
+      <div class="spec-body">
+        <div class="spec-what">实盘交易 · 资金调拨 · 风控参数修改</div>
+        <div class="spec-desc">任何涉及真实资金的操作，永远需要用户明确确认。Agent 不能自主改变风控红线。</div>
+      </div>
+      <div class="spec-auto" style="color:var(--red);">禁止</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Part 4: 具体场景 ═══════════ -->
+<h2>自主学习的实际场景</h2>
+
+<div class="card">
+  <div class="card-title">场景：Agent 发现一个因子正在失效</div>
+  <div class="timeline">
+    <div class="tl-node">
+      <div class="tl-dot" style="border-color:var(--green);background:rgba(60,200,122,.15);"></div>
+      <div class="tl-body">
+        <div class="tl-time">持续运行 · 自主 <span class="tl-tag bg-green">AUTO</span></div>
+        <div class="tl-text">Agent 每天自动计算所有在用因子的滚动 IC 值。<br>发现 <b>volume_zscore 因子</b>的 IC 从 3 个月前的 0.08 持续下降到 0.02。</div>
+      </div>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot" style="border-color:var(--blue);background:rgba(96,165,250,.15);"></div>
+      <div class="tl-body">
+        <div class="tl-time">分析原因 · 自主 <span class="tl-tag bg-blue">AUTO+通知</span></div>
+        <div class="tl-text">Agent 自动排查：搜索近期市场结构变化、检查数据源质量、对比其他品种表现。<br>结论：<b>近期高频交易量增加，导致传统成交量异常信号被淹没。</b><br>推送通知给用户。</div>
+      </div>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot" style="border-color:var(--purple);background:rgba(167,139,250,.15);"></div>
+      <div class="tl-body">
+        <div class="tl-time">提出改进方案 · 自主 <span class="tl-tag bg-blue">AUTO+通知</span></div>
+        <div class="tl-text">Agent 研究替代方案，提出两个改进方向：<br>A) 改用相对成交量（当前量/同时段均量），过滤高频噪声<br>B) 引入 VWAP 偏离度替代原始 Z-Score<br>并在<b>模拟盘上自动回测了两个方案</b>：A 的 IC=0.06，B 的 IC=0.05。</div>
+      </div>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot" style="border-color:var(--gold);background:rgba(232,168,74,.15);"></div>
+      <div class="tl-body">
+        <div class="tl-time">提交 PR 式审批 · 需审批 <span class="tl-tag bg-gold">需审批</span></div>
+        <div class="tl-text">Agent 向用户提交一份"因子更新提案"：<br><b>问题</b>：volume_zscore IC 从 0.08 衰减至 0.02<br><b>原因</b>：高频交易噪声<br><b>建议</b>：替换为方案 A（相对成交量），回测 IC=0.06<br><b>影响</b>：依赖此因子的策略 X、Y 需要重新回测<br><br>等待用户审批。</div>
+      </div>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot" style="border-color:var(--t3);background:rgba(255,255,255,.1);"></div>
+      <div class="tl-body">
+        <div class="tl-time">用户决策</div>
+        <div class="tl-text">用户审阅后：<b>批准方案 A</b> → Agent 自动更新因子定义和相关策略。<br>或：<b>拒绝</b> → Agent 保持原因子，继续监控。<br>或：<b>要求更多数据</b> → Agent 补充更长周期的回测。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Part 5: 危险区 ═══════════ -->
+<h2>为什么"完全自主学习"很危险 <span class="badge bg-red">必须理解</span></h2>
+
+<div class="danger-grid">
+  <div class="danger-card danger-bad">
+    <div class="danger-label" style="color:var(--red);">过拟合</div>
+    Agent 发现"周二 BTC 涨的概率是 68%"。真的是规律吗？还是数据噪声？<br>
+    如果它自主把"周二加仓"写进策略，就是在用噪声做决策。
+  </div>
+  <div class="danger-card danger-bad">
+    <div class="danger-label" style="color:var(--red);">幸存者偏差</div>
+    Agent 记住了 10 次成功的抄底，忘了 50 次失败的。<br>
+    然后"学到"了"RSI<20 就应该抄底"——忽略了大部分时候 RSI<20 是继续跌的。
+  </div>
+  <div class="danger-card danger-bad">
+    <div class="danger-label" style="color:var(--red);">策略漂移</div>
+    Agent 一点一点微调参数：止损从 5% 调到 7%，再到 10%，再到 15%...<br>
+    每次微调看起来都有"数据支持"，但整体已经从保守策略漂移成了赌博。
+  </div>
+  <div class="danger-card danger-bad">
+    <div class="danger-label" style="color:var(--red);">对抗性失效</div>
+    Agent 学到了一个有效的模式，越来越依赖它。<br>
+    但市场参与者也在学习——当太多人用同一个策略时，策略就会失效。Agent 却意识不到。
+  </div>
+</div>
+
+<div class="danger-grid">
+  <div class="danger-card danger-good">
+    <div class="danger-label" style="color:var(--green);">正确做法：学习 + 审批分离</div>
+    Agent 可以无限学习和发现，但<b>修改规则永远需要人类审批</b>。<br>
+    就像基金里的初级研究员：可以无限做研究，但调仓决策是基金经理的。
+  </div>
+  <div class="danger-card danger-good">
+    <div class="danger-label" style="color:var(--green);">正确做法：多层验证</div>
+    Agent 发现的"规律"必须通过：<br>
+    1) 足够长的样本期 2) 多品种交叉验证 3) 模拟盘实测<br>
+    全部通过后才提交给用户审批。
+  </div>
+</div>
+
+<!-- ═══════════ Part 6: 架构位置 ═══════════ -->
+<h2>在 Harness 架构中的位置</h2>
+
+<div class="card">
+  <div class="card-title">自主学习不是新的一层，它是 State 层的扩展</div>
+  <div class="card-desc">在嵌套架构里，学习循环是 State（状态与记忆）层的一部分，运行在 Query Loop 引擎内。</div>
+  <div style="font-size:11.5px;color:var(--t2);line-height:2;padding:8px 12px;border-radius:8px;background:var(--bg3);">
+    <b style="color:var(--cyan);">Reliability</b><br>
+    &nbsp;&nbsp;└─ <b style="color:var(--blue);">Control Plane</b>（配置 + 学习审批规则：什么样的提案需要审批）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;└─ <b style="color:var(--green);">Query Loop</b>（引擎，驱动学习循环的定时任务）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <b style="color:var(--gold);">P-G-E</b>（Evaluator 也用于验证 Agent 的"发现"是否可靠）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <b style="color:var(--purple);">Tools</b><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ <b style="color:var(--red);">State</b> ← <b style="color:var(--t1);">扩展点</b><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ 会话状态（短期）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <b style="color:var(--gold);">Track Record</b>（推荐追踪、准确率）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <b style="color:var(--gold);">Insight Store</b>（发现的规律、待审批提案）<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ <b style="color:var(--gold);">Skill Evolution</b>（因子衰减记录、参数变更历史）<br>
+  </div>
+</div>
+
+<div class="key-point kp-green">
+  <b>总结一句话：</b><br><br>
+  Agent 可以像交易员一样<b>不停地观察、记录、复盘、发现规律</b>——这些全部可以自主运行。<br>
+  但是"把发现的规律变成行动规则"这一步，<b>永远需要用户拍板</b>。<br><br>
+  这不是保守，这是<b>与真实世界一致的设计</b>——<br>
+  即使是顶级对冲基金，研究员也不能自己改策略上线，必须经过 PM 审批 + 风控签字。
+</div>
+
+<script>
+const LOOPS = [
+  {
+    title: "观察（Observe）— 完全自主",
+    text: `Agent <b>7×24 持续运行</b>，自动执行：<br>
+- 监控所有关注品种的价格、成交量、波动率<br>
+- 聚合财经新闻、社交媒体情绪<br>
+- 追踪用户持仓的实时盈亏<br>
+- 监控已部署因子/策略的实时表现<br><br>
+<b>不需要任何人类介入</b>，纯信息收集。`,
+    example: `// 每 5 分钟执行\nawait get_price("BTC/USDT")  // $94,320\nawait get_price("ETH/USDT")  // $3,280\nawait web_search("crypto market news")  // 5 条新闻\nawait calculate_factor_ic("volume_zscore")  // IC = 0.031 ↓`
+  },
+  {
+    title: "记录（Record）— 完全自主",
+    text: `把每一次分析和建议都记录到 <b>Track Record</b>：<br>
+- 什么时候给了什么建议<br>
+- 当时的市场环境（价格、指标、新闻）<br>
+- 用户是否采纳<br>
+- 实际结果如何（N 天后的价格变化）<br><br>
+这是 Agent 自我评估的基础数据。`,
+    example: `track_record.append({\n  timestamp: "2026-04-05 14:30",\n  recommendation: "BTC 短期看涨",\n  confidence: 0.72,\n  context: { rsi: 62, macd: "金叉", news: "美联储维持利率" },\n  user_action: "adopted",\n  outcome_7d: "+3.2%"  // 7天后自动填入\n})`
+  },
+  {
+    title: "复盘（Review）— 完全自主",
+    text: `定期（每周/每月）自动复盘：<br>
+- 过去 N 天的推荐准确率是多少？<br>
+- 哪些类型的分析准确率最高/最低？<br>
+- 哪些因子/策略表现在衰减？<br>
+- 哪些市场环境下 Agent 表现最好/最差？<br><br>
+<b>复盘结果自动推送给用户</b>（周报形式）。`,
+    example: `weekly_review = {\n  period: "2026-03-29 ~ 04-04",\n  total_recommendations: 12,\n  accuracy: "67% (8/12)",\n  best_category: "技术分析 (83%)",\n  worst_category: "新闻驱动 (40%)",\n  factor_alert: "volume_zscore IC 下降趋势持续 3 周",\n  market_regime: "低波动震荡"\n}`
+  },
+  {
+    title: "洞察（Insight）— 自主发现，通知用户",
+    text: `基于大量记录和复盘，Agent 发现统计规律：<br>
+- "在 RSI < 30 且成交量放大 2 倍以上时，我的看涨建议准确率达 81%"<br>
+- "volume_zscore 因子的 IC 已连续 4 周下降"<br>
+- "ETH 在 BTC 大涨后通常 24h 内跟涨"<br><br>
+这些<b>只是发现，不是结论</b>。需要下一步验证。`,
+    example: `insight = {\n  id: "INS-042",\n  type: "factor_decay",\n  finding: "volume_zscore IC 从 0.08 衰减至 0.02",\n  sample_size: 90,  // 90 天数据\n  confidence: "high",\n  status: "pending_validation"  // 还没验证\n}`
+  },
+  {
+    title: "验证（Validate）— 自主在模拟盘验证",
+    text: `Agent 把发现的规律拿去<b>历史回测 + 模拟盘测试</b>：<br>
+- 在更长的时间窗口上验证（防过拟合）<br>
+- 在多个品种上交叉验证（防特例）<br>
+- 在模拟盘上跑 2-4 周实盘验证（防回测幻觉）<br><br>
+验证不涉及真实资金，可以完全自主。<br>
+<b>通过验证的洞察才会提交给用户</b>。`,
+    example: `validation = {\n  insight_id: "INS-042",\n  backtest: { period: "180d", IC_new: 0.06, IC_old: 0.02 },\n  cross_validate: ["BTC ✓", "ETH ✓", "SOL ✗"],\n  paper_trade: { period: "14d", pnl: "+2.1%", sharpe: 1.4 },\n  verdict: "validated — ready for user review"\n}`
+  },
+  {
+    title: "更新（Update）— 必须用户审批",
+    text: `Agent 把通过验证的洞察打包成<b>"提案"</b>提交给用户：<br><br>
+类似代码的 Pull Request：<br>
+- <b>问题</b>：什么衰减了 / 什么机会发现了<br>
+- <b>数据</b>：回测结果、模拟盘表现<br>
+- <b>建议</b>：具体要改什么参数 / 替换什么因子<br>
+- <b>影响</b>：会影响哪些策略<br><br>
+<b>用户批准后 Agent 才执行变更。被拒绝的提案存档备查。</b>`,
+    example: `proposal = {\n  id: "PROP-017",\n  title: "替换 volume_zscore 为 relative_volume",\n  insight: "INS-042",\n  change: "factor_design.volume_zscore → relative_volume",\n  backtest_improvement: "IC: 0.02 → 0.06",\n  affected_strategies: ["trend_follow_v2", "mean_revert_btc"],\n  status: "awaiting_user_approval"  // ← 等用户拍板\n}`
+  }
+];
+
+function showLoop(idx) {
+  document.querySelectorAll('.loop-node').forEach((n,i) => n.classList.toggle('active', i===idx));
+  const d = LOOPS[idx];
+  document.getElementById('loopDetail').innerHTML = `
+    <div class="ld-title">${d.title}</div>
+    <div class="ld-text">${d.text}</div>
+    <div class="ld-example">${d.example}</div>`;
+}
+showLoop(0);
+</script>
+</body>
+</html>

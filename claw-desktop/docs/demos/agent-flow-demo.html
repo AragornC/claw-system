@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThunderClaw · Agent Flow</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1012;
+    --text: #d2d3d6;
+    --muted: #6d6f75;
+    --faint: #3e4046;
+    --line: #24262b;
+    --accent: #c9a575;        /* warm muted — Claude-ish */
+    --user: #8ba6ff;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.65;
+    overflow: hidden;
+  }
+  .mono, code, pre {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+
+  /* ─── Layout ─── */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 500; letter-spacing: 0.2px; color: var(--muted); font-size: 13px; }
+  .brand b { color: var(--text); font-weight: 500; }
+  .actions { display: flex; gap: 18px; font-size: 13px; }
+  .actions button {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 4px 0;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .actions button:hover:not(:disabled) { color: var(--text); border-bottom-color: var(--accent); }
+  .actions button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .actions .sep { color: var(--faint); align-self: center; }
+
+  main {
+    flex: 1; display: grid;
+    grid-template-columns: 220px 1fr 260px;
+    overflow: hidden;
+  }
+  aside, section.center { overflow-y: auto; padding: 22px 24px; }
+  aside.left { border-right: 1px solid var(--line); }
+  aside.right { border-left: 1px solid var(--line); }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ─── Left: Agents & tools list ─── */
+  .side-sec { margin-bottom: 26px; }
+  .side-sec h4 {
+    font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--muted);
+    font-weight: 500; margin-bottom: 10px;
+  }
+  .agent-line {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0; font-size: 13px;
+  }
+  .agent-line .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--faint); transition: all 0.25s;
+  }
+  .agent-line.active .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .agent-line.active .name { color: var(--text); }
+  .agent-line .name { color: var(--muted); transition: color 0.2s; }
+  .agent-line .role { color: var(--faint); font-size: 11px; margin-left: auto; }
+
+  .tool-list {
+    margin-left: 14px; font-size: 12px; color: var(--faint);
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .tool-list div { padding: 1px 0; }
+  .tool-list div.active { color: var(--text); }
+  .tool-list div.dim { opacity: 0.5; }
+  .tool-list div.special { color: var(--accent); }
+
+  /* ─── Center: Trace ─── */
+  .trace { max-width: 760px; }
+  .user-msg {
+    padding: 4px 0 24px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 18px;
+  }
+  .user-msg .lbl {
+    color: var(--user); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  /* ─── Pre-router thinking block ─── */
+  .thinking {
+    padding: 8px 0 16px 18px;
+    border-left: 1px solid var(--line);
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .thinking::before {
+    content: "◇"; position: absolute;
+    left: -5px; top: 8px;
+    background: var(--bg); color: var(--faint);
+    font-size: 11px; padding: 0 2px;
+  }
+  .thinking .t-head {
+    font-size: 11px; color: var(--muted);
+    font-family: "SF Mono", monospace;
+    letter-spacing: 0.4px;
+    margin-bottom: 6px;
+  }
+  .thinking .t-head .dur { color: var(--faint); margin-left: 10px; }
+  .thinking .t-narrate {
+    color: var(--muted); font-size: 13px;
+    font-style: italic; line-height: 1.6;
+    padding: 2px 0;
+  }
+  .thinking .t-route {
+    margin-top: 6px; font-family: "SF Mono", monospace;
+    font-size: 12px; color: var(--faint);
+  }
+  .thinking .t-route .arrow { color: var(--faint); margin-right: 6px; }
+  .thinking .t-route .tag {
+    color: var(--accent);
+    padding: 1px 6px; border: 1px solid var(--line);
+    border-radius: 3px; margin-left: 2px;
+  }
+  .thinking .t-route .tag.light { color: var(--muted); }
+
+  /* Tree-style indented trace */
+  .node {
+    position: relative;
+    padding: 2px 0 2px 18px;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  /* vertical guide line for each nesting level */
+  .node.has-children::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 22px; bottom: 0;
+    width: 1px; background: var(--line);
+  }
+
+  .agent-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0 4px;
+    font-size: 13px;
+  }
+  .agent-header .pill {
+    font-size: 10px; letter-spacing: 0.8px;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .agent-header .agent-name { color: var(--text); font-weight: 500; }
+  .agent-header.active .agent-name { color: var(--accent); }
+
+  .phase {
+    padding: 6px 0 10px 16px;
+    position: relative;
+  }
+  .phase::before {
+    content: ""; position: absolute;
+    left: 0; top: 14px; bottom: 0; width: 1px;
+    background: var(--line);
+  }
+  .phase:last-child::before { bottom: 50%; }
+
+  .phase-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 0 4px;
+    margin-left: -16px;
+  }
+  .phase-header .marker {
+    font-family: "SF Mono", monospace; color: var(--faint);
+    font-size: 12px;
+  }
+  .phase-header .num {
+    color: var(--muted); font-size: 11px;
+    font-family: "SF Mono", monospace;
+  }
+  .phase-header .title {
+    color: var(--text); font-size: 13px; font-weight: 500;
+  }
+  .phase-header .perm {
+    color: var(--faint); font-size: 11px; margin-left: auto;
+    font-family: "SF Mono", monospace;
+  }
+
+  .phase-body {
+    padding: 3px 0 0 4px;
+  }
+
+  .narration {
+    color: var(--muted); font-size: 13px;
+    line-height: 1.6; white-space: pre-wrap;
+    padding: 3px 0;
+  }
+  .narration.active { color: var(--text); }
+
+  .tool-call {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px; color: var(--text);
+    padding: 2px 0;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .tool-call .prefix { color: var(--faint); }
+  .tool-call .name { color: var(--text); }
+  .tool-call .args { color: var(--muted); }
+  .tool-call .arrow { color: var(--faint); margin: 0 2px; }
+  .tool-call .result { color: var(--muted); }
+  .tool-call.mem .name { color: var(--user); }
+  .tool-call.dispatch .name { color: var(--accent); font-weight: 500; }
+
+  .kv-line {
+    font-size: 12.5px;
+    padding: 2px 0;
+    color: var(--muted);
+  }
+  .kv-line .k { color: var(--faint); margin-right: 8px; font-family: "SF Mono", monospace; font-size: 11.5px; }
+  .kv-line .v { color: var(--text); }
+
+  .bullet-line {
+    font-size: 13px; color: var(--text);
+    padding: 2px 0;
+    padding-left: 16px; position: relative;
+  }
+  .bullet-line::before {
+    content: "·"; position: absolute; left: 4px; color: var(--faint);
+  }
+
+  .check-line {
+    font-size: 12.5px; padding: 2px 0;
+    font-family: "SF Mono", monospace;
+  }
+  .check-line .mark { color: var(--accent); margin-right: 8px; }
+  .check-line.fail .mark { color: #c97575; }
+  .check-line .txt { color: var(--muted); font-family: -apple-system, sans-serif; font-size: 13px; }
+
+  /* Final answer — only slightly distinguished */
+  .final {
+    margin: 14px 0 6px;
+    padding: 14px 18px;
+    border-left: 2px solid var(--accent);
+    background: rgba(201,165,117,0.04);
+    font-size: 14px; line-height: 1.75;
+  }
+  .final h1, .final h2, .final h3 {
+    color: var(--text); font-weight: 500;
+    margin: 10px 0 4px;
+  }
+  .final h1 { font-size: 15px; }
+  .final h2 { font-size: 14px; color: var(--accent); }
+  .final h3 { font-size: 13px; color: var(--muted); }
+  .final p { margin: 4px 0; color: var(--text); }
+  .final table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 12.5px; }
+  .final th, .final td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+  .final th { color: var(--muted); font-weight: 500; }
+  .final ul { padding-left: 18px; margin: 4px 0; }
+  .final li { margin: 2px 0; }
+  .final b { color: var(--accent); font-weight: 500; }
+
+  .analyst-return {
+    font-size: 13px; color: var(--muted);
+    padding: 8px 0 6px; border-top: 1px dashed var(--line);
+    margin-top: 10px;
+  }
+  .analyst-return .lbl { color: var(--accent); margin-right: 8px; font-family: "SF Mono", monospace; font-size: 11.5px; }
+
+  .return-marker {
+    font-size: 11.5px; color: var(--faint);
+    font-family: "SF Mono", monospace;
+    padding: 4px 0 8px;
+  }
+  .return-marker .highlight { color: var(--accent); }
+
+  /* ─── Right: Memory ─── */
+  .mem-idx {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    white-space: pre-wrap; line-height: 1.6;
+    color: var(--muted);
+    max-height: 200px; overflow-y: auto;
+    padding: 6px 0; border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .mem-idx.flash { animation: flash 1.2s ease; }
+  @keyframes flash {
+    0% { background: transparent; }
+    25% { background: rgba(201,165,117,0.12); }
+    100% { background: transparent; }
+  }
+
+  .mem-file {
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+    cursor: pointer; transition: color 0.2s;
+  }
+  .mem-file:hover .path { color: var(--text); }
+  .mem-file.new { animation: flash 1.4s ease; }
+  .mem-file .path {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px; color: var(--user);
+    transition: color 0.2s;
+  }
+  .mem-file .peek {
+    font-size: 11px; color: var(--faint); margin-top: 3px;
+    max-height: 40px; overflow: hidden;
+    white-space: pre-wrap; line-height: 1.5;
+  }
+  .mem-file.open .peek {
+    max-height: none; color: var(--muted);
+  }
+
+  .placeholder {
+    color: var(--faint); font-size: 13px;
+    padding: 80px 0 0; text-align: center;
+    font-style: italic;
+  }
+
+  .cursor {
+    display: inline-block; width: 7px; height: 13px;
+    background: var(--accent); vertical-align: text-bottom;
+    animation: blink 1s infinite; margin-left: 2px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">Thunder<b>Claw</b> · agent flow</div>
+    <div class="actions">
+      <button data-scenario="btc">分析 BTC</button>
+      <span class="sep">·</span>
+      <button data-scenario="price">查价格</button>
+      <span class="sep">·</span>
+      <button data-scenario="greet">寒暄</button>
+      <span class="sep">·</span>
+      <button id="reset">重置</button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="left">
+      <div class="side-sec">
+        <h4>agents</h4>
+        <div class="agent-line" id="agent-coord">
+          <span class="dot"></span>
+          <span class="name">Coordinator</span>
+          <span class="role">entry</span>
+        </div>
+        <div class="tool-list" id="tools-coord">
+          <div data-id="dispatch_agent" class="special">dispatch_agent</div>
+          <div data-id="read_memory">read_memory</div>
+          <div data-id="search_memory">search_memory</div>
+          <div data-id="write_memory">write_memory</div>
+          <div data-id="update_index">update_index</div>
+        </div>
+
+        <div class="agent-line" id="agent-analyst" style="margin-top:12px;">
+          <span class="dot"></span>
+          <span class="name">Analyst</span>
+          <span class="role">expert</span>
+        </div>
+        <div class="tool-list" id="tools-analyst">
+          <div data-id="web_search">web_search</div>
+          <div data-id="get_klines">get_klines</div>
+          <div data-id="calculate_indicator">calculate_indicator</div>
+          <div data-id="get_price">get_price</div>
+          <div data-id="get_financial_data">get_financial_data</div>
+        </div>
+      </div>
+
+      <div class="side-sec">
+        <h4>skills</h4>
+        <div class="tool-list" id="skills-list">
+          <div data-id="market_analysis">market_analysis</div>
+          <div data-id="earnings_analysis">earnings_analysis</div>
+          <div data-id="news_sentiment">news_sentiment</div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="center">
+      <div class="trace" id="trace">
+        <div class="placeholder">选择场景 →</div>
+      </div>
+    </section>
+
+    <aside class="right">
+      <div class="side-sec">
+        <h4>memory · index</h4>
+        <pre id="memory-index" class="mem-idx"></pre>
+      </div>
+      <div class="side-sec">
+        <h4>memory · files</h4>
+        <div id="memory-files"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   Config
+   ══════════════════════════════════════════════════════════════ */
+
+const SKILLS = {
+  market_analysis: {
+    fns: ["web_search", "get_klines", "calculate_indicator", "get_price"]
+  },
+  earnings_analysis: { fns: ["web_search", "get_financial_data"] },
+  news_sentiment: { fns: ["web_search"] }
+};
+
+const INITIAL_MEMORY = {
+  index: `# Memory Index
+
+## analyst/
+- btc-trend-2026-04-15 — 偏多 60%（RSI 68, MACD 金叉）`,
+  files: {
+    "analyst/btc-trend-2026-04-15.md": `# BTC 趋势分析 · 2026-04-15
+
+## 观察
+- 1h RSI = 68（接近超买）
+- 4h MACD 刚完成金叉
+- funding rate = 0.01%
+
+## 结论
+短期偏多，置信度 60%。`
+  }
+};
+
+let memory = JSON.parse(JSON.stringify(INITIAL_MEMORY));
+let running = false;
+
+/* ══════════════════════════════════════════════════════════════
+   Scenarios
+   ══════════════════════════════════════════════════════════════ */
+
+const ANALYST_FLOW = {
+  phases: [
+    {
+      n: 1, name: "理解", perm: "read_memory, search_memory",
+      steps: [
+        { type: "narrate", text: "Coordinator 交给我：判断 BTC 趋势，对比 3 天前。\n先查记忆。" },
+        { type: "tool", kind: "mem", name: "search_memory", args: { query: "BTC 趋势" }, result: "2 hits" },
+        { type: "tool", kind: "mem", name: "read_memory", args: { path: "analyst/btc-trend-2026-04-15.md" }, result: "loaded" },
+        { type: "narrate", text: "任务属性 → BTC 趋势判断。匹配 skill。" },
+        { type: "kv", k: "skill.route", v: "market_analysis (0.92)" },
+        { type: "skill_activate", id: "market_analysis" }
+      ]
+    },
+    {
+      n: 2, name: "规划", perm: "no tools",
+      steps: [
+        { type: "narrate", muted: true, text: "按 market_analysis.guide 展开计划。" },
+        { type: "bullet", text: "get_klines BTCUSDT 1h / 1d" },
+        { type: "bullet", text: "calculate_indicator RSI(1h) + MACD(4h)" },
+        { type: "bullet", text: "web_search BTC 24h 新闻" },
+        { type: "bullet", text: "对比 3 天前 → 判断延续或翻转" }
+      ]
+    },
+    {
+      n: 3, name: "执行", perm: "agent.fns ∩ skill.fns",
+      steps: [
+        { type: "tool", kind: "data", name: "get_klines", args: { symbol: "BTCUSDT", interval: "1h" }, result: "close=63452, 24h=-1.2%" },
+        { type: "tool", kind: "data", name: "get_klines", args: { symbol: "BTCUSDT", interval: "1d" }, result: "7d=+4.8%" },
+        { type: "tool", kind: "data", name: "calculate_indicator", args: { indicator: "RSI", interval: "1h" }, result: "45.2 · neutral" },
+        { type: "tool", kind: "data", name: "calculate_indicator", args: { indicator: "MACD", interval: "4h" }, result: "hist=-0.03 · 衰竭" },
+        { type: "tool", kind: "data", name: "web_search", args: { query: "BTC 24h news" }, result: "3 条 · 无重大事件" },
+        { type: "narrate", text: "RSI 68→45 超买消化；MACD 动能衰竭；无消息推动。" }
+      ]
+    },
+    {
+      n: 4, name: "交付", perm: "write_memory",
+      steps: [
+        { type: "check", ok: true, text: "技术指标引用一致" },
+        { type: "check", ok: true, text: "消息面 24h 内" },
+        { type: "check", ok: true, text: "无遗漏重大事件" },
+        { type: "kv", k: "结论", v: "中性偏空 · 55%" },
+        { type: "tool", kind: "mem", name: "write_memory",
+          args: { path: "analyst/btc-trend-2026-04-18.md" }, result: "420c",
+          sideEffect: {
+            kind: "write_file",
+            path: "analyst/btc-trend-2026-04-18.md",
+            content: `# BTC 趋势分析 · 2026-04-18
+
+## 结论
+中性偏空，置信度 55%
+
+## 观察
+- 1h RSI = 45.2（从 3 天前 68 回落）
+- 4h MACD histogram = -0.03（金叉衰竭）
+- 24h 消息面：无重大事件
+
+## 对比
+原 2026-04-15"偏多 60%"未延续，修正为"中性偏空 55%"。`
+          }
+        }
+      ]
+    }
+  ]
+};
+
+const BTC_SCENARIO = {
+  userInput: "分析下 BTC 当前趋势",
+  thinking: {
+    duration: 420,
+    narrate: "用户要的是趋势判断，不是单点数据。\n这类交易决策问题需要专家综合分析 — 路由到 Coordinator。",
+    route: "agent_task",
+    routeLabel: "调度 Coordinator"
+  },
+  coordinator: {
+    phases: [
+      {
+        n: 1, name: "理解", perm: "read_memory, search_memory",
+        steps: [
+          { type: "narrate", text: "交易决策类任务。按原则必须经过 Analyst（未来还有 Risk）。" },
+          { type: "tool", kind: "mem", name: "search_memory", args: { query: "BTC" }, result: "1 hit (索引)" },
+          { type: "narrate", muted: true, text: "索引里有 3 天前的分析 — 交给 Analyst 自己决定要不要细读。" },
+          { type: "kv", k: "routing", v: "mandatory_expert_dispatch" },
+          { type: "kv", k: "experts", v: "[analyst]  (risk 尚未上线)" }
+        ]
+      },
+      {
+        n: 2, name: "规划", perm: "no tools",
+        steps: [
+          { type: "bullet", text: "dispatch_agent(analyst, 分析 BTC 趋势)" },
+          { type: "bullet", text: "翻译 Analyst 结论为面向用户的中文" },
+          { type: "bullet", text: "补风险提示（Risk 缺位时兜底）" },
+          { type: "bullet", text: "update_index 登记新记忆" }
+        ]
+      },
+      {
+        n: 3, name: "执行", perm: "dispatch_agent",
+        steps: [
+          { type: "dispatch", task: "判断 BTC 当前趋势，对比 3 天前", nested: ANALYST_FLOW,
+            returnBrief: "中性偏空 55% · RSI 45.2 / MACD 衰竭 / 无消息" }
+        ]
+      },
+      {
+        n: 4, name: "交付", perm: "write_memory, update_index",
+        steps: [
+          { type: "final", md: `# BTC 趋势简报 · 2026-04-18
+
+短线**中性偏空**（置信度 55%）。
+
+3 天前那份"偏多 60%"的判断已经失效：
+
+- 1h RSI 从 68 掉到 45.2，超买动能消化完了
+- 4h MACD histogram 转 -0.03，当时的金叉推力在衰竭
+- 过去 24 小时没有重大消息（ETF 净流入甚至创 8 周新低）
+
+建议观望，暂不加多头。
+
+**⚠** 本期没有 Risk 专家把关仓位和止损，请自行审慎评估。` },
+          { type: "tool", kind: "mem", name: "update_index", args: {}, result: "340c",
+            sideEffect: {
+              kind: "update_index",
+              content: `# Memory Index
+
+## analyst/
+- btc-trend-2026-04-15 — 偏多 60%（RSI 68, MACD 金叉）
+- btc-trend-2026-04-18 — 中性偏空 55%（RSI 45 回落, MACD 衰竭, 无利好）`
+            }
+          }
+        ]
+      }
+    ]
+  }
+};
+
+const PRICE_SCENARIO = {
+  userInput: "BTC 现在多少钱",
+  thinking: {
+    duration: 280,
+    narrate: "单点价格查询，一个工具就能答。\n不值得走 Coordinator 的 4 阶段流程。",
+    route: "simple_tool",
+    routeLabel: "直接调工具"
+  },
+  simpleTool: {
+    calls: [
+      { name: "get_price", args: { symbol: "BTC" }, result: "63452.1, 24h=-1.2%" }
+    ],
+    answer: `BTC 当前 **$63,452.1**，24h 变化 **-1.2%**。`
+  }
+};
+
+const GREET_SCENARIO = {
+  userInput: "你好，你能帮我做什么？",
+  thinking: {
+    duration: 180,
+    narrate: "闲聊 + 自我介绍类。无需工具、无需专家。",
+    route: "direct_reply",
+    routeLabel: "直接作答"
+  },
+  directReply: `你好 — 我是 **ThunderClaw**，帮你做加密市场的分析和交易决策。
+
+你可以直接问我：
+
+- 「BTC 现在多少钱」— 实时查价
+- 「分析下 ETH 趋势」— 专家分析师会给你做技术面 + 消息面综合判断
+- 「我 BTC 持仓多少」— 查账户
+
+闲聊也没问题 — 像刚才这句就是我自己答的，没走完整流程。`
+};
+
+/* ══════════════════════════════════════════════════════════════
+   Helpers
+   ══════════════════════════════════════════════════════════════ */
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function formatArgs(args) {
+  if (!args || Object.keys(args).length === 0) return "";
+  const parts = Object.entries(args).map(([k,v]) => {
+    const vs = typeof v === "string" ? (v.length > 30 ? `"${v.slice(0,30)}…"` : `"${v}"`) : JSON.stringify(v);
+    return `${k}=${vs}`;
+  });
+  return parts.join(", ");
+}
+
+async function streamText(el, text, speed = 14) {
+  el.textContent = "";
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  el.appendChild(cursor);
+  for (const ch of text) {
+    cursor.insertAdjacentText("beforebegin", ch);
+    await sleep(ch === "\n" ? 60 : speed);
+  }
+  cursor.remove();
+}
+
+function mdToHtml(md) {
+  const lines = md.split("\n");
+  let out = []; let inTable = false; let tableRows = [];
+  const flushTable = () => {
+    if (!inTable) return;
+    out.push("<table>");
+    tableRows.forEach((row, i) => {
+      if (i === 1) return;
+      const tag = i === 0 ? "th" : "td";
+      out.push("<tr>" + row.map(c => `<${tag}>${c.trim()}</${tag}>`).join("") + "</tr>");
+    });
+    out.push("</table>");
+    inTable = false; tableRows = [];
+  };
+  for (const l of lines) {
+    if (l.trim().startsWith("|") && l.includes("|")) {
+      inTable = true; tableRows.push(l.split("|").slice(1, -1)); continue;
+    }
+    flushTable();
+    if (l.startsWith("### ")) out.push(`<h3>${inline(l.slice(4))}</h3>`);
+    else if (l.startsWith("## ")) out.push(`<h2>${inline(l.slice(3))}</h2>`);
+    else if (l.startsWith("# ")) out.push(`<h1>${inline(l.slice(2))}</h1>`);
+    else if (l.startsWith("- ")) out.push(`<ul><li>${inline(l.slice(2))}</li></ul>`);
+    else if (l.trim() === "") out.push("");
+    else out.push(`<p>${inline(l)}</p>`);
+  }
+  flushTable();
+  return out.join("\n");
+}
+
+function inline(s) {
+  return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Renderers
+   ══════════════════════════════════════════════════════════════ */
+
+async function addThinking(parent, thinking) {
+  const el = document.createElement("div");
+  el.className = "thinking";
+  el.innerHTML = `
+    <div class="t-head">thinking<span class="dur">…</span></div>
+    <div class="t-narrate"></div>
+    <div class="t-route" style="opacity:0"><span class="arrow">→</span>route: <span class="tag">${esc(thinking.route)}</span><span style="color:var(--muted);margin-left:10px;">${esc(thinking.routeLabel || "")}</span></div>
+  `;
+  parent.appendChild(el);
+
+  const narrEl = el.querySelector(".t-narrate");
+  await streamText(narrEl, thinking.narrate, 11);
+
+  // Show duration
+  const durEl = el.querySelector(".dur");
+  durEl.textContent = `· ${(thinking.duration / 1000).toFixed(1)}s`;
+
+  // Reveal route line
+  const routeEl = el.querySelector(".t-route");
+  await sleep(150);
+  routeEl.style.transition = "opacity 0.4s";
+  routeEl.style.opacity = "1";
+  await sleep(300);
+}
+
+function addAgentHeader(parent, agentId) {
+  const el = document.createElement("div");
+  el.className = "agent-header active";
+  const label = agentId === "coord" ? "Coordinator" : "Analyst";
+  const role = agentId === "coord" ? "entry" : "expert";
+  el.innerHTML = `<span class="pill">${role}</span><span class="agent-name">${label}</span>`;
+  parent.appendChild(el);
+  return el;
+}
+
+function addPhase(parent, phase) {
+  const el = document.createElement("div");
+  el.className = "phase";
+  el.innerHTML = `
+    <div class="phase-header">
+      <span class="marker">└</span>
+      <span class="num">${phase.n}</span>
+      <span class="title">${esc(phase.name)}</span>
+      <span class="perm">${esc(phase.perm || "")}</span>
+    </div>
+    <div class="phase-body"></div>
+  `;
+  parent.appendChild(el);
+  return el.querySelector(".phase-body");
+}
+
+function addNarration(parent, muted) {
+  const el = document.createElement("div");
+  el.className = "narration" + (muted ? "" : " active");
+  parent.appendChild(el);
+  return el;
+}
+
+function addToolCall(parent, step) {
+  const el = document.createElement("div");
+  el.className = "tool-call" + (step.kind === "mem" ? " mem" : "");
+  const argsStr = formatArgs(step.args);
+  el.innerHTML = `
+    <span class="prefix">›</span>
+    <span><span class="name">${esc(step.name)}</span><span class="args">(${esc(argsStr)})</span>${step.result !== undefined ? ` <span class="arrow">→</span> <span class="result">${esc(step.result)}</span>` : ""}</span>
+  `;
+  parent.appendChild(el);
+  return el;
+}
+
+function addDispatchCall(parent, task) {
+  const el = document.createElement("div");
+  el.className = "tool-call dispatch";
+  el.innerHTML = `
+    <span class="prefix">›</span>
+    <span><span class="name">dispatch_agent</span><span class="args">(analyst, "${esc(task)}")</span></span>
+  `;
+  parent.appendChild(el);
+  return el;
+}
+
+function addKv(parent, k, v) {
+  const el = document.createElement("div");
+  el.className = "kv-line";
+  el.innerHTML = `<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>`;
+  parent.appendChild(el);
+}
+
+function addBullet(parent, text) {
+  const el = document.createElement("div");
+  el.className = "bullet-line";
+  el.textContent = text;
+  parent.appendChild(el);
+}
+
+function addCheck(parent, ok, text) {
+  const el = document.createElement("div");
+  el.className = "check-line" + (ok ? "" : " fail");
+  el.innerHTML = `<span class="mark">${ok ? "✓" : "✗"}</span><span class="txt">${esc(text)}</span>`;
+  parent.appendChild(el);
+}
+
+function addFinal(parent, md) {
+  const el = document.createElement("div");
+  el.className = "final";
+  el.innerHTML = mdToHtml(md);
+  el.style.opacity = "0";
+  parent.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.transition = "opacity 0.5s";
+    el.style.opacity = "1";
+  });
+}
+
+/* ─── Memory rendering ─── */
+
+function renderMemory() {
+  document.getElementById("memory-index").textContent = memory.index || "(empty)";
+  const files = document.getElementById("memory-files");
+  files.innerHTML = "";
+  const paths = Object.keys(memory.files).sort();
+  if (paths.length === 0) {
+    files.innerHTML = `<div style="color:var(--faint);font-size:11px;padding:6px 0;">(空)</div>`;
+    return;
+  }
+  paths.forEach(p => {
+    const f = memory.files[p];
+    const wrap = document.createElement("div");
+    wrap.className = "mem-file";
+    const firstLines = f.split("\n").slice(0, 2).join("\n");
+    wrap.innerHTML = `<div class="path">${esc(p)}</div><div class="peek">${esc(firstLines)}…</div>`;
+    wrap.onclick = () => {
+      wrap.classList.toggle("open");
+      wrap.querySelector(".peek").textContent = wrap.classList.contains("open") ? f : firstLines + "…";
+    };
+    files.appendChild(wrap);
+  });
+}
+
+function applyMemorySideEffect(se) {
+  if (!se) return;
+  if (se.kind === "write_file") {
+    memory.files[se.path] = se.content;
+    renderMemory();
+    setTimeout(() => {
+      document.querySelectorAll("#memory-files .mem-file").forEach(n => {
+        if (n.querySelector(".path").textContent === se.path) n.classList.add("new");
+      });
+    }, 50);
+  } else if (se.kind === "update_index") {
+    memory.index = se.content;
+    const el = document.getElementById("memory-index");
+    el.textContent = memory.index;
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+}
+
+/* ─── Sidebar state ─── */
+
+function setActiveAgent(id) {
+  document.querySelectorAll(".agent-line").forEach(a => a.classList.remove("active"));
+  if (id === "coord") document.getElementById("agent-coord").classList.add("active");
+  else if (id === "analyst") document.getElementById("agent-analyst").classList.add("active");
+}
+
+function setActiveTools(scope, allow) {
+  const container = scope === "coord" ? "tools-coord" : "tools-analyst";
+  document.querySelectorAll(`#${container} div`).forEach(el => {
+    el.classList.remove("active", "dim");
+    if (allow.includes(el.dataset.id)) el.classList.add("active");
+    else el.classList.add("dim");
+  });
+}
+
+function setActiveSkill(id) {
+  document.querySelectorAll("#skills-list div").forEach(el => {
+    el.classList.toggle("active", el.dataset.id === id);
+    el.classList.toggle("dim", el.dataset.id !== id);
+  });
+}
+
+function resetSidebar() {
+  document.querySelectorAll(".tool-list div, .agent-line").forEach(el => {
+    el.classList.remove("active", "dim");
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Phase runner
+   ══════════════════════════════════════════════════════════════ */
+
+async function runPhase(phase, body, scope) {
+  // Highlight tools for Execute phase
+  if (phase.n === 3) {
+    const allowList = phase.perm.split(",").map(s => s.trim());
+    setActiveTools(scope, allowList);
+  }
+
+  for (const step of phase.steps) {
+    await sleep(120);
+    if (step.type === "narrate") {
+      const el = addNarration(body, step.muted);
+      await streamText(el, step.text, 12);
+    }
+    else if (step.type === "tool") {
+      const el = addToolCall(body, { ...step, result: undefined });
+      await sleep(350);
+      el.remove();
+      addToolCall(body, step);
+      if (step.sideEffect) { await sleep(180); applyMemorySideEffect(step.sideEffect); }
+    }
+    else if (step.type === "kv") addKv(body, step.k, step.v);
+    else if (step.type === "bullet") addBullet(body, step.text);
+    else if (step.type === "check") addCheck(body, step.ok, step.text);
+    else if (step.type === "skill_activate") setActiveSkill(step.id);
+    else if (step.type === "final") { addFinal(body, step.md); await sleep(400); }
+    else if (step.type === "dispatch") {
+      // Dispatch call line
+      addDispatchCall(body, step.task);
+      await sleep(500);
+
+      // Nested Analyst rendering — just indented inside this body
+      const nested = document.createElement("div");
+      nested.style.paddingLeft = "20px";
+      nested.style.borderLeft = "1px dashed var(--line)";
+      nested.style.marginLeft = "4px";
+      nested.style.marginTop = "8px";
+      body.appendChild(nested);
+
+      addAgentHeader(nested, "analyst");
+      setActiveAgent("analyst");
+
+      for (const aPhase of step.nested.phases) {
+        const aBody = addPhase(nested, aPhase);
+        await sleep(250);
+        await runPhase(aPhase, aBody, "analyst");
+      }
+
+      // Return marker
+      const ret = document.createElement("div");
+      ret.className = "return-marker";
+      ret.innerHTML = `◀ return → <span class="highlight">${esc(step.returnBrief)}</span>`;
+      nested.appendChild(ret);
+      setActiveAgent("coord");
+      await sleep(300);
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Scenario runner
+   ══════════════════════════════════════════════════════════════ */
+
+async function runScenario(scenario) {
+  if (running) return;
+  running = true;
+  disableButtons(true);
+  resetSidebar();
+
+  const trace = document.getElementById("trace");
+  trace.innerHTML = "";
+
+  // User
+  const userEl = document.createElement("div");
+  userEl.className = "user-msg";
+  userEl.innerHTML = `<div class="lbl">User</div><div>${esc(scenario.userInput)}</div>`;
+  trace.appendChild(userEl);
+  await sleep(300);
+
+  // Pre-router thinking
+  if (scenario.thinking) {
+    await addThinking(trace, scenario.thinking);
+  }
+
+  // Branch on route
+  if (scenario.directReply) {
+    // direct_reply — just stream the answer, no agent framing
+    addFinal(trace, scenario.directReply);
+    await sleep(400);
+  }
+  else if (scenario.simpleTool) {
+    // simple_tool — minimal tool calls + answer
+    for (const call of scenario.simpleTool.calls) {
+      const el = addToolCall(trace, { ...call, result: undefined });
+      await sleep(350);
+      el.remove();
+      addToolCall(trace, call);
+      await sleep(200);
+    }
+    await sleep(200);
+    addFinal(trace, scenario.simpleTool.answer);
+    await sleep(400);
+  }
+  else if (scenario.coordinator) {
+    // agent_task — full Coordinator flow
+    addAgentHeader(trace, "coord");
+    setActiveAgent("coord");
+    await sleep(200);
+
+    const coordContainer = document.createElement("div");
+    trace.appendChild(coordContainer);
+
+    for (const phase of scenario.coordinator.phases) {
+      const body = addPhase(coordContainer, phase);
+      await sleep(250);
+      await runPhase(phase, body, "coord");
+    }
+  }
+
+  setActiveAgent(null);
+  disableButtons(false);
+  running = false;
+}
+
+function disableButtons(disabled) {
+  document.querySelectorAll(".actions button[data-scenario]").forEach(b => b.disabled = disabled);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Init
+   ══════════════════════════════════════════════════════════════ */
+
+renderMemory();
+
+document.querySelectorAll(".actions button[data-scenario]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const id = btn.dataset.scenario;
+    if (id === "btc") runScenario(BTC_SCENARIO);
+    else if (id === "price") runScenario(PRICE_SCENARIO);
+    else if (id === "greet") runScenario(GREET_SCENARIO);
+  });
+});
+
+document.getElementById("reset").addEventListener("click", () => {
+  if (running) return;
+  memory = JSON.parse(JSON.stringify(INITIAL_MEMORY));
+  renderMemory();
+  resetSidebar();
+  document.getElementById("trace").innerHTML = `<div class="placeholder">选择场景 →</div>`;
+});
+</script>
+</body>
+</html>

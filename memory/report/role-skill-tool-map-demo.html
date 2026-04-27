@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>角色 × Skill × Tool 完整映射</title>
+<style>
+  :root {
+    --bg:#0d1117;--bg2:#111827;--bg3:#1a2332;
+    --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+    --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--red:#ef5350;--cyan:#22d3ee;--pink:#f472b6;--orange:#fb923c;
+    --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:13px;padding:28px 24px;max-width:1060px;margin:0 auto;}
+  h1{font-size:17px;font-weight:700;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--t3);margin-bottom:24px;line-height:1.6;}
+  h2{font-size:14px;font-weight:700;margin:28px 0 10px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+  .bg-green{background:rgba(60,200,122,.12);color:var(--green);border:1px solid rgba(60,200,122,.2);}
+  .bg-gold{background:rgba(232,168,74,.12);color:var(--gold);border:1px solid rgba(232,168,74,.2);}
+  .bg-blue{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.2);}
+  .bg-purple{background:rgba(167,139,250,.12);color:var(--purple);border:1px solid rgba(167,139,250,.2);}
+  .bg-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid rgba(239,83,80,.2);}
+  .bg-cyan{background:rgba(34,211,238,.12);color:var(--cyan);border:1px solid rgba(34,211,238,.2);}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .card-desc{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px;}
+
+  .key-point{
+    padding:12px 14px;border-radius:8px;margin:14px 0;
+    font-size:12px;color:var(--t2);line-height:1.7;
+    background:rgba(232,168,74,.04);border:1px solid rgba(232,168,74,.15);
+  }
+  .key-point b{color:var(--gold);}
+
+  /* ── Role selector ── */
+  .role-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .role-tab{
+    padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:var(--font);
+    border:1.5px solid var(--border);background:var(--bg2);color:var(--t3);
+    transition:all .15s;display:flex;align-items:center;gap:6px;
+  }
+  .role-tab:hover{border-color:var(--border2);color:var(--t2);}
+  .role-tab.active{color:var(--t1);}
+  .role-tab .emoji{font-size:16px;}
+
+  /* ── Role detail page ── */
+  .role-page{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .rp-header{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+  .rp-icon{font-size:28px;}
+  .rp-name{font-size:16px;font-weight:700;}
+  .rp-title{font-size:11px;color:var(--t3);}
+  .rp-body{padding:18px;}
+
+  /* ── Skill card ── */
+  .skill-section{margin-bottom:20px;}
+  .skill-section-label{font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+  .skill-card{
+    border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;
+    background:var(--bg3);
+  }
+  .sk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .sk-name{font-size:13px;font-weight:700;}
+  .sk-desc{font-size:11px;color:var(--t3);margin-bottom:10px;line-height:1.5;}
+
+  .sk-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+  .sk-block{padding:8px 10px;border-radius:6px;border:1px solid var(--border);}
+  .sk-block-label{font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;}
+  .sk-block-items{display:flex;flex-wrap:wrap;gap:4px;}
+  .sk-item{
+    font-size:10.5px;padding:3px 7px;border-radius:4px;
+    display:inline-flex;align-items:center;gap:3px;
+  }
+  .sk-tool{background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.12);color:var(--blue);}
+  .sk-input{background:rgba(60,200,122,.08);border:1px solid rgba(60,200,122,.12);color:var(--green);}
+  .sk-output{background:rgba(232,168,74,.08);border:1px solid rgba(232,168,74,.12);color:var(--gold);}
+  .sk-constraint{background:rgba(239,83,80,.08);border:1px solid rgba(239,83,80,.12);color:var(--red);}
+  .sk-eval{background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.12);color:var(--purple);}
+
+  /* workflow */
+  .sk-flow{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin-top:6px;}
+  .sf-step{
+    font-size:10px;padding:3px 8px;border-radius:4px;
+    background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.12);
+    color:var(--purple);white-space:nowrap;
+  }
+  .sf-arrow{color:var(--t3);font-size:11px;margin:0 3px;}
+
+  /* ── Direct tools (no skill) ── */
+  .direct-tools{display:flex;flex-wrap:wrap;gap:6px;}
+  .dt-card{
+    padding:8px 10px;border-radius:6px;border:1px solid var(--border);
+    background:var(--bg3);min-width:140px;
+  }
+  .dt-name{font-size:11px;font-weight:600;color:var(--blue);margin-bottom:2px;}
+  .dt-desc{font-size:10px;color:var(--t3);}
+  .dt-perm{font-size:9px;margin-top:3px;}
+
+  /* ── Overview matrix ── */
+  .matrix{width:100%;border-collapse:collapse;font-size:11px;}
+  .matrix th{
+    text-align:left;padding:7px 8px;font-size:10px;color:var(--t3);
+    text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);
+    font-weight:600;position:sticky;top:0;background:var(--bg2);
+  }
+  .matrix td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--t2);vertical-align:top;}
+  .matrix tr:last-child td{border-bottom:none;}
+  .m-role{font-weight:600;white-space:nowrap;}
+  .m-dot{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px;}
+  .m-check{color:var(--green);font-weight:700;}
+  .m-x{color:var(--t3);}
+</style>
+</head>
+<body>
+
+<h1>角色 × Skill × Tool 完整映射</h1>
+<div class="sub">每个角色拥有哪些 Skill、可以调用哪些 Tool、输入输出是什么、约束和评估标准分别是什么。点击角色查看完整配置。</div>
+
+<!-- ═══════ Role Tabs ═══════ -->
+<div class="role-tabs">
+  <div class="role-tab active" id="rt0" onclick="showRole(0)" style="border-color:rgba(96,165,250,.3);"><span class="emoji">📈</span> Analyst</div>
+  <div class="role-tab" id="rt1" onclick="showRole(1)" style="border-color:rgba(167,139,250,.15);"><span class="emoji">🔬</span> Quant</div>
+  <div class="role-tab" id="rt2" onclick="showRole(2)" style="border-color:rgba(239,83,80,.15);"><span class="emoji">🛡️</span> Risk</div>
+  <div class="role-tab" id="rt3" onclick="showRole(3)" style="border-color:rgba(34,211,238,.15);"><span class="emoji">📡</span> Sentinel</div>
+  <div class="role-tab" id="rt4" onclick="showRole(4)" style="border-color:rgba(60,200,122,.15);"><span class="emoji">🎯</span> Coordinator</div>
+</div>
+
+<div id="roleContent"></div>
+
+<!-- ═══════ Overview Matrix ═══════ -->
+<h2>总览：角色 × Skill × Tool 矩阵</h2>
+
+<div class="card" style="overflow-x:auto;">
+  <div class="card-title">Skill 归属</div>
+  <table class="matrix">
+    <tr>
+      <th>Skill</th>
+      <th>📈 Analyst</th>
+      <th>🔬 Quant</th>
+      <th>🛡️ Risk</th>
+      <th>📡 Sentinel</th>
+      <th>🎯 Coordinator</th>
+    </tr>
+    <tr><td>market_analysis</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>earnings_analysis</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>news_sentiment</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>factor_design</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>strategy_backtest</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>quant_signal</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>risk_assessment</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>position_sizing</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>stress_test</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>signal_monitor</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>decay_detector</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>report_synthesis</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td></tr>
+  </table>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <div class="card-title">Tool 归属（谁可以调哪个工具）</div>
+  <table class="matrix">
+    <tr>
+      <th>Tool</th>
+      <th>权限</th>
+      <th>📈 Analyst</th>
+      <th>🔬 Quant</th>
+      <th>🛡️ Risk</th>
+      <th>📡 Sentinel</th>
+      <th>🎯 Coord.</th>
+    </tr>
+    <tr><td>web_search</td><td>auto</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>get_klines</td><td>auto</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>get_price</td><td>auto</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>calculate_indicator</td><td>auto</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>get_financial_data</td><td>auto</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>code_exec</td><td>ask</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>backtest</td><td>ask</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>check_balance</td><td>auto</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>get_positions</td><td>auto</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-check">●</td><td class="m-x">-</td></tr>
+    <tr><td>notify</td><td>auto</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-check">●</td><td class="m-check">●</td></tr>
+    <tr><td>place_order</td><td style="color:var(--red);">ask</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+    <tr><td>cancel_order</td><td style="color:var(--red);">ask</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td><td class="m-x">-</td></tr>
+  </table>
+  <div style="font-size:10px;color:var(--t3);margin-top:8px;">
+    ● = 可调用 &nbsp;&nbsp; - = 不可调用 &nbsp;&nbsp; place_order / cancel_order 不属于任何角色，只在用户确认后由系统直接执行
+  </div>
+</div>
+
+<div class="key-point">
+  <b>两个重要设计决策：</b><br><br>
+  1. <b>place_order 不属于任何角色。</b>没有任何 Agent 角色可以直接下单。下单是"用户确认后系统执行"，不经过 Agent 的 LLM 推理。<br><br>
+  2. <b>Coordinator 不调研究类工具。</b>它只调 notify（推送给用户），不调 web_search / get_klines。它的输入是其他角色的研究报告，不是原始数据。这保证它是"综合者"而非"又一个分析师"。
+</div>
+
+<script>
+const ROLES = [
+  // ═══ Analyst ═══
+  {
+    icon: "📈", name: "Analyst", title: "市场分析师", color: "var(--blue)",
+    borderColor: "rgba(96,165,250,.3)",
+    intro: "负责技术面分析、消息面解读、市场情绪判断。是最常被调用的角色。",
+    skills: [
+      {
+        name: "market_analysis", badge: "核心 Skill", badgeClass: "bg-blue",
+        desc: "综合技术分析：趋势判断、支撑阻力、指标解读。最常用的 Skill。",
+        tools: ["web_search", "get_klines", "calculate_indicator", "get_price"],
+        workflow: ["获取K线数据", "计算技术指标", "搜索市场新闻", "综合判断趋势"],
+        inputs: ["品种", "时间周期", "关注的指标"],
+        outputs: ["趋势方向(多/空/中性)", "置信度", "关键价位", "指标摘要"],
+        constraints: ["必须同时分析技术面和消息面", "趋势判断必须附带置信度", "不得给出具体买卖价格（由 Risk 负责）"],
+        evalCriteria: ["技术指标引用是否与数据一致", "消息面是否为最新", "是否遗漏重大事件"]
+      },
+      {
+        name: "earnings_analysis", badge: "Skill", badgeClass: "bg-blue",
+        desc: "财报解读：提取关键指标、同比分析、与市场预期对比。",
+        tools: ["web_search", "get_financial_data"],
+        workflow: ["获取财报数据", "提取关键指标", "同比/环比分析", "对比市场预期", "解读影响"],
+        inputs: ["公司/项目名称", "财报周期"],
+        outputs: ["关键指标摘要", "超预期/低于预期", "对价格的潜在影响"],
+        constraints: ["数据必须标注来源", "必须对比市场预期共识", "不做盈利预测"],
+        evalCriteria: ["数据来源是否权威", "对比预期是否准确", "结论是否有数据支持"]
+      },
+      {
+        name: "news_sentiment", badge: "Skill", badgeClass: "bg-blue",
+        desc: "新闻和社交媒体情绪分析：热度、情绪极性、关键事件提取。",
+        tools: ["web_search"],
+        workflow: ["搜索多源新闻", "提取关键事件", "判断情绪极性", "评估对价格的影响"],
+        inputs: ["品种或关键词", "时间范围"],
+        outputs: ["情绪评分(-1~1)", "关键事件列表", "热度等级", "潜在影响方向"],
+        constraints: ["至少搜索 3 个信息源交叉验证", "标注信息来源可信度", "区分事实和观点"],
+        evalCriteria: ["是否多源交叉验证", "情绪判断是否有依据", "是否区分了事实和猜测"]
+      }
+    ],
+    directTools: [
+      { name: "get_price", desc: "获取实时报价", perm: "auto" }
+    ]
+  },
+  // ═══ Quant ═══
+  {
+    icon: "🔬", name: "Quant", title: "量化研究员", color: "var(--purple)",
+    borderColor: "rgba(167,139,250,.3)",
+    intro: "负责因子研究、策略开发、回测验证、量化信号生成。产出最重、要求最严格的角色。",
+    skills: [
+      {
+        name: "factor_design", badge: "核心 Skill", badgeClass: "bg-purple",
+        desc: "交易因子的研究、设计、实现、回测全流程。",
+        tools: ["web_search", "get_klines", "code_exec", "backtest", "calculate_indicator"],
+        workflow: ["研究文献", "设计因子逻辑", "实现代码", "单品种回测", "多品种验证", "质量评估"],
+        inputs: ["因子类型/方向", "目标品种", "回测周期"],
+        outputs: ["因子定义", "Python 代码", "IC/IR/换手率", "多品种回测报告"],
+        constraints: ["严禁前视偏差(shift(1))", "回测扣手续费 0.1% + 滑点 0.05%", "至少 2 个品种交叉验证", "因子名必须可解释"],
+        evalCriteria: ["IC > 0.03", "IR > 0.5", "换手率 < 30%", "代码无前视偏差", "多品种 IC 同向"]
+      },
+      {
+        name: "strategy_backtest", badge: "核心 Skill", badgeClass: "bg-purple",
+        desc: "交易策略构建、回测、参数优化、性能分析。",
+        tools: ["get_klines", "code_exec", "backtest", "calculate_indicator"],
+        workflow: ["定义策略逻辑", "实现代码", "历史回测", "参数敏感性分析", "样本外验证"],
+        inputs: ["策略类型", "品种", "回测周期", "参数范围"],
+        outputs: ["策略代码", "回测曲线", "Sharpe/MaxDD/胜率", "参数敏感性报告"],
+        constraints: ["必须包含手续费和滑点", "样本外至少留 20%", "禁止过度拟合(参数不超过5个)", "必须报告最大回撤"],
+        evalCriteria: ["Sharpe > 1.0", "MaxDD < 20%", "样本外表现不低于样本内 60%", "参数稳定性"]
+      },
+      {
+        name: "quant_signal", badge: "Skill", badgeClass: "bg-purple",
+        desc: "基于已有因子/策略生成实时量化信号。",
+        tools: ["get_klines", "calculate_indicator", "code_exec"],
+        workflow: ["获取最新数据", "计算因子值", "生成信号", "附带置信度"],
+        inputs: ["使用的因子/策略", "品种"],
+        outputs: ["信号方向(多/空/中性)", "信号强度", "置信度", "计算依据"],
+        constraints: ["只用已验证的因子/策略", "必须附带置信度", "信号有效期不超过 24h"],
+        evalCriteria: ["所用因子是否仍有效(IC检查)", "计算过程是否正确", "置信度是否合理"]
+      }
+    ],
+    directTools: []
+  },
+  // ═══ Risk ═══
+  {
+    icon: "🛡️", name: "Risk", title: "风控官", color: "var(--red)",
+    borderColor: "rgba(239,83,80,.3)",
+    intro: "评估风险敞口、计算合理仓位、压力测试。天然 skeptical，倾向保守。有权对任何交易建议附加风险警告。",
+    skills: [
+      {
+        name: "risk_assessment", badge: "核心 Skill", badgeClass: "bg-red",
+        desc: "评估当前持仓和拟建仓位的综合风险。",
+        tools: ["check_balance", "get_positions", "get_klines", "get_price"],
+        workflow: ["获取当前持仓", "计算各品种敞口", "分析品种相关性", "评估集中度", "估算 VaR"],
+        inputs: ["当前持仓(自动获取)", "拟建仓位(可选)"],
+        outputs: ["总敞口", "品种集中度", "相关性矩阵", "VaR估计", "风险等级(低/中/高/极高)"],
+        constraints: ["必须考虑品种间相关性", "VaR 至少用 95% 置信度", "风险等级必须明确"],
+        evalCriteria: ["持仓数据是否最新", "相关性计算是否合理", "风险等级是否与数据一致"]
+      },
+      {
+        name: "position_sizing", badge: "核心 Skill", badgeClass: "bg-red",
+        desc: "基于风险预算计算最优仓位大小。",
+        tools: ["check_balance", "get_price", "get_klines", "code_exec"],
+        workflow: ["获取可用资金", "获取标的波动率", "计算基于波动率的仓位", "约束到用户设定的限制内"],
+        inputs: ["标的", "方向", "用户风险偏好"],
+        outputs: ["建议仓位金额", "占总资金百分比", "止损价位", "最大预期损失"],
+        constraints: ["单笔不超过总资金 20%（用户可调）", "必须附带止损建议", "必须展示最坏情况损失"],
+        evalCriteria: ["是否超过仓位限制", "止损是否合理(不过宽也不过窄)", "最大损失计算是否正确"]
+      },
+      {
+        name: "stress_test", badge: "Skill", badgeClass: "bg-red",
+        desc: "极端场景模拟：如果发生 X 事件，持仓会怎样。",
+        tools: ["get_positions", "get_klines", "code_exec"],
+        workflow: ["获取当前持仓", "定义压力场景", "模拟价格变动", "计算损益", "评估是否触发强平"],
+        inputs: ["压力场景(跌10%/闪崩/黑天鹅)"],
+        outputs: ["各场景下的PnL", "是否触发强平", "最大损失", "建议对冲措施"],
+        constraints: ["至少模拟 3 种场景(轻度/中度/极端)", "必须检查强平线"],
+        evalCriteria: ["场景设定是否合理", "计算是否包含手续费和滑点", "是否考虑流动性风险"]
+      }
+    ],
+    directTools: []
+  },
+  // ═══ Sentinel ═══
+  {
+    icon: "📡", name: "Sentinel", title: "市场哨兵", color: "var(--cyan)",
+    borderColor: "rgba(34,211,238,.3)",
+    intro: "7×24 后台运行的守护进程。不参与对话，只在异常时主动通知。可以唤起 Planner 发起紧急分析。",
+    skills: [
+      {
+        name: "signal_monitor", badge: "核心 Skill", badgeClass: "bg-cyan",
+        desc: "持续监控价格、成交量、技术指标，在触发预设条件时报警。",
+        tools: ["get_price", "calculate_indicator", "notify"],
+        workflow: ["轮询价格数据", "计算指标", "对比预设阈值", "触发则推送通知"],
+        inputs: ["监控品种列表", "预设条件(价格阈值/指标阈值)"],
+        outputs: ["预警通知", "触发条件详情", "建议操作"],
+        constraints: ["轮询间隔不低于 1 分钟", "单品种单条件 24h 内最多报警 3 次(防骚扰)", "通知必须包含原因和数据"],
+        evalCriteria: ["触发条件是否真实满足", "通知是否及时", "是否有误报"]
+      },
+      {
+        name: "decay_detector", badge: "Skill", badgeClass: "bg-cyan",
+        desc: "持续监控已部署因子/策略的表现衰减。",
+        tools: ["get_klines", "calculate_indicator", "notify"],
+        workflow: ["每日计算因子滚动 IC", "对比历史均值", "检测衰减趋势", "达到阈值则报警"],
+        inputs: ["已部署因子列表", "衰减阈值"],
+        outputs: ["衰减报告", "受影响的策略", "建议操作(替换/暂停)"],
+        constraints: ["衰减检测窗口至少 14 天", "需区分短期波动和长期衰减", "报警时附带历史 IC 曲线"],
+        evalCriteria: ["衰减判定是否有统计依据", "是否区分了噪声和趋势", "建议是否合理"]
+      }
+    ],
+    directTools: [
+      { name: "get_positions", desc: "获取持仓（监控持仓异动）", perm: "auto" }
+    ]
+  },
+  // ═══ Coordinator ═══
+  {
+    icon: "🎯", name: "Coordinator", title: "综合协调者", color: "var(--green)",
+    borderColor: "rgba(60,200,122,.3)",
+    intro: "读取所有角色的研究报告，综合理解后产出统一建议。不做原始研究，不调数据类工具。",
+    skills: [
+      {
+        name: "report_synthesis", badge: "核心 Skill", badgeClass: "bg-green",
+        desc: "将多个角色的研究报告综合为一份结构化的最终建议。",
+        tools: ["notify"],
+        workflow: ["读取所有子报告", "识别共识与分歧", "加权综合置信度", "生成结构化建议", "推送给用户"],
+        inputs: ["各角色的研究报告"],
+        outputs: ["综合建议方向", "加权置信度", "操作建议(含仓位/止损)", "分歧说明(如有)", "风险提示"],
+        constraints: ["不可省略 Risk 的风险提示", "分歧必须呈现两方观点", "置信度必须低于最高单一角色的置信度(综合必然增加不确定性)", "所有交易建议必须附带'仅供参考'声明"],
+        evalCriteria: ["是否完整反映了所有角色的观点", "分歧是否被正确呈现", "风险提示是否突出", "置信度是否合理(非简单平均)"]
+      }
+    ],
+    directTools: [
+      { name: "notify", desc: "推送通知给用户", perm: "auto" }
+    ]
+  }
+];
+
+function showRole(idx) {
+  document.querySelectorAll('.role-tab').forEach((t,i) => {
+    t.classList.toggle('active', i===idx);
+    if (i===idx) t.style.borderColor = ROLES[i].borderColor;
+    else t.style.borderColor = 'var(--border)';
+  });
+  const r = ROLES[idx];
+  let html = `
+    <div class="role-page" style="border-color:${r.borderColor};">
+      <div class="rp-header" style="background:${r.color}08;">
+        <div class="rp-icon">${r.icon}</div>
+        <div>
+          <div class="rp-name" style="color:${r.color};">${r.name}</div>
+          <div class="rp-title">${r.title}</div>
+        </div>
+      </div>
+      <div class="rp-body">
+        <div style="font-size:12px;color:var(--t2);margin-bottom:16px;line-height:1.6;">${r.intro}</div>`;
+
+  // Skills
+  html += `<div class="skill-section">
+    <div class="skill-section-label"><span class="badge bg-purple">SKILL</span> 拥有的 Skill（${r.skills.length}个）</div>`;
+  for (const sk of r.skills) {
+    html += `<div class="skill-card">
+      <div class="sk-head">
+        <div class="sk-name" style="color:${r.color};">${sk.name}</div>
+        <span class="badge ${sk.badgeClass}">${sk.badge}</span>
+      </div>
+      <div class="sk-desc">${sk.desc}</div>
+      <div class="sk-row">
+        <div class="sk-block">
+          <div class="sk-block-label">使用的 Tool</div>
+          <div class="sk-block-items">${sk.tools.map(t=>`<span class="sk-item sk-tool">${t}</span>`).join('')}</div>
+        </div>
+        <div class="sk-block">
+          <div class="sk-block-label">输入</div>
+          <div class="sk-block-items">${sk.inputs.map(t=>`<span class="sk-item sk-input">${t}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div class="sk-row">
+        <div class="sk-block">
+          <div class="sk-block-label">输出</div>
+          <div class="sk-block-items">${sk.outputs.map(t=>`<span class="sk-item sk-output">${t}</span>`).join('')}</div>
+        </div>
+        <div class="sk-block">
+          <div class="sk-block-label">领域约束</div>
+          <div class="sk-block-items">${sk.constraints.map(t=>`<span class="sk-item sk-constraint">${t}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div class="sk-block" style="margin-top:6px;">
+        <div class="sk-block-label">Evaluator 评估标准</div>
+        <div class="sk-block-items">${sk.evalCriteria.map(t=>`<span class="sk-item sk-eval">${t}</span>`).join('')}</div>
+      </div>
+      <div style="margin-top:8px;">
+        <div class="sk-block-label" style="font-size:9px;color:var(--t3);margin-bottom:4px;">标准工作流</div>
+        <div class="sk-flow">${sk.workflow.map((s,i)=>`<span class="sf-step">${i+1}. ${s}</span>${i<sk.workflow.length-1?'<span class="sf-arrow">→</span>':''}`).join('')}</div>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Direct tools
+  if (r.directTools.length > 0) {
+    html += `<div class="skill-section">
+      <div class="skill-section-label"><span class="badge bg-blue">TOOL</span> 直接工具（不通过 Skill 调用）</div>
+      <div class="direct-tools">${r.directTools.map(t=>`
+        <div class="dt-card">
+          <div class="dt-name">${t.name}</div>
+          <div class="dt-desc">${t.desc}</div>
+          <div class="dt-perm" style="color:var(--green);">权限: ${t.perm}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  html += `</div></div>`;
+  document.getElementById('roleContent').innerHTML = html;
+}
+
+showRole(0);
+</script>
+</body>
+</html>

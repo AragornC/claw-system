@@ -1,0 +1,108 @@
+.app {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  height: 100vh;
+}
+
+/* ── Header ── */
+.hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.hd-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.hd-sub {
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-left: 6px;
+  font-size: 11px;
+}
+.hd-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hd-btn {
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-family: inherit;
+  background: rgba(60, 200, 122, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(60, 200, 122, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 96px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.hd-btn:hover:not(:disabled) {
+  background: rgba(60, 200, 122, 0.18);
+  border-color: rgba(60, 200, 122, 0.5);
+}
+.hd-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* ── Inline select ── */
+.ctl { display: inline-flex; align-items: center; gap: 6px; }
+.ctl-label { color: var(--text-dim); font-size: 11px; }
+.ctl-select {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ctl-select:focus { outline: 1px solid rgba(60, 200, 122, 0.4); }
+
+/* ── Banners ── */
+.banner {
+  padding: 8px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.banner-err { background: rgba(232, 93, 77, 0.08); color: #e85d4d; }
+
+/* ── Chart area ── */
+.main {
+  position: relative;
+  min-height: 0;
+}
+.bc-stack {
+  display: grid;
+  grid-template-rows: 3fr 1fr;
+  height: 100%;
+  width: 100%;
+}
+.bc-main, .bc-sub {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.bc-sub { border-top: 1px solid var(--border); }
+
+/* ── Footer stats ── */
+.ft {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+}
+.stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.stat-label { color: var(--text-dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { color: var(--text); font-weight: 600; }

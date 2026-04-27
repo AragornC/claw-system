@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 管理面板 v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#090d16;--bg2:#0f1624;--bg3:#131c2e;--bg4:#1a2332;
+  --bg-hover:rgba(255,255,255,.035);--bg-active:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);
+  --t1:#e2e8f0;--t2:#94a3b8;--t3:#4a6580;--t4:#2e3f52;
+  --green:#3cc87a;--gold:#e8a84a;--blue:#60a5fa;--purple:#a78bfa;--cyan:#22d3ee;--red:#ef5350;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",monospace;
+}
+body{background:#060912;font-family:var(--font);font-size:13px;color:var(--t1);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px;}
+.demo-hint{font-size:11px;color:var(--t3);margin-bottom:14px;text-align:center;letter-spacing:.4px;}
+
+.app-shell{display:flex;width:980px;height:660px;border-radius:12px;overflow:hidden;border:1px solid var(--border2);box-shadow:0 24px 80px rgba(0,0,0,.6);}
+
+/* ── Icon Rail ── */
+.rail{width:44px;flex-shrink:0;background:#070b13;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:10px 0 8px;gap:2px;}
+.rail-btn{width:32px;height:32px;border:none;border-radius:7px;background:transparent;color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;position:relative;}
+.rail-btn:hover{color:var(--t1);background:var(--bg-hover);}
+.rail-btn.active{color:var(--t1);background:var(--bg-active);}
+.rail-btn.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:2.5px;height:18px;background:var(--green);border-radius:0 2px 2px 0;}
+.rail-spacer{flex:1;}
+
+/* ── Sidebar ── */
+.sidebar{width:216px;flex-shrink:0;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sb-body{flex:1;overflow-y:auto;overflow-x:hidden;}
+.sb-body::-webkit-scrollbar{width:3px;}
+.sb-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+/* section header */
+.sec-hd{display:flex;align-items:center;padding:11px 12px 6px;font-size:9.5px;font-weight:700;letter-spacing:.7px;color:var(--t3);text-transform:uppercase;cursor:pointer;user-select:none;transition:color .12s;}
+.sec-hd:hover{color:var(--t2);}
+.sec-chev{width:11px;height:11px;display:flex;align-items:center;justify-content:center;margin-right:5px;transition:transform .15s;flex-shrink:0;transform:rotate(90deg);}
+.sec.collapsed .sec-chev{transform:rotate(0);}
+.sec-label{flex:1;}
+.sec-count{font-size:9px;color:var(--t4);font-weight:400;letter-spacing:0;}
+.sec-body{overflow:hidden;max-height:800px;transition:max-height .2s ease,opacity .15s;opacity:1;}
+.sec.collapsed .sec-body{max-height:0;opacity:0;}
+
+/* add button inline */
+.sec-add{width:18px;height:18px;border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;margin-right:2px;transition:all .12s;flex-shrink:0;}
+.sec-add:hover{color:var(--green);border-color:rgba(60,200,122,.4);background:rgba(60,200,122,.05);}
+
+/* sidebar row */
+.sb-row{display:flex;align-items:center;gap:8px;padding:5px 12px 5px 10px;cursor:pointer;transition:background .1s;border-left:2px solid transparent;}
+.sb-row:hover{background:var(--bg-hover);}
+.sb-row.sel{background:var(--bg-active);border-left-color:var(--green);}
+.sb-row-icon{flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;color:var(--t3);}
+.sb-row.sel .sb-row-icon{color:var(--t1);}
+.sb-row-label{flex:1;font-size:11.5px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sb-row.sel .sb-row-label{color:var(--t1);}
+.sb-row-sub{font-size:9.5px;color:var(--t4);}
+.status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+.dot-on{background:var(--green);}
+.dot-off{background:var(--t4);}
+
+/* perm badge small */
+.perm-s{font-size:8.5px;padding:1px 5px;border-radius:3px;font-weight:600;flex-shrink:0;}
+.perm-auto{background:rgba(60,200,122,.08);color:var(--green);border:1px solid rgba(60,200,122,.14);}
+.perm-ask{background:rgba(232,168,74,.08);color:var(--gold);border:1px solid rgba(232,168,74,.14);}
+.perm-deny{background:rgba(239,83,80,.08);color:var(--red);border:1px solid rgba(239,83,80,.14);}
+
+/* ── Main area ── */
+.main{flex:1;background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;}
+
+/* main header bar */
+.main-header{display:flex;align-items:center;padding:7px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.mh-left{display:flex;align-items:center;gap:10px;flex:1;}
+.mh-right{display:flex;align-items:center;gap:8px;}
+.mh-label{font-size:11px;color:var(--t3);}
+.main-act-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--t3);font-size:11px;cursor:pointer;font-family:var(--font);transition:all .12s;}
+.main-act-btn:hover{color:var(--green);border-color:rgba(60,200,122,.35);background:rgba(60,200,122,.05);}
+
+/* slide toggle for skill views */
+.slide-toggle{
+  display:flex;align-items:center;
+  background:rgba(0,0,0,.3);border-radius:6px;
+  padding:2px;gap:0;border:1px solid var(--border);
+}
+.slide-opt{
+  padding:4px 14px;border-radius:4px;font-size:10.5px;
+  color:var(--t3);cursor:pointer;transition:all .15s;
+  font-family:var(--font);border:none;background:transparent;
+  white-space:nowrap;
+}
+.slide-opt:hover{color:var(--t2);}
+.slide-opt.active{background:var(--bg-active);color:var(--t1);}
+
+/* validation bar */
+.valid-bar{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 16px;border-bottom:1px solid var(--border);
+  font-size:10.5px;flex-shrink:0;
+  transition:background .2s;
+}
+.valid-bar.ok{background:rgba(60,200,122,.04);color:var(--green);}
+.valid-bar.warn{background:rgba(232,168,74,.06);color:var(--gold);}
+.valid-bar.err{background:rgba(239,83,80,.06);color:var(--red);}
+.valid-icon{flex-shrink:0;}
+.valid-msg{flex:1;}
+.valid-items{display:flex;gap:6px;flex-wrap:wrap;}
+.valid-item{font-size:9.5px;padding:1px 6px;border-radius:3px;}
+.valid-item.pass{background:rgba(60,200,122,.08);color:var(--green);border:1px solid rgba(60,200,122,.14);}
+.valid-item.fail{background:rgba(239,83,80,.08);color:var(--red);border:1px solid rgba(239,83,80,.14);}
+.valid-item.warn-item{background:rgba(232,168,74,.08);color:var(--gold);border:1px solid rgba(232,168,74,.14);}
+
+/* custom section in skill visual */
+.sv-custom{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:rgba(255,255,255,.01);}
+.sv-custom-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+.sv-custom-title{font-size:10.5px;font-weight:700;color:var(--t2);font-family:var(--mono);background:transparent;border:1px solid transparent;border-radius:3px;padding:2px 4px;outline:none;transition:border-color .12s;}
+.sv-custom-title:focus{border-color:rgba(96,165,250,.3);}
+.sv-custom-badge{font-size:8px;padding:1px 5px;border-radius:3px;background:rgba(34,211,238,.06);color:var(--cyan);border:1px solid rgba(34,211,238,.12);}
+.sv-custom-rm{margin-left:auto;width:16px;height:16px;border:none;border-radius:3px;background:transparent;color:var(--t4);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;transition:all .12s;}
+.sv-custom-rm:hover{color:var(--red);background:rgba(239,83,80,.08);}
+
+.main-body{flex:1;overflow-y:auto;padding:18px 22px;}
+.main-body::-webkit-scrollbar{width:4px;}
+.main-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+/* empty state */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;}
+.empty-icon{color:var(--t4);}
+.empty-text{font-size:12px;color:var(--t3);}
+
+/* ── Agent / Skill detail (markdown-style) ── */
+.md-h1{font-size:16px;font-weight:700;color:var(--t1);margin-bottom:4px;display:flex;align-items:center;gap:10px;}
+.md-h1 svg{color:var(--t2);}
+.md-badge{font-size:9.5px;padding:2px 8px;border-radius:4px;font-weight:600;}
+.md-meta{font-size:11px;color:var(--t3);margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+.md-sep{height:1px;background:var(--border);margin:14px 0;}
+.md-p{font-size:12px;color:var(--t2);line-height:1.75;margin-bottom:14px;}
+.md-h2{font-size:10.5px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;margin-top:2px;}
+
+/* skill list in agent detail */
+.skill-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.skill-row-card{border:1px solid var(--border);border-radius:7px;background:rgba(255,255,255,.015);overflow:hidden;transition:border-color .12s;}
+.skill-row-card:hover{border-color:var(--border2);}
+.skill-row-top{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;transition:background .1s;}
+.skill-row-top:hover{background:var(--bg-hover);}
+.skill-row-name{font-size:12px;color:var(--t1);font-family:var(--mono);flex-shrink:0;min-width:140px;}
+.skill-row-desc{font-size:10.5px;color:var(--t3);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.skill-row-link{font-size:10px;color:var(--t4);flex-shrink:0;}
+.skill-row-top:hover .skill-row-link{color:var(--blue);}
+.skill-row-fns{display:flex;flex-wrap:wrap;gap:4px;padding:5px 10px 7px;border-top:1px solid var(--border);background:rgba(0,0,0,.12);}
+.skill-fn-tag{font-size:9.5px;font-family:var(--mono);color:var(--t2);padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.03);border:1px solid var(--border);cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:4px;}
+.skill-fn-tag:hover{border-color:var(--border2);color:var(--blue);}
+.skill-fn-perm{font-size:8px;font-family:var(--font);opacity:.6;}
+
+/* function chips for agent */
+.fn-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;}
+.fn-chip{font-size:10.5px;padding:3px 9px;border-radius:5px;font-family:var(--mono);cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:5px;}
+.fn-chip:hover{border-color:var(--border2);}
+
+/* toggle */
+.toggle{width:28px;height:15px;border-radius:8px;background:var(--t4);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+.toggle.on{background:var(--green);}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:white;transition:left .2s;}
+.toggle.on::after{left:15px;}
+
+/* ── Function detail ── */
+.fn-header{margin-bottom:14px;}
+.fn-name{font-size:16px;font-weight:700;font-family:var(--mono);color:var(--t1);margin-bottom:4px;}
+.fn-desc{font-size:12px;color:var(--t2);line-height:1.7;margin-bottom:4px;}
+
+/* params table */
+.params-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:14px;}
+.params-table th{text-align:left;padding:6px 8px;font-size:9.5px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);font-weight:600;}
+.params-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--t2);vertical-align:top;}
+.params-table tr:last-child td{border-bottom:none;}
+.param-name{font-family:var(--mono);color:var(--blue);}
+.param-type{font-family:var(--mono);color:var(--gold);font-size:10.5px;}
+.param-req{color:var(--red);font-size:10px;}
+.param-opt{color:var(--t4);font-size:10px;}
+
+/* agent tags in fn detail */
+.agent-tags{display:flex;flex-wrap:wrap;gap:5px;}
+.agent-tag{font-size:10.5px;padding:3px 9px;border-radius:5px;border:1px solid var(--border);background:rgba(255,255,255,.02);color:var(--t2);display:flex;align-items:center;gap:5px;}
+
+/* perm selector */
+.perm-sel{display:flex;gap:6px;}
+.perm-opt{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:11px;cursor:pointer;transition:all .12s;font-family:var(--font);}
+.perm-opt:hover{border-color:var(--border2);color:var(--t2);}
+.perm-opt.sel-auto{border-color:rgba(60,200,122,.4);color:var(--green);background:rgba(60,200,122,.06);}
+.perm-opt.sel-ask{border-color:rgba(232,168,74,.4);color:var(--gold);background:rgba(232,168,74,.06);}
+.perm-opt.sel-deny{border-color:rgba(239,83,80,.4);color:var(--red);background:rgba(239,83,80,.06);}
+
+/* register modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:100;opacity:0;pointer-events:none;transition:opacity .18s;}
+.overlay.show{opacity:1;pointer-events:all;}
+.modal{width:500px;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:22px 24px;transform:scale(.96);transition:transform .2s;}
+.overlay.show .modal{transform:scale(1);}
+.modal-title{font-size:13.5px;font-weight:700;margin-bottom:2px;}
+.modal-sub{font-size:11px;color:var(--t3);margin-bottom:18px;}
+.form-label{font-size:10.5px;color:var(--t3);margin-bottom:5px;}
+.form-input{width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border2);background:rgba(255,255,255,.04);color:var(--t1);font-size:12px;font-family:var(--font);outline:none;margin-bottom:12px;}
+.form-input:focus{border-color:rgba(60,200,122,.4);}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.perm-row{display:flex;gap:6px;margin-bottom:12px;}
+.perm-pill{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:11px;cursor:pointer;font-family:var(--font);transition:all .12s;}
+.perm-pill:hover{border-color:var(--border2);color:var(--t2);}
+.perm-pill.active-auto{border-color:rgba(60,200,122,.4);color:var(--green);background:rgba(60,200,122,.06);}
+.perm-pill.active-ask{border-color:rgba(232,168,74,.4);color:var(--gold);background:rgba(232,168,74,.06);}
+.perm-pill.active-deny{border-color:rgba(239,83,80,.4);color:var(--red);background:rgba(239,83,80,.06);}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:4px;}
+.btn{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-family:var(--font);transition:all .12s;}
+.btn-ghost{background:transparent;color:var(--t3);border:1px solid var(--border);}
+.btn-ghost:hover{color:var(--t1);border-color:var(--border2);}
+.btn-primary{background:var(--green);color:#07130e;font-weight:600;}
+.btn-primary:hover{opacity:.88;}
+
+/* code block style */
+.code-block{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10.5px;color:var(--t2);line-height:1.7;margin-bottom:14px;overflow-x:auto;}
+
+/* system prompt area */
+.prompt-area{
+  background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;margin-bottom:14px;
+  font-size:12px;color:var(--t2);line-height:1.8;
+  white-space:pre-wrap;font-family:var(--font);
+  max-height:260px;overflow-y:auto;
+  cursor:text;position:relative;
+}
+.prompt-area::-webkit-scrollbar{width:3px;}
+.prompt-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.prompt-area .h2{color:var(--t3);font-weight:700;font-size:11px;letter-spacing:.3px;}
+.prompt-area .hl{color:var(--gold);}
+.prompt-edit-hint{
+  position:absolute;top:8px;right:10px;
+  font-size:9.5px;color:var(--t4);pointer-events:none;
+}
+
+/* memory tag */
+.memory-tag{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:9px 12px;border-radius:6px;
+  background:rgba(34,211,238,.04);border:1px solid rgba(34,211,238,.1);
+  font-size:11.5px;color:var(--t2);line-height:1.6;
+  margin-bottom:14px;
+}
+.memory-tag svg{flex-shrink:0;margin-top:2px;color:var(--cyan);}
+
+/* skill editor */
+.skill-editor{
+  width:100%;min-height:220px;max-height:400px;resize:vertical;
+  background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;margin-bottom:16px;
+  font-size:12px;color:var(--t2);line-height:1.8;
+  font-family:var(--font);outline:none;
+  tab-size:2;
+}
+.skill-editor:focus{border-color:rgba(96,165,250,.3);}
+.skill-editor::-webkit-scrollbar{width:3px;}
+.skill-editor::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+/* ── Skill visual editor ── */
+.sv-section{margin-bottom:16px;}
+.sv-label{font-size:9.5px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;}
+.sv-input{
+  width:100%;padding:8px 10px;border-radius:6px;
+  border:1px solid var(--border);background:rgba(0,0,0,.2);
+  color:var(--t1);font-size:12px;font-family:var(--font);outline:none;
+  transition:border-color .12s;
+}
+.sv-input:focus{border-color:rgba(96,165,250,.3);}
+
+.sv-tools{display:flex;flex-direction:column;gap:3px;}
+.sv-tool-row{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:5px;border:1px solid var(--border);background:rgba(0,0,0,.12);transition:border-color .12s;}
+.sv-tool-row:hover{border-color:var(--border2);}
+.sv-tool-name{font-size:11.5px;font-family:var(--mono);color:var(--blue);min-width:135px;flex-shrink:0;cursor:pointer;}
+.sv-tool-name:hover{text-decoration:underline;}
+.sv-tool-missing{color:var(--red) !important;cursor:default !important;}
+.sv-tool-missing:hover{text-decoration:none !important;}
+.sv-tool-desc{font-size:10.5px;color:var(--t3);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sv-tool-rm{width:18px;height:18px;border:none;border-radius:3px;background:transparent;color:var(--t4);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s;}
+.sv-tool-rm:hover{color:var(--red);background:rgba(239,83,80,.08);}
+.sv-add-tool{border:1px dashed var(--border);background:transparent;color:var(--t4);padding:6px;border-radius:5px;font-size:11px;cursor:pointer;font-family:var(--font);margin-top:4px;transition:all .12s;}
+.sv-add-tool:hover{border-color:var(--border2);color:var(--t2);}
+
+.sv-list{display:flex;flex-direction:column;gap:3px;}
+.sv-list-item{display:flex;align-items:center;gap:6px;}
+.sv-list-num{font-size:10.5px;color:var(--t4);font-family:var(--mono);width:16px;text-align:right;flex-shrink:0;}
+.sv-list-bullet{font-size:12px;flex-shrink:0;width:16px;text-align:center;}
+.sv-list-input{
+  flex:1;padding:5px 8px;border-radius:4px;
+  border:1px solid var(--border);background:rgba(0,0,0,.15);
+  color:var(--t2);font-size:11.5px;font-family:var(--font);outline:none;
+  transition:border-color .12s;
+}
+.sv-list-input:focus{border-color:rgba(96,165,250,.3);color:var(--t1);}
+.sv-list-rm{width:16px;height:16px;border:none;border-radius:3px;background:transparent;color:var(--t4);cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0;opacity:0;transition:all .12s;}
+.sv-list-item:hover .sv-list-rm{opacity:1;}
+.sv-list-rm:hover{color:var(--red);background:rgba(239,83,80,.08);}
+.sv-add-item{border:none;background:transparent;color:var(--t4);padding:4px 0;font-size:10.5px;cursor:pointer;font-family:var(--font);margin-top:4px;transition:color .12s;text-align:left;}
+.sv-add-item:hover{color:var(--blue);}
+
+/* workflow layout */
+.sv-wf-list{display:flex;flex-direction:column;gap:0;}
+
+.wf-row{display:flex;align-items:stretch;gap:0;}
+.wf-gutter{display:flex;flex-direction:column;align-items:center;width:32px;flex-shrink:0;}
+.sv-wf-num{
+  width:20px;height:20px;border-radius:50%;
+  border:1.5px solid var(--border2);background:var(--bg3);
+  font-size:9.5px;color:var(--t2);font-family:var(--mono);
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;z-index:1;
+}
+.wf-vline{width:1.5px;flex:1;min-height:12px;background:var(--border);}
+.wf-vline.last{background:transparent;}
+.wf-content{flex:1;padding:0 4px 10px;min-width:0;}
+
+/* step node (used in both serial and inside branches) */
+.sv-wf-node{margin-bottom:2px;}
+.sv-wf-input{
+  width:100%;padding:5px 8px;border-radius:4px;
+  border:1px solid var(--border);background:rgba(0,0,0,.15);
+  color:var(--t1);font-size:12px;font-family:var(--font);outline:none;
+  transition:border-color .12s;margin-bottom:3px;
+}
+.sv-wf-input:focus{border-color:rgba(96,165,250,.3);}
+.sv-wf-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sv-wf-fn{
+  font-size:10px;font-family:var(--mono);color:var(--blue);
+  padding:1px 6px;border-radius:3px;
+  background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.12);
+  cursor:pointer;display:inline-flex;align-items:center;gap:4px;
+  transition:all .12s;
+}
+.sv-wf-fn:hover{background:rgba(96,165,250,.14);border-color:rgba(96,165,250,.25);}
+.sv-wf-fn svg{color:var(--blue);}
+.sv-wf-llm{
+  font-size:9.5px;font-weight:700;color:var(--purple);
+  padding:1px 6px;border-radius:3px;
+  background:rgba(167,139,250,.07);border:1px solid rgba(167,139,250,.12);
+}
+.sv-wf-note{font-size:10px;color:var(--t4);}
+
+/* parallel badge */
+.wf-par-badge{
+  font-size:8px;font-weight:700;letter-spacing:.5px;
+  color:var(--gold);padding:2px 6px;border-radius:4px;
+  background:rgba(232,168,74,.08);border:1px solid rgba(232,168,74,.15);
+  white-space:nowrap;flex-shrink:0;
+}
+
+/* parallel container */
+.wf-par-container{
+  display:flex;gap:6px;
+  padding:8px;border-radius:6px;
+  border:1px dashed rgba(232,168,74,.2);
+  background:rgba(232,168,74,.02);
+}
+.wf-branch{flex:1;min-width:0;}
+.wf-branch-head{
+  font-size:8.5px;font-weight:700;color:var(--t4);
+  text-transform:uppercase;letter-spacing:.5px;
+  margin-bottom:6px;padding-left:18px;
+}
+.wf-branch-step{display:flex;align-items:flex-start;gap:0;}
+.wf-branch-gutter{display:flex;flex-direction:column;align-items:center;width:18px;flex-shrink:0;}
+.wf-branch-dot{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--border2);background:var(--bg3);flex-shrink:0;z-index:1;margin-top:8px;}
+.wf-branch-line{width:1px;flex:1;min-height:8px;background:var(--border);}
+
+/* skill detail header */
+.sk-detail-header{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.sk-detail-left{display:flex;align-items:center;gap:8px;}
+.sk-detail-owner{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:5px;
+  border:1px solid var(--border);background:rgba(255,255,255,.02);
+  font-size:11px;color:var(--t2);cursor:pointer;transition:all .12s;
+}
+.sk-detail-owner:hover{border-color:var(--border2);color:var(--t1);}
+
+/* skill editor bar */
+.sk-editor-bar{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.sk-editor-label{
+  font-size:10px;font-weight:700;font-family:var(--mono);
+  color:var(--t3);padding:2px 6px;border-radius:3px;
+  background:rgba(255,255,255,.04);border:1px solid var(--border);
+}
+.sk-editor-hint{font-size:10px;color:var(--t4);}
+
+/* skill function list */
+.sk-tools-hint{font-size:10.5px;color:var(--t4);margin-bottom:8px;}
+.skill-fn-list{display:flex;flex-direction:column;gap:2px;}
+.skill-fn-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s;}
+.skill-fn-row:hover{background:var(--bg-hover);}
+.skill-fn-row-name{font-size:11.5px;font-family:var(--mono);color:var(--t1);min-width:140px;flex-shrink:0;}
+.skill-fn-row-desc{font-size:10.5px;color:var(--t3);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.skill-fn-row-arrow{color:var(--t4);font-size:11px;flex-shrink:0;transition:color .12s;}
+.skill-fn-row:hover .skill-fn-row-arrow{color:var(--blue);}
+</style>
+</head>
+<body>
+<div class="demo-hint">左侧 Agent tab → 点角色查看详情 · 点 Skill 看绑定的 function · Function 区管理注册 · [+] 注册新函数</div>
+
+<div class="app-shell">
+
+<!-- Icon Rail -->
+<div class="rail">
+  <button class="rail-btn" title="策略" onclick="switchRail(this)">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="10" width="12" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+  </button>
+  <button class="rail-btn" title="大盘" onclick="switchRail(this)">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,12 5,7 8,9 11,4 14,6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="2" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+  </button>
+  <button class="rail-btn" title="社区" onclick="switchRail(this)">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>
+  </button>
+  <button class="rail-btn" title="任务" onclick="switchRail(this)">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="5.5" x2="11" y2="5.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="6" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="6" y1="10.5" x2="9" y2="10.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+  </button>
+  <!-- Agent tab -->
+  <button class="rail-btn active" title="Agent 团队" onclick="switchRail(this)">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="5" cy="6" r="2" stroke="currentColor" stroke-width="1.2"/>
+      <circle cx="11" cy="6" r="2" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M1 14c0-2.2 1.8-4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M15 14c0-2.2-1.8-4-4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M8 14c0-2.2 1.8-4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M8 14c0-2.2-1.8-4-4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div class="rail-spacer"></div>
+  <button class="rail-btn" title="搜索" onclick="switchRail(this)">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="5.8" cy="5.8" r="4" stroke="currentColor" stroke-width="1.2"/><line x1="8.6" y1="8.6" x2="12" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sb-body">
+
+    <!-- Agents -->
+    <div class="sec" id="sec-agent">
+      <div class="sec-hd" onclick="toggleSec('sec-agent')">
+        <span class="sec-chev"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 1.5l4 3-4 3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sec-label">Agents</span>
+        <span class="sec-count" id="agentCount">5</span>
+        &nbsp;
+        <button class="sec-add" title="新建 Agent" onclick="event.stopPropagation()">+</button>
+      </div>
+      <div class="sec-body" id="agentList"></div>
+    </div>
+
+    <!-- Skills -->
+    <div class="sec" id="sec-skill">
+      <div class="sec-hd" onclick="toggleSec('sec-skill')">
+        <span class="sec-chev"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 1.5l4 3-4 3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sec-label">Skills</span>
+        <span class="sec-count">12</span>
+      </div>
+      <div class="sec-body" id="skillList"></div>
+    </div>
+
+    <!-- Functions -->
+    <div class="sec" id="sec-fn">
+      <div class="sec-hd" onclick="toggleSec('sec-fn')">
+        <span class="sec-chev"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 1.5l4 3-4 3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="sec-label">Functions</span>
+        <span class="sec-count" id="fnCount">12</span>
+        &nbsp;
+        <button class="sec-add" title="注册新 Function" onclick="event.stopPropagation();openRegister()">+</button>
+      </div>
+      <div class="sec-body" id="fnList"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Main area -->
+<div class="main">
+  <div class="main-header" id="mainHeader" style="display:none">
+    <!-- For skill: slide toggle; for others: just label -->
+    <div class="mh-left" id="mhLeft"></div>
+    <div class="mh-right" id="mhRight"></div>
+  </div>
+  <div class="main-body" id="mainBody">
+    <div class="empty">
+      <div class="empty-icon">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity=".3"><circle cx="14" cy="16" r="5" stroke="currentColor" stroke-width="1.5"/><circle cx="26" cy="16" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M4 36c0-5.5 4.5-10 10-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M36 36c0-5.5-4.5-10-10-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 36c0-5.5 4.5-10 10-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 36c0-5.5-4.5-10-10-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="empty-text">选择 Agent、Skill 或 Function 查看详情</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- Register Function Modal -->
+<div class="overlay" id="regOverlay" onclick="closeIfBg(event)">
+  <div class="modal">
+    <div class="modal-title">注册新 Function</div>
+    <div class="modal-sub">定义函数名、描述、参数 Schema 和默认权限</div>
+    <div class="form-row">
+      <div>
+        <div class="form-label">函数名</div>
+        <input class="form-input" placeholder="e.g. get_orderbook" id="regName"/>
+      </div>
+      <div>
+        <div class="form-label">分类</div>
+        <input class="form-input" placeholder="e.g. market-data" id="regCat"/>
+      </div>
+    </div>
+    <div class="form-label">描述</div>
+    <input class="form-input" placeholder="这个函数做什么…" id="regDesc"/>
+    <div class="form-label">参数（每行一个，格式: name:type:required:描述）</div>
+    <textarea class="form-input" rows="3" placeholder="symbol:string:true:交易品种&#10;depth:number:false:深度档位，默认20" id="regParams" style="resize:vertical;"></textarea>
+    <div class="form-label" style="margin-bottom:6px;">默认权限</div>
+    <div class="perm-row" id="permRow">
+      <button class="perm-pill active-auto" onclick="pickPerm(this,'auto')">auto — 自动执行</button>
+      <button class="perm-pill" onclick="pickPerm(this,'ask')">ask — 每次确认</button>
+      <button class="perm-pill" onclick="pickPerm(this,'deny')">deny — 禁止调用</button>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="closeRegister()">取消</button>
+      <button class="btn btn-primary" onclick="confirmRegister()">注册</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════ Data ══════════ */
+const AGENTS = [
+  { id:'analyst', name:'Analyst', role:'市场分析师', active:true,
+    desc:'负责技术面分析、消息面解读、市场情绪判断。是最常被 Planner 调用的角色。',
+    systemPrompt:`你是一个专业的金融市场分析师。你的核心职责是基于技术面和消息面的综合分析，给出市场趋势判断。
+
+## 认知偏向
+- 你倾向于寻找交易机会，但不会忽视风险信号
+- 当技术面和消息面矛盾时，你会同时呈现两方面证据，不强行统一
+- 你对「确定性」保持谨慎，所有判断必须附带置信度
+
+## 沟通风格
+- 结论先行，再展开分析过程
+- 使用数据支撑观点，避免模糊用语（"可能会涨"→"基于RSI超卖+资金流入，偏多，置信度65%"）
+- 不给出具体买卖价格，这不是你的职责范围
+
+## 局限性声明
+你不负责仓位计算和风险评估，这些由 Risk 角色完成。你的分析仅供参考，不构成投资建议。`,
+    memory:'保留最近 7 天的分析记录，用于趋势连续性判断',
+    skills:['market_analysis','earnings_analysis','news_sentiment'],
+    fns:['web_search','get_klines','calculate_indicator','get_price','get_financial_data'] },
+  { id:'quant', name:'Quant', role:'量化研究员', active:true,
+    desc:'负责因子研究、策略开发、回测验证、量化信号生成。执行计算工作流最密集的角色。',
+    systemPrompt:`你是一个严谨的量化研究员。你的工作是设计、实现和验证交易因子与策略。
+
+## 认知偏向
+- 你对统计显著性有极高要求，拒绝没有数据支撑的直觉判断
+- 你天然警惕过拟合，参数越少越好，样本外表现是唯一标准
+- 你对「前视偏差」零容忍
+
+## 沟通风格
+- 用数据说话：IC、IR、Sharpe、MaxDD 等指标必须给出
+- 代码和回测结果是你的主要产出物，文字描述辅助
+- 对自己的产出保持批判态度，主动报告不足之处
+
+## 局限性声明
+你不做市场方向判断（那是 Analyst 的事），你只关心因子/策略在统计上是否有效。`,
+    memory:'保留已验证因子库和策略库的元数据，避免重复研究',
+    skills:['factor_design','strategy_backtest','quant_signal'],
+    fns:['web_search','get_klines','calculate_indicator','code_exec','backtest'] },
+  { id:'risk', name:'Risk', role:'风控官', active:true,
+    desc:'评估风险敞口、计算合理仓位、压力测试。有权对任何交易建议附加风险警告。',
+    systemPrompt:`你是一个保守的风控官。你的核心原则是：保住本金比赚钱更重要。
+
+## 认知偏向
+- 你天然 skeptical，对所有"看好"的判断保持怀疑
+- 你会主动寻找分析中的漏洞和被忽视的风险
+- 同等条件下，你倾向于建议更小的仓位
+- 你始终假设最坏情况会发生
+
+## 沟通风格
+- 先说风险，再说机会
+- 对高风险操作必须用醒目方式标注
+- 量化风险：不说"风险较大"，说"最大预期亏损 $X，占总资金 Y%"
+
+## 局限性声明
+你不负责判断行情方向，只评估给定方向下的风险暴露。你的建议可以被用户忽略，但必须被看到。`,
+    memory:'保留持仓快照历史，用于风险趋势分析',
+    skills:['risk_assessment','position_sizing','stress_test'],
+    fns:['check_balance','get_positions','get_klines','get_price','code_exec'] },
+  { id:'sentinel', name:'Sentinel', role:'市场哨兵', active:false,
+    desc:'7×24 后台守护进程。不参与对话，只在异常时主动通知。',
+    systemPrompt:`你是一个沉默的守望者。你不参与日常对话，只在检测到异常时发声。
+
+## 认知偏向
+- 你关注异常而非常态，正常的市场波动不值得报告
+- 你对「速度」比「全面」更敏感——紧急情况下先通知、后补充
+- 你会区分噪声和真实信号
+
+## 沟通风格
+- 通知必须简洁，一句话说清楚发生了什么
+- 严重程度分级：info / warn / alert
+- 24h 内同一条件不重复报警超过 3 次
+
+## 局限性声明
+你只负责发现和通知，不做分析和建议。触发紧急分析时，由 Planner 调度其他角色完成。`,
+    memory:'保留监控规则和最近 30 天的报警历史',
+    skills:['signal_monitor','decay_detector'],
+    fns:['get_price','calculate_indicator','notify','get_positions'] },
+  { id:'coordinator', name:'Coordinator', role:'综合协调者', active:true,
+    desc:'读取所有角色报告，综合后产出统一建议。是提交给用户的最后一道门。',
+    systemPrompt:`你是最终面向用户的综合协调者。你不做原始研究，只负责把其他角色的产出整合为一份清晰、可操作的建议。
+
+## 认知偏向
+- 你不偏向任何一个角色的观点，保持中立
+- 当角色之间存在分歧时，你必须同时呈现双方立场，不替用户做决定
+- 你的综合置信度必须低于最高单一角色（综合必然增加不确定性）
+
+## 沟通风格
+- 结构化输出：方向 → 置信度 → 理由 → 风险提示 → 操作建议
+- 不使用专业术语堆砌，用用户能理解的语言
+- 所有交易建议附带"仅供参考，不构成投资建议"声明
+
+## 局限性声明
+你不接触原始数据和研究工具。你的输入是其他角色的报告，输出是面向用户的最终建议。`,
+    memory:'保留最近交付给用户的建议摘要，保持上下文连贯',
+    skills:['report_synthesis'],
+    fns:['notify'] },
+];
+
+const SKILLS = [
+  { id:'market_analysis', agent:'analyst', desc:'综合技术分析：趋势判断、支撑阻力、指标解读',
+    fns:['web_search','get_klines','calculate_indicator','get_price'],
+    guide:`用 \`get_klines\` 拉取目标品种 K 线（建议 1h + 1d 两个周期），用 \`calculate_indicator\` 计算技术指标（至少趋势类 + 超买超卖类各一个），用 \`web_search\` 搜索近 24h 消息面。这三步无依赖关系，用户已提供的数据可跳过对应步骤。
+
+最后综合技术面和消息面，输出趋势方向和置信度。`,
+    constraints:['必须同时分析技术面和消息面','趋势判断必须附带置信度','不得给出具体买卖价格（由 Risk 负责）'],
+    eval:['技术指标引用与数据一致','消息面是最新的（24h内）','没有遗漏重大事件'] },
+  { id:'earnings_analysis', agent:'analyst', desc:'财报解读：提取关键指标、同比分析、与市场预期对比',
+    fns:['web_search','get_financial_data'],
+    guide:`用 \`get_financial_data\` 获取最新季度财报，用 \`web_search\` 搜索分析师预期共识。提取关键指标（营收/利润/增速），与上季度、去年同期和市场预期分别对比，输出超预期或不及预期的判断及价格影响方向。`,
+    constraints:['数据必须标注来源','必须对比市场预期共识','不做盈利预测'],
+    eval:['数据来源权威','对比预期准确','结论有数据支持'] },
+  { id:'news_sentiment', agent:'analyst', desc:'新闻和社交媒体情绪分析：热度、情绪极性、关键事件提取',
+    fns:['web_search'],
+    guide:`用 \`web_search\` 搜索目标品种相关新闻，至少覆盖 3 个不同信息源。从结果中提取关键事件，判断每个事件的情绪极性和来源可信度，区分事实报道和观点评论。综合输出情绪评分（-1 到 1）和价格影响方向。`,
+    constraints:['至少 3 个信息源交叉验证','标注来源可信度','区分事实和观点'],
+    eval:['多源交叉验证','情绪判断有依据','区分事实和猜测'] },
+  { id:'factor_design', agent:'quant', desc:'交易因子研究、设计、实现、回测全流程',
+    fns:['web_search','get_klines','code_exec','backtest','calculate_indicator'],
+    guide:`先明确因子方向（动量/均值回归/波动率等），如需参考可用 \`web_search\` 搜索文献。用 \`get_klines\` 获取历史数据，设计因子逻辑后用 \`code_exec\` 实现 Python 代码。用 \`backtest\` 单品种回测计算 IC/IR/换手率，达标后至少再用一个品种交叉验证。最后综合评估输出完整报告。`,
+    constraints:['严禁前视偏差 shift(1)','扣手续费 0.1% + 滑点 0.05%','至少 2 个品种交叉验证'],
+    eval:['IC > 0.03','IR > 0.5','换手率 < 30%','代码无前视偏差'] },
+  { id:'strategy_backtest', agent:'quant', desc:'交易策略构建、回测、参数优化、性能分析',
+    fns:['get_klines','code_exec','backtest','calculate_indicator'],
+    guide:`用 \`get_klines\` 获取历史数据，用 \`code_exec\` 实现策略代码，然后用 \`backtest\` 做样本内回测计算 Sharpe/MaxDD/胜率。接着用 \`code_exec\` 做参数敏感性分析（网格搜索），最后用 \`backtest\` 在样本外数据上验证。`,
+    constraints:['必须含手续费和滑点','样本外留 20%','≤5 个参数防过拟合','必须报告最大回撤'],
+    eval:['Sharpe > 1.0','MaxDD < 20%','样本外 ≥ 样本内 60%','参数稳定'] },
+  { id:'quant_signal', agent:'quant', desc:'基于已有因子/策略生成实时量化信号',
+    fns:['get_klines','calculate_indicator','code_exec'],
+    guide:`用 \`get_klines\` 获取最新行情，用 \`code_exec\` 运行已验证的因子代码计算当前值。可用 \`calculate_indicator\` 辅助参考。综合输出信号方向、强度和置信度。只使用已验证的因子，不得临时设计新因子。`,
+    constraints:['只用已验证的因子','信号有效期不超 24h'],
+    eval:['因子仍有效（IC 检查）','计算过程正确','置信度合理'] },
+  { id:'risk_assessment', agent:'risk', desc:'评估当前持仓和拟建仓位的综合风险',
+    fns:['check_balance','get_positions','get_klines','get_price'],
+    guide:`用 \`check_balance\` 和 \`get_positions\` 获取账户状态，用 \`get_klines\` 拉取各品种历史数据计算波动率和相关性。综合计算总敞口、品种集中度和 VaR。如有拟建仓位则评估增量风险。输出风险等级和详细数据。`,
+    constraints:['必须考虑品种间相关性','VaR 至少 95% 置信度'],
+    eval:['持仓数据最新','相关性计算合理','风险等级与数据一致'] },
+  { id:'position_sizing', agent:'risk', desc:'基于风险预算计算最优仓位大小',
+    fns:['check_balance','get_price','get_klines','code_exec'],
+    guide:`用 \`check_balance\` 获取可用资金，用 \`get_klines\` 计算标的波动率，用 \`get_price\` 获取当前价格。然后用 \`code_exec\` 运行仓位计算公式，输出建议仓位、止损价位和最大预期损失。`,
+    constraints:['单笔 ≤ 总资金 20%（用户可调）','必须附带止损建议','展示最坏情况损失'],
+    eval:['是否超仓位限制','止损是否合理','最大损失计算正确'] },
+  { id:'stress_test', agent:'risk', desc:'极端场景模拟：触发X事件后持仓损益分析',
+    fns:['get_positions','get_klines','code_exec'],
+    guide:`用 \`get_positions\` 获取持仓，用 \`get_klines\` 获取历史数据。然后用 \`code_exec\` 定义并模拟至少 3 种压力场景（轻度/中度/极端），计算各场景 PnL 并检查强平线。输出压力测试报告和对冲建议。`,
+    constraints:['至少模拟 3 种场景（轻/中/极端）','必须检查强平线'],
+    eval:['场景设定合理','含手续费滑点','考虑流动性风险'] },
+  { id:'signal_monitor', agent:'sentinel', desc:'持续监控价格/成交量/指标，触发预设条件时报警',
+    fns:['get_price','calculate_indicator','notify'],
+    guide:`轮询模式：定期用 \`get_price\` 获取价格，用 \`calculate_indicator\` 计算指标，与预设阈值对比。满足条件时用 \`notify\` 推送通知。`,
+    constraints:['轮询间隔 ≥ 1min','单条件 24h 内 ≤ 3 次报警','通知必须含原因和数据'],
+    eval:['触发条件真实满足','通知及时','无误报'] },
+  { id:'decay_detector', agent:'sentinel', desc:'持续监控已部署因子/策略的表现衰减',
+    fns:['get_klines','calculate_indicator','notify'],
+    guide:`每日执行：用 \`get_klines\` 获取行情，用 \`calculate_indicator\` 计算各因子滚动 IC，与历史均值对比。衰减显著时用 \`notify\` 推送报警并附带 IC 曲线。`,
+    constraints:['检测窗口 ≥ 14 天','区分短期波动和长期衰减'],
+    eval:['衰减判定有统计依据','区分噪声和趋势'] },
+  { id:'report_synthesis', agent:'coordinator', desc:'将多角色研究报告综合为结构化最终建议',
+    fns:['notify'],
+    guide:`读取 Analyst / Quant / Risk 的研究报告，识别共识和分歧。对分歧同时呈现双方立场。综合计算加权置信度，生成结构化建议（方向→置信度→理由→风险提示→操作建议），用 \`notify\` 推送给用户。不调用任何数据获取类工具，输入是其他角色的报告。`,
+    constraints:['不可省略 Risk 风险提示','分歧必须呈现两方','置信度低于最高单一角色','附带"仅供参考"声明'],
+    eval:['完整反映所有角色观点','分歧正确呈现','风险提示突出','置信度合理'] },
+];
+
+const FUNCTIONS = [
+  { id:'web_search', cat:'搜索', perm:'auto', desc:'通用网络搜索（Tavily API）',
+    params:[{name:'query',type:'string',req:true,desc:'搜索关键词'},{name:'max_results',type:'number',req:false,desc:'最大结果数，默认5'}],
+    agents:['analyst','quant','sentinel'] },
+  { id:'get_klines', cat:'行情', perm:'auto', desc:'获取K线/OHLCV历史数据',
+    params:[{name:'symbol',type:'string',req:true,desc:'交易品种'},{name:'interval',type:'string',req:true,desc:'时间粒度，e.g. 1h/4h/1d'},{name:'limit',type:'number',req:false,desc:'获取条数，默认500'}],
+    agents:['analyst','quant','risk','sentinel'] },
+  { id:'get_price', cat:'行情', perm:'auto', desc:'获取实时最新报价',
+    params:[{name:'symbol',type:'string',req:true,desc:'交易品种'}],
+    agents:['analyst','risk','sentinel'] },
+  { id:'calculate_indicator', cat:'计算', perm:'auto', desc:'计算技术指标（RSI/MACD/BB等）',
+    params:[{name:'symbol',type:'string',req:true,desc:'品种'},{name:'indicator',type:'string',req:true,desc:'指标名称'},{name:'params',type:'object',req:false,desc:'指标参数，如 {period:14}'}],
+    agents:['analyst','quant','sentinel'] },
+  { id:'get_financial_data', cat:'基本面', perm:'auto', desc:'获取上市公司财务数据（财报/分析师预期）',
+    params:[{name:'symbol',type:'string',req:true,desc:'股票代码'},{name:'period',type:'string',req:false,desc:'财报周期，默认最新季度'}],
+    agents:['analyst'] },
+  { id:'code_exec', cat:'计算', perm:'ask', desc:'执行 Python 代码（沙箱环境，用于量化计算）',
+    params:[{name:'code',type:'string',req:true,desc:'Python 代码字符串'},{name:'timeout',type:'number',req:false,desc:'超时秒数，默认30'}],
+    agents:['quant','risk'] },
+  { id:'backtest', cat:'回测', perm:'ask', desc:'运行策略回测（接入历史行情）',
+    params:[{name:'strategy_code',type:'string',req:true,desc:'策略代码'},{name:'start',type:'string',req:true,desc:'回测开始日期'},{name:'end',type:'string',req:false,desc:'回测结束日期，默认今天'}],
+    agents:['quant'] },
+  { id:'check_balance', cat:'账户', perm:'auto', desc:'查询当前账户余额和可用资金',
+    params:[],
+    agents:['risk'] },
+  { id:'get_positions', cat:'账户', perm:'auto', desc:'获取当前持仓列表',
+    params:[],
+    agents:['risk','sentinel'] },
+  { id:'notify', cat:'通知', perm:'auto', desc:'向用户推送通知消息',
+    params:[{name:'message',type:'string',req:true,desc:'通知内容'},{name:'level',type:'string',req:false,desc:'级别：info / warn / alert'}],
+    agents:['sentinel','coordinator'] },
+  { id:'place_order', cat:'交易', perm:'deny', desc:'提交交易订单（仅用户确认后由系统执行，任何 Agent 不可直接调用）',
+    params:[{name:'symbol',type:'string',req:true,desc:'品种'},{name:'side',type:'string',req:true,desc:'buy/sell'},{name:'amount',type:'number',req:true,desc:'数量'}],
+    agents:[] },
+  { id:'cancel_order', cat:'交易', perm:'deny', desc:'撤销订单（仅用户确认后由系统执行）',
+    params:[{name:'order_id',type:'string',req:true,desc:'订单ID'}],
+    agents:[] },
+];
+
+/* ══════════ Build sidebar ══════════ */
+const AGENT_ICONS = {
+  analyst:`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 4,6 7,8 10,3 13,5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  quant:`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 1h4l1 3H4L5 1z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M4 4h6l1 8H3L4 4z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><line x1="5.5" y1="6.5" x2="8.5" y2="6.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>`,
+  risk:`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L2 3.5v4C2 10.5 4.2 12.8 7 13c2.8-.2 5-2.5 5-5.5v-4L7 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
+  sentinel:`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M7 7m-4.5 0a4.5 4.5 0 1 0 9 0 4.5 4.5 0 1 0-9 0" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.5"/></svg>`,
+  coordinator:`<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/><line x1="7" y1="1.5" x2="7" y2="4" stroke="currentColor" stroke-width="1.1"/><line x1="7" y1="10" x2="7" y2="12.5" stroke="currentColor" stroke-width="1.1"/><line x1="1.5" y1="7" x2="4" y2="7" stroke="currentColor" stroke-width="1.1"/><line x1="10" y1="7" x2="12.5" y2="7" stroke="currentColor" stroke-width="1.1"/></svg>`,
+};
+
+function buildSidebar(){
+  // Agents
+  const agentList = document.getElementById('agentList');
+  agentList.innerHTML = AGENTS.map((a,i)=>`
+    <div class="sb-row ${i===0?'sel':''}" id="ar-${a.id}" onclick="selectItem('agent','${a.id}')">
+      <div class="sb-row-icon">${AGENT_ICONS[a.id]}</div>
+      <span class="sb-row-label">${a.name}</span>
+      <span class="sb-row-sub">${a.role.split('').slice(0,4).join('')}</span>
+      <span class="status-dot ${a.active?'dot-on':'dot-off'}"></span>
+    </div>`).join('');
+
+  // Skills
+  const skillList = document.getElementById('skillList');
+  skillList.innerHTML = SKILLS.map(s=>`
+    <div class="sb-row" id="sr-${s.id}" onclick="selectItem('skill','${s.id}')">
+      <div class="sb-row-icon">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.1"/><line x1="3.5" y1="6" x2="8.5" y2="6" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="3.5" y1="4" x2="7" y2="4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="3.5" y1="8" x2="6.5" y2="8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+      </div>
+      <span class="sb-row-label" style="font-size:10.5px;font-family:var(--mono)">${s.id}</span>
+      <span class="sb-row-sub">${s.agent.slice(0,3)}</span>
+    </div>`).join('');
+
+  // Functions
+  const fnList = document.getElementById('fnList');
+  fnList.innerHTML = FUNCTIONS.map(f=>`
+    <div class="sb-row" id="fr-${f.id}" onclick="selectItem('fn','${f.id}')">
+      <div class="sb-row-icon">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 2C2 4 2 8 3 10" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M9 2C10 4 10 8 9 10" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4.5" y1="6" x2="7.5" y2="6" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+      </div>
+      <span class="sb-row-label" style="font-size:10.5px;font-family:var(--mono)">${f.id}</span>
+      <span class="perm-s perm-${f.perm}">${f.perm}</span>
+    </div>`).join('');
+}
+
+/* ══════════ Selection ══════════ */
+let curType=null, curId=null, curTab='detail';
+
+function selectItem(type, id){
+  document.querySelectorAll('.sb-row').forEach(r=>r.classList.remove('sel'));
+  const el = document.getElementById(`${type==='agent'?'ar':type==='skill'?'sr':'fr'}-${id}`);
+  if(el) el.classList.add('sel');
+  curType=type; curId=id; curTab='detail';
+  validState = null; pendingMdText = null; mdDirty = false;
+
+  const header = document.getElementById('mainHeader');
+  header.style.display = 'flex';
+  const mhL = document.getElementById('mhLeft');
+  const mhR = document.getElementById('mhRight');
+
+  if(type==='skill'){
+    mhL.innerHTML = `<div class="slide-toggle">
+      <button class="slide-opt active" onclick="switchTab('detail',this)">可视化</button>
+      <button class="slide-opt" onclick="switchTab('code',this)">SKILL.md</button>
+    </div>`;
+    mhR.innerHTML = `<button class="main-act-btn" id="saveBtn" onclick="saveSkill()">保存更改</button>`;
+  } else if(type==='fn'){
+    mhL.innerHTML = `<div class="slide-toggle">
+      <button class="slide-opt active" onclick="switchTab('detail',this)">详情</button>
+      <button class="slide-opt" onclick="switchTab('code',this)">Schema</button>
+    </div>`;
+    mhR.innerHTML = `<button class="main-act-btn">保存更改</button>`;
+  } else {
+    mhL.innerHTML = `<span class="mh-label">配置</span>`;
+    mhR.innerHTML = `<button class="main-act-btn">保存更改</button>`;
+  }
+  renderMain();
+}
+
+function switchTab(t, btn){
+  if(curType==='skill' && curTab==='code' && t==='detail'){
+    const ta = document.querySelector('.skill-editor');
+    if(ta) pendingMdText = ta.value;
+    if(pendingMdText && mdDirty){
+      const sk = SKILLS.find(s=>s.id===curId);
+      const parsed = parseMd(pendingMdText);
+      const tempSk = Object.assign({}, sk, parsed);
+      const issues = validateSkill(tempSk);
+
+      if(parsed._dropped && parsed._dropped.length > 0){
+        parsed._dropped.forEach(d=>{
+          issues.push({type:'warn', msg:`[${d.section}] 格式不符已忽略: "${d.line}"`});
+        });
+      }
+
+      if(issues.some(i=>i.type==='err')){
+        validState = {issues, saved:false};
+        renderMdValidBar();
+        toast('存在校验错误，请先修复再切换');
+        return;
+      }
+      applyParsed(sk, parsed);
+      pendingMdText = null;
+      mdDirty = false;
+      validState = issues.length > 0 ? {issues, saved:false} : null;
+    } else {
+      validState = null;
+    }
+  }
+
+  curTab=t;
+  if(btn){
+    btn.parentElement.querySelectorAll('.slide-opt').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderMain();
+}
+
+/* ══ Validation ══ */
+let validState = null; // null=hidden, {issues,saved}
+
+function validateSkill(sk){
+  const issues = [];
+  const knownFns = FUNCTIONS.map(f=>f.id);
+  if(!sk.desc || sk.desc.trim().length < 5) issues.push({type:'err', msg:'描述不能为空或过短'});
+  if(!sk.fns || sk.fns.length === 0) issues.push({type:'err', msg:'至少需要一个 Tool'});
+  sk.fns.forEach(fid=>{
+    if(!knownFns.includes(fid)) issues.push({type:'err', msg:`Tool "${fid}" 未在 Function 注册表中找到`});
+  });
+  if(!sk.guide || sk.guide.trim().length < 10) issues.push({type:'warn', msg:'指引内容过短'});
+  if(!sk.constraints || sk.constraints.length === 0) issues.push({type:'warn', msg:'建议添加至少一条 Constraint'});
+  if(!sk.eval || sk.eval.length === 0) issues.push({type:'warn', msg:'建议添加至少一条 Evaluator 标准'});
+  return issues;
+}
+
+function renderValidBar(){
+  if(!validState) return '';
+  const {issues, saved} = validState;
+  if(issues.length === 0 && saved){
+    return `<div class="valid-bar ok"><span class="valid-icon">✓</span><span class="valid-msg">已保存</span></div>`;
+  }
+  if(issues.length === 0) return '';
+  const hasErr = issues.some(i=>i.type==='err');
+  const cls = hasErr ? 'err' : 'warn';
+  const icon = hasErr ? '✗' : '!';
+  const prefix = hasErr && saved ? '保存失败 — ' : '';
+  return `<div class="valid-bar ${cls}">
+    <span class="valid-icon">${icon}</span>
+    <span class="valid-msg">${prefix}</span>
+    <div class="valid-items">${issues.map(i=>`<span class="valid-item ${i.type==='err'?'fail':'warn-item'}">${i.msg}</span>`).join('')}</div>
+  </div>`;
+}
+
+/* ══ Parse SKILL.md text → structured object (non-destructive) ══ */
+let pendingMdText = null;
+let mdDirty = false;
+
+function onMdEdit(el){
+  pendingMdText = el.value;
+  mdDirty = true;
+  // hide stale validation
+  validState = null;
+  const vb = document.getElementById('validBarSlot');
+  if(vb) vb.innerHTML = '';
+}
+
+function parseListItems(text){
+  return text.split('\n')
+    .filter(l => /^-\s*\S/.test(l))
+    .map(l => l.replace(/^-\s*/, ''));
+}
+
+function parseMd(md){
+  const parsed = {};
+  parsed._dropped = [];
+
+  const descMatch = md.match(/description:\s*>-\s*\n\s*(.+)/);
+  if(descMatch) parsed.desc = descMatch[1].trim();
+
+  const toolsSec = md.match(/## Tools\s*\n\n([\s\S]*?)(?=\n##\s|\s*$)/);
+  if(toolsSec){
+    const allLines = toolsSec[1].split('\n').filter(l=>l.trim());
+    const fns = [];
+    allLines.forEach(l=>{
+      const m = l.match(/`([^`]+)`/);
+      if(m) fns.push(m[1]);
+      else if(l.trim() && !/^-\s*$/.test(l)) parsed._dropped.push({section:'Tools', line:l.trim()});
+    });
+    if(fns.length) parsed.fns = fns;
+  }
+
+  const instrSec = md.match(/## Instructions\s*\n\n([\s\S]*?)(?=\n##\s|\s*$)/);
+  if(instrSec) parsed.guide = instrSec[1].trim();
+
+  const csSec = md.match(/## Constraints\s*\n\n([\s\S]*?)(?=\n##\s|\s*$)/);
+  if(csSec){
+    const allLines = csSec[1].split('\n').filter(l=>l.trim());
+    parsed.constraints = [];
+    allLines.forEach(l=>{
+      if(/^-\s*\S/.test(l)) parsed.constraints.push(l.replace(/^-\s*/,''));
+      else parsed._dropped.push({section:'Constraints', line:l.trim()});
+    });
+  }
+
+  const evSec = md.match(/## Evaluator\s*\n\n([\s\S]*?)(?=\n##\s|\s*$)/);
+  if(evSec){
+    const allLines = evSec[1].split('\n').filter(l=>l.trim());
+    parsed.eval = [];
+    allLines.forEach(l=>{
+      if(/^-\s*\S/.test(l)) parsed.eval.push(l.replace(/^-\s*/,''));
+      else parsed._dropped.push({section:'Evaluator', line:l.trim()});
+    });
+  }
+
+  const knownH2 = ['Tools','Instructions','Constraints','Evaluator'];
+  const customMatches = [...md.matchAll(/## (\S+.*)\n\n([\s\S]*?)(?=\n##\s|\s*$)/g)];
+  parsed.custom = [];
+  customMatches.forEach(m=>{
+    const title = m[1].trim();
+    if(!knownH2.includes(title)){
+      parsed.custom.push({title, content: m[2].trim()});
+    }
+  });
+
+  return parsed;
+}
+
+function applyParsed(sk, parsed){
+  if(parsed.desc !== undefined) sk.desc = parsed.desc;
+  if(parsed.fns !== undefined) sk.fns = parsed.fns;
+  if(parsed.guide !== undefined) sk.guide = parsed.guide;
+  if(parsed.constraints !== undefined) sk.constraints = parsed.constraints;
+  if(parsed.eval !== undefined) sk.eval = parsed.eval;
+  if(parsed.custom !== undefined) sk.custom = parsed.custom;
+}
+
+function collectVisualEdits(sk){
+  const descInput = document.querySelector('.sv-input');
+  if(descInput) sk.desc = descInput.value;
+
+  const guideArea = document.querySelector('.sv-section .skill-editor');
+  if(guideArea) sk.guide = guideArea.value;
+
+  const csItems = document.querySelectorAll('#csList .sv-list-input');
+  if(csItems.length) sk.constraints = [...csItems].map(i=>i.value).filter(v=>v.trim());
+
+  const evItems = document.querySelectorAll('#evList .sv-list-input');
+  if(evItems.length) sk.eval = [...evItems].map(i=>i.value).filter(v=>v.trim());
+
+  document.querySelectorAll('.sv-custom').forEach((el,i)=>{
+    if(!sk.custom) sk.custom = [];
+    if(sk.custom[i]){
+      const titleEl = el.querySelector('.sv-custom-title');
+      if(titleEl) sk.custom[i].title = titleEl.value;
+      const bodyEl = el.querySelector('.skill-editor');
+      if(bodyEl) sk.custom[i].content = bodyEl.value;
+    }
+  });
+}
+
+function saveSkill(){
+  if(curType!=='skill') return;
+  const sk = SKILLS.find(s=>s.id===curId);
+  if(!sk) return;
+
+  if(curTab==='code'){
+    const ta = document.querySelector('.skill-editor');
+    const mdText = ta ? ta.value : null;
+    if(!mdText){ toast('无内容'); return; }
+    const parsed = parseMd(mdText);
+    const tempSk = Object.assign({}, sk, parsed);
+    const issues = validateSkill(tempSk);
+
+    if(parsed._dropped && parsed._dropped.length > 0){
+      parsed._dropped.forEach(d=>{
+        issues.push({type:'warn', msg:`[${d.section}] 格式不符已忽略: "${d.line}"`});
+      });
+    }
+
+    if(issues.some(i=>i.type==='err')){
+      validState = {issues, saved:true};
+      renderMdValidBar();
+      toast('校验未通过，修复后再试');
+      return;
+    }
+    applyParsed(sk, parsed);
+    validState = {issues, saved:true};
+    mdDirty = false;
+    pendingMdText = null;
+
+    // round-trip: re-render textarea from saved data
+    if(ta) ta.value = buildSkillMd(sk);
+    renderMdValidBar();
+
+    if(issues.length > 0){
+      toast('已保存，部分内容格式不符被忽略');
+    } else {
+      toast('已保存（Demo 模式）');
+    }
+  } else {
+    collectVisualEdits(sk);
+    const issues = validateSkill(sk);
+    if(issues.some(i=>i.type==='err')){
+      validState = {issues, saved:true};
+      renderMain();
+      toast('校验未通过，修复后再试');
+      return;
+    }
+    validState = {issues, saved:true};
+    renderMain();
+    toast('已保存（Demo 模式）');
+  }
+}
+
+function renderMdValidBar(){
+  const slot = document.getElementById('validBarSlot');
+  if(slot) slot.innerHTML = renderValidBar();
+}
+
+function renderMain(){
+  const body = document.getElementById('mainBody');
+  if(curType==='agent') renderAgent(body, AGENTS.find(a=>a.id===curId));
+  else if(curType==='skill'){
+    if(curTab==='code') renderSkillRaw(body, SKILLS.find(s=>s.id===curId));
+    else renderSkillVisual(body, SKILLS.find(s=>s.id===curId));
+  }
+  else if(curType==='fn') renderFn(body, FUNCTIONS.find(f=>f.id===curId));
+}
+
+/* ── Agent detail ── */
+function renderAgent(body, a){
+  const agent_color = {analyst:'var(--blue)',quant:'var(--purple)',risk:'var(--red)',sentinel:'var(--cyan)',coordinator:'var(--green)'}[a.id];
+  const skills = SKILLS.filter(s=>s.agent===a.id);
+
+  // Format system prompt with basic markdown-style highlighting
+  const fmtPrompt = a.systemPrompt
+    .replace(/^## (.+)$/gm, '<span class="h2">## $1</span>')
+    .replace(/「([^」]+)」/g, '<span class="hl">「$1」</span>');
+
+  body.innerHTML = `
+    <div class="md-h1">${AGENT_ICONS[a.id]} <span style="color:${agent_color}">${a.name}</span>
+      <span class="md-badge" style="background:rgba(255,255,255,.04);color:var(--t3);border:1px solid var(--border);font-size:9px;">${a.role}</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:10.5px;color:${a.active?'var(--green)':'var(--t4)'};">${a.active?'运行中':'待机'}</span>
+        <div class="toggle ${a.active?'on':''}" onclick="toggleAgent('${a.id}')"></div>
+      </div>
+    </div>
+    <div class="md-sep"></div>
+
+    <div class="md-h2">System Prompt</div>
+    <div class="prompt-area" contenteditable="true" spellcheck="false">${fmtPrompt}</div>
+
+    <div class="md-h2">记忆策略</div>
+    <div class="memory-tag">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="3" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.1"/><path d="M4 3V2a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="1.1"/><line x1="2" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="1"/></svg>
+      ${a.memory}
+    </div>
+
+    <div class="md-h2">Skills（${skills.length}）</div>
+    <div class="skill-list">
+      ${skills.map(s=>`
+      <div class="skill-row-card">
+        <div class="skill-row-top" onclick="selectItem('skill','${s.id}')">
+          <span class="skill-row-name">${s.id}</span>
+          <span class="skill-row-desc">${s.desc}</span>
+          <span class="skill-row-link">查看 →</span>
+        </div>
+        <div class="skill-row-fns">
+          ${s.fns.map(fid=>{
+            const fn = FUNCTIONS.find(x=>x.id===fid);
+            return `<span class="skill-fn-tag" onclick="selectItem('fn','${fid}')">${fid}<span class="skill-fn-perm perm-${fn?fn.perm:'auto'}">${fn?fn.perm:''}</span></span>`;
+          }).join('')}
+        </div>
+      </div>`).join('')}
+    </div>
+
+    <div class="md-h2">可调用的 Functions（${a.fns.length}）</div>
+    <div class="fn-chips">
+      ${a.fns.map(fid=>{
+        const f = FUNCTIONS.find(x=>x.id===fid);
+        return `<span class="fn-chip perm-s perm-${f?f.perm:'auto'}" style="border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);" onclick="selectItem('fn','${fid}')">${fid} <span style="opacity:.5;font-size:9px;">${f?f.perm:''}</span></span>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function toggleAgent(id){
+  const a = AGENTS.find(x=>x.id===id);
+  a.active = !a.active;
+  buildSidebar();
+  selectItem('agent',id);
+}
+
+/* ── Skill detail — helpers ── */
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function skillHeader(sk){
+  const owner = AGENTS.find(a=>a.id===sk.agent);
+  const agent_color = {analyst:'var(--blue)',quant:'var(--purple)',risk:'var(--red)',sentinel:'var(--cyan)',coordinator:'var(--green)'}[sk.agent];
+  return `
+    <div class="sk-detail-header">
+      <div class="sk-detail-left">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="color:var(--t3);flex-shrink:0;"><rect x="1" y="1" width="13" height="13" rx="2.5" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="7.5" x2="11" y2="7.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="10" x2="8" y2="10" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <span style="font-family:var(--mono);font-size:15px;font-weight:700;">${sk.id}</span>
+      </div>
+      <div class="sk-detail-owner" onclick="selectItem('agent','${sk.agent}')">
+        <span style="color:${agent_color};display:flex;align-items:center;">${AGENT_ICONS[sk.agent]}</span>
+        <span>${owner.name}</span>
+      </div>
+    </div>
+    <div class="md-sep"></div>`;
+}
+
+function buildSkillMd(sk){
+  const f = FUNCTIONS;
+  let md = `---\nname: ${sk.id}\ndescription: >-\n  ${sk.desc}\n---\n\n`;
+  md += `# ${sk.id}\n\n`;
+  md += `${sk.desc}\n\n`;
+  md += `## Tools\n\n`;
+  sk.fns.forEach(fid=>{
+    const fn = f.find(x=>x.id===fid);
+    md += `- \`${fid}\` — ${fn?fn.desc:'(未注册)'}\n`;
+  });
+  md += `\n## Instructions\n\n${sk.guide}\n`;
+  md += `\n## Constraints\n\n`;
+  sk.constraints.forEach(c=>{ md += `- ${c}\n`; });
+  md += `\n## Evaluator\n\n`;
+  sk.eval.forEach(e=>{ md += `- ${e}\n`; });
+  if(sk.custom && sk.custom.length > 0){
+    sk.custom.forEach(c=>{
+      md += `\n## ${c.title}\n\n${c.content}\n`;
+    });
+  }
+  return md;
+}
+
+/* ── Skill: 可视化 view ── */
+function renderSkillVisual(body, sk){
+  const knownFnIds = FUNCTIONS.map(f=>f.id);
+
+  let customHtml = '';
+  if(sk.custom && sk.custom.length > 0){
+    customHtml = sk.custom.map((c,i)=>`
+      <div class="sv-custom">
+        <div class="sv-custom-head">
+          <span style="color:var(--t4);font-size:10.5px;font-family:var(--mono);">##</span>
+          <input class="sv-custom-title" value="${c.title}" spellcheck="false" oninput="updateCustomTitle(${i},this.value)"/>
+          <span class="sv-custom-badge">自定义</span>
+          <button class="sv-custom-rm" onclick="removeCustom(${i})">×</button>
+        </div>
+        <textarea class="skill-editor" spellcheck="false" style="min-height:60px;margin:0;">${c.content}</textarea>
+      </div>`).join('');
+  }
+
+  body.innerHTML = `<div id="validBarSlot">${renderValidBar()}</div>` + skillHeader(sk) + `
+    <div class="sv-section">
+      <div class="sv-label">描述</div>
+      <input class="sv-input" value="${sk.desc}" spellcheck="false"/>
+    </div>
+
+    <div class="sv-section">
+      <div class="sv-label">Tools</div>
+      <div class="sv-tools">
+        ${sk.fns.map(fid=>{
+          const fn = FUNCTIONS.find(x=>x.id===fid);
+          const missing = !knownFnIds.includes(fid);
+          return `<div class="sv-tool-row" ${missing?'style="border-color:rgba(239,83,80,.3);"':''}>
+            <span class="sv-tool-name${missing?' sv-tool-missing':''}" ${!missing?`onclick="selectItem('fn','${fid}')"`:''}">${fid}</span>
+            <span class="sv-tool-desc">${fn?fn.desc:missing?'⚠ 未注册':''}</span>
+            ${fn?`<span class="perm-s perm-${fn.perm}">${fn.perm}</span>`:''}
+            <button class="sv-tool-rm" title="移除">×</button>
+          </div>`;
+        }).join('')}
+        <button class="sv-add-tool">+ 添加 Function</button>
+      </div>
+    </div>
+
+    <div class="sv-section">
+      <div class="sv-label">指引</div>
+      <textarea class="skill-editor" spellcheck="false" style="min-height:120px;">${sk.guide}</textarea>
+    </div>
+
+    <div class="sv-section">
+      <div class="sv-label">Constraints</div>
+      <div class="sv-list" id="csList">
+        ${sk.constraints.map((c,i)=>`
+        <div class="sv-list-item">
+          <span class="sv-list-bullet" style="color:var(--red);">•</span>
+          <input class="sv-list-input" value="${c}" spellcheck="false"/>
+          <button class="sv-list-rm" title="删除">×</button>
+        </div>`).join('')}
+      </div>
+      <button class="sv-add-item" onclick="addListItem('csList')">+ 添加约束</button>
+    </div>
+
+    <div class="sv-section">
+      <div class="sv-label">Evaluator</div>
+      <div class="sv-list" id="evList">
+        ${sk.eval.map((e,i)=>`
+        <div class="sv-list-item">
+          <span class="sv-list-bullet" style="color:var(--green);">✓</span>
+          <input class="sv-list-input" value="${e}" spellcheck="false"/>
+          <button class="sv-list-rm" title="删除">×</button>
+        </div>`).join('')}
+      </div>
+      <button class="sv-add-item" onclick="addListItem('evList')">+ 添加标准</button>
+    </div>
+
+    ${customHtml}
+    <button class="sv-add-item" onclick="addCustomSection()" style="margin-top:6px;">+ 添加自定义模块</button>
+  `;
+}
+
+function removeCustom(idx){
+  const sk = SKILLS.find(s=>s.id===curId);
+  if(sk && sk.custom){ sk.custom.splice(idx,1); renderMain(); }
+}
+
+function updateCustomTitle(idx, val){
+  const sk = SKILLS.find(s=>s.id===curId);
+  if(sk && sk.custom && sk.custom[idx]) sk.custom[idx].title = val;
+}
+
+function addCustomSection(){
+  const sk = SKILLS.find(s=>s.id===curId);
+  if(!sk) return;
+  if(!sk.custom) sk.custom=[];
+  sk.custom.push({title:'Untitled', content:''});
+  renderMain();
+}
+
+function addListItem(listId){
+  const list = document.getElementById(listId);
+  const div = document.createElement('div');
+  div.className = 'sv-list-item';
+  div.innerHTML = `<span class="sv-list-bullet" style="color:${listId==='csList'?'var(--red)':'var(--green)'};">${listId==='csList'?'•':'✓'}</span><input class="sv-list-input" placeholder="新条目…" spellcheck="false"/><button class="sv-list-rm" onclick="this.parentElement.remove()">×</button>`;
+  list.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+function addWfStep(){
+  toast('添加步骤（Demo 模式）');
+}
+
+function renderStepNode(s, isLast){
+  const fnSvg = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2.5 1.5C1.5 3 1.5 7 2.5 8.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><path d="M7.5 1.5C8.5 3 8.5 7 7.5 8.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="3.8" y1="5" x2="6.2" y2="5" stroke="currentColor" stroke-width=".9" stroke-linecap="round"/></svg>`;
+  return `<div class="sv-wf-node">
+    <input class="sv-wf-input" value="${s.step}" spellcheck="false"/>
+    <div class="sv-wf-meta">
+      ${s.fn
+        ? `<span class="sv-wf-fn" onclick="selectItem('fn','${s.fn}')">${fnSvg} ${s.fn}</span>`
+        : `<span class="sv-wf-llm">LLM</span>`}
+      ${s.note ? `<span class="sv-wf-note">${s.note}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderWorkflow(wf){
+  let html = '';
+  let stepNum = 1;
+  wf.forEach((item, idx) => {
+    const isLast = idx === wf.length - 1;
+    if(item.type === 'step'){
+      html += `<div class="wf-row">
+        <div class="wf-gutter"><span class="sv-wf-num">${stepNum}</span><div class="wf-vline${isLast?' last':''}"></div></div>
+        <div class="wf-content">${renderStepNode(item)}</div>
+      </div>`;
+      stepNum++;
+    } else if(item.type === 'parallel'){
+      html += `<div class="wf-row wf-parallel-row">
+        <div class="wf-gutter"><span class="wf-par-badge">并行</span><div class="wf-vline${isLast?' last':''}"></div></div>
+        <div class="wf-content">
+          <div class="wf-par-container">
+            ${item.branches.map((branch, bi) => `
+            <div class="wf-branch">
+              <div class="wf-branch-head">分支 ${bi+1}</div>
+              ${branch.map((s, si) => `
+              <div class="wf-branch-step">
+                <div class="wf-branch-gutter">
+                  <span class="wf-branch-dot"></span>
+                  ${si < branch.length - 1 ? '<div class="wf-branch-line"></div>' : ''}
+                </div>
+                ${renderStepNode(s)}
+              </div>`).join('')}
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+      stepNum++;
+    }
+  });
+  return html;
+}
+
+/* ── Skill: SKILL.md raw view ── */
+function renderSkillRaw(body, sk){
+  const mdContent = buildSkillMd(sk);
+  mdDirty = false;
+  body.innerHTML = `<div id="validBarSlot">${renderValidBar()}</div>` + skillHeader(sk) + `
+    <div class="sk-editor-bar">
+      <span class="sk-editor-label">SKILL.md</span>
+      <span class="sk-editor-hint">编辑后点「保存更改」或切回「可视化」自动同步</span>
+    </div>
+    <textarea class="skill-editor" spellcheck="false" oninput="onMdEdit(this)">${mdContent}</textarea>
+  `;
+}
+
+/* ── Function detail ── */
+function renderFn(body, f){
+  if(curTab==='code'){
+    const schema = {
+      name: f.id,
+      description: f.desc,
+      parameters:{
+        type:"object",
+        properties: Object.fromEntries(f.params.map(p=>[p.name,{type:p.type,description:p.desc}])),
+        required: f.params.filter(p=>p.req).map(p=>p.name)
+      }
+    };
+    body.innerHTML = `
+      <div class="md-h1" style="font-family:var(--mono);font-size:14px;">${f.id}</div>
+      <div class="md-meta">OpenAI Function Calling 格式 Schema</div>
+      <div class="md-sep"></div>
+      <pre class="code-block">${JSON.stringify(schema,null,2)}</pre>
+      <div style="font-size:11px;color:var(--t3);">此 Schema 在调用 LLM 时作为 <code style="font-family:var(--mono);color:var(--blue);">tools</code> 参数传入。</div>
+    `;
+    return;
+  }
+
+  const permClass = f.perm==='auto'?'perm-auto':f.perm==='ask'?'perm-ask':'perm-deny';
+  const ownerAgents = AGENTS.filter(a=>f.agents.includes(a.id));
+  const agent_colors = {analyst:'var(--blue)',quant:'var(--purple)',risk:'var(--red)',sentinel:'var(--cyan)',coordinator:'var(--green)'};
+
+  body.innerHTML = `
+    <div class="fn-header">
+      <div class="fn-name">${f.id}</div>
+      <div class="fn-desc">${f.desc}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <span style="font-size:10px;color:var(--t3);">分类：</span>
+        <span style="font-size:10.5px;color:var(--t2);">${f.cat}</span>
+        <span style="color:var(--t4);">·</span>
+        <span style="font-size:10px;color:var(--t3);">权限：</span>
+        <span class="perm-s ${permClass}">${f.perm}</span>
+      </div>
+    </div>
+    <div class="md-sep"></div>
+
+    <div class="md-h2">权限设置</div>
+    <div class="perm-sel" style="margin-bottom:14px;">
+      <button class="perm-opt ${f.perm==='auto'?'sel-auto':''}" onclick="changePerm('${f.id}','auto',this)">auto — 自动执行</button>
+      <button class="perm-opt ${f.perm==='ask'?'sel-ask':''}" onclick="changePerm('${f.id}','ask',this)">ask — 每次确认</button>
+      <button class="perm-opt ${f.perm==='deny'?'sel-deny':''}" onclick="changePerm('${f.id}','deny',this)">deny — 禁止调用</button>
+    </div>
+
+    <div class="md-h2">参数（${f.params.length}）</div>
+    ${f.params.length>0?`
+    <table class="params-table" style="margin-bottom:14px;">
+      <tr><th>参数名</th><th>类型</th><th>必填</th><th>描述</th></tr>
+      ${f.params.map(p=>`
+      <tr>
+        <td class="param-name">${p.name}</td>
+        <td class="param-type">${p.type}</td>
+        <td><span class="${p.req?'param-req':'param-opt'}">${p.req?'必填':'可选'}</span></td>
+        <td style="color:var(--t3);font-size:11px;">${p.desc}</td>
+      </tr>`).join('')}
+    </table>` : `<div style="font-size:11.5px;color:var(--t3);margin-bottom:14px;">无参数</div>`}
+
+    <div class="md-h2">绑定的 Agents（${ownerAgents.length}）</div>
+    <div class="agent-tags" style="margin-bottom:14px;">
+      ${ownerAgents.length>0 ? ownerAgents.map(a=>`
+        <div class="agent-tag" onclick="selectItem('agent','${a.id}')" style="cursor:pointer;" title="查看 ${a.name}">
+          <span style="color:${agent_colors[a.id]}">${AGENT_ICONS[a.id]}</span>${a.name}
+        </div>`).join('') : `<span style="font-size:11px;color:var(--t4);">未绑定任何 Agent（系统级保留）</span>`}
+    </div>
+  `;
+}
+
+function changePerm(fid, newPerm, btn){
+  const f = FUNCTIONS.find(x=>x.id===fid);
+  f.perm = newPerm;
+  // Update sidebar badge
+  const sRow = document.getElementById('fr-'+fid);
+  if(sRow){
+    const badge = sRow.querySelector('.perm-s');
+    badge.className = `perm-s perm-${newPerm}`;
+    badge.textContent = newPerm;
+  }
+  // Re-render
+  renderMain();
+}
+
+/* ══════════ Collapse ══════════ */
+function toggleSec(id){
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+function switchRail(btn){
+  document.querySelectorAll('.rail-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+/* ══════════ Register Modal ══════════ */
+let regPerm = 'auto';
+function openRegister(){ document.getElementById('regOverlay').classList.add('show'); }
+function closeRegister(){ document.getElementById('regOverlay').classList.remove('show'); }
+function closeIfBg(e){ if(e.target===document.getElementById('regOverlay')) closeRegister(); }
+function pickPerm(el, p){
+  regPerm=p;
+  document.querySelectorAll('.perm-pill').forEach(x=>{x.className='perm-pill';});
+  el.classList.add('active-'+p);
+}
+function confirmRegister(){
+  const name = document.getElementById('regName').value.trim();
+  if(!name){ document.getElementById('regName').focus(); return; }
+  closeRegister();
+  toast(`Function "${name}" 已注册（Demo 模式）`);
+}
+function toast(msg){
+  const t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#1a2332;border:1px solid rgba(60,200,122,.3);color:#3cc87a;padding:8px 18px;border-radius:8px;font-size:12px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);white-space:nowrap;';
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .4s';setTimeout(()=>t.remove(),400);},2000);
+}
+
+/* ══════════ Init ══════════ */
+buildSidebar();
+selectItem('agent','analyst');
+</script>
+</body>
+</html>
