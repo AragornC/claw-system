@@ -41,3 +41,15 @@ pub struct ExchangeTestResult {
     pub success: bool,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub symbol: String,
+    pub side: String,         // "long" | "short"
+    pub qty: f64,             // signed/unsigned contracts or coin amount
+    pub entry_price: f64,
+    pub mark_price: f64,
+    pub unrealized_pnl: f64,
+    pub leverage: Option<f64>,
+    pub margin_mode: Option<String>, // "cross" | "isolated"
+}

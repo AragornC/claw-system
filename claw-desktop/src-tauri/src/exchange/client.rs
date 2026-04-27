@@ -4,7 +4,7 @@ use reqwest::Client;
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::types::{AccountBalance, AssetBalance, ExchangeBalance, ExchangeTestResult};
+use super::types::{AccountBalance, AssetBalance, ExchangeBalance, ExchangeTestResult, Position};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -510,6 +510,228 @@ pub async fn fetch_account_balance(
                 .await
                 .unwrap_or_else(|_| empty_balance());
             Ok(AccountBalance { spot, futures })
+        }
+        other => Err(format!("未知交易所: {}", other)),
+    }
+}
+
+/* ═══ Positions ═══ */
+
+pub async fn binance_fetch_positions(
+    http: &Client,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<Vec<Position>, String> {
+    let ts = timestamp_ms();
+    let query = format!("timestamp={}&recvWindow=10000", ts);
+    let sig = hmac_hex(api_secret, &query);
+    let url = format!(
+        "https://fapi.binance.com/fapi/v2/positionRisk?{}&signature={}",
+        query, sig
+    );
+
+    let resp = http
+        .get(&url)
+        .header("X-MBX-APIKEY", api_key)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = truncate_body(resp.text().await.unwrap_or_default());
+        return Err(format!("Binance Positions HTTP {}: {}", status, body));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Binance Positions 解析失败: {}", e))?;
+    let items = body.as_array().ok_or("无法解析 Binance 持仓")?;
+
+    let mut out = Vec::new();
+    for it in items {
+        let amt: f64 = it["positionAmt"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0.0);
+        if amt.abs() < 1e-10 {
+            continue;
+        }
+        let entry: f64 = it["entryPrice"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+        let mark: f64 = it["markPrice"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+        let upnl: f64 = it["unRealizedProfit"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0.0);
+        let lev: f64 = it["leverage"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+        let margin = it["marginType"].as_str().unwrap_or("").to_lowercase();
+        out.push(Position {
+            symbol: it["symbol"].as_str().unwrap_or("").to_string(),
+            side: if amt > 0.0 { "long".into() } else { "short".into() },
+            qty: amt.abs(),
+            entry_price: entry,
+            mark_price: mark,
+            unrealized_pnl: upnl,
+            leverage: if lev > 0.0 { Some(lev) } else { None },
+            margin_mode: if margin.is_empty() { None } else { Some(margin) },
+        });
+    }
+    Ok(out)
+}
+
+pub async fn okx_fetch_positions(
+    http: &Client,
+    api_key: &str,
+    api_secret: &str,
+    passphrase: &str,
+) -> Result<Vec<Position>, String> {
+    let ts = iso_timestamp();
+    let path = "/api/v5/account/positions";
+    let prehash = format!("{}GET{}{}", ts, path, "");
+    let sig = hmac_base64(api_secret, &prehash);
+    let url = format!("https://www.okx.com{}", path);
+
+    let resp = http
+        .get(&url)
+        .header("OK-ACCESS-KEY", api_key)
+        .header("OK-ACCESS-SIGN", &sig)
+        .header("OK-ACCESS-TIMESTAMP", &ts)
+        .header("OK-ACCESS-PASSPHRASE", passphrase)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = truncate_body(resp.text().await.unwrap_or_default());
+        return Err(format!("OKX Positions HTTP {}: {}", status, body));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("OKX Positions 解析失败: {}", e))?;
+    if body["code"].as_str() != Some("0") {
+        return Err(format!(
+            "OKX Positions API 错误: {}",
+            body["msg"].as_str().unwrap_or("未知错误")
+        ));
+    }
+
+    let data = body["data"].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for d in data {
+        let pos: f64 = d["pos"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+        if pos.abs() < 1e-10 {
+            continue;
+        }
+        let side_raw = d["posSide"].as_str().unwrap_or("net");
+        let side = match side_raw {
+            "long" => "long",
+            "short" => "short",
+            _ => {
+                if pos > 0.0 {
+                    "long"
+                } else {
+                    "short"
+                }
+            }
+        };
+        out.push(Position {
+            symbol: d["instId"].as_str().unwrap_or("").to_string(),
+            side: side.to_string(),
+            qty: pos.abs(),
+            entry_price: d["avgPx"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            mark_price: d["markPx"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            unrealized_pnl: d["upl"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            leverage: d["lever"].as_str().and_then(|s| s.parse().ok()),
+            margin_mode: d["mgnMode"].as_str().map(|s| s.to_string()),
+        });
+    }
+    Ok(out)
+}
+
+pub async fn bitget_fetch_positions(
+    http: &Client,
+    api_key: &str,
+    api_secret: &str,
+    passphrase: &str,
+) -> Result<Vec<Position>, String> {
+    let ts = timestamp_ms().to_string();
+    let query = "productType=USDT-FUTURES";
+    let path = "/api/v2/mix/position/all-position";
+    let prehash = format!("{}GET{}?{}{}", ts, path, query, "");
+    let sig = hmac_base64(api_secret, &prehash);
+    let url = format!("https://api.bitget.com{}?{}", path, query);
+
+    let resp = http
+        .get(&url)
+        .header("ACCESS-KEY", api_key)
+        .header("ACCESS-SIGN", &sig)
+        .header("ACCESS-TIMESTAMP", &ts)
+        .header("ACCESS-PASSPHRASE", passphrase)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = truncate_body(resp.text().await.unwrap_or_default());
+        return Err(format!("Bitget Positions HTTP {}: {}", status, body));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bitget Positions 解析失败: {}", e))?;
+    if body["code"].as_str() != Some("00000") {
+        return Err(format!(
+            "Bitget Positions API 错误: {}",
+            body["msg"].as_str().unwrap_or("未知错误")
+        ));
+    }
+
+    let data = body["data"].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for d in data {
+        let total: f64 = d["total"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+        if total.abs() < 1e-10 {
+            continue;
+        }
+        let hold_side = d["holdSide"].as_str().unwrap_or("long");
+        out.push(Position {
+            symbol: d["symbol"].as_str().unwrap_or("").to_string(),
+            side: hold_side.to_string(),
+            qty: total.abs(),
+            entry_price: d["openPriceAvg"]
+                .as_str()
+                .or_else(|| d["averageOpenPrice"].as_str())
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0),
+            mark_price: d["markPrice"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            unrealized_pnl: d["unrealizedPL"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0),
+            leverage: d["leverage"].as_str().and_then(|s| s.parse().ok()),
+            margin_mode: d["marginMode"].as_str().map(|s| s.to_string()),
+        });
+    }
+    Ok(out)
+}
+
+pub async fn fetch_positions(
+    http: &Client,
+    exchange_id: &str,
+    api_key: &str,
+    api_secret: &str,
+    passphrase: Option<&str>,
+) -> Result<Vec<Position>, String> {
+    match exchange_id {
+        "binance" => binance_fetch_positions(http, api_key, api_secret).await,
+        "okx" => okx_fetch_positions(http, api_key, api_secret, passphrase.unwrap_or("")).await,
+        "bitget" => {
+            bitget_fetch_positions(http, api_key, api_secret, passphrase.unwrap_or("")).await
         }
         other => Err(format!("未知交易所: {}", other)),
     }
