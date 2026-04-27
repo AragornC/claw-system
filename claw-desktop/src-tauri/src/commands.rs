@@ -8,14 +8,14 @@ use crate::llm::types::{
     AuthState, ChatMessage, StreamChunk, TestResult, built_in_providers,
 };
 
-const CODEX_PROVIDER: &str = "openai";
+pub(crate) const CODEX_PROVIDER: &str = "openai";
 
-struct OpenAiAuth {
-    access_token: String,
-    account_id: String,
+pub(crate) struct OpenAiAuth {
+    pub access_token: String,
+    pub account_id: String,
 }
 
-async fn resolve_openai_auth(
+pub(crate) async fn resolve_openai_auth(
     app: &AppHandle,
     store: &CredentialStore,
 ) -> Result<OpenAiAuth, String> {

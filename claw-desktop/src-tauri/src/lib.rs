@@ -7,6 +7,7 @@ mod feature_commands;
 mod features;
 mod llm;
 mod tools;
+mod workflow_commands;
 
 use agent::store::AgentConfigStore;
 use exchange::store::ExchangeStore;
@@ -60,6 +61,8 @@ pub fn run() {
             exchange_commands::get_active_exchange,
             agent_commands::load_agent_config,
             agent_commands::save_agent_config,
+            workflow_commands::chat_stream_with_tools,
+            workflow_commands::exec_tool,
             feature_commands::list_features,
             feature_commands::read_feature,
             feature_commands::write_feature,
