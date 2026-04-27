@@ -176,36 +176,89 @@ const DEFAULT_FUNCTIONS: ToolFunction[] = [
   { id:"web_search", cat:"搜索", perm:"auto", desc:"通用网络搜索（Tavily API）",
     params:[{name:"query",type:"string",req:true,desc:"搜索关键词"},{name:"max_results",type:"number",req:false,desc:"最大结果数，默认5"}],
     agents:["analyst","quant","sentinel"] },
-  { id:"get_klines", cat:"行情", perm:"auto", desc:"获取K线/OHLCV历史数据",
-    params:[{name:"symbol",type:"string",req:true,desc:"交易品种"},{name:"interval",type:"string",req:true,desc:"时间粒度，e.g. 1h/4h/1d"},{name:"limit",type:"number",req:false,desc:"获取条数，默认500"}],
+  { id:"get_klines", cat:"行情", perm:"auto", desc:"获取 K 线 / OHLCV 历史数据",
+    params:[
+      {name:"symbol",type:"string",req:true,desc:"交易对，如 BTCUSDT"},
+      {name:"interval",type:"string",req:false,desc:"时间粒度 1m/5m/15m/1h/4h/1d，默认 1h"},
+      {name:"limit",type:"number",req:false,desc:"获取条数，默认 100，最大 1500"},
+    ],
     agents:["analyst","quant","risk","sentinel"] },
   { id:"get_price", cat:"行情", perm:"auto", desc:"获取实时最新报价",
     params:[{name:"symbol",type:"string",req:true,desc:"交易品种"}],
     agents:["analyst","risk","sentinel"] },
-  { id:"calculate_indicator", cat:"计算", perm:"auto", desc:"计算技术指标（RSI/MACD/BB等）",
-    params:[{name:"symbol",type:"string",req:true,desc:"品种"},{name:"indicator",type:"string",req:true,desc:"指标名称"},{name:"params",type:"object",req:false,desc:"指标参数，如 {period:14}"}],
+  { id:"calculate_indicator", cat:"计算", perm:"auto", desc:"计算技术指标（RSI/MACD/BOLL/MA/EMA）",
+    params:[
+      {name:"indicator",type:"string",req:true,desc:"RSI / MACD / BOLL / MA / EMA"},
+      {name:"symbol",type:"string",req:false,desc:"品种，默认 BTCUSDT"},
+      {name:"period",type:"number",req:false,desc:"周期，如 RSI 14"},
+      {name:"interval",type:"string",req:false,desc:"K 线粒度，如 1h/4h/1d"},
+    ],
     agents:["analyst","quant","sentinel"] },
-  { id:"get_financial_data", cat:"基本面", perm:"auto", desc:"获取上市公司财务数据（财报/分析师预期）",
-    params:[{name:"symbol",type:"string",req:true,desc:"股票代码"},{name:"period",type:"string",req:false,desc:"财报周期，默认最新季度"}],
+  { id:"get_financial_data", cat:"衍生数据", perm:"auto", desc:"Binance 永续衍生数据：资金费率/持仓量/多空比/主动买卖比/基差",
+    params:[
+      {name:"metric",type:"string",req:true,desc:"funding_rate / open_interest / long_short_ratio / taker_buy_sell_ratio / basis"},
+      {name:"symbol",type:"string",req:true,desc:"交易对，如 BTCUSDT"},
+      {name:"limit",type:"number",req:false,desc:"历史点数，默认 24，最大 500"},
+      {name:"period",type:"string",req:false,desc:"历史粒度 5m/15m/1h/4h/1d，默认 1h（funding_rate 不适用）"},
+    ],
     agents:["analyst"] },
   { id:"code_exec", cat:"计算", perm:"ask", desc:"执行 Python 代码（沙箱环境，用于量化计算）",
     params:[{name:"code",type:"string",req:true,desc:"Python 代码字符串"},{name:"timeout",type:"number",req:false,desc:"超时秒数，默认30"}],
     agents:["quant","risk"] },
   { id:"backtest", cat:"回测", perm:"ask", desc:"运行策略回测（接入历史行情）",
-    params:[{name:"strategy_code",type:"string",req:true,desc:"策略代码"},{name:"start",type:"string",req:true,desc:"回测开始日期"},{name:"end",type:"string",req:false,desc:"回测结束日期，默认今天"}],
+    params:[
+      {name:"strategy_code",type:"string",req:true,desc:"策略代码"},
+      {name:"symbol",type:"string",req:false,desc:"品种"},
+      {name:"start",type:"string",req:true,desc:"回测开始日期 YYYY-MM-DD"},
+      {name:"end",type:"string",req:false,desc:"回测结束日期，默认今天"},
+    ],
     agents:["quant"] },
   { id:"check_balance", cat:"账户", perm:"auto", desc:"查询当前账户余额和可用资金",
     params:[], agents:["risk"] },
-  { id:"get_positions", cat:"账户", perm:"auto", desc:"获取当前持仓列表",
-    params:[], agents:["risk","sentinel"] },
+  { id:"get_positions", cat:"账户", perm:"auto", desc:"查询合约持仓（方向/入场价/标记价/未实现盈亏/杠杆）",
+    params:[
+      {name:"symbol",type:"string",req:false,desc:"按交易对过滤，如 BTCUSDT；不传则返回全部"},
+    ],
+    agents:["risk","sentinel"] },
   { id:"notify", cat:"通知", perm:"auto", desc:"向用户推送通知消息",
     params:[{name:"message",type:"string",req:true,desc:"通知内容"},{name:"level",type:"string",req:false,desc:"级别：info / warn / alert"}],
     agents:["sentinel","coordinator"] },
-  { id:"place_order", cat:"交易", perm:"deny", desc:"提交交易订单（仅用户确认后由系统执行，任何 Agent 不可直接调用）",
-    params:[{name:"symbol",type:"string",req:true,desc:"品种"},{name:"side",type:"string",req:true,desc:"buy/sell"},{name:"amount",type:"number",req:true,desc:"数量"}],
+  { id:"place_order", cat:"交易", perm:"deny", desc:"提交交易订单（提案后弹出用户确认；Agent 不可绕过确认）",
+    params:[
+      {name:"symbol",type:"string",req:true,desc:"交易对，如 BTCUSDT"},
+      {name:"side",type:"string",req:true,desc:"buy / sell"},
+      {name:"amount",type:"number",req:true,desc:"数量（基础币）"},
+      {name:"order_type",type:"string",req:false,desc:"market / limit，默认 market"},
+      {name:"price",type:"number",req:false,desc:"limit 单必填"},
+    ],
     agents:[] },
-  { id:"cancel_order", cat:"交易", perm:"deny", desc:"撤销订单（仅用户确认后由系统执行）",
-    params:[{name:"order_id",type:"string",req:true,desc:"订单ID"}],
+  { id:"cancel_order", cat:"交易", perm:"deny", desc:"撤销订单（提案后弹出用户确认）",
+    params:[
+      {name:"order_id",type:"string",req:true,desc:"交易所返回的订单 ID"},
+      {name:"symbol",type:"string",req:false,desc:"品种"},
+    ],
+    agents:[] },
+
+  // ── 特征库管理（前端工具，在 Pyodide 沙箱执行 Python） ──────────
+  { id:"list_features", cat:"特征", perm:"auto", desc:"列出所有用户特征及其状态、最近运行结果",
+    params:[], agents:[] },
+  { id:"create_feature", cat:"特征", perm:"auto", desc:"创建新特征：写一段 Python（必须 async def compute），通过 thunderclaw 包访问外部数据，落盘到本地特征库",
+    params:[
+      {name:"slug",type:"string",req:true,desc:"唯一 ID，[a-z][a-z0-9_]{0,63}"},
+      {name:"display_name",type:"string",req:true,desc:"中文展示名"},
+      {name:"category",type:"string",req:false,desc:"情绪/动量/波动/风控等"},
+      {name:"description",type:"string",req:false,desc:"一两句解释做什么"},
+      {name:"code",type:"string",req:true,desc:"完整 Python 源码（含 async def compute）"},
+    ],
+    agents:[] },
+  { id:"run_feature", cat:"特征", perm:"auto", desc:"运行已存在的特征，返回 compute() 输出",
+    params:[
+      {name:"slug",type:"string",req:true,desc:"特征 slug"},
+      {name:"args",type:"object",req:false,desc:"传给 compute 的关键字参数（可选）"},
+    ],
+    agents:[] },
+  { id:"delete_feature", cat:"特征", perm:"ask", desc:"删除特征。需用户明确确认（perm 默认 ask）",
+    params:[{name:"slug",type:"string",req:true,desc:"特征 slug"}],
     agents:[] },
 ];
 
@@ -216,14 +269,18 @@ const DEFAULT_CONFIG: AgentConfig = {
 };
 
 /* ═══ Store ═══ */
+type OpenView = NonNullable<ActiveView>;
+
 interface AgentStoreState {
   agents: Agent[];
   skills: Skill[];
   functions: ToolFunction[];
+  openViews: OpenView[];
   activeView: ActiveView;
   loaded: boolean;
 
   setActiveView: (view: ActiveView) => void;
+  closeView: (view: OpenView) => void;
   clearActiveView: () => void;
 
   addAgent: (agent: Agent) => void;
@@ -255,11 +312,41 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   agents: [],
   skills: [],
   functions: [],
+  openViews: [],
   activeView: null,
   loaded: false,
 
-  setActiveView: (view) => set({ activeView: view }),
-  clearActiveView: () => set({ activeView: null }),
+  setActiveView: (view) => {
+    if (!view) { set({ activeView: null }); return; }
+    const { openViews } = get();
+    const alreadyOpen = openViews.some(v => v.type === view.type && v.id === view.id);
+    if (alreadyOpen) {
+      set({ activeView: view });
+    } else {
+      set({ openViews: [...openViews, view], activeView: view });
+    }
+  },
+
+  closeView: (view) => {
+    const { openViews, activeView } = get();
+    const idx = openViews.findIndex(v => v.type === view.type && v.id === view.id);
+    if (idx === -1) return;
+    const nextViews = openViews.filter((_, i) => i !== idx);
+    let nextActive: ActiveView = activeView;
+    if (activeView && activeView.type === view.type && activeView.id === view.id) {
+      nextActive = nextViews[idx] ?? nextViews[idx - 1] ?? null;
+    }
+    set({ openViews: nextViews, activeView: nextActive });
+  },
+
+  clearActiveView: () => {
+    const { activeView, openViews } = get();
+    if (!activeView) return;
+    const idx = openViews.findIndex(v => v.type === activeView.type && v.id === activeView.id);
+    const nextViews = openViews.filter((_, i) => i !== idx);
+    const nextActive: ActiveView = nextViews[idx] ?? nextViews[idx - 1] ?? null;
+    set({ openViews: nextViews, activeView: nextActive });
+  },
 
   addAgent: (agent) => {
     set((s) => ({ agents: [...s.agents, agent] }));
@@ -324,7 +411,25 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     try {
       const cfg = await loadAgentConfig();
       if (cfg && cfg.agents.length > 0) {
-        set({ agents: cfg.agents, skills: cfg.skills, functions: cfg.functions, loaded: true });
+        // Function metadata (id/desc/params/cat/agents) is code-owned —
+        // always re-derive from DEFAULT_FUNCTIONS so updates to descriptions
+        // or schemas in code propagate to existing installs. Only the user-
+        // editable `perm` is preserved from the persisted config.
+        const persistedPerm = new Map(
+          cfg.functions.map((f) => [f.id, f.perm])
+        );
+        const mergedFunctions = DEFAULT_FUNCTIONS.map((fn) => ({
+          ...fn,
+          perm: persistedPerm.get(fn.id) ?? fn.perm,
+        }));
+        const merged = {
+          agents: cfg.agents,
+          skills: cfg.skills,
+          functions: mergedFunctions,
+        };
+        set({ ...merged, loaded: true });
+        // Persist the refreshed shape so the on-disk file stays in sync.
+        persistConfig(merged);
       } else {
         set({ ...DEFAULT_CONFIG, loaded: true });
         persistConfig(DEFAULT_CONFIG);
