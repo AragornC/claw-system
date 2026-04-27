@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Pyodide runtime — synced from node_modules/pyodide/ on install
+public/pyodide/
